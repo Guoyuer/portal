@@ -84,9 +84,40 @@ def main() -> None:
     print("Generating report...", file=sys.stderr)
     report = _build_report(args.data_dir)
 
-    # Read original file dates from sync_meta.json (written by sync.py with real mtimes)
+    # ── Net worth history: load, append, inject into report ──────────────
     import json as _json
 
+    from generate_asset_snapshot.types import ChartData, SnapshotPoint
+
+    history_path = args.data_dir / "net_worth_history.json"
+    nw_history: list[dict[str, object]] = _json.loads(history_path.read_text()) if history_path.exists() else []
+
+    # Append current net worth (deduplicate by month)
+    current_nw = report.balance_sheet.net_worth if report.balance_sheet else report.total
+    today = datetime.now().strftime("%Y-%m-01")
+    existing_dates = {entry["date"] for entry in nw_history}
+    if today not in existing_dates:
+        nw_history.append({"date": today, "total": round(current_nw)})
+        nw_history.sort(key=lambda x: str(x["date"]))
+        print(f"  Net worth history: appended {today} = ${current_nw:,.0f}", file=sys.stderr)
+    else:
+        # Update current month's value
+        for entry in nw_history:
+            if entry["date"] == today:
+                entry["total"] = round(current_nw)
+        print(f"  Net worth history: updated {today} = ${current_nw:,.0f}", file=sys.stderr)
+
+    # Write updated history back (workflow uploads to R2)
+    history_path.write_text(_json.dumps(nw_history, indent=2))
+
+    # Inject into report's chart_data
+    trend = [SnapshotPoint(date=str(e["date"]), total=float(e["total"])) for e in nw_history]  # type: ignore[arg-type]
+    if report.chart_data:
+        report.chart_data.net_worth_trend = trend
+    else:
+        report.chart_data = ChartData(net_worth_trend=trend, monthly_flows=[])
+
+    # ── Metadata ─────────────────────────────────────────────────────────
     sync_meta_path = args.data_dir / "sync_meta.json"
     sync_meta = _json.loads(sync_meta_path.read_text()) if sync_meta_path.exists() else {}
 

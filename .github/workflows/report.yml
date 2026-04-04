@@ -34,6 +34,10 @@ jobs:
               && echo "Downloaded $f" \
               || echo "[skip] $f not found"
           done
+          # Net worth history (append-only, persisted in R2)
+          npx wrangler r2 object get "asset-snapshot-data/data/net_worth_history.json" --file "./data/net_worth_history.json" --remote 2>/dev/null \
+            && echo "Downloaded net_worth_history.json" \
+            || echo "[skip] net_worth_history.json not found (first run)"
 
       - name: Check data freshness
         id: freshness
@@ -66,3 +70,5 @@ jobs:
         run: |
           npx wrangler r2 object put asset-snapshot-data/reports/latest.json \
             --file ./data/report.json --remote
+          npx wrangler r2 object put asset-snapshot-data/data/net_worth_history.json \
+            --file ./data/net_worth_history.json --remote
