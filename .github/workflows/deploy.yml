@@ -27,7 +27,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           npx wrangler r2 object get asset-snapshot-data/reports/latest.json \
-            --file src/lib/report-data.json \
+            --file src/lib/report-data.json --remote \
             && echo "Using live report data from R2" \
             || echo "No report data in R2, using bundled sample data"
 

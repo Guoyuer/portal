@@ -37,7 +37,7 @@ jobs:
         run: |
           mkdir -p ./data
           for f in positions.csv history.csv qianjiapp.db config.json sync_meta.json; do
-            npx wrangler r2 object get "asset-snapshot-data/latest/$f" --file "./data/$f" 2>/dev/null \
+            npx wrangler r2 object get "asset-snapshot-data/latest/$f" --file "./data/$f" --remote 2>/dev/null \
               && echo "Downloaded $f" \
               || echo "[skip] $f not found"
           done
@@ -94,7 +94,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           npx wrangler r2 object put asset-snapshot-data/reports/latest.json \
-            --file ./data/report.json
+            --file ./data/report.json --remote
 
       - name: Build and deploy portal
         if: steps.freshness.outputs.stale == 'false'
