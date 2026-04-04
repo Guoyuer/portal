@@ -11,6 +11,79 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 
+import type { TickerAggregation } from "@/lib/types";
+
+const MAJOR_EXPENSE_THRESHOLD = 200;
+const ACTIVITY_TOP_SYMBOLS = 5;
+
+function TickerTable({
+  title,
+  data,
+}: {
+  title: string;
+  data: TickerAggregation[];
+}) {
+  const top = data.slice(0, ACTIVITY_TOP_SYMBOLS);
+  const rest = data.slice(ACTIVITY_TOP_SYMBOLS);
+  const restTotal = rest.reduce((s, t) => s + t.total, 0);
+  return (
+    <div>
+      <h3 className="font-semibold mb-2">{title}</h3>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Symbol</TableHead>
+            <TableHead className="text-right">Trades</TableHead>
+            <TableHead className="text-right">Total</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {top.map((t) => (
+            <TableRow key={t.symbol} className="even:bg-gray-50">
+              <TableCell className="font-mono">{t.symbol}</TableCell>
+              <TableCell className="text-right">{t.trades}</TableCell>
+              <TableCell className="text-right">
+                {fmtCurrency(t.total)}
+              </TableCell>
+            </TableRow>
+          ))}
+          {rest.length > 0 && (
+            <TableRow>
+              <TableCell colSpan={3} className="p-0">
+                <details className="group">
+                  <summary className="px-2 py-1.5 text-sm text-muted-foreground cursor-pointer hover:text-foreground">
+                    ... and {rest.length} more ({fmtCurrency(restTotal)})
+                  </summary>
+                  <table className="w-full text-sm">
+                    <tbody>
+                      {rest.map((t) => (
+                        <tr
+                          key={t.symbol}
+                          className="border-b border-gray-100 even:bg-gray-50"
+                        >
+                          <td className="px-2 py-1.5 font-mono text-muted-foreground">
+                            {t.symbol}
+                          </td>
+                          <td className="px-2 py-1.5 text-right text-muted-foreground">
+                            {t.trades}
+                          </td>
+                          <td className="px-2 py-1.5 text-right text-muted-foreground">
+                            {fmtCurrency(t.total)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </details>
+              </TableCell>
+            </TableRow>
+          )}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
 function SectionHeader({ children }: { children: React.ReactNode }) {
   return (
     <div className="bg-[#16213e] text-white px-4 py-2.5 rounded-t-md font-bold">
@@ -245,38 +318,83 @@ export default function FinancePage() {
               {/* Expenses */}
               <div>
                 <h3 className="font-semibold mb-2">Expenses</h3>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Category</TableHead>
-                      <TableHead className="text-right">Count</TableHead>
-                      <TableHead className="text-right">Amount</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {r.cashflow.expenseItems.map((item) => (
-                      <TableRow
-                        key={item.category}
-                        className="even:bg-gray-50"
-                      >
-                        <TableCell>{item.category}</TableCell>
-                        <TableCell className="text-right">
-                          {item.count}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {fmtCurrency(item.amount)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    <TableRow className="font-bold border-t-2 border-b-2 border-gray-800">
-                      <TableCell>Total</TableCell>
-                      <TableCell />
-                      <TableCell className="text-right">
-                        {fmtCurrency(r.cashflow.totalExpenses)}
-                      </TableCell>
-                    </TableRow>
-                  </TableBody>
-                </Table>
+                {(() => {
+                  const major = r.cashflow!.expenseItems.filter(
+                    (i) => i.amount >= MAJOR_EXPENSE_THRESHOLD
+                  );
+                  const minor = r.cashflow!.expenseItems.filter(
+                    (i) => i.amount < MAJOR_EXPENSE_THRESHOLD
+                  );
+                  const minorTotal = minor.reduce(
+                    (s, i) => s + i.amount,
+                    0
+                  );
+                  return (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Category</TableHead>
+                          <TableHead className="text-right">Count</TableHead>
+                          <TableHead className="text-right">Amount</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {major.map((item) => (
+                          <TableRow
+                            key={item.category}
+                            className="even:bg-gray-50"
+                          >
+                            <TableCell>{item.category}</TableCell>
+                            <TableCell className="text-right">
+                              {item.count}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {fmtCurrency(item.amount)}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                        {minor.length > 0 && (
+                          <TableRow>
+                            <TableCell colSpan={3} className="p-0">
+                              <details className="group">
+                                <summary className="px-2 py-1.5 text-sm text-muted-foreground cursor-pointer hover:text-foreground">
+                                  ... and {minor.length} more ({fmtCurrency(minorTotal)})
+                                </summary>
+                                <table className="w-full text-sm">
+                                  <tbody>
+                                    {minor.map((item) => (
+                                      <tr
+                                        key={item.category}
+                                        className="border-b border-gray-100 even:bg-gray-50"
+                                      >
+                                        <td className="px-2 py-1.5 text-muted-foreground">
+                                          {item.category}
+                                        </td>
+                                        <td className="px-2 py-1.5 text-right text-muted-foreground">
+                                          {item.count}
+                                        </td>
+                                        <td className="px-2 py-1.5 text-right text-muted-foreground">
+                                          {fmtCurrency(item.amount)}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </details>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                        <TableRow className="font-bold border-t-2 border-b-2 border-gray-800">
+                          <TableCell>Total</TableCell>
+                          <TableCell />
+                          <TableCell className="text-right">
+                            {fmtCurrency(r.cashflow!.totalExpenses)}
+                          </TableCell>
+                        </TableRow>
+                      </TableBody>
+                    </Table>
+                  );
+                })()}
               </div>
             </div>
 
@@ -365,52 +483,14 @@ export default function FinancePage() {
 
             {/* Buys by Ticker and Dividends by Ticker */}
             <div className="grid md:grid-cols-2 gap-6 mt-6">
-              <div>
-                <h3 className="font-semibold mb-2">Buys by Ticker</h3>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Symbol</TableHead>
-                      <TableHead className="text-right">Trades</TableHead>
-                      <TableHead className="text-right">Total</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {r.activity.buysByTicker.map((t) => (
-                      <TableRow key={t.symbol} className="even:bg-gray-50">
-                        <TableCell className="font-mono">{t.symbol}</TableCell>
-                        <TableCell className="text-right">{t.trades}</TableCell>
-                        <TableCell className="text-right">
-                          {fmtCurrency(t.total)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-              <div>
-                <h3 className="font-semibold mb-2">Dividends by Ticker</h3>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Symbol</TableHead>
-                      <TableHead className="text-right">Trades</TableHead>
-                      <TableHead className="text-right">Total</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {r.activity.dividendsByTicker.map((t) => (
-                      <TableRow key={t.symbol} className="even:bg-gray-50">
-                        <TableCell className="font-mono">{t.symbol}</TableCell>
-                        <TableCell className="text-right">{t.trades}</TableCell>
-                        <TableCell className="text-right">
-                          {fmtCurrency(t.total)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+              <TickerTable
+                title="Buys by Ticker"
+                data={r.activity.buysByTicker}
+              />
+              <TickerTable
+                title="Dividends by Ticker"
+                data={r.activity.dividendsByTicker}
+              />
             </div>
           </SectionBody>
         </section>
