@@ -19,26 +19,27 @@ graph TB
 
     subgraph "GitHub Actions"
         CI["CI<br/>Python lint/test + Node build + e2e"]
-        REPORT["Report (weekly cron)<br/>generate JSON + HTML email + deploy"]
-        DEPLOY["Deploy (on push)<br/>build + deploy"]
+        REPORT["Report (weekly cron)<br/>generate JSON + HTML email"]
+        DEPLOY["Deploy (on push)<br/>build static shell + deploy"]
     end
 
     subgraph "Cloudflare Pages"
-        PAGES["portal-bf8.pages.dev"]
+        PAGES["portal-bf8.pages.dev<br/>static shell + client-side fetch"]
     end
 
     SYNC -->|"wrangler r2 put<br/>(only if MD5 changed)"| RAW
     RAW -->|download| REPORT
     REPORT -->|JSON| JSON
     REPORT -->|HTML| EMAIL[Gmail]
-    REPORT -->|build + deploy| PAGES
-    JSON -->|download at build time| DEPLOY
-    DEPLOY --> PAGES
+    DEPLOY -->|static shell| PAGES
+    JSON -->|"fetch on page load"| PAGES
 
     style SYNC fill:#10b981,color:#fff
     style REPORT fill:#2563eb,color:#fff
     style PAGES fill:#f59e0b,color:#000
 ```
+
+**Key design:** Portal is a static shell (HTML + JS) deployed to Cloudflare Pages. On every page load, the browser fetches the latest report data directly from R2. No rebuild needed when data changes — only when code changes.
 
 ## Data Pipeline
 
@@ -47,8 +48,8 @@ sequenceDiagram
     participant Mac as Mac (launchd)
     participant R2 as Cloudflare R2
     participant GA as GitHub Actions
-    participant CF as Cloudflare Pages
     participant GM as Gmail
+    participant User as Browser
 
     Note over Mac: Daily at 9AM + on login
     Mac->>R2: sync.py (CSVs + Qianji DB, MD5 dedup)
@@ -63,9 +64,11 @@ sequenceDiagram
         GA->>GA: Render HTML (email) + JSON (portal)
         GA->>GM: Send HTML report email
         GA->>R2: Upload latest.json
-        GA->>GA: next build (with latest.json)
-        GA->>CF: wrangler pages deploy
     end
+
+    Note over User: Any time
+    User->>R2: fetch latest.json (on page load or Reload button)
+    R2->>User: Report data (JSON)
 ```
 
 ## Project Structure
@@ -77,13 +80,13 @@ portal/
 │   │   ├── layout.tsx                 # Root layout + sidebar
 │   │   ├── page.tsx                   # / → redirects to /finance
 │   │   └── finance/
-│   │       └── page.tsx               # Finance report page
+│   │       └── page.tsx               # Finance report (client component, fetches R2)
 │   ├── components/
 │   │   ├── layout/sidebar.tsx         # Nav sidebar (Client Component)
-│   │   └── ui/                        # shadcn/ui (Card, Table, Badge, etc.)
+│   │   └── ui/                        # shadcn/ui (Card, Table, Badge, Button, etc.)
 │   └── lib/
 │       ├── types.ts                   # 1:1 camelCase mirror of Python ReportData
-│       ├── data.ts                    # Loads report-data.json
+│       ├── config.ts                  # R2 public URL
 │       └── format.ts                  # Currency/percent/yuan formatters
 │
 ├── pipeline/                          # Report generation (Python)
@@ -109,8 +112,8 @@ portal/
 │
 ├── .github/workflows/
 │   ├── ci.yml                         # Python (pytest/mypy/ruff) + Node (build + e2e)
-│   ├── deploy.yml                     # Download JSON from R2 → build → deploy
-│   └── report.yml                     # Weekly: generate report → email → R2 → deploy
+│   ├── deploy.yml                     # Build static shell → deploy to Cloudflare Pages
+│   └── report.yml                     # Weekly: generate report → email → upload JSON to R2
 │
 └── package.json
 ```
@@ -121,8 +124,8 @@ Zero translation layer between Python and TypeScript:
 
 ```mermaid
 graph LR
-    PY["Python types.py<br/>(source of truth)"] -->|"dataclasses.asdict()<br/>+ camelCase keys"| JSON["report.json"]
-    JSON -->|"import as ReportData"| TS["TypeScript types.ts<br/>(1:1 mirror)"]
+    PY["Python types.py<br/>(source of truth)"] -->|"dataclasses.asdict()<br/>+ camelCase keys"| JSON["latest.json<br/>(R2)"]
+    JSON -->|"fetch + render"| TS["TypeScript types.ts<br/>(1:1 mirror)"]
 
     style PY fill:#3776ab,color:#fff
     style JSON fill:#f59e0b,color:#000
@@ -157,10 +160,11 @@ Collapsible rows (native `<details>`) for expenses < $200 and activity tickers b
 | Layer | Choice | Why |
 |-------|--------|-----|
 | Frontend | Next.js 15 (App Router) | Marketable, React ecosystem, file-based routing |
+| Data fetch | Client-side fetch from R2 | No rebuild needed for data updates |
 | Styling | Tailwind CSS v4 + shadcn/ui | Utility-first, copy-paste components |
 | Fonts | Geist Sans + Geist Mono | Clean, designed for dashboards |
-| Hosting | Cloudflare Pages | Edge CDN, free tier, no cold starts |
-| Storage | Cloudflare R2 | S3-compatible, free 10GB, no pausing |
+| Hosting | Cloudflare Pages | Edge CDN, free tier, static shell |
+| Storage | Cloudflare R2 (public) | S3-compatible, free 10GB, CORS enabled |
 | Pipeline | Python 3.14 | Fidelity/Qianji parsing, Yahoo/FRED APIs |
 | CI | GitHub Actions | Python quality gates + Node build + Playwright e2e |
 | E2E Tests | Playwright (19 tests) | Full browser testing in CI |
@@ -174,10 +178,7 @@ Collapsible rows (native `<details>`) for expenses < $200 and activity tickers b
 npm install
 cd pipeline && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 
-# Generate report data (required before build)
-npm run generate-data
-
-# Dev server
+# Dev server (fetches live data from R2)
 npm run dev              # http://localhost:3000
 
 # Run tests
@@ -186,11 +187,14 @@ cd pipeline && .venv/bin/pytest -q            # 201 Python tests
 
 # Manual sync to R2
 cd pipeline && python3 scripts/sync.py --force
+
+# Generate report manually
+cd pipeline && python3 scripts/send_report.py --data-dir ./data --dry-run
 ```
 
 ## Setup (one-time)
 
-1. **Cloudflare R2**: Create bucket `asset-snapshot-data` in dashboard
+1. **Cloudflare R2**: Create bucket `asset-snapshot-data`, enable public access (r2.dev URL), set CORS to `AllowedOrigins: ["*"]`
 2. **GitHub Secrets**: `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` (Pages + R2 Edit), `GMAIL_ADDRESS`, `GMAIL_APP_PASSWORD`
 3. **Mac sync**: `wrangler login && bash pipeline/scripts/install_launchd.sh`
 4. **First sync**: `cd pipeline && python3 scripts/sync.py --force`
@@ -199,7 +203,7 @@ cd pipeline && python3 scripts/sync.py --force
 
 ```
 src/app/{module}/page.tsx        ← route + UI
-src/lib/{module}-data.ts         ← data loading
+src/lib/{module}-config.ts       ← R2 URLs / data loading
 e2e/{module}.spec.ts             ← tests
 pipeline/...                     ← data generation (if needed)
 ```
