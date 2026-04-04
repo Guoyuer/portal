@@ -40,3 +40,13 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 test-results/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Pipeline data (downloaded at build time)
+src/lib/report-data.json
+pipeline/.sync_state.json
