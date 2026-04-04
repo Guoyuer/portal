@@ -18,11 +18,6 @@ def history_sample_csv():
 
 
 @pytest.fixture
-def qianji_sample_csv():
-    return FIXTURES_DIR / "qianji_sample.csv"
-
-
-@pytest.fixture
 def positions_sample_csv():
     """Latest real positions CSV if available."""
     csvs = sorted(Path("data").glob("Portfolio_Positions_*.csv"))

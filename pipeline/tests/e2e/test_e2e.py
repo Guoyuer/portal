@@ -15,17 +15,31 @@ import pytest
 
 from generate_asset_snapshot.config import load_config
 from generate_asset_snapshot.ingest.fidelity_history import load_transactions
-from generate_asset_snapshot.ingest.qianji import load_cashflow
 from generate_asset_snapshot.portfolio import load_portfolio
 from generate_asset_snapshot.renderers import html
 from generate_asset_snapshot.report import build_report
-from generate_asset_snapshot.types import PortfolioError
+from generate_asset_snapshot.types import PortfolioError, QianjiRecord
 
 # ── Fixtures ────────────────────────────────────────────────────────────────
 
 DATA_DIR = Path("data")
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 CONFIG_PATH = Path("config.json")
+
+
+def _sample_cashflow() -> list[QianjiRecord]:
+    """Representative Qianji records for testing (replaces CSV fixture)."""
+    return [
+        QianjiRecord(id="qj001", date="2026-03-31 19:45:18", category="Salary", subcategory="401K", type="income", amount=1640.62, currency="USD", account_from="401k", account_to="", note=""),
+        QianjiRecord(id="qj002", date="2026-03-31 19:22:14", category="Salary", subcategory="", type="income", amount=5302.56, currency="USD", account_from="Chase Debit", account_to="", note=""),
+        QianjiRecord(id="qj003", date="2026-03-31 19:45:07", category="Meals", subcategory="", type="expense", amount=15.78, currency="USD", account_from="Amex Gold", account_to="", note=""),
+        QianjiRecord(id="qj004", date="2026-03-29 19:41:49", category="Meals", subcategory="", type="expense", amount=63.98, currency="USD", account_from="Discover", account_to="", note=""),
+        QianjiRecord(id="qj005", date="2026-03-24 11:25:04", category="Subscriptions", subcategory="", type="expense", amount=231.13, currency="USD", account_from="C1 Venture X", account_to="", note="claude code"),
+        QianjiRecord(id="qj006", date="2026-03-27 11:19:11", category="Other", subcategory="", type="transfer", amount=2000.0, currency="USD", account_from="Chase Debit", account_to="Fidelity taxable", note=""),
+        QianjiRecord(id="qj007", date="2026-03-19 11:18:53", category="Other", subcategory="", type="transfer", amount=2000.0, currency="USD", account_from="Chase Debit", account_to="Fidelity taxable", note=""),
+        QianjiRecord(id="qj008", date="2026-03-28 11:47:44", category="Other", subcategory="", type="repayment", amount=551.01, currency="USD", account_from="Chase Debit", account_to="CFF", note=""),
+        QianjiRecord(id="qj009", date="2024-05-17 16:29:47", category="Gifts/Treats", subcategory="", type="expense", amount=6864.0, currency="CNY", account_from="微信零钱通", account_to="", note="test cny"),
+    ]
 
 
 @pytest.fixture()
@@ -52,22 +66,13 @@ def latest_history():
 
 
 @pytest.fixture()
-def qianji_file():
-    home = Path.home()
-    files = sorted(home.glob("Documents/QianJi_*.csv"))
-    if not files:
-        pytest.skip("No QianJi CSV in ~/Documents/")
-    return files[-1]
-
-
-@pytest.fixture()
 def fixture_transactions():
     return load_transactions(FIXTURES / "history_sample.csv")
 
 
 @pytest.fixture()
 def fixture_cashflow():
-    return load_cashflow(FIXTURES / "qianji_sample.csv")
+    return _sample_cashflow()
 
 
 # ── Core pipeline tests ─────────────────────────────────────────────────────

@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { AllocationDonut, IncomeExpensesChart, NetWorthTrendChart } from "@/components/finance/charts";
 
 const MAJOR_EXPENSE_THRESHOLD = 200;
 const ACTIVITY_TOP_SYMBOLS = 5;
@@ -215,10 +216,22 @@ export default function FinancePage() {
         </Card>
       </div>
 
+      {/* Net Worth Trend */}
+      {r.chartData?.netWorthTrend && r.chartData.netWorthTrend.length > 0 && (
+        <section>
+          <SectionHeader>Portfolio Trend</SectionHeader>
+          <SectionBody>
+            <NetWorthTrendChart data={r.chartData.netWorthTrend} />
+          </SectionBody>
+        </section>
+      )}
+
       {/* Category Summary */}
       <section>
         <SectionHeader>Category Summary</SectionHeader>
         <SectionBody>
+          <div className="flex flex-col lg:flex-row gap-6">
+          <div className="flex-1 min-w-0">
           <Table>
             <TableHeader>
               <TableRow>
@@ -312,6 +325,11 @@ export default function FinancePage() {
           <p className="mt-3 text-sm text-muted-foreground">
             {r.goalPct.toFixed(2)}% of {fmtCurrency(r.goal)} goal
           </p>
+          </div>
+          <div className="lg:w-80 flex-shrink-0">
+            <AllocationDonut categories={allCategories} total={totalValue} />
+          </div>
+          </div>
         </SectionBody>
       </section>
 
@@ -487,6 +505,16 @@ export default function FinancePage() {
                 </TableBody>
               </Table>
             </div>
+          </SectionBody>
+        </section>
+      )}
+
+      {/* Income vs Expenses Chart */}
+      {r.chartData?.monthlyFlows && r.chartData.monthlyFlows.length > 0 && (
+        <section>
+          <SectionHeader>Income vs Expenses</SectionHeader>
+          <SectionBody>
+            <IncomeExpensesChart data={r.chartData.monthlyFlows} />
           </SectionBody>
         </section>
       )}
