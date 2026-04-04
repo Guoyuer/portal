@@ -22,13 +22,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
 
       - name: Install Python deps
         run: pip install -r pipeline/requirements.txt
-
-      - name: Install Node deps
-        run: npm ci
 
       - name: Download data from R2
         env:
@@ -96,12 +92,4 @@ jobs:
           npx wrangler r2 object put asset-snapshot-data/reports/latest.json \
             --file ./data/report.json --remote
 
-      - name: Build and deploy portal
-        if: steps.freshness.outputs.stale == 'false'
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          cp ./data/report.json src/lib/report-data.json
-          npx next build
-          npx wrangler pages deploy out --project-name=portal --commit-dirty=true
+      # No build+deploy needed — portal fetches from R2 client-side

@@ -8,7 +8,7 @@ export default defineConfig({
     baseURL: "http://localhost:3000",
   },
   webServer: {
-    command: "npx next start -p 3000",
+    command: "npx serve out -l 3000 --single",
     port: 3000,
     reuseExistingServer: true,
   },
