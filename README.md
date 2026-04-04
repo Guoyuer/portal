@@ -1,6 +1,6 @@
 # Portal
 
-Personal one-stop dashboard — finance reports, email triage, news, and economic analysis. Currently serves the financial report from [assetSnapshot](https://github.com/Guoyuer/assetSnapshot); more modules planned.
+Personal one-stop dashboard. Finance reports with live data from Fidelity + Qianji, with email triage, news, and economic analysis planned.
 
 **Live:** https://portal-bf8.pages.dev
 
@@ -8,132 +8,140 @@ Personal one-stop dashboard — finance reports, email triage, news, and economi
 
 ```mermaid
 graph TB
-    subgraph "Your Machine"
-        DEV[npm run dev<br/>localhost:3000]
-        PUSH[git push]
+    subgraph "Mac (launchd, daily)"
+        SYNC["sync.py<br/>detect new CSVs + Qianji DB"]
     end
 
-    subgraph "GitHub"
-        REPO[(Guoyuer/portal)]
-        CI[CI Workflow<br/>build + e2e tests]
-        DEPLOY[Deploy Workflow<br/>build + wrangler deploy]
+    subgraph "Cloudflare R2"
+        RAW["latest/<br/>positions.csv · history.csv<br/>qianjiapp.db · config.json"]
+        JSON["reports/<br/>latest.json"]
     end
 
-    subgraph "Cloudflare"
-        PAGES[Cloudflare Pages<br/>portal-bf8.pages.dev]
-        ACCESS[Cloudflare Access<br/>auth · planned]
+    subgraph "GitHub Actions"
+        CI["CI<br/>Python lint/test + Node build + e2e"]
+        REPORT["Report (weekly cron)<br/>generate JSON + HTML email + deploy"]
+        DEPLOY["Deploy (on push)<br/>build + deploy"]
     end
 
-    PUSH --> REPO
-    REPO -->|push to main| CI
-    REPO -->|push to main| DEPLOY
-    DEPLOY -->|static HTML| PAGES
-    ACCESS -.->|protects| PAGES
+    subgraph "Cloudflare Pages"
+        PAGES["portal-bf8.pages.dev"]
+    end
 
+    SYNC -->|"wrangler r2 put<br/>(only if MD5 changed)"| RAW
+    RAW -->|download| REPORT
+    REPORT -->|JSON| JSON
+    REPORT -->|HTML| EMAIL[Gmail]
+    REPORT -->|build + deploy| PAGES
+    JSON -->|download at build time| DEPLOY
+    DEPLOY --> PAGES
+
+    style SYNC fill:#10b981,color:#fff
+    style REPORT fill:#2563eb,color:#fff
     style PAGES fill:#f59e0b,color:#000
-    style CI fill:#27ae60,color:#fff
-    style DEPLOY fill:#2563eb,color:#fff
 ```
 
-## How Deployment Works
-
-Every push to `main` triggers two parallel GitHub Actions workflows:
+## Data Pipeline
 
 ```mermaid
 sequenceDiagram
-    participant Dev as Developer
-    participant GH as GitHub Actions
+    participant Mac as Mac (launchd)
+    participant R2 as Cloudflare R2
+    participant GA as GitHub Actions
     participant CF as Cloudflare Pages
+    participant GM as Gmail
 
-    Dev->>GH: git push main
-    par CI Pipeline
-        GH->>GH: npm ci
-        GH->>GH: next build
-        GH->>GH: playwright install
-        GH->>GH: playwright test (10 e2e tests)
-        GH-->>Dev: pass or fail
-    and Deploy Pipeline
-        GH->>GH: npm ci
-        GH->>GH: next build (output: export → /out)
-        GH->>CF: wrangler pages deploy out/
-        CF-->>Dev: Live at portal-bf8.pages.dev
+    Note over Mac: Daily at 9AM + on login
+    Mac->>R2: sync.py (CSVs + Qianji DB, MD5 dedup)
+
+    Note over GA: Weekly Monday 9AM ET
+    GA->>R2: wrangler r2 get (raw data)
+    GA->>GA: Check freshness (sync_meta.json)
+    alt Data > 7 days old
+        GA->>GM: Reminder email
+    else Fresh data
+        GA->>GA: Python: build ReportData
+        GA->>GA: Render HTML (email) + JSON (portal)
+        GA->>GM: Send HTML report email
+        GA->>R2: Upload latest.json
+        GA->>GA: next build (with latest.json)
+        GA->>CF: wrangler pages deploy
     end
 ```
-
-Key detail: `next.config.ts` sets `output: "export"`, which makes Next.js produce **pure static HTML/CSS/JS** in the `out/` directory. No server needed — Cloudflare Pages serves the files directly from its edge CDN.
 
 ## Project Structure
 
-```mermaid
-graph LR
-    subgraph "src/app · Routes"
-        PAGE_HOME["/ → redirect to /finance"]
-        PAGE_FIN["/finance · report page"]
-    end
-
-    subgraph "src/lib · Data Layer"
-        TYPES[types.ts<br/>ReportData interfaces]
-        SAMPLE[sample-data.ts<br/>snapshot from real report]
-        FORMAT[format.ts<br/>$, %, ¥ formatters]
-    end
-
-    subgraph "src/components · UI"
-        SIDEBAR[layout/sidebar.tsx<br/>navigation · client component]
-        SHADCN[ui/*<br/>Card Table Badge Button]
-    end
-
-    PAGE_FIN --> TYPES
-    PAGE_FIN --> SAMPLE
-    PAGE_FIN --> FORMAT
-    PAGE_FIN --> SHADCN
-    PAGE_HOME --> PAGE_FIN
-
-    style PAGE_FIN fill:#2563eb,color:#fff
-    style SIDEBAR fill:#1e293b,color:#fff
-```
-
 ```
 portal/
-├── src/
+├── src/                               # Next.js frontend (TypeScript)
 │   ├── app/
-│   │   ├── layout.tsx              # Root layout + sidebar
-│   │   ├── page.tsx                # / → redirects to /finance
-│   │   ├── globals.css             # Tailwind + shadcn theme
+│   │   ├── layout.tsx                 # Root layout + sidebar
+│   │   ├── page.tsx                   # / → redirects to /finance
 │   │   └── finance/
-│   │       └── page.tsx            # Finance report (Server Component)
+│   │       └── page.tsx               # Finance report page
 │   ├── components/
-│   │   ├── layout/
-│   │   │   └── sidebar.tsx         # Nav sidebar (Client Component)
-│   │   └── ui/                     # shadcn/ui primitives
-│   │       ├── card.tsx
-│   │       ├── table.tsx
-│   │       ├── badge.tsx
-│   │       ├── button.tsx
-│   │       └── separator.tsx
+│   │   ├── layout/sidebar.tsx         # Nav sidebar (Client Component)
+│   │   └── ui/                        # shadcn/ui (Card, Table, Badge, etc.)
 │   └── lib/
-│       ├── types.ts                # TypeScript interfaces (mirrors assetSnapshot's ReportData)
-│       ├── sample-data.ts          # Real report data snapshot for dev/testing
-│       └── format.ts               # fmtCurrency, fmtPct, fmtYuan
+│       ├── types.ts                   # 1:1 camelCase mirror of Python ReportData
+│       ├── data.ts                    # Loads report-data.json
+│       └── format.ts                  # Currency/percent/yuan formatters
+│
+├── pipeline/                          # Report generation (Python)
+│   ├── generate_asset_snapshot/       # Core package
+│   │   ├── report.py                  # build_report() → ReportData
+│   │   ├── types.py                   # Source-of-truth dataclasses
+│   │   ├── renderers/
+│   │   │   ├── html.py                # Email-safe HTML renderer
+│   │   │   └── json_renderer.py       # dataclasses.asdict() + camelCase (~20 lines)
+│   │   ├── ingest/                    # Fidelity CSV + Qianji DB parsers
+│   │   ├── market/                    # Yahoo Finance + FRED APIs
+│   │   └── ...
+│   ├── scripts/
+│   │   ├── sync.py                    # Mac → R2 (wrangler CLI, MD5 dedup)
+│   │   ├── send_report.py             # Generate HTML + JSON, send email
+│   │   └── install_launchd.sh         # macOS scheduled sync setup
+│   ├── tests/                         # 201 Python tests
+│   ├── config.json                    # Asset classification config
+│   └── requirements.txt               # yfinance, fredapi
+│
 ├── e2e/
-│   └── finance.spec.ts             # 10 Playwright e2e tests
+│   └── finance.spec.ts                # 19 Playwright e2e tests
+│
 ├── .github/workflows/
-│   ├── ci.yml                      # Build + e2e on push/PR
-│   └── deploy.yml                  # Build + deploy to Cloudflare Pages
-├── next.config.ts                  # Static export mode
-├── playwright.config.ts
+│   ├── ci.yml                         # Python (pytest/mypy/ruff) + Node (build + e2e)
+│   ├── deploy.yml                     # Download JSON from R2 → build → deploy
+│   └── report.yml                     # Weekly: generate report → email → R2 → deploy
+│
 └── package.json
 ```
 
-## Report Sections
+## Type Contract
 
-The finance page renders data matching the [assetSnapshot](https://github.com/Guoyuer/assetSnapshot) HTML report:
+Zero translation layer between Python and TypeScript:
+
+```mermaid
+graph LR
+    PY["Python types.py<br/>(source of truth)"] -->|"dataclasses.asdict()<br/>+ camelCase keys"| JSON["report.json"]
+    JSON -->|"import as ReportData"| TS["TypeScript types.ts<br/>(1:1 mirror)"]
+
+    style PY fill:#3776ab,color:#fff
+    style JSON fill:#f59e0b,color:#000
+    style TS fill:#3178c6,color:#fff
+```
+
+- Python `snake_case` → JSON `camelCase` → TypeScript `camelCase`
+- JSON renderer is ~20 lines (`dataclasses.asdict()` + recursive key conversion)
+- Raw transaction lists stripped from JSON (portal uses pre-computed aggregations)
+- No manual field mapping, no divergent schemas
+
+## Report Sections
 
 ```mermaid
 graph TD
     A["Metric Cards<br/>Portfolio · Net Worth · Savings Rate · Goal"] --> B["Category Summary<br/>equity & non-equity allocation vs targets"]
     B --> C["Cash Flow<br/>income · expenses · savings rates"]
-    C --> D["Investment Activity<br/>deposits · buys · sells · dividends"]
-    D --> E["Balance Sheet<br/>assets · liabilities · net worth"]
+    C --> D["Investment Activity<br/>net cash in · deployed · passive income"]
+    D --> E["Balance Sheet<br/>Fidelity + personal accounts + CNY + credit"]
 
     style A fill:#f8f9fa,stroke:#333
     style B fill:#f8f9fa,stroke:#333
@@ -142,83 +150,58 @@ graph TD
     style E fill:#f8f9fa,stroke:#333
 ```
 
-Collapsible rows (native `<details>`) for:
-- **Expenses** below $200 threshold → "... and N more" expandable
-- **Activity tickers** beyond top 5 → expandable overflow
-
-## Data Flow (Current vs Planned)
-
-```mermaid
-graph LR
-    subgraph "Now"
-        SD["sample-data.ts<br/>hardcoded snapshot"]
-        FP1[Finance Page]
-        SD --> FP1
-    end
-
-    subgraph "Planned"
-        AS["assetSnapshot<br/>Python CLI"]
-        GCS[("Cloud Storage")]
-        R2[("Cloudflare R2")]
-        CRON["GitHub Actions<br/>weekly cron"]
-        FP2[Finance Page]
-        D1[("Cloudflare D1")]
-
-        AS -->|generate JSON| GCS
-        CRON -->|download + transform| R2
-        R2 --> FP2
-        D1 -->|"news · mail · econ"| FP2
-    end
-
-    style SD fill:#f59e0b,color:#000
-    style R2 fill:#2563eb,color:#fff
-    style D1 fill:#2563eb,color:#fff
-```
+Collapsible rows (native `<details>`) for expenses < $200 and activity tickers beyond top 5.
 
 ## Tech Stack
 
 | Layer | Choice | Why |
 |-------|--------|-----|
-| Framework | Next.js 15 (App Router) | Marketable, React ecosystem, file-based routing |
-| Styling | Tailwind CSS v4 + shadcn/ui | Utility-first, copy-paste components (not npm dep) |
+| Frontend | Next.js 15 (App Router) | Marketable, React ecosystem, file-based routing |
+| Styling | Tailwind CSS v4 + shadcn/ui | Utility-first, copy-paste components |
 | Fonts | Geist Sans + Geist Mono | Clean, designed for dashboards |
 | Hosting | Cloudflare Pages | Edge CDN, free tier, no cold starts |
-| Auth (planned) | Cloudflare Access | Zero-trust, Google login, no code |
-| Database (planned) | Cloudflare D1 (SQLite) | No pausing, portable, generous free tier |
-| Storage (planned) | Cloudflare R2 (S3-compatible) | Reports, data blobs |
-| CI | GitHub Actions | Build + Playwright e2e tests |
-| E2E Tests | Playwright | Chromium, 10 tests, runs in CI |
-
-## Adding a New Module
-
-Each module follows the same pattern:
-
-```
-src/app/{module}/page.tsx        ← route + UI
-src/lib/{module}-types.ts        ← data interfaces
-src/lib/{module}-data.ts         ← data fetching
-e2e/{module}.spec.ts             ← tests
-```
-
-Planned modules: **Mail** (Gmail API + AI triage), **News** (RSS aggregation), **Economy** (FRED/Yahoo indicators).
+| Storage | Cloudflare R2 | S3-compatible, free 10GB, no pausing |
+| Pipeline | Python 3.14 | Fidelity/Qianji parsing, Yahoo/FRED APIs |
+| CI | GitHub Actions | Python quality gates + Node build + Playwright e2e |
+| E2E Tests | Playwright (19 tests) | Full browser testing in CI |
+| Auth (planned) | Cloudflare Access | Zero-trust, Google login |
+| Database (planned) | Cloudflare D1 (SQLite) | For future modules (mail, news, econ) |
 
 ## Development
 
 ```bash
+# Install
 npm install
-npm run dev          # http://localhost:3000
+cd pipeline && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 
-# Run e2e tests (builds first)
-npx next build
-npx playwright test
+# Generate report data (required before build)
+npm run generate-data
 
-# Preview production build locally
-npx serve out -l 3000
+# Dev server
+npm run dev              # http://localhost:3000
+
+# Run tests
+npx next build && npx playwright test        # 19 e2e tests
+cd pipeline && .venv/bin/pytest -q            # 201 Python tests
+
+# Manual sync to R2
+cd pipeline && python3 scripts/sync.py --force
 ```
 
-## Secrets
+## Setup (one-time)
 
-| Secret | Where | Purpose |
-|--------|-------|---------|
-| `CLOUDFLARE_ACCOUNT_ID` | GitHub repo secrets | Cloudflare account identifier |
-| `CLOUDFLARE_API_TOKEN` | GitHub repo secrets | Wrangler deploy permission |
+1. **Cloudflare R2**: Create bucket `asset-snapshot-data` in dashboard
+2. **GitHub Secrets**: `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` (Pages + R2 Edit), `GMAIL_ADDRESS`, `GMAIL_APP_PASSWORD`
+3. **Mac sync**: `wrangler login && bash pipeline/scripts/install_launchd.sh`
+4. **First sync**: `cd pipeline && python3 scripts/sync.py --force`
+
+## Adding a New Module
+
+```
+src/app/{module}/page.tsx        ← route + UI
+src/lib/{module}-data.ts         ← data loading
+e2e/{module}.spec.ts             ← tests
+pipeline/...                     ← data generation (if needed)
+```
+
+Planned: **Mail** (Gmail API + AI triage), **News** (RSS aggregation), **Economy** (FRED/Yahoo dashboard).
