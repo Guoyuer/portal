@@ -53,39 +53,45 @@ export function AllocationDonut({
   const data = categories.map((c) => ({ name: c.name, value: c.value, pct: c.pct }));
 
   return (
-    <ResponsiveContainer width="100%" height={280}>
-      <PieChart>
-        <Pie
-          data={data}
-          cx="50%"
-          cy="50%"
-          innerRadius={70}
-          outerRadius={110}
-          dataKey="value"
-          stroke="#fff"
-          strokeWidth={2}
-        >
-          {data.map((_, i) => (
-            <Cell key={i} fill={COLORS[i % COLORS.length]} />
-          ))}
-        </Pie>
-        <Tooltip
-          formatter={(value) => `$${Number(value).toLocaleString("en-US", { maximumFractionDigits: 0 })}`}
-        />
-        <Legend
-          formatter={(value) => {
-            const item = data.find((d) => d.name === value);
-            return `${value} ${item ? item.pct.toFixed(0) : ""}%`;
-          }}
-        />
-        <text x="50%" y="48%" textAnchor="middle" fontSize={20} fontWeight="bold" fill="#374151">
-          {fmtK(total)}
-        </text>
-        <text x="50%" y="58%" textAnchor="middle" fontSize={11} fill="#9ca3af">
-          Total
-        </text>
-      </PieChart>
-    </ResponsiveContainer>
+    <div className="flex flex-col items-center">
+      <div className="relative" style={{ width: 240, height: 240 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie
+              data={data}
+              cx="50%"
+              cy="50%"
+              innerRadius={65}
+              outerRadius={105}
+              dataKey="value"
+              stroke="#fff"
+              strokeWidth={2}
+            >
+              {data.map((_, i) => (
+                <Cell key={i} fill={COLORS[i % COLORS.length]} />
+              ))}
+            </Pie>
+            <Tooltip
+              formatter={(value) => `$${Number(value).toLocaleString("en-US", { maximumFractionDigits: 0 })}`}
+            />
+          </PieChart>
+        </ResponsiveContainer>
+        {/* Center label — positioned with CSS, not SVG <text> */}
+        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+          <span className="text-xl font-bold text-gray-800">{fmtK(total)}</span>
+          <span className="text-xs text-gray-400">Total</span>
+        </div>
+      </div>
+      {/* Legend — clean grid below */}
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2 text-sm">
+        {data.map((d, i) => (
+          <div key={d.name} className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
+            <span className="text-gray-600">{d.name} {d.pct.toFixed(0)}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
