@@ -197,9 +197,18 @@ export default function FinancePage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold text-green-600">
-              {r.cashflow ? `${Math.round(r.cashflow.savingsRate)}%` : "N/A"}
-            </p>
+            {r.cashflow ? (
+              <div className="flex items-baseline gap-2">
+                <p className="text-2xl font-bold text-green-600">
+                  {Math.round(r.cashflow.savingsRate)}%
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  / {Math.round(r.cashflow.takehomeSavingsRate)}% take-home
+                </p>
+              </div>
+            ) : (
+              <p className="text-2xl font-bold">N/A</p>
+            )}
           </CardContent>
         </Card>
         <Card>
