@@ -17,10 +17,6 @@ EQUITY_CATEGORIES = ["US Equity", "Non-US Equity"]
 NON_EQUITY_CATEGORIES = ["Crypto", "Safe Net", "Hedge"]
 SUBTYPE_ORDER = ["broad", "growth", "other"]
 
-# Rendering thresholds (shared between terminal and HTML renderers)
-MIN_HOLDING_PCT = 1.0  # collapse holdings below this %
-MAJOR_EXPENSE_THRESHOLD = 200  # show expenses >= this inline; rest collapsed
-ACTIVITY_TOP_SYMBOLS = 5  # show top N symbols in activity aggregation
 MIN_RECORDS_FOR_COMPLETE_MONTH = 25  # fewer records → likely partial month
 
 # Fidelity transaction action types (used in fidelity_history.py, report.py, reconcile.py)

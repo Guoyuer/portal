@@ -55,15 +55,8 @@ def main() -> None:
     )
     parser.add_argument("--config", type=Path, required=True, help="JSON config file")
     parser.add_argument("--contribute", type=float, default=0, help="Contribution amount to simulate")
-    parser.add_argument("--hide", action="store_true", help="Hide dollar values (show percentages only)")
     parser.add_argument("--month", type=str, default="", help="Reporting month YYYY-MM (default: latest complete)")
     parser.add_argument("--qianji-db", type=Path, default=DEFAULT_DB_PATH, help="Qianji SQLite database path")
-    parser.add_argument(
-        "--format",
-        choices=["json"],
-        default="json",
-        help="Output format (default: json)",
-    )
     args = parser.parse_args()
 
     csv_path = _resolve_csv(args.csv, "Portfolio_Positions", "positions CSV")

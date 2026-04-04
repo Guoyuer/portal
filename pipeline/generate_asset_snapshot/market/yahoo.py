@@ -91,34 +91,3 @@ def build_market_data(cny_rate: float = DEFAULT_CNY_RATE) -> MarketData | None:
         for t in idx_month
     ]
     return MarketData(indices=indices, usd_cny=cny_rate)
-
-
-def fetch_stock_info(tickers: list[str]) -> dict[str, Any]:
-    """Return fundamental data for the given tickers.
-
-    Returns
-    -------
-    dict
-        ``{ticker: {"pe_ratio": float|None, "market_cap": float|None,
-        "52w_high": float|None, "52w_low": float|None}}``
-        Empty dict on failure or when *tickers* is empty.
-    """
-    if not tickers:
-        return {}
-
-    try:
-        result: dict[str, Any] = {}
-        for ticker in tickers:
-            try:
-                info = yf.Ticker(ticker).info
-                result[ticker] = {
-                    "pe_ratio": info.get("trailingPE"),
-                    "market_cap": info.get("marketCap"),
-                    "52w_high": info.get("fiftyTwoWeekHigh"),
-                    "52w_low": info.get("fiftyTwoWeekLow"),
-                }
-            except Exception:  # noqa: BLE001
-                continue
-        return result
-    except Exception:  # noqa: BLE001
-        return {}

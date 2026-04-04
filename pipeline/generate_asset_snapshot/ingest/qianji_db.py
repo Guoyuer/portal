@@ -87,51 +87,6 @@ def _build_snapshot(db_path: Path, balances: dict[str, float]) -> dict[str, Any]
     }
 
 
-def load_cashflow_from_db(db_path: Path = DEFAULT_DB_PATH) -> list[QianjiRecord]:
-    """Load all transactions from Qianji SQLite database.
-
-    Returns the same format as load_cashflow() from CSV, so the rest
-    of the pipeline doesn't need to change.
-    """
-    if not db_path.exists():
-        return []
-
-    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    try:
-        return _load_records(conn)
-    finally:
-        conn.close()
-
-
-def load_balances_from_db(db_path: Path = DEFAULT_DB_PATH) -> dict[str, Any]:
-    """Load current account balances from Qianji database.
-
-    Returns a dict compatible with the snapshot format:
-    {
-        "date": "2026-04-03",
-        "cny_rate": 7.25,  # live rate from Yahoo Finance
-        "balances": {"Chase Debit": 5883.01, ...}
-    }
-    """
-    if not db_path.exists():
-        return {}
-
-    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    try:
-        balances: dict[str, float] = {}
-        currencies: dict[str, str] = {}
-
-        for name, money, currency in conn.execute("SELECT name, money, currency FROM user_asset WHERE status = 0"):
-            balances[name] = float(money)
-            currencies[name] = currency or "USD"
-
-        snapshot = _build_snapshot(db_path, balances)
-        snapshot["currencies"] = currencies
-        return snapshot
-    finally:
-        conn.close()
-
-
 def load_all_from_db(
     db_path: Path = DEFAULT_DB_PATH,
 ) -> tuple[list[QianjiRecord], dict[str, Any]]:
