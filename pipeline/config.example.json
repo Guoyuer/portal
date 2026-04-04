@@ -1,0 +1,196 @@
+{
+  "goal": 1000000,
+  "assets": {
+    "VOO": {
+      "category": "US Equity",
+      "subtype": "broad"
+    },
+    "FXAIX": {
+      "category": "US Equity",
+      "subtype": "broad"
+    },
+    "401k sp500": {
+      "category": "US Equity",
+      "subtype": "broad"
+    },
+    "SCHD": {
+      "category": "US Equity",
+      "subtype": "broad"
+    },
+    "FSSNX": {
+      "category": "US Equity",
+      "subtype": "broad"
+    },
+    "UNH": {
+      "category": "US Equity",
+      "subtype": "broad"
+    },
+    "MAR": {
+      "category": "US Equity",
+      "subtype": "broad"
+    },
+    "QQQM": {
+      "category": "US Equity",
+      "subtype": "growth"
+    },
+    "401k tech": {
+      "category": "US Equity",
+      "subtype": "growth"
+    },
+    "NVDA": {
+      "category": "US Equity",
+      "subtype": "growth"
+    },
+    "AMD": {
+      "category": "US Equity",
+      "subtype": "growth"
+    },
+    "QCOM": {
+      "category": "US Equity",
+      "subtype": "growth"
+    },
+    "ARM": {
+      "category": "US Equity",
+      "subtype": "growth"
+    },
+    "AAPL": {
+      "category": "US Equity",
+      "subtype": "growth"
+    },
+    "META": {
+      "category": "US Equity",
+      "subtype": "growth"
+    },
+    "GOOGL": {
+      "category": "US Equity",
+      "subtype": "growth"
+    },
+    "NFLX": {
+      "category": "US Equity",
+      "subtype": "growth"
+    },
+    "ORCL": {
+      "category": "US Equity",
+      "subtype": "growth"
+    },
+    "DUOL": {
+      "category": "US Equity",
+      "subtype": "growth"
+    },
+    "MSFT": {
+      "category": "US Equity",
+      "subtype": "growth"
+    },
+    "VXUS": {
+      "category": "Non-US Equity",
+      "subtype": "broad"
+    },
+    "VWO": {
+      "category": "Non-US Equity",
+      "subtype": "broad"
+    },
+    "FTIHX": {
+      "category": "Non-US Equity",
+      "subtype": "broad"
+    },
+    "401k ex-us": {
+      "category": "Non-US Equity",
+      "subtype": "broad"
+    },
+    "CNY Assets": {
+      "category": "Non-US Equity",
+      "subtype": "broad"
+    },
+    "LVMUY": {
+      "category": "Non-US Equity",
+      "subtype": "broad"
+    },
+    "TSM": {
+      "category": "Non-US Equity",
+      "subtype": "growth"
+    },
+    "ASML": {
+      "category": "Non-US Equity",
+      "subtype": "growth"
+    },
+    "EDU": {
+      "category": "Non-US Equity",
+      "subtype": "growth"
+    },
+    "FBTC": {
+      "category": "Crypto"
+    },
+    "ETH": {
+      "category": "Crypto"
+    },
+    "FETH": {
+      "category": "Crypto"
+    },
+    "GLDM": {
+      "category": "Safe Net"
+    },
+    "VTEB": {
+      "category": "Safe Net"
+    },
+    "FNJHX": {
+      "category": "Safe Net"
+    },
+    "SGOV": {
+      "category": "Safe Net"
+    },
+    "FDRXX": {
+      "category": "Safe Net"
+    },
+    "SPAXX": {
+      "category": "Safe Net"
+    },
+    "FZFXX": {
+      "category": "Safe Net"
+    },
+    "Debit Cash": {
+      "category": "Safe Net"
+    },
+    "I Bonds": {
+      "category": "Safe Net"
+    },
+    "VGLT": {
+      "category": "Hedge"
+    }
+  },
+  "target_weights": {
+    "US Equity": 55,
+    "Non-US Equity": 15,
+    "Crypto": 3,
+    "Safe Net": 25,
+    "Hedge": 2
+  },
+  "category_order": [
+    "US Equity",
+    "Non-US Equity",
+    "Crypto",
+    "Safe Net",
+    "Hedge"
+  ],
+  "aliases": {
+    "State Street S&P 500 Index": "401k sp500"
+  },
+  "qianji_accounts": {
+    "fidelity_tracked": [
+      "Fidelity Brokerage",
+      "Roth IRA",
+      "401k"
+    ],
+    "cny": [
+      "Bank Card",
+      "WeChat Pay"
+    ],
+    "credit": [
+      "Visa Card",
+      "Amex Card"
+    ],
+    "ticker_map": {
+      "Checking Account": "Debit Cash",
+      "I bond": "I Bonds"
+    }
+  }
+}
