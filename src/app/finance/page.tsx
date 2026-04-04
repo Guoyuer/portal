@@ -1,5 +1,4 @@
-import reportJson from "@/lib/sample-report.json";
-import type { ReportData } from "@/lib/types";
+import { reportData } from "@/lib/data";
 import { fmtCurrency, fmtCurrencyShort, fmtPct, fmtYuan } from "@/lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -12,7 +11,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 
-const report = reportJson as unknown as ReportData;
+const report = reportData;
 const MAJOR_EXPENSE_THRESHOLD = 200;
 const ACTIVITY_TOP_SYMBOLS = 5;
 

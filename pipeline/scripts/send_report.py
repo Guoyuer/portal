@@ -1,12 +1,13 @@
-"""Download data from GCS, generate report, send via Gmail SMTP.
+"""Generate report from local data, output HTML email + JSON for portal.
 
-Designed to run in GitHub Actions on a schedule. Requires env vars:
-    GMAIL_ADDRESS, GMAIL_APP_PASSWORD, RECIPIENT_EMAIL (optional, defaults to GMAIL_ADDRESS)
+Data download/upload handled by GitHub Actions workflow via wrangler CLI.
+This script only does report generation and email sending.
+
+Requires env vars for email: GMAIL_ADDRESS, GMAIL_APP_PASSWORD
 
 Usage:
-    python scripts/send_report.py                    # generate + send
-    python scripts/send_report.py --dry-run           # generate only, print to stdout
-    python scripts/send_report.py --data-dir /tmp/d   # use local files instead of GCS
+    python scripts/send_report.py --data-dir ./data              # generate + send
+    python scripts/send_report.py --data-dir ./data --dry-run    # generate only, print to stdout
 """
 
 from __future__ import annotations
@@ -15,7 +16,6 @@ import argparse
 import os
 import smtplib
 import sys
-import tempfile
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
@@ -23,42 +23,18 @@ from pathlib import Path
 # Add project root to path so we can import generate_asset_snapshot
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-GCS_BUCKET = "asset-snapshot-data"
 
-
-def _download_from_gcs(dest: Path) -> None:
-    """Download latest data files from GCS."""
-    from google.cloud import storage
-
-    client = storage.Client()
-    bucket = client.bucket(GCS_BUCKET)
-
-    for blob_name, local_name in [
-        ("latest/positions.csv", "positions.csv"),
-        ("latest/history.csv", "history.csv"),
-        ("latest/qianjiapp.db", "qianjiapp.db"),
-        ("latest/config.json", "config.json"),
-    ]:
-        blob = bucket.blob(blob_name)
-        if blob.exists():
-            blob.download_to_filename(str(dest / local_name))
-            print(f"  Downloaded {blob_name}", file=sys.stderr)
-        else:
-            print(f"  [skip] {blob_name} not found", file=sys.stderr)
-
-
-def _generate_report(data_dir: Path) -> str:
-    """Generate HTML report from files in data_dir."""
+def _build_report(data_dir: Path):  # noqa: ANN202
+    """Build ReportData from files in data_dir."""
     from generate_asset_snapshot.config import load_config, manual_values_from_snapshot
     from generate_asset_snapshot.history import build_chart_data
     from generate_asset_snapshot.ingest.fidelity_history import load_transactions
     from generate_asset_snapshot.ingest.qianji_db import load_all_from_db
     from generate_asset_snapshot.portfolio import load_portfolio
-    from generate_asset_snapshot.renderers import html
     from generate_asset_snapshot.report import build_report
     from generate_asset_snapshot.types import DEFAULT_CNY_RATE, ReportSources
 
-    # Config (from GCS or bundled)
+    # Config (from data dir or bundled)
     config_path = data_dir / "config.json"
     if not config_path.exists():
         config_path = Path(__file__).resolve().parent.parent / "config.json"
@@ -67,7 +43,7 @@ def _generate_report(data_dir: Path) -> str:
     # Positions (required)
     positions_csv = data_dir / "positions.csv"
     if not positions_csv.exists():
-        raise SystemExit("No positions.csv found")
+        raise SystemExit("No positions.csv found in data dir")
 
     # Qianji DB (optional)
     cashflow = None
@@ -87,7 +63,7 @@ def _generate_report(data_dir: Path) -> str:
     if history_csv.exists():
         transactions = load_transactions(history_csv)
 
-    # Chart data (monthly flows from Qianji; no historical CSVs on GCS)
+    # Chart data
     chart_data = build_chart_data(data_dir, cashflow=cashflow, config=config, portfolio_total=portfolio["total"])
 
     # Market data (optional)
@@ -100,7 +76,7 @@ def _generate_report(data_dir: Path) -> str:
     except Exception:  # noqa: BLE001
         pass
 
-    report = build_report(
+    return build_report(
         portfolio,
         config,
         positions_csv.name,
@@ -110,8 +86,6 @@ def _generate_report(data_dir: Path) -> str:
         sources=ReportSources(market=market_data),
         chart_data=chart_data,
     )
-
-    return html.render(report, email_safe=True)
 
 
 def _send_email(subject: str, html_body: str) -> None:
@@ -138,22 +112,26 @@ def _send_email(subject: str, html_body: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate report and send email")
+    parser.add_argument("--data-dir", type=Path, required=True, help="Directory with positions.csv, history.csv, etc.")
     parser.add_argument("--dry-run", action="store_true", help="Generate report but don't send email")
-    parser.add_argument("--data-dir", type=Path, help="Use local data directory instead of GCS")
     args = parser.parse_args()
 
-    # Get data
-    if args.data_dir:
-        data_dir = args.data_dir
-        print(f"Using local data: {data_dir}", file=sys.stderr)
-    else:
-        data_dir = Path(tempfile.mkdtemp())
-        print("Downloading from GCS...", file=sys.stderr)
-        _download_from_gcs(data_dir)
-
-    # Generate
+    # Build report once, render to both formats
     print("Generating report...", file=sys.stderr)
-    html_body = _generate_report(data_dir)
+    report = _build_report(args.data_dir)
+
+    # JSON for portal
+    from generate_asset_snapshot.renderers import json_renderer
+
+    json_output = json_renderer.render(report)
+    json_path = args.data_dir / "report.json"
+    json_path.write_text(json_output)
+    print(f"  JSON: {len(json_output)} chars -> {json_path}", file=sys.stderr)
+
+    # HTML for email
+    from generate_asset_snapshot.renderers import html
+
+    html_body = html.render(report, email_safe=True)
     print(f"  HTML: {len(html_body)} chars", file=sys.stderr)
 
     from datetime import datetime

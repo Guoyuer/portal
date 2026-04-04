@@ -1,0 +1,107 @@
+name: Generate Report
+
+on:
+  schedule:
+    - cron: '0 13 * * 1'   # Every Monday 9AM ET
+    - cron: '0 13 1 * *'   # 1st of month 9AM ET
+  workflow_dispatch:
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Python deps
+        run: pip install -r pipeline/requirements.txt
+
+      - name: Install Node deps
+        run: npm ci
+
+      - name: Download data from R2
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          mkdir -p ./data
+          for f in positions.csv history.csv qianjiapp.db config.json sync_meta.json; do
+            npx wrangler r2 object get "asset-snapshot-data/latest/$f" --file "./data/$f" 2>/dev/null \
+              && echo "Downloaded $f" \
+              || echo "[skip] $f not found"
+          done
+
+      - name: Check data freshness
+        id: freshness
+        run: |
+          if [ -f ./data/sync_meta.json ]; then
+            synced=$(python3 -c "import json; print(json.load(open('./data/sync_meta.json'))['synced_at'][:10])")
+            today=$(date +%Y-%m-%d)
+            age=$(python3 -c "from datetime import date; print((date.fromisoformat('$today') - date.fromisoformat('$synced')).days)")
+            echo "Data synced: $synced ($age days ago)"
+            if [ "$age" -gt 7 ]; then
+              echo "stale=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "stale=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "No sync metadata found"
+            echo "stale=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Send stale data reminder
+        if: steps.freshness.outputs.stale == 'true'
+        env:
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+        run: |
+          python3 -c "
+          import os, smtplib
+          from email.mime.text import MIMEText
+          addr = os.environ['GMAIL_ADDRESS']
+          msg = MIMEText('Your Fidelity CSV data is over 7 days old. Please export new CSVs from Fidelity and run sync.', 'plain')
+          msg['Subject'] = 'Portal: Data is stale — please export new CSVs'
+          msg['From'] = addr
+          msg['To'] = addr
+          with smtplib.SMTP_SSL('smtp.gmail.com', 465) as s:
+              s.login(addr, os.environ['GMAIL_APP_PASSWORD'])
+              s.sendmail(addr, addr, msg.as_string())
+          print('Reminder email sent')
+          "
+
+      - name: Generate report
+        if: steps.freshness.outputs.stale == 'false'
+        env:
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+        run: cd pipeline && python scripts/send_report.py --data-dir ../data
+
+      - name: Upload JSON to R2
+        if: steps.freshness.outputs.stale == 'false'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npx wrangler r2 object put asset-snapshot-data/reports/latest.json \
+            --file ./data/report.json
+
+      - name: Build and deploy portal
+        if: steps.freshness.outputs.stale == 'false'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          cp ./data/report.json src/lib/report-data.json
+          npx next build
+          npx wrangler pages deploy out --project-name=portal --commit-dirty=true

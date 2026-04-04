@@ -6,25 +6,32 @@ on:
   pull_request:
 
 jobs:
-  build-and-test:
+  python:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: pip install -r pipeline/requirements.txt pytest mypy ruff
+      - run: cd pipeline && python -m pytest -q
+      - run: cd pipeline && python -m mypy generate_asset_snapshot/ --ignore-missing-imports
+      - run: cd pipeline && python -m ruff check .
 
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-
       - run: npm ci
       - run: npx next build
-
       - name: Install Playwright
         run: npx playwright install chromium --with-deps
-
       - name: Run e2e tests
         run: npx playwright test
-
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
