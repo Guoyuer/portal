@@ -45,7 +45,7 @@ jobs:
       - name: Check data freshness
         id: freshness
         run: |
-          if [ -f ./data/sync_meta.json ]; then
+          if [ -f ./data/sync_meta.json ] && [ -s ./data/sync_meta.json ]; then
             synced=$(python3 -c "import json; print(json.load(open('./data/sync_meta.json'))['synced_at'][:10])")
             today=$(date +%Y-%m-%d)
             age=$(python3 -c "from datetime import date; print((date.fromisoformat('$today') - date.fromisoformat('$synced')).days)")
