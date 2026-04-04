@@ -95,13 +95,26 @@ def _upload(local: Path, remote_name: str, *, dry_run: bool = False) -> bool:
     return True
 
 
-def _upload_meta(positions_path: Path | None, *, dry_run: bool = False) -> None:
-    """Upload sync metadata for freshness tracking."""
+def _upload_meta(
+    positions_path: Path | None,
+    history_path: Path | None,
+    *,
+    dry_run: bool = False,
+) -> None:
+    """Upload sync metadata with original file modification times."""
     import tempfile
+
+    def _mtime(p: Path | None) -> str:
+        if p and p.exists():
+            return datetime.fromtimestamp(p.stat().st_mtime).strftime("%b %d %H:%M")
+        return ""
 
     meta = {
         "synced_at": datetime.now(tz=UTC).isoformat(),
         "positions_file": positions_path.name if positions_path else None,
+        "positions_date": _mtime(positions_path),
+        "history_date": _mtime(history_path),
+        "qianji_date": _mtime(_QIANJI_DB if _QIANJI_DB.exists() else None),
     }
     if not dry_run:
         tmp = Path(tempfile.mktemp(suffix=".json"))
@@ -195,7 +208,7 @@ def main() -> None:
 
     # Upload sync metadata for freshness tracking
     if uploaded > 0:
-        _upload_meta(positions_path, dry_run=args.dry_run)
+        _upload_meta(positions_path, history_path, dry_run=args.dry_run)
 
     if not args.dry_run:
         _save_state(state)

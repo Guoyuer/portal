@@ -1,23 +1,17 @@
-"""Generate report from local data, output HTML email + JSON for portal.
+"""Generate report JSON from local data files.
 
 Data download/upload handled by GitHub Actions workflow via wrangler CLI.
-This script only does report generation and email sending.
-
-Requires env vars for email: GMAIL_ADDRESS, GMAIL_APP_PASSWORD
+This script only does report generation → JSON output.
 
 Usage:
-    python scripts/send_report.py --data-dir ./data              # generate + send
-    python scripts/send_report.py --data-dir ./data --dry-run    # generate only, print to stdout
+    python scripts/send_report.py --data-dir ./data
 """
 
 from __future__ import annotations
 
 import argparse
-import os
-import smtplib
 import sys
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
+from datetime import datetime
 from pathlib import Path
 
 # Add project root to path so we can import generate_asset_snapshot
@@ -34,18 +28,15 @@ def _build_report(data_dir: Path):  # noqa: ANN202
     from generate_asset_snapshot.report import build_report
     from generate_asset_snapshot.types import DEFAULT_CNY_RATE, ReportSources
 
-    # Config (from data dir or bundled)
     config_path = data_dir / "config.json"
     if not config_path.exists():
         config_path = Path(__file__).resolve().parent.parent / "config.json"
     config = load_config(config_path)
 
-    # Positions (required)
     positions_csv = data_dir / "positions.csv"
     if not positions_csv.exists():
         raise SystemExit("No positions.csv found in data dir")
 
-    # Qianji DB (optional)
     cashflow = None
     balance_snapshot = None
     db_path = data_dir / "qianjiapp.db"
@@ -57,16 +48,13 @@ def _build_report(data_dir: Path):  # noqa: ANN202
 
     portfolio = load_portfolio(positions_csv, config)
 
-    # History (optional)
     transactions = None
     history_csv = data_dir / "history.csv"
     if history_csv.exists():
         transactions = load_transactions(history_csv)
 
-    # Chart data
     chart_data = build_chart_data(data_dir, cashflow=cashflow, config=config, portfolio_total=portfolio["total"])
 
-    # Market data (optional)
     market_data = None
     try:
         from generate_asset_snapshot.market.yahoo import build_market_data
@@ -88,78 +76,33 @@ def _build_report(data_dir: Path):  # noqa: ANN202
     )
 
 
-def _send_email(subject: str, html_body: str) -> None:
-    """Send HTML email via Gmail SMTP."""
-    gmail_address = os.environ.get("GMAIL_ADDRESS", "")
-    gmail_password = os.environ.get("GMAIL_APP_PASSWORD", "")
-    recipient = os.environ.get("RECIPIENT_EMAIL", gmail_address)
-
-    if not gmail_address or not gmail_password:
-        raise SystemExit("GMAIL_ADDRESS and GMAIL_APP_PASSWORD env vars required")
-
-    msg = MIMEMultipart("alternative")
-    msg["From"] = gmail_address
-    msg["To"] = recipient
-    msg["Subject"] = subject
-    msg.attach(MIMEText(html_body, "html", "utf-8"))
-
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-        server.login(gmail_address, gmail_password)
-        server.sendmail(gmail_address, recipient, msg.as_string())
-
-    print(f"  Email sent to {recipient}", file=sys.stderr)
-
-
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate report and send email")
+    parser = argparse.ArgumentParser(description="Generate report JSON")
     parser.add_argument("--data-dir", type=Path, required=True, help="Directory with positions.csv, history.csv, etc.")
-    parser.add_argument("--dry-run", action="store_true", help="Generate report but don't send email")
     args = parser.parse_args()
 
-    # Build report once, render to both formats
     print("Generating report...", file=sys.stderr)
     report = _build_report(args.data_dir)
 
-    # Collect file timestamps for portal display
-    from datetime import datetime
+    # Read original file dates from sync_meta.json (written by sync.py with real mtimes)
+    import json as _json
 
-    def _file_mtime(name: str) -> str:
-        p = args.data_dir / name
-        if p.exists():
-            return datetime.fromtimestamp(p.stat().st_mtime).strftime("%b %d %H:%M")
-        return ""
+    sync_meta_path = args.data_dir / "sync_meta.json"
+    sync_meta = _json.loads(sync_meta_path.read_text()) if sync_meta_path.exists() else {}
 
     metadata = {
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "positions_date": _file_mtime("positions.csv"),
-        "history_date": _file_mtime("history.csv"),
-        "qianji_date": _file_mtime("qianjiapp.db"),
+        "positions_date": sync_meta.get("positions_date", ""),
+        "history_date": sync_meta.get("history_date", ""),
+        "qianji_date": sync_meta.get("qianji_date", ""),
     }
 
-    # JSON for portal
     from generate_asset_snapshot.renderers import json_renderer
 
     json_output = json_renderer.render(report, metadata=metadata)
     json_path = args.data_dir / "report.json"
     json_path.write_text(json_output)
     print(f"  JSON: {len(json_output)} chars -> {json_path}", file=sys.stderr)
-
-    # HTML for email
-    from generate_asset_snapshot.renderers import html
-
-    html_body = html.render(report, email_safe=True)
-    print(f"  HTML: {len(html_body)} chars", file=sys.stderr)
-
-    from datetime import datetime
-
-    subject = f"Asset Snapshot — {datetime.now().strftime('%B %d, %Y')}"
-
-    if args.dry_run:
-        print(html_body)
-    else:
-        print("Sending email...", file=sys.stderr)
-        _send_email(subject, html_body)
-
     print("Done.", file=sys.stderr)
 
 

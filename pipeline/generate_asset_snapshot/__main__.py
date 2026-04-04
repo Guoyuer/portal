@@ -60,9 +60,9 @@ def main() -> None:
     parser.add_argument("--qianji-db", type=Path, default=DEFAULT_DB_PATH, help="Qianji SQLite database path")
     parser.add_argument(
         "--format",
-        choices=["html", "json"],
-        default="html",
-        help="Output format (default: html)",
+        choices=["json"],
+        default="json",
+        help="Output format (default: json)",
     )
     args = parser.parse_args()
 
@@ -130,14 +130,9 @@ def main() -> None:
         chart_data=chart_data,
     )
 
-    if args.format == "json":
-        from .renderers import json_renderer
+    from .renderers import json_renderer
 
-        print(json_renderer.render(report))
-    else:
-        from .renderers import html
-
-        print(html.render(report))
+    print(json_renderer.render(report))
 
 
 if __name__ == "__main__":
