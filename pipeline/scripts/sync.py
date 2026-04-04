@@ -84,7 +84,7 @@ def _upload(local: Path, remote_name: str, *, dry_run: bool = False) -> bool:
         return True
 
     result = subprocess.run(
-        ["wrangler", "r2", "object", "put", f"{_BUCKET}/{dest}", "--file", str(local)],
+        ["wrangler", "r2", "object", "put", f"{_BUCKET}/{dest}", "--file", str(local), "--remote"],
         capture_output=True,
         text=True,
     )
