@@ -235,7 +235,7 @@ export default function FinancePage() {
       {/* Net Worth Trend */}
       {r.chartData?.netWorthTrend && r.chartData.netWorthTrend.length > 0 && (
         <section>
-          <SectionHeader>Portfolio Trend</SectionHeader>
+          <SectionHeader>Net Worth Trend</SectionHeader>
           <SectionBody>
             <NetWorthTrendChart data={r.chartData.netWorthTrend} />
           </SectionBody>

@@ -10,6 +10,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -85,12 +86,11 @@ def main() -> None:
     report = _build_report(args.data_dir)
 
     # ── Net worth history: load, append, inject into report ──────────────
-    import json as _json
-
+    
     from generate_asset_snapshot.types import ChartData, SnapshotPoint
 
     history_path = args.data_dir / "net_worth_history.json"
-    nw_history: list[dict[str, object]] = _json.loads(history_path.read_text()) if history_path.exists() else []
+    nw_history: list[dict[str, object]] = json.loads(history_path.read_text()) if history_path.exists() else []
 
     # Append current net worth (deduplicate by month)
     current_nw = report.balance_sheet.net_worth if report.balance_sheet else report.total
@@ -108,7 +108,7 @@ def main() -> None:
         print(f"  Net worth history: updated {today} = ${current_nw:,.0f}", file=sys.stderr)
 
     # Write updated history back (workflow uploads to R2)
-    history_path.write_text(_json.dumps(nw_history, indent=2))
+    history_path.write_text(json.dumps(nw_history, indent=2))
 
     # Inject into report's chart_data
     trend = [SnapshotPoint(date=str(e["date"]), total=float(e["total"])) for e in nw_history]  # type: ignore[arg-type]
@@ -119,7 +119,7 @@ def main() -> None:
 
     # ── Metadata ─────────────────────────────────────────────────────────
     sync_meta_path = args.data_dir / "sync_meta.json"
-    sync_meta = _json.loads(sync_meta_path.read_text()) if sync_meta_path.exists() else {}
+    sync_meta = json.loads(sync_meta_path.read_text()) if sync_meta_path.exists() else {}
 
     metadata = {
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),

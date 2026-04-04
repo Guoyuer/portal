@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -24,6 +25,17 @@ import type {
 } from "@/lib/types";
 
 const COLORS = ["#2563eb", "#7c3aed", "#f59e0b", "#10b981", "#ef4444"];
+
+function useIsMobile(breakpoint = 640) {
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < breakpoint);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, [breakpoint]);
+  return isMobile;
+}
 
 function fmtK(v: number) {
   if (v >= 1000) return `$${(v / 1000).toFixed(0)}k`;
@@ -102,10 +114,9 @@ export function IncomeExpensesChart({
 }: {
   data: MonthlyFlowPoint[];
 }) {
+  const isMobile = useIsMobile();
   // Skip months with zero income (likely incomplete)
   const all = data.filter((d) => d.income > 0);
-  // On small screens, show last 12 months to avoid overcrowding
-  const isMobile = typeof window !== "undefined" && window.innerWidth < 640;
   const filtered = isMobile ? all.slice(-12) : all;
 
   return (
