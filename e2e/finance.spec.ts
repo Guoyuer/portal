@@ -146,11 +146,93 @@ test.describe("Finance Report", () => {
     const sections = page.locator("div.bg-\\[\\#16213e\\]");
     const sectionTexts = await sections.allTextContents();
     expect(sectionTexts.length).toBeGreaterThanOrEqual(4);
-    // Verify key sections exist
     const combined = sectionTexts.join(" ");
     expect(combined).toContain("Category Summary");
     expect(combined).toContain("Cash Flow");
     expect(combined).toContain("Investment Activity");
     expect(combined).toContain("Balance Sheet");
+  });
+
+  // ── Charts ─────────────────────────────────────────────────────────────
+
+  test("renders allocation donut chart", async ({ page }) => {
+    // Donut is inside Category Summary section
+    const donut = page.locator(".recharts-pie");
+    await expect(donut).toBeVisible();
+    // Legend labels
+    await expect(page.getByText("US Equity 55%").or(page.getByText("US Equity 54%"))).toBeVisible();
+  });
+
+  test("renders income vs expenses bar chart", async ({ page }) => {
+    await expect(page.getByText("Income vs Expenses")).toBeVisible();
+    // Recharts renders bars as <rect> inside .recharts-bar
+    const bars = page.locator(".recharts-bar-rectangle");
+    expect(await bars.count()).toBeGreaterThan(0);
+  });
+
+  test("income vs expenses chart has legend", async ({ page }) => {
+    const chartSection = page.locator("section").filter({ hasText: "Income vs Expenses" });
+    await expect(chartSection.getByText("Income").first()).toBeVisible();
+    await expect(chartSection.getByText("Expenses").first()).toBeVisible();
+  });
+
+  // ── Market Context ─────────────────────────────────────────────────────
+
+  test("shows market context with index returns", async ({ page }) => {
+    await expect(page.getByText("Market Context")).toBeVisible();
+    await expect(page.getByText("Index Returns")).toBeVisible();
+    // At least one index
+    await expect(page.getByText("SPY").or(page.getByText("S&P 500")).first()).toBeVisible();
+  });
+
+  test("shows macro indicators", async ({ page }) => {
+    await expect(page.getByText("Macro Indicators")).toBeVisible();
+    // At least some indicators should render
+    await expect(page.getByText("Fed Rate").or(page.getByText("VIX"))).toBeVisible();
+  });
+
+  // ── Dark Mode ──────────────────────────────────────────────────────────
+
+  test("dark mode toggle works", async ({ page }) => {
+    const html = page.locator("html");
+    // Initially light (no dark class)
+    await expect(html).not.toHaveClass(/dark/);
+    // Click toggle in sidebar
+    const toggle = page.locator("aside").first().getByRole("button").last();
+    await toggle.click();
+    // Should now have dark class
+    await expect(html).toHaveClass(/dark/);
+    // Click again to go back
+    await toggle.click();
+    await expect(html).not.toHaveClass(/dark/);
+  });
+
+  // ── Reload Button ──────────────────────────────────────────────────────
+
+  test("reload button fetches fresh data", async ({ page }) => {
+    const reload = page.getByRole("button", { name: "Reload" });
+    await expect(reload).toBeVisible();
+    // Click reload — page should still show data after
+    await reload.click();
+    // Wait for data to reload
+    await page.getByText("Portfolio Snapshot").waitFor({ timeout: 20000 });
+    await expect(page.locator("h1")).toContainText("Portfolio Snapshot");
+  });
+
+  // ── Savings Rate Card ──────────────────────────────────────────────────
+
+  test("savings rate card shows gross and take-home", async ({ page }) => {
+    const card = page.locator("[data-slot='card']").filter({ hasText: "Savings Rate" });
+    // Gross rate (large)
+    await expect(card.getByText(/\d+%/).first()).toBeVisible();
+    // Take-home (smaller text)
+    await expect(card.getByText(/take-home/)).toBeVisible();
+  });
+
+  // ── Production URL ─────────────────────────────────────────────────────
+
+  test("production site is accessible", async ({ page }) => {
+    const res = await page.request.get("https://portal-bf8.pages.dev/finance");
+    expect(res.status()).toBe(200);
   });
 });
