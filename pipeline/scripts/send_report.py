@@ -120,10 +120,26 @@ def main() -> None:
     print("Generating report...", file=sys.stderr)
     report = _build_report(args.data_dir)
 
+    # Collect file timestamps for portal display
+    from datetime import datetime
+
+    def _file_mtime(name: str) -> str:
+        p = args.data_dir / name
+        if p.exists():
+            return datetime.fromtimestamp(p.stat().st_mtime).strftime("%b %d %H:%M")
+        return ""
+
+    metadata = {
+        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "positions_date": _file_mtime("positions.csv"),
+        "history_date": _file_mtime("history.csv"),
+        "qianji_date": _file_mtime("qianjiapp.db"),
+    }
+
     # JSON for portal
     from generate_asset_snapshot.renderers import json_renderer
 
-    json_output = json_renderer.render(report)
+    json_output = json_renderer.render(report, metadata=metadata)
     json_path = args.data_dir / "report.json"
     json_path.write_text(json_output)
     print(f"  JSON: {len(json_output)} chars -> {json_path}", file=sys.stderr)

@@ -168,6 +168,13 @@ export default function FinancePage() {
         </Button>
       </div>
 
+      {/* Data timestamps */}
+      {r.metadata && (
+        <p className="text-xs text-muted-foreground -mt-4">
+          Positions: {r.metadata.positionsDate || "?"} · History: {r.metadata.historyDate || "?"} · Qianji: {r.metadata.qianjiDate || "?"}
+        </p>
+      )}
+
       {/* Metric Cards Row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>

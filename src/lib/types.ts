@@ -242,4 +242,12 @@ export interface ReportData {
   // AI-generated (if LLM available)
   narrative: string | null;
   alerts: string[];
+
+  // Pipeline metadata (file timestamps)
+  metadata?: {
+    generatedAt: string;
+    positionsDate: string;
+    historyDate: string;
+    qianjiDate: string;
+  };
 }
