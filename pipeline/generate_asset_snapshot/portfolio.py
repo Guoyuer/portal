@@ -41,7 +41,6 @@ def _parse_rows(
     val_h = headers.get("current value")
     cb_h = headers.get("cost basis total")
     gl_h = headers.get("total gain/loss dollar")
-    glp_h = headers.get("total gain/loss percent")
     if not all([sym_h, desc_h, val_h]):
         raise PortfolioError("Missing required CSV headers: Symbol, Description, Current Value")
 

@@ -1,0 +1,17 @@
+#!/bin/bash
+# Pre-commit: fast local checks to catch CI failures before push.
+# Install: git config core.hooksPath .githooks
+
+set -e
+
+echo "Pre-commit: checking..."
+
+# Python lint (fast, ~0.5s)
+if [ -d pipeline/generate_asset_snapshot ] && [ -f pipeline/.venv/bin/ruff ]; then
+  pipeline/.venv/bin/ruff check pipeline/ --quiet || { echo "❌ ruff failed"; exit 1; }
+fi
+
+# TypeScript build check (~2s)
+npx next build > /dev/null 2>&1 || { echo "❌ next build failed"; exit 1; }
+
+echo "✅ Pre-commit passed"
