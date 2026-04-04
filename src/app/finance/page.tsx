@@ -877,6 +877,176 @@ export default function FinancePage() {
           </SectionBody>
         </section>
       )}
+
+      {/* Gain/Loss by Holding */}
+      {(() => {
+        const allHoldings = [
+          ...r.equityCategories.flatMap((c) =>
+            c.subtypes.flatMap((s) => s.holdings)
+          ),
+          ...r.nonEquityCategories.flatMap((c) => c.holdings),
+        ].filter((h) => h.costBasis > 0);
+        if (allHoldings.length === 0) return null;
+
+        const sorted = [...allHoldings].sort((a, b) => b.gainLoss - a.gainLoss);
+        const totalCost = sorted.reduce((s, h) => s + h.costBasis, 0);
+        const totalGain = sorted.reduce((s, h) => s + h.gainLoss, 0);
+
+        return (
+          <section>
+            <SectionHeader>Unrealized Gain/Loss</SectionHeader>
+            <SectionBody>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Ticker</TableHead>
+                      <TableHead className="text-right">Value</TableHead>
+                      <TableHead className="text-right hidden sm:table-cell">Cost Basis</TableHead>
+                      <TableHead className="text-right">Gain/Loss</TableHead>
+                      <TableHead className="text-right">%</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {sorted.map((h) => (
+                      <TableRow key={h.ticker} className="even:bg-muted/50">
+                        <TableCell className="font-mono">{h.ticker}</TableCell>
+                        <TableCell className="text-right">{fmtCurrency(h.value)}</TableCell>
+                        <TableCell className="text-right hidden sm:table-cell">{fmtCurrency(h.costBasis)}</TableCell>
+                        <TableCell className={`text-right ${h.gainLoss >= 0 ? "text-green-600" : "text-red-500"}`}>
+                          {fmtCurrency(h.gainLoss)}
+                        </TableCell>
+                        <TableCell className={`text-right ${h.gainLossPct >= 0 ? "text-green-600" : "text-red-500"}`}>
+                          {fmtPct(h.gainLossPct)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    <TableRow className="font-bold border-t-2 border-b-2 border-foreground/20">
+                      <TableCell>Total</TableCell>
+                      <TableCell className="text-right">{fmtCurrency(sorted.reduce((s, h) => s + h.value, 0))}</TableCell>
+                      <TableCell className="text-right hidden sm:table-cell">{fmtCurrency(totalCost)}</TableCell>
+                      <TableCell className={`text-right ${totalGain >= 0 ? "text-green-600" : "text-red-500"}`}>
+                        {fmtCurrency(totalGain)}
+                      </TableCell>
+                      <TableCell className={`text-right ${totalGain >= 0 ? "text-green-600" : "text-red-500"}`}>
+                        {totalCost > 0 ? fmtPct(totalGain / totalCost * 100) : "—"}
+                      </TableCell>
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              </div>
+            </SectionBody>
+          </section>
+        );
+      })()}
+
+      {/* Annual Expense Summary */}
+      {r.annualSummary && (
+        <section>
+          <SectionHeader>{r.annualSummary.year} Annual Summary</SectionHeader>
+          <SectionBody>
+            <div className="grid md:grid-cols-2 gap-6">
+              <div>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Category</TableHead>
+                      <TableHead className="text-right">Count</TableHead>
+                      <TableHead className="text-right">Amount</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {r.annualSummary.expenseByCategory.map((item) => (
+                      <TableRow key={item.category} className="even:bg-muted/50">
+                        <TableCell>{item.category}</TableCell>
+                        <TableCell className="text-right">{item.count}</TableCell>
+                        <TableCell className="text-right">{fmtCurrency(item.amount)}</TableCell>
+                      </TableRow>
+                    ))}
+                    <TableRow className="font-bold border-t-2 border-b-2 border-foreground/20">
+                      <TableCell>Total Expenses</TableCell>
+                      <TableCell />
+                      <TableCell className="text-right">{fmtCurrency(r.annualSummary.totalExpenses)}</TableCell>
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              </div>
+              <div className="space-y-3">
+                <div className="flex justify-between py-2 border-b border-border">
+                  <span className="text-muted-foreground">Total Income</span>
+                  <span className="font-medium">{fmtCurrency(r.annualSummary.totalIncome)}</span>
+                </div>
+                <div className="flex justify-between py-2 border-b border-border">
+                  <span className="text-muted-foreground">Total Expenses</span>
+                  <span className="font-medium">{fmtCurrency(r.annualSummary.totalExpenses)}</span>
+                </div>
+                <div className="flex justify-between py-2 border-b border-border">
+                  <span className="text-muted-foreground">Net Saved</span>
+                  <span className="font-medium text-green-600">
+                    {fmtCurrency(r.annualSummary.totalIncome - r.annualSummary.totalExpenses)}
+                  </span>
+                </div>
+                <div className="flex justify-between py-2">
+                  <span className="text-muted-foreground">Annual Savings Rate</span>
+                  <span className="font-medium text-green-600">
+                    {r.annualSummary.totalIncome > 0
+                      ? `${((r.annualSummary.totalIncome - r.annualSummary.totalExpenses) / r.annualSummary.totalIncome * 100).toFixed(1)}%`
+                      : "—"}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </SectionBody>
+        </section>
+      )}
+
+      {/* Net Worth Growth */}
+      {r.chartData?.netWorthTrend && r.chartData.netWorthTrend.length >= 2 && (() => {
+        const trend = r.chartData!.netWorthTrend;
+        const latest = trend[trend.length - 1];
+        const prev = trend[trend.length - 2];
+        const mom = prev.total > 0 ? (latest.total - prev.total) / prev.total * 100 : 0;
+        const momDelta = latest.total - prev.total;
+
+        // YoY: find entry ~12 months ago
+        const latestDate = new Date(latest.date);
+        const yoyTarget = new Date(latestDate);
+        yoyTarget.setFullYear(yoyTarget.getFullYear() - 1);
+        const yoyEntry = trend.reduce((best, entry) => {
+          const d = new Date(entry.date);
+          return Math.abs(d.getTime() - yoyTarget.getTime()) < Math.abs(new Date(best.date).getTime() - yoyTarget.getTime()) ? entry : best;
+        });
+        const yoy = yoyEntry.total > 0 ? (latest.total - yoyEntry.total) / yoyEntry.total * 100 : 0;
+        const yoyDelta = latest.total - yoyEntry.total;
+
+        return (
+          <section>
+            <SectionHeader>Net Worth Growth</SectionHeader>
+            <SectionBody>
+              <div className="grid grid-cols-2 gap-6">
+                <div className="text-center p-4">
+                  <p className="text-sm text-muted-foreground">Month over Month</p>
+                  <p className={`text-3xl font-bold ${mom >= 0 ? "text-green-600" : "text-red-500"}`}>
+                    {fmtPct(mom)}
+                  </p>
+                  <p className={`text-sm ${momDelta >= 0 ? "text-green-600" : "text-red-500"}`}>
+                    {fmtCurrency(momDelta)}
+                  </p>
+                </div>
+                <div className="text-center p-4">
+                  <p className="text-sm text-muted-foreground">Year over Year</p>
+                  <p className={`text-3xl font-bold ${yoy >= 0 ? "text-green-600" : "text-red-500"}`}>
+                    {fmtPct(yoy)}
+                  </p>
+                  <p className={`text-sm ${yoyDelta >= 0 ? "text-green-600" : "text-red-500"}`}>
+                    {fmtCurrency(yoyDelta)}
+                  </p>
+                </div>
+              </div>
+            </SectionBody>
+          </section>
+        );
+      })()}
     </div>
   );
 }

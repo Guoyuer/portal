@@ -10,6 +10,9 @@ export interface HoldingData {
   pct: number;
   category: string;
   subtype: string; // "broad", "growth", "other", or "" for non-equity
+  costBasis: number;
+  gainLoss: number;
+  gainLossPct: number;
 }
 
 export interface SubtypeGroup {
@@ -150,6 +153,21 @@ export interface HoldingsDetailData {
   allStocks: StockDetail[]; // all individual stocks with data
 }
 
+// ── Annual Summary ───────────────────────────────────────────────────────
+
+export interface AnnualCategoryTotal {
+  category: string;
+  amount: number;
+  count: number;
+}
+
+export interface AnnualSummary {
+  year: number;
+  expenseByCategory: AnnualCategoryTotal[];
+  totalExpenses: number;
+  totalIncome: number;
+}
+
 // ── Charts ────────────────────────────────────────────────────────────────
 
 export interface SnapshotPoint {
@@ -238,6 +256,9 @@ export interface ReportData {
 
   // Charts (if historical data available)
   chartData: ChartData | null;
+
+  // Annual summary
+  annualSummary: AnnualSummary | null;
 
   // AI-generated (if LLM available)
   narrative: string | null;
