@@ -47,7 +47,8 @@ __pycache__/
 .venv/
 *.egg-info/
 
-# Pipeline state + personal config
+# Pipeline state + personal data
 pipeline/.sync_state.json
 pipeline/config.json
+pipeline/data/
 .wrangler/
