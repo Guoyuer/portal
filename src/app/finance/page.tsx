@@ -198,12 +198,12 @@ export default function FinancePage() {
           </CardHeader>
           <CardContent>
             {r.cashflow ? (
-              <div className="flex items-baseline gap-2">
+              <div>
                 <p className="text-2xl font-bold text-green-600">
-                  {Math.round(r.cashflow.savingsRate)}%
+                  {Math.round(r.cashflow.savingsRate)}% gross
                 </p>
-                <p className="text-sm text-muted-foreground">
-                  / {Math.round(r.cashflow.takehomeSavingsRate)}% take-home
+                <p className="text-2xl font-bold text-green-600">
+                  {Math.round(r.cashflow.takehomeSavingsRate)}% take-home
                 </p>
               </div>
             ) : (
