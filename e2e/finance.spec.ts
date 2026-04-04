@@ -3,6 +3,8 @@ import { test, expect } from "@playwright/test";
 test.describe("Finance Report", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/finance");
+    // Wait for data to load from R2
+    await page.getByText("Portfolio Snapshot").waitFor({ timeout: 20000 });
   });
 
   test("renders page title with date", async ({ page }) => {

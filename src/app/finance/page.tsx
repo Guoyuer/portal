@@ -1,4 +1,8 @@
-import { reportData } from "@/lib/data";
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import type { ReportData } from "@/lib/types";
+import { REPORT_URL } from "@/lib/config";
 import { fmtCurrency, fmtCurrencyShort, fmtPct, fmtYuan } from "@/lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -10,8 +14,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 
-const report = reportData;
 const MAJOR_EXPENSE_THRESHOLD = 200;
 const ACTIVITY_TOP_SYMBOLS = 5;
 
@@ -108,7 +112,43 @@ function DeviationCell({ value }: { value: number }) {
 }
 
 export default function FinancePage() {
-  const r = report;
+  const [r, setReport] = useState<ReportData | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const fetchReport = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(REPORT_URL, { cache: "no-store" });
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      setReport(await res.json());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load report");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchReport(); }, [fetchReport]);
+
+  if (loading) {
+    return (
+      <div className="max-w-5xl mx-auto py-20 text-center text-muted-foreground">
+        Loading report...
+      </div>
+    );
+  }
+
+  if (error || !r) {
+    return (
+      <div className="max-w-5xl mx-auto py-20 text-center">
+        <p className="text-red-500 mb-4">{error ?? "No data"}</p>
+        <Button onClick={fetchReport} variant="outline">Retry</Button>
+      </div>
+    );
+  }
+
   const allCategories = [...r.equityCategories, ...r.nonEquityCategories];
   const totalValue = allCategories.reduce((s, c) => s + c.value, 0);
   const totalPct = allCategories.reduce((s, c) => s + c.pct, 0);
@@ -118,9 +158,14 @@ export default function FinancePage() {
   return (
     <div className="max-w-5xl mx-auto space-y-8">
       {/* Header */}
-      <h1 className="text-2xl font-bold tracking-tight">
-        Portfolio Snapshot &mdash; {r.date}
-      </h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold tracking-tight">
+          Portfolio Snapshot &mdash; {r.date}
+        </h1>
+        <Button onClick={fetchReport} variant="outline" size="sm" disabled={loading}>
+          {loading ? "Loading..." : "Reload"}
+        </Button>
+      </div>
 
       {/* Metric Cards Row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

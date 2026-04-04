@@ -5,11 +5,11 @@ export default defineConfig({
   fullyParallel: true,
   retries: 0,
   use: {
-    baseURL: "http://localhost:3456",
+    baseURL: "http://localhost:3000",
   },
   webServer: {
-    command: "npx serve out -l 3456",
-    port: 3456,
+    command: "npx next start -p 3000",
+    port: 3000,
     reuseExistingServer: true,
   },
   projects: [

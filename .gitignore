@@ -50,3 +50,4 @@ __pycache__/
 # Pipeline data (downloaded at build time)
 src/lib/report-data.json
 pipeline/.sync_state.json
+.wrangler/
