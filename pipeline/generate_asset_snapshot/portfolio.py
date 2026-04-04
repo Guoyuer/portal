@@ -17,14 +17,6 @@ def _parse_currency(val: str) -> float:
     return float(CURRENCY_RE.sub("", val))
 
 
-def _parse_pct(val: str) -> float:
-    """Parse a percentage string like '+10.46%' to float."""
-    val = val.strip().rstrip("%")
-    if not val or val == "--":
-        return 0.0
-    return float(val.replace("+", ""))
-
-
 def _parse_rows(
     reader: csv.DictReader[str], config: Config
 ) -> tuple[dict[str, float], dict[str, int], dict[str, float], dict[str, float], dict[str, float]]:

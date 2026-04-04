@@ -509,10 +509,17 @@ def _build_cross_reconciliation(
 def _build_annual_summary(
     cashflow: list[QianjiRecord],
     config: Config,
+    report_month: str = "",
 ) -> AnnualSummary | None:
-    """Build annual expense/income summary for the current year."""
-    now = datetime.now()
-    year = now.year
+    """Build annual expense/income summary for the given year.
+
+    Uses the year from report_month (e.g. '2026-03') if provided,
+    otherwise falls back to the current year.
+    """
+    if report_month and len(report_month) >= 4:
+        year = int(report_month[:4])
+    else:
+        year = datetime.now().year
 
     expense_by_cat: dict[str, float] = defaultdict(float)
     expense_counts: dict[str, int] = defaultdict(int)
@@ -594,7 +601,7 @@ def build_report(
         balance_sheet = _build_balance_sheet_from_portfolio(portfolio, config)
 
     cashflow_data = _build_cashflow(cashflow, config, report_month) if cashflow else None
-    annual_summary = _build_annual_summary(cashflow, config) if cashflow else None
+    annual_summary = _build_annual_summary(cashflow, config, report_month) if cashflow else None
     cross_reconciliation_data = (
         _build_cross_reconciliation(transactions, cashflow, config) if transactions and cashflow else None
     )
