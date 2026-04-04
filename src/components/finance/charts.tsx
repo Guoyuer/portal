@@ -78,8 +78,8 @@ export function AllocationDonut({
         </ResponsiveContainer>
         {/* Center label — positioned with CSS, not SVG <text> */}
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-          <span className="text-xl font-bold text-gray-800">{fmtK(total)}</span>
-          <span className="text-xs text-gray-400">Total</span>
+          <span className="text-xl font-bold text-foreground">{fmtK(total)}</span>
+          <span className="text-xs text-muted-foreground">Total</span>
         </div>
       </div>
       {/* Legend — clean grid below */}
@@ -87,7 +87,7 @@ export function AllocationDonut({
         {data.map((d, i) => (
           <div key={d.name} className="flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
-            <span className="text-gray-600">{d.name} {d.pct.toFixed(0)}%</span>
+            <span className="text-muted-foreground">{d.name} {d.pct.toFixed(0)}%</span>
           </div>
         ))}
       </div>

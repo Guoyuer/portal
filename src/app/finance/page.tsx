@@ -43,7 +43,7 @@ function TickerTable({
         </TableHeader>
         <TableBody>
           {top.map(([symbol, trades, total]) => (
-            <TableRow key={symbol} className="even:bg-gray-50">
+            <TableRow key={symbol} className="even:bg-muted/50">
               <TableCell className="font-mono">{symbol}</TableCell>
               <TableCell className="text-right">{trades}</TableCell>
               <TableCell className="text-right">
@@ -63,7 +63,7 @@ function TickerTable({
                       {rest.map(([symbol, trades, total]) => (
                         <tr
                           key={symbol}
-                          className="border-b border-gray-100 even:bg-gray-50"
+                          className="border-b border-border even:bg-muted/50"
                         >
                           <td className="px-2 py-1.5 font-mono text-muted-foreground">
                             {symbol}
@@ -98,7 +98,7 @@ function SectionHeader({ children }: { children: React.ReactNode }) {
 
 function SectionBody({ children }: { children: React.ReactNode }) {
   return (
-    <div className="border border-gray-200 rounded-b-md p-4">{children}</div>
+    <div className="border border-border rounded-b-md p-4">{children}</div>
   );
 }
 
@@ -255,7 +255,7 @@ export default function FinancePage() {
               {/* Equity categories */}
               {r.equityCategories.map((cat) => (
                 <>
-                  <TableRow key={cat.name} className="even:bg-gray-50">
+                  <TableRow key={cat.name} className="even:bg-muted/50">
                     <TableCell className="font-medium">{cat.name}</TableCell>
                     <TableCell className="text-right">
                       {fmtCurrency(cat.value)}
@@ -271,7 +271,7 @@ export default function FinancePage() {
                   {cat.subtypes.map((sub) => (
                     <TableRow
                       key={`${cat.name}-${sub.name}`}
-                      className="even:bg-gray-50"
+                      className="even:bg-muted/50"
                     >
                       <TableCell className="text-muted-foreground">
                         &nbsp;&nbsp;
@@ -291,7 +291,7 @@ export default function FinancePage() {
               ))}
 
               {/* Non-Equity group header */}
-              <TableRow className="bg-gray-100">
+              <TableRow className="bg-muted">
                 <TableCell
                   colSpan={5}
                   className="font-semibold text-muted-foreground"
@@ -300,7 +300,7 @@ export default function FinancePage() {
                 </TableCell>
               </TableRow>
               {r.nonEquityCategories.map((cat) => (
-                <TableRow key={cat.name} className="even:bg-gray-50">
+                <TableRow key={cat.name} className="even:bg-muted/50">
                   <TableCell className="font-medium">{cat.name}</TableCell>
                   <TableCell className="text-right">
                     {fmtCurrency(cat.value)}
@@ -316,7 +316,7 @@ export default function FinancePage() {
               ))}
 
               {/* Total row */}
-              <TableRow className="font-bold border-t-2 border-b-2 border-gray-800">
+              <TableRow className="font-bold border-t-2 border-b-2 border-foreground/20">
                 <TableCell>Total</TableCell>
                 <TableCell className="text-right">
                   {fmtCurrency(totalValue)}
@@ -363,7 +363,7 @@ export default function FinancePage() {
                     {r.cashflow.incomeItems.map((item) => (
                       <TableRow
                         key={item.category}
-                        className="even:bg-gray-50"
+                        className="even:bg-muted/50"
                       >
                         <TableCell>{item.category}</TableCell>
                         <TableCell className="text-right">
@@ -374,7 +374,7 @@ export default function FinancePage() {
                         </TableCell>
                       </TableRow>
                     ))}
-                    <TableRow className="font-bold border-t-2 border-b-2 border-gray-800">
+                    <TableRow className="font-bold border-t-2 border-b-2 border-foreground/20">
                       <TableCell>Total</TableCell>
                       <TableCell />
                       <TableCell className="text-right">
@@ -412,7 +412,7 @@ export default function FinancePage() {
                         {major.map((item) => (
                           <TableRow
                             key={item.category}
-                            className="even:bg-gray-50"
+                            className="even:bg-muted/50"
                           >
                             <TableCell>{item.category}</TableCell>
                             <TableCell className="text-right">
@@ -435,7 +435,7 @@ export default function FinancePage() {
                                     {minor.map((item) => (
                                       <tr
                                         key={item.category}
-                                        className="border-b border-gray-100 even:bg-gray-50"
+                                        className="border-b border-border even:bg-muted/50"
                                       >
                                         <td className="px-2 py-1.5 text-muted-foreground">
                                           {item.category}
@@ -454,7 +454,7 @@ export default function FinancePage() {
                             </TableCell>
                           </TableRow>
                         )}
-                        <TableRow className="font-bold border-t-2 border-b-2 border-gray-800">
+                        <TableRow className="font-bold border-t-2 border-b-2 border-foreground/20">
                           <TableCell>Total</TableCell>
                           <TableCell />
                           <TableCell className="text-right">
@@ -473,25 +473,25 @@ export default function FinancePage() {
               <h3 className="font-semibold mb-2">Summary</h3>
               <Table>
                 <TableBody>
-                  <TableRow className="even:bg-gray-50">
+                  <TableRow className="even:bg-muted/50">
                     <TableCell className="font-medium">Net Cash Flow</TableCell>
                     <TableCell className="text-right text-green-600 font-semibold">
                       {fmtCurrency(r.cashflow.netCashflow)}
                     </TableCell>
                   </TableRow>
-                  <TableRow className="even:bg-gray-50">
+                  <TableRow className="even:bg-muted/50">
                     <TableCell className="font-medium">Invested</TableCell>
                     <TableCell className="text-right">
                       {fmtCurrency(r.cashflow.invested)}
                     </TableCell>
                   </TableRow>
-                  <TableRow className="even:bg-gray-50">
+                  <TableRow className="even:bg-muted/50">
                     <TableCell className="font-medium">CC Payments</TableCell>
                     <TableCell className="text-right">
                       {fmtCurrency(r.cashflow.creditCardPayments)}
                     </TableCell>
                   </TableRow>
-                  <TableRow className="even:bg-gray-50">
+                  <TableRow className="even:bg-muted/50">
                     <TableCell className="font-medium">
                       Gross Savings Rate
                     </TableCell>
@@ -501,7 +501,7 @@ export default function FinancePage() {
                       </Badge>
                     </TableCell>
                   </TableRow>
-                  <TableRow className="even:bg-gray-50">
+                  <TableRow className="even:bg-muted/50">
                     <TableCell className="font-medium">
                       Take-home Savings Rate
                     </TableCell>
@@ -554,7 +554,7 @@ export default function FinancePage() {
                   { label: "Interest", amount: r.activity.interestTotal },
                   { label: "Foreign Tax", amount: r.activity.foreignTaxTotal },
                 ].filter((row) => row.amount !== 0).map((row) => (
-                  <TableRow key={row.label} className="even:bg-gray-50">
+                  <TableRow key={row.label} className="even:bg-muted/50">
                     <TableCell className="font-medium">{row.label}</TableCell>
                     <TableCell
                       className={`text-right ${row.amount >= 0 ? "text-green-600" : "text-red-500"}`}
@@ -598,14 +598,14 @@ export default function FinancePage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    <TableRow className="even:bg-gray-50">
+                    <TableRow className="even:bg-muted/50">
                       <TableCell className="font-medium">Investments (Fidelity)</TableCell>
                       <TableCell className="text-right">
                         {fmtCurrency(r.balanceSheet.investmentTotal)}
                       </TableCell>
                     </TableRow>
                     {r.balanceSheet.accounts.map((a) => (
-                      <TableRow key={a.name} className="even:bg-gray-50">
+                      <TableRow key={a.name} className="even:bg-muted/50">
                         <TableCell
                           className={a.currency === "CNY" ? "pl-6 text-muted-foreground" : ""}
                         >
@@ -618,7 +618,7 @@ export default function FinancePage() {
                         </TableCell>
                       </TableRow>
                     ))}
-                    <TableRow className="font-bold border-t-2 border-b-2 border-gray-800">
+                    <TableRow className="font-bold border-t-2 border-b-2 border-foreground/20">
                       <TableCell>Total Assets</TableCell>
                       <TableCell className="text-right">
                         {fmtCurrency(r.balanceSheet.totalAssets)}
@@ -640,14 +640,14 @@ export default function FinancePage() {
                   </TableHeader>
                   <TableBody>
                     {r.balanceSheet.creditCards.map((l) => (
-                      <TableRow key={l.name} className="even:bg-gray-50">
+                      <TableRow key={l.name} className="even:bg-muted/50">
                         <TableCell>{l.name}</TableCell>
                         <TableCell className="text-right text-red-500">
                           {fmtCurrency(l.balance)}
                         </TableCell>
                       </TableRow>
                     ))}
-                    <TableRow className="font-bold border-t-2 border-b-2 border-gray-800">
+                    <TableRow className="font-bold border-t-2 border-b-2 border-foreground/20">
                       <TableCell>Total Liabilities</TableCell>
                       <TableCell className="text-right text-red-500">
                         {fmtCurrency(r.balanceSheet.totalLiabilities)}
@@ -659,7 +659,7 @@ export default function FinancePage() {
             </div>
 
             {/* Net Worth total */}
-            <div className="mt-4 flex justify-between items-center px-2 py-3 border-t-2 border-b-2 border-gray-800 font-bold text-lg">
+            <div className="mt-4 flex justify-between items-center px-2 py-3 border-t-2 border-b-2 border-foreground/20 font-bold text-lg">
               <span>Net Worth</span>
               <span>{fmtCurrency(r.balanceSheet.netWorth)}</span>
             </div>
@@ -687,7 +687,7 @@ export default function FinancePage() {
                   </TableHeader>
                   <TableBody>
                     {r.market.indices.map((idx) => (
-                      <TableRow key={idx.ticker} className="even:bg-gray-50">
+                      <TableRow key={idx.ticker} className="even:bg-muted/50">
                         <TableCell className="font-medium">
                           {idx.name}{" "}
                           <span className="text-muted-foreground font-mono text-xs">
@@ -758,7 +758,7 @@ export default function FinancePage() {
                     {indicators.map((ind) => (
                       <div
                         key={ind.label}
-                        className="flex justify-between py-1.5 border-b border-gray-100"
+                        className="flex justify-between py-1.5 border-b border-border"
                       >
                         <span className="text-muted-foreground">{ind.label}</span>
                         <span className={`font-medium ${ind.color ?? ""}`}>
@@ -794,7 +794,7 @@ export default function FinancePage() {
                   </TableHeader>
                   <TableBody>
                     {r.holdingsDetail.topPerformers.slice(0, 5).map((s) => (
-                      <TableRow key={s.ticker} className="even:bg-gray-50">
+                      <TableRow key={s.ticker} className="even:bg-muted/50">
                         <TableCell className="font-mono">{s.ticker}</TableCell>
                         <TableCell
                           className={`text-right ${s.monthReturn >= 0 ? "text-green-600" : "text-red-500"}`}
@@ -831,7 +831,7 @@ export default function FinancePage() {
                   </TableHeader>
                   <TableBody>
                     {r.holdingsDetail.bottomPerformers.slice(0, 5).map((s) => (
-                      <TableRow key={s.ticker} className="even:bg-gray-50">
+                      <TableRow key={s.ticker} className="even:bg-muted/50">
                         <TableCell className="font-mono">{s.ticker}</TableCell>
                         <TableCell
                           className={`text-right ${s.monthReturn >= 0 ? "text-green-600" : "text-red-500"}`}
