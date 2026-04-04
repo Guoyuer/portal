@@ -103,10 +103,13 @@ export function IncomeExpensesChart({
   data: MonthlyFlowPoint[];
 }) {
   // Skip months with zero income (likely incomplete)
-  const filtered = data.filter((d) => d.income > 0);
+  const all = data.filter((d) => d.income > 0);
+  // On small screens, show last 12 months to avoid overcrowding
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 640;
+  const filtered = isMobile ? all.slice(-12) : all;
 
   return (
-    <ResponsiveContainer width="100%" height={320}>
+    <ResponsiveContainer width="100%" height={isMobile ? 260 : 320}>
       <ComposedChart data={filtered} margin={{ top: 10, right: 40, left: 10, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
         <XAxis

@@ -159,11 +159,11 @@ export default function FinancePage() {
   return (
     <div className="max-w-5xl mx-auto space-y-8">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold tracking-tight">
+      <div className="flex items-start sm:items-center justify-between gap-2">
+        <h1 className="text-xl sm:text-2xl font-bold tracking-tight">
           Portfolio Snapshot &mdash; {r.date}
         </h1>
-        <Button onClick={fetchReport} variant="outline" size="sm" disabled={loading}>
+        <Button onClick={fetchReport} variant="outline" size="sm" disabled={loading} className="flex-shrink-0">
           {loading ? "Loading..." : "Reload"}
         </Button>
       </div>
@@ -205,12 +205,12 @@ export default function FinancePage() {
           </CardHeader>
           <CardContent>
             {r.cashflow ? (
-              <div className="flex items-baseline gap-2">
+              <div>
                 <p className="text-2xl font-bold text-green-600">
                   {Math.round(r.cashflow.savingsRate)}%
                 </p>
-                <p className="text-sm text-muted-foreground">
-                  / {Math.round(r.cashflow.takehomeSavingsRate)}% take-home
+                <p className="text-xs text-muted-foreground">
+                  {Math.round(r.cashflow.takehomeSavingsRate)}% take-home
                 </p>
               </div>
             ) : (
@@ -247,7 +247,7 @@ export default function FinancePage() {
         <SectionHeader>Category Summary</SectionHeader>
         <SectionBody>
           <div className="flex flex-col lg:flex-row gap-6">
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0 overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
