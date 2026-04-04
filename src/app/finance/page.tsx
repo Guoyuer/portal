@@ -1,4 +1,5 @@
-import { sampleReport } from "@/lib/sample-data";
+import reportJson from "@/lib/sample-report.json";
+import type { ReportData } from "@/lib/types";
 import { fmtCurrency, fmtCurrencyShort, fmtPct, fmtYuan } from "@/lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -11,8 +12,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 
-import type { TickerAggregation } from "@/lib/types";
-
+const report = reportJson as unknown as ReportData;
 const MAJOR_EXPENSE_THRESHOLD = 200;
 const ACTIVITY_TOP_SYMBOLS = 5;
 
@@ -21,11 +21,11 @@ function TickerTable({
   data,
 }: {
   title: string;
-  data: TickerAggregation[];
+  data: [string, number, number][]; // [symbol, trades, total]
 }) {
   const top = data.slice(0, ACTIVITY_TOP_SYMBOLS);
   const rest = data.slice(ACTIVITY_TOP_SYMBOLS);
-  const restTotal = rest.reduce((s, t) => s + t.total, 0);
+  const restTotal = rest.reduce((s, t) => s + t[2], 0);
   return (
     <div>
       <h3 className="font-semibold mb-2">{title}</h3>
@@ -38,12 +38,12 @@ function TickerTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {top.map((t) => (
-            <TableRow key={t.symbol} className="even:bg-gray-50">
-              <TableCell className="font-mono">{t.symbol}</TableCell>
-              <TableCell className="text-right">{t.trades}</TableCell>
+          {top.map(([symbol, trades, total]) => (
+            <TableRow key={symbol} className="even:bg-gray-50">
+              <TableCell className="font-mono">{symbol}</TableCell>
+              <TableCell className="text-right">{trades}</TableCell>
               <TableCell className="text-right">
-                {fmtCurrency(t.total)}
+                {fmtCurrency(total)}
               </TableCell>
             </TableRow>
           ))}
@@ -56,19 +56,19 @@ function TickerTable({
                   </summary>
                   <table className="w-full text-sm">
                     <tbody>
-                      {rest.map((t) => (
+                      {rest.map(([symbol, trades, total]) => (
                         <tr
-                          key={t.symbol}
+                          key={symbol}
                           className="border-b border-gray-100 even:bg-gray-50"
                         >
                           <td className="px-2 py-1.5 font-mono text-muted-foreground">
-                            {t.symbol}
+                            {symbol}
                           </td>
                           <td className="px-2 py-1.5 text-right text-muted-foreground">
-                            {t.trades}
+                            {trades}
                           </td>
                           <td className="px-2 py-1.5 text-right text-muted-foreground">
-                            {fmtCurrency(t.total)}
+                            {fmtCurrency(total)}
                           </td>
                         </tr>
                       ))}
@@ -109,10 +109,9 @@ function DeviationCell({ value }: { value: number }) {
 }
 
 export default function FinancePage() {
-  const r = sampleReport;
+  const r = report;
   const allCategories = [...r.equityCategories, ...r.nonEquityCategories];
   const totalValue = allCategories.reduce((s, c) => s + c.value, 0);
-  const totalLots = allCategories.reduce((s, c) => s + c.lots, 0);
   const totalPct = allCategories.reduce((s, c) => s + c.pct, 0);
   const totalTarget = allCategories.reduce((s, c) => s + c.target, 0);
   const totalDeviation = totalPct - totalTarget;
@@ -143,7 +142,7 @@ export default function FinancePage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold">{fmtCurrency(r.netWorth)}</p>
+            <p className="text-2xl font-bold">{fmtCurrency(r.balanceSheet?.netWorth ?? r.total)}</p>
           </CardContent>
         </Card>
         <Card>
@@ -154,7 +153,7 @@ export default function FinancePage() {
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold text-green-600">
-              {Math.round(r.savingsRate)}%
+              {r.cashflow ? `${Math.round(r.cashflow.savingsRate)}%` : "N/A"}
             </p>
           </CardContent>
         </Card>
@@ -461,16 +460,21 @@ export default function FinancePage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Type</TableHead>
-                  <TableHead className="text-right">Count</TableHead>
+                  <TableHead>Metric</TableHead>
                   <TableHead className="text-right">Amount</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {r.activity.summary.map((row) => (
+                {[
+                  { label: "Net Cash In", amount: r.activity.netCashIn },
+                  { label: "Net Deployed", amount: r.activity.netDeployed },
+                  { label: "Net Passive Income", amount: r.activity.netPassive },
+                  { label: "Reinvestments", amount: r.activity.reinvestmentsTotal },
+                  { label: "Interest", amount: r.activity.interestTotal },
+                  { label: "Foreign Tax", amount: r.activity.foreignTaxTotal },
+                ].filter((row) => row.amount !== 0).map((row) => (
                   <TableRow key={row.label} className="even:bg-gray-50">
                     <TableCell className="font-medium">{row.label}</TableCell>
-                    <TableCell className="text-right">{row.count}</TableCell>
                     <TableCell
                       className={`text-right ${row.amount >= 0 ? "text-green-600" : "text-red-500"}`}
                     >
@@ -484,12 +488,12 @@ export default function FinancePage() {
             {/* Buys by Ticker and Dividends by Ticker */}
             <div className="grid md:grid-cols-2 gap-6 mt-6">
               <TickerTable
-                title="Buys by Ticker"
-                data={r.activity.buysByTicker}
+                title="Buys by Symbol"
+                data={r.activity.buysBySymbol}
               />
               <TickerTable
-                title="Dividends by Ticker"
-                data={r.activity.dividendsByTicker}
+                title="Dividends by Symbol"
+                data={r.activity.dividendsBySymbol}
               />
             </div>
           </SectionBody>
@@ -513,10 +517,16 @@ export default function FinancePage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {r.balanceSheet.assets.map((a) => (
+                    <TableRow className="even:bg-gray-50">
+                      <TableCell className="font-medium">Investments (Fidelity)</TableCell>
+                      <TableCell className="text-right">
+                        {fmtCurrency(r.balanceSheet.investmentTotal)}
+                      </TableCell>
+                    </TableRow>
+                    {r.balanceSheet.accounts.map((a) => (
                       <TableRow key={a.name} className="even:bg-gray-50">
                         <TableCell
-                          className={a.indent ? "pl-6 text-muted-foreground" : ""}
+                          className={a.currency === "CNY" ? "pl-6 text-muted-foreground" : ""}
                         >
                           {a.name}
                         </TableCell>
@@ -548,7 +558,7 @@ export default function FinancePage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {r.balanceSheet.liabilities.map((l) => (
+                    {r.balanceSheet.creditCards.map((l) => (
                       <TableRow key={l.name} className="even:bg-gray-50">
                         <TableCell>{l.name}</TableCell>
                         <TableCell className="text-right text-red-500">
