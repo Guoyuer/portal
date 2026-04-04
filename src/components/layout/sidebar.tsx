@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import ThemeToggle from "@/components/layout/theme-toggle";
 
 const navItems = [
   {
@@ -135,6 +136,9 @@ export default function Sidebar() {
           </span>
         </div>
         {nav}
+        <div className="mt-auto px-3 pb-4">
+          <ThemeToggle />
+        </div>
       </aside>
 
       {/* Mobile hamburger button */}
@@ -189,6 +193,9 @@ export default function Sidebar() {
           </span>
         </div>
         {nav}
+        <div className="mt-auto px-3 pb-4">
+          <ThemeToggle />
+        </div>
       </aside>
     </>
   );

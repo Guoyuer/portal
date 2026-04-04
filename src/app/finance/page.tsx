@@ -666,6 +666,210 @@ export default function FinancePage() {
           </SectionBody>
         </section>
       )}
+
+      {/* Market Context */}
+      {r.market && (
+        <section>
+          <SectionHeader>Market Context</SectionHeader>
+          <SectionBody>
+            {/* Index Returns */}
+            {r.market.indices.length > 0 && (
+              <div>
+                <h3 className="font-semibold mb-2">Index Returns</h3>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Index</TableHead>
+                      <TableHead className="text-right">Current</TableHead>
+                      <TableHead className="text-right">Month</TableHead>
+                      <TableHead className="text-right">YTD</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {r.market.indices.map((idx) => (
+                      <TableRow key={idx.ticker} className="even:bg-gray-50">
+                        <TableCell className="font-medium">
+                          {idx.name}{" "}
+                          <span className="text-muted-foreground font-mono text-xs">
+                            {idx.ticker}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {fmtCurrency(idx.current)}
+                        </TableCell>
+                        <TableCell
+                          className={`text-right ${idx.monthReturn >= 0 ? "text-green-600" : "text-red-500"}`}
+                        >
+                          {fmtPct(idx.monthReturn)}
+                        </TableCell>
+                        <TableCell
+                          className={`text-right ${idx.ytdReturn >= 0 ? "text-green-600" : "text-red-500"}`}
+                        >
+                          {fmtPct(idx.ytdReturn)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+
+            {/* Macro Indicators */}
+            {(() => {
+              const m = r.market!;
+              const indicators: { label: string; value: string; color?: string }[] = [];
+              if (m.fedRate != null)
+                indicators.push({ label: "Fed Rate", value: fmtPct(m.fedRate, false) });
+              if (m.treasury10y != null)
+                indicators.push({ label: "10Y Treasury", value: fmtPct(m.treasury10y, false) });
+              if (m.cpi != null)
+                indicators.push({ label: "CPI", value: fmtPct(m.cpi, false) });
+              if (m.unemployment != null)
+                indicators.push({ label: "Unemployment", value: fmtPct(m.unemployment, false) });
+              if (m.vix != null)
+                indicators.push({ label: "VIX", value: m.vix.toFixed(1) });
+              if (m.dxy != null)
+                indicators.push({ label: "DXY", value: m.dxy.toFixed(1) });
+              if (m.usdCny != null)
+                indicators.push({ label: "USD/CNY", value: m.usdCny.toFixed(4) });
+              if (m.goldReturn != null)
+                indicators.push({
+                  label: "Gold",
+                  value: fmtPct(m.goldReturn),
+                  color: m.goldReturn >= 0 ? "text-green-600" : "text-red-500",
+                });
+              if (m.btcReturn != null)
+                indicators.push({
+                  label: "Bitcoin",
+                  value: fmtPct(m.btcReturn),
+                  color: m.btcReturn >= 0 ? "text-green-600" : "text-red-500",
+                });
+              if (m.portfolioMonthReturn != null)
+                indicators.push({
+                  label: "Portfolio",
+                  value: fmtPct(m.portfolioMonthReturn),
+                  color: m.portfolioMonthReturn >= 0 ? "text-green-600" : "text-red-500",
+                });
+              if (indicators.length === 0) return null;
+              return (
+                <div className="mt-6">
+                  <h3 className="font-semibold mb-2">Macro Indicators</h3>
+                  <div className="grid grid-cols-2 gap-x-8 gap-y-2">
+                    {indicators.map((ind) => (
+                      <div
+                        key={ind.label}
+                        className="flex justify-between py-1.5 border-b border-gray-100"
+                      >
+                        <span className="text-muted-foreground">{ind.label}</span>
+                        <span className={`font-medium ${ind.color ?? ""}`}>
+                          {ind.value}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+          </SectionBody>
+        </section>
+      )}
+
+      {/* Holdings Detail */}
+      {r.holdingsDetail && (
+        <section>
+          <SectionHeader>Holdings Detail</SectionHeader>
+          <SectionBody>
+            {/* Top Performers */}
+            {r.holdingsDetail.topPerformers.length > 0 && (
+              <div className="mb-6">
+                <h3 className="font-semibold mb-2">Top Performers</h3>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Ticker</TableHead>
+                      <TableHead className="text-right">Month Return</TableHead>
+                      <TableHead className="text-right">Value</TableHead>
+                      <TableHead className="text-right">vs 52W High</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {r.holdingsDetail.topPerformers.slice(0, 5).map((s) => (
+                      <TableRow key={s.ticker} className="even:bg-gray-50">
+                        <TableCell className="font-mono">{s.ticker}</TableCell>
+                        <TableCell
+                          className={`text-right ${s.monthReturn >= 0 ? "text-green-600" : "text-red-500"}`}
+                        >
+                          {fmtPct(s.monthReturn)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {fmtCurrency(s.endValue)}
+                        </TableCell>
+                        <TableCell
+                          className={`text-right ${s.vsHigh != null && s.vsHigh >= 0 ? "text-green-600" : "text-red-500"}`}
+                        >
+                          {s.vsHigh != null ? fmtPct(s.vsHigh) : "N/A"}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+
+            {/* Bottom Performers */}
+            {r.holdingsDetail.bottomPerformers.length > 0 && (
+              <div className="mb-6">
+                <h3 className="font-semibold mb-2">Bottom Performers</h3>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Ticker</TableHead>
+                      <TableHead className="text-right">Month Return</TableHead>
+                      <TableHead className="text-right">Value</TableHead>
+                      <TableHead className="text-right">vs 52W High</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {r.holdingsDetail.bottomPerformers.slice(0, 5).map((s) => (
+                      <TableRow key={s.ticker} className="even:bg-gray-50">
+                        <TableCell className="font-mono">{s.ticker}</TableCell>
+                        <TableCell
+                          className={`text-right ${s.monthReturn >= 0 ? "text-green-600" : "text-red-500"}`}
+                        >
+                          {fmtPct(s.monthReturn)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {fmtCurrency(s.endValue)}
+                        </TableCell>
+                        <TableCell
+                          className={`text-right ${s.vsHigh != null && s.vsHigh >= 0 ? "text-green-600" : "text-red-500"}`}
+                        >
+                          {s.vsHigh != null ? fmtPct(s.vsHigh) : "N/A"}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+
+            {/* Upcoming Earnings */}
+            {r.holdingsDetail.upcomingEarnings.length > 0 && (
+              <div>
+                <h3 className="font-semibold mb-2">Upcoming Earnings</h3>
+                <ul className="space-y-1 text-sm">
+                  {r.holdingsDetail.upcomingEarnings.map((s) => (
+                    <li key={s.ticker}>
+                      <span className="font-mono font-medium">{s.ticker}</span>
+                      <span className="text-muted-foreground"> &mdash; {s.nextEarnings}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </SectionBody>
+        </section>
+      )}
     </div>
   );
 }
