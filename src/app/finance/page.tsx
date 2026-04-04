@@ -31,7 +31,7 @@ function TickerTable({
   const rest = data.slice(ACTIVITY_TOP_SYMBOLS);
   const restTotal = rest.reduce((s, t) => s + t[2], 0);
   return (
-    <div>
+    <div className="overflow-x-auto">
       <h3 className="font-semibold mb-2">{title}</h3>
       <Table>
         <TableHeader>
@@ -252,7 +252,7 @@ export default function FinancePage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Category</TableHead>
-                <TableHead className="text-right">Value</TableHead>
+                <TableHead className="text-right hidden sm:table-cell">Value</TableHead>
                 <TableHead className="text-right">Actual</TableHead>
                 <TableHead className="text-right">Target</TableHead>
                 <TableHead className="text-right">Deviation</TableHead>
@@ -264,7 +264,7 @@ export default function FinancePage() {
                 <>
                   <TableRow key={cat.name} className="even:bg-muted/50">
                     <TableCell className="font-medium">{cat.name}</TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-right hidden sm:table-cell">
                       {fmtCurrency(cat.value)}
                     </TableCell>
                     <TableCell className="text-right">
@@ -284,7 +284,7 @@ export default function FinancePage() {
                         &nbsp;&nbsp;
                         <em>{sub.name}</em>
                       </TableCell>
-                      <TableCell className="text-right text-muted-foreground">
+                      <TableCell className="text-right text-muted-foreground hidden sm:table-cell">
                         {fmtCurrency(sub.value)}
                       </TableCell>
                       <TableCell className="text-right text-muted-foreground">
@@ -309,7 +309,7 @@ export default function FinancePage() {
               {r.nonEquityCategories.map((cat) => (
                 <TableRow key={cat.name} className="even:bg-muted/50">
                   <TableCell className="font-medium">{cat.name}</TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="text-right hidden sm:table-cell">
                     {fmtCurrency(cat.value)}
                   </TableCell>
                   <TableCell className="text-right">
@@ -325,7 +325,7 @@ export default function FinancePage() {
               {/* Total row */}
               <TableRow className="font-bold border-t-2 border-b-2 border-foreground/20">
                 <TableCell>Total</TableCell>
-                <TableCell className="text-right">
+                <TableCell className="text-right hidden sm:table-cell">
                   {fmtCurrency(totalValue)}
                 </TableCell>
                 <TableCell className="text-right">
@@ -595,7 +595,7 @@ export default function FinancePage() {
           <SectionBody>
             <div className="grid md:grid-cols-2 gap-6">
               {/* Assets */}
-              <div>
+              <div className="overflow-x-auto">
                 <h3 className="font-semibold mb-2">Assets</h3>
                 <Table>
                   <TableHeader>
@@ -636,7 +636,7 @@ export default function FinancePage() {
               </div>
 
               {/* Liabilities */}
-              <div>
+              <div className="overflow-x-auto">
                 <h3 className="font-semibold mb-2">Liabilities</h3>
                 <Table>
                   <TableHeader>
@@ -666,7 +666,7 @@ export default function FinancePage() {
             </div>
 
             {/* Net Worth total */}
-            <div className="mt-4 flex justify-between items-center px-2 py-3 border-t-2 border-b-2 border-foreground/20 font-bold text-lg">
+            <div className="mt-4 flex flex-wrap justify-between items-center gap-2 px-2 py-3 border-t-2 border-b-2 border-foreground/20 font-bold text-lg">
               <span>Net Worth</span>
               <span>{fmtCurrency(r.balanceSheet.netWorth)}</span>
             </div>
@@ -761,7 +761,7 @@ export default function FinancePage() {
               return (
                 <div className="mt-6">
                   <h3 className="font-semibold mb-2">Macro Indicators</h3>
-                  <div className="grid grid-cols-2 gap-x-8 gap-y-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2">
                     {indicators.map((ind) => (
                       <div
                         key={ind.label}

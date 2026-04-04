@@ -110,7 +110,10 @@ export function IncomeExpensesChart({
 
   return (
     <ResponsiveContainer width="100%" height={isMobile ? 260 : 320}>
-      <ComposedChart data={filtered} margin={{ top: 10, right: 40, left: 10, bottom: 0 }}>
+      <ComposedChart
+        data={filtered}
+        margin={{ top: 10, right: isMobile ? 5 : 40, left: isMobile ? -5 : 10, bottom: 0 }}
+      >
         <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
         <XAxis
           dataKey="month"
@@ -123,17 +126,19 @@ export function IncomeExpensesChart({
           tickFormatter={fmtK}
           fontSize={11}
           tick={{ fill: "#9ca3af" }}
-          width={50}
+          width={isMobile ? 38 : 50}
         />
-        <YAxis
-          yAxisId="pct"
-          orientation="right"
-          tickFormatter={(v: number) => `${v.toFixed(0)}%`}
-          fontSize={11}
-          tick={{ fill: "#2563eb" }}
-          domain={[0, 100]}
-          width={40}
-        />
+        {!isMobile && (
+          <YAxis
+            yAxisId="pct"
+            orientation="right"
+            tickFormatter={(v: number) => `${v.toFixed(0)}%`}
+            fontSize={11}
+            tick={{ fill: "#2563eb" }}
+            domain={[0, 100]}
+            width={40}
+          />
+        )}
         <Tooltip
           formatter={(value, name) => {
             const v = Number(value);
@@ -146,13 +151,14 @@ export function IncomeExpensesChart({
         <Bar yAxisId="dollar" dataKey="income" name="Income" fill="#27ae60" opacity={0.85} radius={[2, 2, 0, 0]} />
         <Bar yAxisId="dollar" dataKey="expenses" name="Expenses" fill="#e94560" opacity={0.85} radius={[2, 2, 0, 0]} />
         <Line
-          yAxisId="pct"
+          yAxisId={isMobile ? "dollar" : "pct"}
           dataKey="savingsRate"
           name="Savings %"
           stroke="#2563eb"
           strokeWidth={2}
           strokeDasharray="4 3"
           dot={false}
+          hide={isMobile}
         />
       </ComposedChart>
     </ResponsiveContainer>
