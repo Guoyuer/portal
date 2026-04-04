@@ -112,6 +112,34 @@ def _upload_meta(positions_path: Path | None, *, dry_run: bool = False) -> None:
         print(f"  [dry-run] sync_meta.json -> r2://{_BUCKET}/latest/sync_meta.json")
 
 
+# ── macOS notification ───────────────────────────────────────────────────────
+
+
+def _file_date(path: Path | None) -> str:
+    """Return human-readable modification date, or '?' if missing."""
+    if not path or not path.exists():
+        return "?"
+    mtime = datetime.fromtimestamp(path.stat().st_mtime)
+    return mtime.strftime("%b %d %H:%M")
+
+
+def _notify(uploaded: int, positions: Path | None, history: Path | None) -> None:
+    """Send macOS notification with sync summary."""
+    db_date = _file_date(_QIANJI_DB if _QIANJI_DB.exists() else None)
+    pos_date = _file_date(positions)
+    hist_date = _file_date(history)
+
+    if uploaded > 0:
+        body = f"Uploaded {uploaded} file(s)\\nDB: {db_date} | Pos: {pos_date} | Hist: {hist_date}"
+    else:
+        body = f"All files unchanged\\nDB: {db_date} | Pos: {pos_date} | Hist: {hist_date}"
+
+    subprocess.run(
+        ["osascript", "-e", f'display notification "{body}" with title "Portal Sync"'],
+        capture_output=True,
+    )
+
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 
@@ -125,6 +153,7 @@ def main() -> None:
     state = _load_state()
     uploaded = 0
     positions_path: Path | None = None
+    history_path: Path | None = None
     now = datetime.now(tz=UTC).strftime("%Y-%m-%d %H:%M:%S")
 
     print(f"Sync started: {now}")
@@ -154,6 +183,8 @@ def main() -> None:
             if found:
                 if prefix == "Portfolio_Positions":
                     positions_path = found
+                elif prefix == "Accounts_History":
+                    history_path = found
                 _sync_file(found, remote)
             else:
                 print(f"  [skip] No {label} in {_DOWNLOADS}")
@@ -170,6 +201,10 @@ def main() -> None:
         _save_state(state)
 
     print(f"Done: {uploaded} file(s) uploaded")
+
+    # macOS notification with file dates
+    if sys.platform == "darwin" and not args.dry_run:
+        _notify(uploaded, positions_path, history_path)
 
 
 if __name__ == "__main__":
