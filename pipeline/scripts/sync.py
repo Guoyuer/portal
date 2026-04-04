@@ -73,6 +73,13 @@ def _find_latest(directory: Path, prefix: str) -> Path | None:
     return matches[0] if matches else None
 
 
+def _file_date(path: Path | None) -> str:
+    """Return human-readable modification date, or '?' if missing."""
+    if not path or not path.exists():
+        return "?"
+    return datetime.fromtimestamp(path.stat().st_mtime).strftime("%b %d %H:%M")
+
+
 # ── Upload via wrangler CLI ─────────────────────────────────────────────────
 
 
@@ -104,17 +111,12 @@ def _upload_meta(
     """Upload sync metadata with original file modification times."""
     import tempfile
 
-    def _mtime(p: Path | None) -> str:
-        if p and p.exists():
-            return datetime.fromtimestamp(p.stat().st_mtime).strftime("%b %d %H:%M")
-        return ""
-
     meta = {
         "synced_at": datetime.now(tz=UTC).isoformat(),
         "positions_file": positions_path.name if positions_path else None,
-        "positions_date": _mtime(positions_path),
-        "history_date": _mtime(history_path),
-        "qianji_date": _mtime(_QIANJI_DB if _QIANJI_DB.exists() else None),
+        "positions_date": _file_date(positions_path),
+        "history_date": _file_date(history_path),
+        "qianji_date": _file_date(_QIANJI_DB if _QIANJI_DB.exists() else None),
     }
     if not dry_run:
         tmp = Path(tempfile.mktemp(suffix=".json"))
@@ -126,14 +128,6 @@ def _upload_meta(
 
 
 # ── macOS notification ───────────────────────────────────────────────────────
-
-
-def _file_date(path: Path | None) -> str:
-    """Return human-readable modification date, or '?' if missing."""
-    if not path or not path.exists():
-        return "?"
-    mtime = datetime.fromtimestamp(path.stat().st_mtime)
-    return mtime.strftime("%b %d %H:%M")
 
 
 def _notify(uploaded: int, positions: Path | None, history: Path | None) -> None:
