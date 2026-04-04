@@ -153,6 +153,11 @@ graph TD
     style E fill:#f8f9fa,stroke:#333
 ```
 
+Charts (Recharts):
+- **Allocation donut** — 5-category pie with center total, next to Category Summary table
+- **Income vs Expenses** — grouped bars + savings rate line overlay (24 months)
+- **Net Worth Trend** — area chart (renders when historical data available)
+
 Collapsible rows (native `<details>`) for expenses < $200 and activity tickers beyond top 5.
 
 ## Tech Stack
@@ -160,15 +165,17 @@ Collapsible rows (native `<details>`) for expenses < $200 and activity tickers b
 | Layer | Choice | Why |
 |-------|--------|-----|
 | Frontend | Next.js 15 (App Router) | Marketable, React ecosystem, file-based routing |
-| Data fetch | Client-side fetch from R2 | No rebuild needed for data updates |
-| Styling | Tailwind CSS v4 + shadcn/ui | Utility-first, copy-paste components |
+| Charts | Recharts | Lightweight, React-native, ComposedChart for mixed bar+line |
+| Data fetch | Client-side fetch from R2 | No rebuild needed for data updates, Reload button |
+| Styling | Tailwind CSS v4 + shadcn/ui | Utility-first, dark mode support |
 | Fonts | Geist Sans + Geist Mono | Clean, designed for dashboards |
 | Hosting | Cloudflare Pages | Edge CDN, free tier, static shell |
 | Storage | Cloudflare R2 (public) | S3-compatible, free 10GB, CORS enabled |
+| Auth | Cloudflare Access | Zero-trust, Google login on portal.guoyuer.com |
+| Domain | guoyuer.com | Custom domain via Cloudflare Registrar |
 | Pipeline | Python 3.14 | Fidelity/Qianji parsing, Yahoo/FRED APIs |
 | CI | GitHub Actions | Python quality gates + Node build + Playwright e2e |
-| E2E Tests | Playwright (19 tests) | Full browser testing in CI |
-| Auth (planned) | Cloudflare Access | Zero-trust, Google login |
+| E2E Tests | Playwright (28 tests) | Charts, dark mode, reload, market, prod URL |
 | Database (planned) | Cloudflare D1 (SQLite) | For future modules (mail, news, econ) |
 
 ## Development
@@ -182,8 +189,8 @@ cd pipeline && python3 -m venv .venv && .venv/bin/pip install -r requirements.tx
 npm run dev              # http://localhost:3000
 
 # Run tests
-npx next build && npx playwright test        # 19 e2e tests
-cd pipeline && .venv/bin/pytest -q            # 201 Python tests
+npx next build && npx playwright test        # 28 e2e tests
+cd pipeline && .venv/bin/pytest -q            # 200 Python tests
 
 # Manual sync to R2
 cd pipeline && python3 scripts/sync.py --force
@@ -195,9 +202,11 @@ cd pipeline && python3 scripts/send_report.py --data-dir ./data --dry-run
 ## Setup (one-time)
 
 1. **Cloudflare R2**: Create bucket `asset-snapshot-data`, enable public access (r2.dev URL), set CORS to `AllowedOrigins: ["*"]`
-2. **GitHub Secrets**: `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` (Pages + R2 Edit), `GMAIL_ADDRESS`, `GMAIL_APP_PASSWORD`
-3. **Mac sync**: `wrangler login && bash pipeline/scripts/install_launchd.sh`
-4. **First sync**: `cd pipeline && python3 scripts/sync.py --force`
+2. **Custom domain**: Register domain on Cloudflare, add `portal.yourdomain.com` to Pages project
+3. **Cloudflare Access**: Zero Trust → Add Google IdP → Create Access Application for portal domain
+4. **GitHub Secrets**: `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` (Pages + R2 Edit), `GMAIL_ADDRESS`, `GMAIL_APP_PASSWORD`
+5. **Mac sync**: `wrangler login && bash pipeline/scripts/install_launchd.sh`
+6. **First sync**: `cd pipeline && python3 scripts/sync.py --force`
 
 ## Adding a New Module
 
@@ -209,3 +218,12 @@ pipeline/...                     ← data generation (if needed)
 ```
 
 Planned: **Mail** (Gmail API + AI triage), **News** (RSS aggregation), **Economy** (FRED/Yahoo dashboard).
+
+## TODO
+
+- [ ] Gmail module — important email auto-triage
+- [ ] News aggregation — RSS feeds
+- [ ] Economic indicators dashboard — FRED time series charts
+- [ ] Net Worth Trend chart — needs historical snapshot data
+- [ ] Mobile responsiveness check
+- [ ] Last updated timestamp on page
