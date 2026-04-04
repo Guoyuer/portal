@@ -5,7 +5,6 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "generate-data": "cd pipeline && python3 -m generate_asset_snapshot --config config.json --format json > ../src/lib/report-data.json",
     "start": "next start",
     "lint": "eslint"
   },

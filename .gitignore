@@ -47,7 +47,6 @@ __pycache__/
 .venv/
 *.egg-info/
 
-# Pipeline data (downloaded at build time)
-src/lib/report-data.json
+# Pipeline state
 pipeline/.sync_state.json
 .wrangler/
