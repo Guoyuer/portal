@@ -83,7 +83,18 @@ portal/
 │   │   ├── layout/
 │   │   │   ├── sidebar.tsx            # Nav sidebar
 │   │   │   └── theme-toggle.tsx       # Dark mode toggle
-│   │   ├── finance/charts.tsx         # Recharts (donut, bar+line, area)
+│   │   ├── finance/
+│   │   │   ├── shared.tsx             # SectionHeader, SectionBody, TickerTable
+│   │   │   ├── charts.tsx             # Recharts (donut, bar+line, area)
+│   │   │   ├── metric-cards.tsx       # Portfolio, Net Worth, Savings Rate, Goal
+│   │   │   ├── category-summary.tsx   # Allocation table + donut
+│   │   │   ├── cash-flow.tsx          # Income/expenses + summary
+│   │   │   ├── investment-activity.tsx # Activity + ticker tables
+│   │   │   ├── balance-sheet.tsx      # Assets, liabilities, net worth
+│   │   │   ├── market-context.tsx     # Index returns + macro indicators
+│   │   │   ├── gain-loss.tsx          # Unrealized gain/loss per holding
+│   │   │   ├── annual-summary.tsx     # YTD expenses by category
+│   │   │   └── net-worth-growth.tsx   # MoM/YoY growth rates
 │   │   └── ui/                        # shadcn/ui (Card, Table, Badge, Button)
 │   └── lib/
 │       ├── types.ts                   # 1:1 camelCase mirror of Python ReportData
@@ -100,9 +111,10 @@ portal/
 │   │   ├── ai/                        # Optional AI features (narrative, classify)
 │   │   └── core/reconcile.py          # Qianji ↔ Fidelity cross-reconciliation
 │   ├── scripts/
-│   │   ├── sync.py                    # Mac → R2 (wrangler CLI, MD5 dedup, macOS notifications)
-│   │   ├── send_report.py             # Generate report JSON from data files
-│   │   └── install_launchd.sh         # macOS scheduled sync setup
+│   │   ├── sync.py                    # Mac/Win → R2 (wrangler CLI, MD5 dedup, macOS notifications)
+│   │   ├── send_report.py             # Generate report JSON + append net worth history
+│   │   ├── install_launchd.sh         # macOS scheduled sync (daily 9AM + on login)
+│   │   └── install_task.ps1           # Windows Task Scheduler setup
 │   ├── tests/                         # 140 Python tests
 │   ├── config.example.json            # Template config (copy to config.json)
 │   └── requirements.txt               # yfinance, fredapi
@@ -146,6 +158,9 @@ graph TD
     D --> E["Balance Sheet<br/>Fidelity + personal accounts + CNY + credit"]
     E --> F["Market Context<br/>index returns · macro indicators"]
     F --> G["Holdings Detail<br/>top/bottom performers · upcoming earnings"]
+    G --> H["Unrealized Gain/Loss<br/>cost basis · per-holding P&L"]
+    H --> I["Annual Summary<br/>YTD expenses by category"]
+    I --> J["Net Worth Growth<br/>MoM · YoY rates"]
 
     style A fill:#f8f9fa,stroke:#333
     style B fill:#f8f9fa,stroke:#333
@@ -154,6 +169,9 @@ graph TD
     style E fill:#f8f9fa,stroke:#333
     style F fill:#f8f9fa,stroke:#333
     style G fill:#f8f9fa,stroke:#333
+    style H fill:#f8f9fa,stroke:#333
+    style I fill:#f8f9fa,stroke:#333
+    style J fill:#f8f9fa,stroke:#333
 ```
 
 Features:
@@ -229,7 +247,6 @@ pipeline/...                     ← data generation (if needed)
 - [ ] Gmail module — important email auto-triage
 - [ ] News aggregation — RSS feeds
 - [ ] Economic indicators dashboard — FRED time series charts
-- [ ] Net Worth Trend chart — needs historical snapshot data
 
 ## License
 

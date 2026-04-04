@@ -80,6 +80,9 @@ class Portfolio(TypedDict):
     totals: dict[str, float]
     counts: dict[str, int]
     total: float
+    cost_basis: dict[str, float]  # ticker → total cost basis
+    gain_loss: dict[str, float]  # ticker → total gain/loss $
+    gain_loss_pct: dict[str, float]  # ticker → total gain/loss %
 
 
 # ── Record types (parsed from CSV/DB) ──────────────────────────────────────
@@ -133,6 +136,9 @@ class HoldingData:
     pct: float
     category: str
     subtype: str  # "broad", "growth", "other", or "" for non-equity
+    cost_basis: float = 0.0
+    gain_loss: float = 0.0
+    gain_loss_pct: float = 0.0
 
 
 @dataclass
@@ -318,6 +324,25 @@ class MonthlyFlowPoint:
 
 
 @dataclass
+class AnnualCategoryTotal:
+    """Single category's annual total."""
+
+    category: str
+    amount: float
+    count: int
+
+
+@dataclass
+class AnnualSummary:
+    """Annual income/expense summary by category."""
+
+    year: int
+    expense_by_category: list[AnnualCategoryTotal]
+    total_expenses: float
+    total_income: float
+
+
+@dataclass
 class ChartData:
     """Chart data computed from historical sources. Optional on ReportData."""
 
@@ -371,6 +396,9 @@ class ReportData:
 
     # Charts (if historical data available)
     chart_data: ChartData | None = None
+
+    # Annual summary (if Qianji data spans multiple months)
+    annual_summary: AnnualSummary | None = None
 
     # AI-generated (if LLM available)
     narrative: str | None = None

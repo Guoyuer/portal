@@ -43,6 +43,8 @@ from .types import (
     TIER_FIDELITY,
     AccountBalance,
     ActivityData,
+    AnnualCategoryTotal,
+    AnnualSummary,
     BalanceSheetData,
     CashFlowData,
     CashFlowItem,
@@ -81,6 +83,9 @@ def _build_holding(ticker: str, portfolio: Portfolio, config: Config) -> Holding
         pct=pct(portfolio["totals"][ticker], portfolio["total"]),
         category=info.get("category", ""),
         subtype=info.get("subtype", ""),
+        cost_basis=portfolio["cost_basis"].get(ticker, 0.0),
+        gain_loss=portfolio["gain_loss"].get(ticker, 0.0),
+        gain_loss_pct=portfolio["gain_loss_pct"].get(ticker, 0.0),
     )
 
 
@@ -501,6 +506,57 @@ def _build_cross_reconciliation(
     return cross_reconcile(qianji_transfers, fidelity_deposits)
 
 
+def _build_annual_summary(
+    cashflow: list[QianjiRecord],
+    config: Config,
+    report_month: str = "",
+) -> AnnualSummary | None:
+    """Build annual expense/income summary for the given year.
+
+    Uses the year from report_month (e.g. '2026-03') if provided,
+    otherwise falls back to the current year.
+    """
+    if report_month and len(report_month) >= 4:
+        year = int(report_month[:4])
+    else:
+        year = datetime.now().year
+
+    expense_by_cat: dict[str, float] = defaultdict(float)
+    expense_counts: dict[str, int] = defaultdict(int)
+    total_income = 0.0
+    fidelity_tracked = frozenset(config["qianji_accounts"].get("fidelity_tracked", []))
+
+    for record in cashflow:
+        record_year = int(record["date"][:4])
+        if record_year != year:
+            continue
+        if record["type"] == QJ_EXPENSE:
+            cat = record["category"] or "Other"
+            expense_by_cat[cat] += record["amount"]
+            expense_counts[cat] += 1
+        elif record["type"] == QJ_INCOME:
+            total_income += record["amount"]
+        elif record["type"] == QJ_TRANSFER and record["account_to"] in fidelity_tracked:
+            pass  # investment transfers, not expense
+
+    if not expense_by_cat:
+        return None
+
+    total_expenses = sum(expense_by_cat.values())
+    items = sorted(
+        [AnnualCategoryTotal(category=cat, amount=amt, count=expense_counts[cat]) for cat, amt in expense_by_cat.items()],
+        key=lambda x: x.amount,
+        reverse=True,
+    )
+
+    return AnnualSummary(
+        year=year,
+        expense_by_category=items,
+        total_expenses=total_expenses,
+        total_income=total_income,
+    )
+
+
 def build_report(
     portfolio: Portfolio,
     config: Config,
@@ -545,6 +601,7 @@ def build_report(
         balance_sheet = _build_balance_sheet_from_portfolio(portfolio, config)
 
     cashflow_data = _build_cashflow(cashflow, config, report_month) if cashflow else None
+    annual_summary = _build_annual_summary(cashflow, config, report_month) if cashflow else None
     cross_reconciliation_data = (
         _build_cross_reconciliation(transactions, cashflow, config) if transactions and cashflow else None
     )
@@ -564,6 +621,7 @@ def build_report(
         cashflow=cashflow_data,
         cross_reconciliation=cross_reconciliation_data,
         chart_data=chart_data,
+        annual_summary=annual_summary,
         market=s.market,
         holdings_detail=s.holdings_detail,
         narrative=s.narrative,
