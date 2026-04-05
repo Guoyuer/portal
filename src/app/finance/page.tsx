@@ -201,7 +201,7 @@ export default function FinancePage() {
 
       <GainLoss report={r} />
       {r.annualSummary && <AnnualSummary data={r.annualSummary} />}
-      {r.chartData?.netWorthTrend && <NetWorthGrowth data={r.chartData.netWorthTrend} />}
+      <NetWorthGrowth data={r.chartData?.netWorthTrend ?? []} />
     </div>
   );
 }

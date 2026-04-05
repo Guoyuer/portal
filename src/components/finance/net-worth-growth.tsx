@@ -3,7 +3,16 @@ import { fmtCurrency, fmtPct } from "@/lib/format";
 import { SectionHeader, SectionBody } from "@/components/finance/shared";
 
 export function NetWorthGrowth({ data: trend }: { data: SnapshotPoint[] }) {
-  if (trend.length < 2) return null;
+  if (trend.length < 2) {
+    return (
+      <section>
+        <SectionHeader>Net Worth Growth</SectionHeader>
+        <SectionBody>
+          <p className="text-sm text-muted-foreground">Not enough data points to calculate growth.</p>
+        </SectionBody>
+      </section>
+    );
+  }
 
   const latest = trend[trend.length - 1];
   const prev = trend[trend.length - 2];

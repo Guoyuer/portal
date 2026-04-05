@@ -18,7 +18,16 @@ export function GainLoss({ report: r }: { report: ReportData }) {
     ...r.nonEquityCategories.flatMap((c) => c.holdings),
   ].filter((h) => h.costBasis > 0);
 
-  if (allHoldings.length === 0) return null;
+  if (allHoldings.length === 0) {
+    return (
+      <section>
+        <SectionHeader>Unrealized Gain/Loss</SectionHeader>
+        <SectionBody>
+          <p className="text-sm text-muted-foreground">No cost basis data available.</p>
+        </SectionBody>
+      </section>
+    );
+  }
 
   const sorted = [...allHoldings].sort((a, b) => b.gainLoss - a.gainLoss);
   const totalCost = sorted.reduce((s, h) => s + h.costBasis, 0);
