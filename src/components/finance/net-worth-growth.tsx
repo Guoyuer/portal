@@ -1,14 +1,19 @@
 import type { SnapshotPoint } from "@/lib/types";
 import { fmtCurrency, fmtPct } from "@/lib/format";
 import { SectionHeader, SectionBody } from "@/components/finance/shared";
+import { NetWorthTrendChart } from "@/components/finance/charts";
 
 export function NetWorthGrowth({ data: trend }: { data: SnapshotPoint[] }) {
   if (trend.length < 2) {
     return (
       <section>
-        <SectionHeader>Net Worth Growth</SectionHeader>
+        <SectionHeader>Net Worth</SectionHeader>
         <SectionBody>
-          <p className="text-sm text-muted-foreground">Not enough data points to calculate growth.</p>
+          {trend.length === 1 ? (
+            <NetWorthTrendChart data={trend} />
+          ) : (
+            <p className="text-sm text-muted-foreground">Not enough data points yet.</p>
+          )}
         </SectionBody>
       </section>
     );
@@ -32,11 +37,11 @@ export function NetWorthGrowth({ data: trend }: { data: SnapshotPoint[] }) {
 
   return (
     <section>
-      <SectionHeader>Net Worth Growth</SectionHeader>
+      <SectionHeader>Net Worth</SectionHeader>
       <SectionBody>
-        <div className="grid grid-cols-2 gap-6">
+        <div className="grid grid-cols-2 gap-6 mb-4">
           <div className="text-center p-4">
-            <p className="text-sm text-muted-foreground">Month over Month</p>
+            <p className="text-sm text-muted-foreground">MoM Change</p>
             <p className={`text-3xl font-bold ${mom >= 0 ? "text-green-600" : "text-red-500"}`}>
               {fmtPct(mom)}
             </p>
@@ -45,7 +50,7 @@ export function NetWorthGrowth({ data: trend }: { data: SnapshotPoint[] }) {
             </p>
           </div>
           <div className="text-center p-4">
-            <p className="text-sm text-muted-foreground">Year over Year</p>
+            <p className="text-sm text-muted-foreground">YoY Change</p>
             <p className={`text-3xl font-bold ${yoy >= 0 ? "text-green-600" : "text-red-500"}`}>
               {fmtPct(yoy)}
             </p>
@@ -54,6 +59,7 @@ export function NetWorthGrowth({ data: trend }: { data: SnapshotPoint[] }) {
             </p>
           </div>
         </div>
+        <NetWorthTrendChart data={trend} />
       </SectionBody>
     </section>
   );
