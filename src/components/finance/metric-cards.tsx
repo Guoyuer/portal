@@ -34,7 +34,7 @@ export function MetricCards({ report: r }: { report: ReportData }) {
         <CardContent>
           {r.cashflow ? (
             <div>
-              <p className="text-2xl font-bold text-green-600">
+              <p className={`text-2xl font-bold ${r.cashflow.savingsRate >= 30 ? "text-green-600" : r.cashflow.savingsRate >= 15 ? "text-yellow-600" : "text-red-500"}`}>
                 {Math.round(r.cashflow.savingsRate)}%
               </p>
               <p className="text-xs text-muted-foreground">

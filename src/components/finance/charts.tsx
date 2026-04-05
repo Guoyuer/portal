@@ -38,6 +38,18 @@ function useIsMobile(breakpoint = 640) {
   return isMobile;
 }
 
+function useIsDark() {
+  const [isDark, setIsDark] = useState(false);
+  useEffect(() => {
+    const check = () => setIsDark(document.documentElement.classList.contains("dark"));
+    check();
+    const observer = new MutationObserver(check);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    return () => observer.disconnect();
+  }, []);
+  return isDark;
+}
+
 function fmtMonth(m: string) {
   // "2025-11" → "Nov"
   const d = new Date(m + "-01");
@@ -111,6 +123,7 @@ export function IncomeExpensesChart({
   data: MonthlyFlowPoint[];
 }) {
   const isMobile = useIsMobile();
+  const isDark = useIsDark();
   // Skip months with zero income (likely incomplete)
   const all = data.filter((d) => d.income > 0);
   const filtered = isMobile ? all.slice(-12) : all;
@@ -121,7 +134,7 @@ export function IncomeExpensesChart({
         data={filtered}
         margin={{ top: 10, right: isMobile ? 5 : 40, left: isMobile ? -5 : 10, bottom: 0 }}
       >
-        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+        <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#e5e7eb"} />
         <XAxis
           dataKey="month"
           tickFormatter={fmtMonth}
@@ -147,6 +160,12 @@ export function IncomeExpensesChart({
           />
         )}
         <Tooltip
+          contentStyle={{
+            backgroundColor: isDark ? "#1e293b" : "#fff",
+            border: `1px solid ${isDark ? "#334155" : "#e5e7eb"}`,
+            borderRadius: "8px",
+            padding: "8px 12px",
+          }}
           formatter={(value, name) => {
             const v = Number(value);
             if (name === "Savings %") return `${v.toFixed(1)}%`;
@@ -155,8 +174,8 @@ export function IncomeExpensesChart({
           labelFormatter={(label) => fmtMonthYear(String(label))}
         />
         <Legend />
-        <Bar yAxisId="dollar" dataKey="income" name="Income" fill="#27ae60" opacity={0.85} radius={[2, 2, 0, 0]} />
-        <Bar yAxisId="dollar" dataKey="expenses" name="Expenses" fill="#e94560" opacity={0.85} radius={[2, 2, 0, 0]} />
+        <Bar yAxisId="dollar" dataKey="income" name="Income" fill={isDark ? "#4ade80" : "#27ae60"} opacity={0.85} radius={[2, 2, 0, 0]} />
+        <Bar yAxisId="dollar" dataKey="expenses" name="Expenses" fill={isDark ? "#f87171" : "#e94560"} opacity={0.85} radius={[2, 2, 0, 0]} />
         <Line
           yAxisId={isMobile ? "dollar" : "pct"}
           dataKey="savingsRate"
@@ -179,12 +198,14 @@ export function NetWorthTrendChart({
 }: {
   data: SnapshotPoint[];
 }) {
+  const isDark = useIsDark();
+
   if (data.length === 0) return null;
 
   return (
     <ResponsiveContainer width="100%" height={250}>
       <AreaChart data={data} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+        <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#e5e7eb"} />
         <XAxis
           dataKey="date"
           tickFormatter={(d: string) => {
@@ -202,14 +223,20 @@ export function NetWorthTrendChart({
           domain={["dataMin - 10000", "dataMax + 10000"]}
         />
         <Tooltip
+          contentStyle={{
+            backgroundColor: isDark ? "#1e293b" : "#fff",
+            border: `1px solid ${isDark ? "#334155" : "#e5e7eb"}`,
+            borderRadius: "8px",
+            padding: "8px 12px",
+          }}
           formatter={(value) => `$${Number(value).toLocaleString("en-US", { maximumFractionDigits: 0 })}`}
           labelFormatter={(label) => new Date(String(label)).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
         />
         <Area
           type="monotone"
           dataKey="total"
-          stroke="#2563eb"
-          fill="#dbeafe"
+          stroke={isDark ? "#60a5fa" : "#2563eb"}
+          fill={isDark ? "#1e3a5f" : "#dbeafe"}
           fillOpacity={0.5}
           strokeWidth={2}
         />
