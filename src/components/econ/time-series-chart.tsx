@@ -1,5 +1,6 @@
 "use client";
 
+import { useId } from "react";
 import {
   CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
@@ -24,6 +25,7 @@ interface TimeSeriesChartProps {
 
 export function TimeSeriesChart({ title, lines, data, height = 280 }: TimeSeriesChartProps) {
   const isDark = useIsDark();
+  const filterId = useId();
 
   // Merge all series into unified date-keyed rows
   const dateMap = new Map<string, Record<string, number>>();
@@ -66,6 +68,7 @@ export function TimeSeriesChart({ title, lines, data, height = 280 }: TimeSeries
                 paddingTop: "8px",
                 background: isDark ? "rgba(255,255,255,0.03)" : "rgba(255,255,255,0.4)",
                 backdropFilter: "blur(12px)",
+                WebkitBackdropFilter: "blur(12px)",
                 borderRadius: "10px",
                 padding: "4px 12px",
                 border: `1px solid ${isDark ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.3)"}`,
@@ -73,10 +76,10 @@ export function TimeSeriesChart({ title, lines, data, height = 280 }: TimeSeries
             />
           )}
           {lines.map((line) => (
-            <Line key={line.dataKey} dataKey={line.dataKey} name={line.label} stroke={line.color} strokeWidth={2} dot={false} connectNulls filter="url(#line-shadow)" />
+            <Line key={line.dataKey} dataKey={line.dataKey} name={line.label} stroke={line.color} strokeWidth={2} dot={false} connectNulls filter={`url(#${filterId})`} />
           ))}
           <defs>
-            <filter id="line-shadow" x="-2%" y="-2%" width="104%" height="104%">
+            <filter id={filterId} x="-2%" y="-2%" width="104%" height="104%">
               <feDropShadow dx="0" dy="1" stdDeviation="2" floodColor={isDark ? "#000" : "#fff"} floodOpacity={isDark ? 0.4 : 0.6} />
             </filter>
           </defs>

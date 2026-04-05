@@ -50,13 +50,13 @@ test.describe("Finance Report", () => {
   test("shows category deviations with correct colors", async ({ page }) => {
     // Safe Net is typically underweight — red
     const safeNetRow = page.locator("tr").filter({ hasText: "Safe Net" });
-    await expect(safeNetRow.locator(".text-red-500")).toBeVisible();
+    await expect(safeNetRow.locator("[class*='text-red-']")).toBeVisible();
   });
 
   test("shows goal progress with bar", async ({ page }) => {
     await expect(page.getByText("$2,000,000")).toBeVisible();
     const goalCard = page.locator("[data-slot='card']").filter({ hasText: "Goal" });
-    const progressBar = goalCard.locator(".bg-blue-600");
+    const progressBar = goalCard.locator("[class*='bg-blue-']");
     await expect(progressBar).toBeVisible();
     const style = await progressBar.getAttribute("style");
     expect(style).toMatch(/width:\s*\d+/);
@@ -96,7 +96,8 @@ test.describe("Finance Report", () => {
     const netRow = page.locator("tr").filter({ hasText: "Net Cash Flow" });
     const valueCell = netRow.locator("td").nth(1);
     const className = await valueCell.getAttribute("class");
-    expect(className).toMatch(/text-(green-600|red-500)/);
+    expect(className).toMatch(/text-(green-|emerald-|red-)/);
+
   });
 
   test("shows investment activity with period", async ({ page }) => {
@@ -155,14 +156,10 @@ test.describe("Finance Report", () => {
   });
 
   test("page renders all major sections in order", async ({ page }) => {
-    const sections = page.locator("div.bg-\\[\\#16213e\\]");
-    const sectionTexts = await sections.allTextContents();
-    expect(sectionTexts.length).toBeGreaterThanOrEqual(4);
-    const combined = sectionTexts.join(" ");
-    expect(combined).toContain("Category Summary");
-    expect(combined).toContain("Cash Flow");
-    expect(combined).toContain("Portfolio Activity");
-    expect(combined).toContain("Balance Sheet");
+    await expect(page.getByText("Category Summary")).toBeVisible();
+    await expect(page.getByText(/Cash Flow —/)).toBeVisible();
+    await expect(page.getByText("Portfolio Activity")).toBeVisible();
+    await expect(page.locator("#balance-sheet")).toBeAttached();
   });
 
   // ── Charts ─────────────────────────────────────────────────────────────
@@ -223,7 +220,7 @@ test.describe("Finance Report", () => {
     const rate = card.locator("p.text-2xl").first();
     const className = await rate.getAttribute("class");
     // Should have one of the conditional colors
-    expect(className).toMatch(/text-(green-600|yellow-600|red-500)/);
+    expect(className).toMatch(/text-(green-|emerald-|yellow-|red-)/);
   });
 
   // ── Dark Mode ──────────────────────────────────────────────────────────

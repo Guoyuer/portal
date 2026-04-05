@@ -129,7 +129,7 @@ export default function FinancePage() {
       )}
 
       {/* Section nav */}
-      <nav className="sticky top-0 z-30 -mx-6 px-6 py-2 liquid-glass-pill !rounded-none overflow-x-auto flex gap-3 text-sm">
+      <nav className="sticky top-0 z-30 -mx-6 px-6 py-2 liquid-glass-pill !rounded-none overflow-x-auto scrollbar-none flex gap-3 text-sm">
         {[
           ["net-worth", "Net Worth"],
           ["allocation", "Allocation"],

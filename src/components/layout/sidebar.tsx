@@ -129,7 +129,7 @@ export default function Sidebar() {
   return (
     <>
       {/* Desktop sidebar */}
-      <aside className="hidden md:flex md:w-56 md:flex-col md:fixed md:inset-y-0 liquid-glass-sidebar">
+      <aside className="hidden md:flex md:w-56 md:flex-col md:fixed md:inset-y-0 md:z-40 liquid-glass-sidebar">
         <div className="flex h-14 items-center px-6">
           <span className="text-lg font-semibold text-white tracking-tight">
             Portal
@@ -145,7 +145,7 @@ export default function Sidebar() {
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="fixed top-3 left-3 z-50 rounded-lg bg-slate-900 p-2 text-slate-300 md:hidden"
+        className="fixed top-3 left-3 z-50 rounded-lg liquid-glass-pill p-2 text-foreground md:hidden"
         aria-label="Toggle navigation"
       >
         <svg

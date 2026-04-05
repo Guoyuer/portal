@@ -128,6 +128,15 @@
   }
 }
 
+/* Hide scrollbar but keep scroll functionality */
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════
    LIQUID GLASS — Apple-style translucent material system
    ═══════════════════════════════════════════════════════════════════════ */
@@ -152,7 +161,7 @@
   border-radius: 40% 60% 55% 45% / 55% 40% 60% 45%;
   filter: blur(70px);
   opacity: 0.55;
-  will-change: transform;
+
   background: radial-gradient(circle, rgba(99,102,241,0.65), rgba(139,92,246,0.35), transparent 65%);
   animation: lg-blob-a 20s ease-in-out infinite alternate;
 }
@@ -165,7 +174,7 @@
   border-radius: 55% 45% 40% 60% / 45% 55% 45% 55%;
   filter: blur(70px);
   opacity: 0.50;
-  will-change: transform;
+
   background: radial-gradient(circle, rgba(6,182,212,0.6), rgba(56,189,248,0.3), transparent 65%);
   animation: lg-blob-b 25s ease-in-out infinite alternate;
 }
@@ -180,7 +189,7 @@
   opacity: 0.30;
   z-index: 0;
   pointer-events: none;
-  will-change: transform;
+
   background: radial-gradient(circle, rgba(244,114,182,0.5), rgba(251,146,60,0.2), transparent 65%);
   animation: lg-blob-c 22s ease-in-out infinite alternate;
 }
@@ -195,7 +204,7 @@
   opacity: 0.30;
   z-index: 0;
   pointer-events: none;
-  will-change: transform;
+
   background: radial-gradient(circle, rgba(99,102,241,0.45), rgba(168,85,247,0.2), transparent 65%);
   animation: lg-blob-d 28s ease-in-out infinite alternate;
 }
@@ -237,6 +246,16 @@
   0%   { transform: translate(0, 0) scale(1) rotate(0deg); }
   50%  { transform: translate(60px, -30px) scale(1.15) rotate(12deg); }
   100% { transform: translate(-40px, 50px) scale(0.9) rotate(-8deg); }
+}
+
+/* Respect reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  .lg-mesh::before,
+  .lg-mesh::after,
+  .lg-blob-c,
+  .lg-blob-d {
+    animation: none;
+  }
 }
 
 /* ── 2. Core glass material ───────────────────────────────────────────
@@ -295,7 +314,7 @@
     inset 0 0 20px rgba(255, 255, 255, 0.04);
 }
 
-/* ── 4. Thin glass (metric cards — lighter, quick-glance) ─────────── */
+/* ── 3. Thin glass (metric cards — lighter, quick-glance) ─────────── */
 .liquid-glass-thin {
   position: relative;
   background: rgba(255, 255, 255, 0.30);
@@ -337,7 +356,7 @@
     inset 0 0 12px rgba(255, 255, 255, 0.03);
 }
 
-/* ── 5. Deep glass (sidebar — thicker, heavier blur) ──────────────── */
+/* ── 4. Deep glass (sidebar — thicker, heavier blur) ──────────────── */
 .liquid-glass-sidebar {
   background: rgba(240, 240, 250, 0.25);
   backdrop-filter: blur(60px) saturate(200%);
@@ -360,7 +379,7 @@
     inset 0 0 20px rgba(255, 255, 255, 0.02);
 }
 
-/* ── 5. Nav pill (thin glass bar) ─────────────────────────────────── */
+/* ── 5. Nav pill (thin glass bar) ──────────────────────────────────── */
 .liquid-glass-pill {
   background: rgba(255, 255, 255, 0.20);
   backdrop-filter: blur(30px) saturate(180%);
