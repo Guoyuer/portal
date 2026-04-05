@@ -248,8 +248,8 @@ def main() -> None:
     fred_key = os.environ.get("FRED_API_KEY", "")
     econ_data = fetch_fred_data(fred_key)
     if econ_data:
-        if market_data:
-            econ_data["snapshot"].setdefault("usdCny", market_data.usd_cny)
+        if report.market and report.market.usd_cny is not None:
+            econ_data["snapshot"].setdefault("usdCny", report.market.usd_cny)
         econ_data["generatedAt"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
         econ_json = json.dumps(econ_data, indent=2)
         econ_path = args.data_dir / "econ.json"
