@@ -50,15 +50,19 @@ function useIsDark() {
   return isDark;
 }
 
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
 function fmtMonth(m: string) {
-  // "2025-11" → "Nov"
-  const d = new Date(m + "-01");
-  return d.toLocaleDateString("en-US", { month: "short" });
+  // "2025-11" → "Nov" (no Date object — avoids timezone shift)
+  const monthIdx = parseInt(m.slice(5, 7), 10) - 1;
+  return MONTH_NAMES[monthIdx] ?? m;
 }
 
 function fmtMonthYear(m: string) {
-  const d = new Date(m + "-01");
-  return d.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+  // "2025-11" → "Nov 25"
+  const monthIdx = parseInt(m.slice(5, 7), 10) - 1;
+  const year = m.slice(2, 4);
+  return `${MONTH_NAMES[monthIdx] ?? m} ${year}`;
 }
 
 // ── Donut: Category Allocation ─────────────────────────────────────────────
