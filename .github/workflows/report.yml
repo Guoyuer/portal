@@ -2,8 +2,7 @@ name: Generate Report
 
 on:
   schedule:
-    - cron: '0 13 * * 1'   # Every Monday 9AM ET
-    - cron: '0 13 1 * *'   # 1st of month 9AM ET
+    - cron: '0 13 * * *'   # Daily 9AM ET
   workflow_dispatch:
 
 jobs:
