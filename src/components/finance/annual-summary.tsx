@@ -66,7 +66,7 @@ export function AnnualSummary({ data }: { data: AnnualSummaryData }) {
             </div>
             <div className="flex justify-between py-2">
               <span className="text-muted-foreground">Take-home Savings Rate</span>
-              <span className={`font-medium ${data.takehomeSavingsRate >= 0 ? "text-green-600" : "text-red-500"}`}>
+              <span className={`font-medium ${data.takehomeSavingsRate == null ? "" : data.takehomeSavingsRate >= 0 ? "text-green-600" : "text-red-500"}`}>
                 {data.takehomeSavingsRate != null
                   ? `${data.takehomeSavingsRate.toFixed(1)}%`
                   : "\u2014"}
