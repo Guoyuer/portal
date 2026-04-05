@@ -40,6 +40,8 @@ def _resolve_csv(explicit: Path | None, prefix: str, label: str) -> Path:
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+
     parser = argparse.ArgumentParser(description="Portfolio snapshot generator")
     parser.add_argument(
         "csv",

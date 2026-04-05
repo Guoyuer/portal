@@ -240,3 +240,6 @@ export const ReportDataSchema = z.object({
     qianjiDate: z.string(),
   }).optional(),
 });
+
+/** Inferred type from the Zod schema — use this instead of the hand-written ReportData interface. */
+export type ReportDataFromSchema = z.infer<typeof ReportDataSchema>;
