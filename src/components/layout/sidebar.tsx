@@ -107,10 +107,10 @@ export default function Sidebar() {
             onClick={() => setOpen(false)}
             className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
               active
-                ? "bg-black/5 dark:bg-white/12 text-foreground shadow-[inset_0_0.5px_0_rgba(255,255,255,0.25),inset_0_0_8px_rgba(255,255,255,0.06)] backdrop-blur-sm rounded-xl"
+                ? "bg-black/5 dark:bg-white/10 text-foreground border border-white/15 dark:border-white/10 shadow-[inset_0_0.5px_0_rgba(255,255,255,0.3)] backdrop-blur-sm rounded-xl"
                 : item.comingSoon
-                  ? "cursor-default text-muted-foreground"
-                  : "text-muted-foreground hover:bg-white/8 hover:text-foreground hover:shadow-[inset_0_0.5px_0_rgba(255,255,255,0.15),inset_0_0_6px_rgba(255,255,255,0.04)] hover:backdrop-blur-sm rounded-xl transition-all duration-200"
+                  ? "cursor-default text-muted-foreground/50"
+                  : "text-muted-foreground hover:bg-black/3 dark:hover:bg-white/6 hover:text-foreground rounded-xl transition-all duration-200"
             }`}
           >
             {item.icon}
@@ -145,7 +145,7 @@ export default function Sidebar() {
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="fixed top-3 left-3 z-50 rounded-lg liquid-glass-pill p-2 text-foreground md:hidden"
+        className="fixed top-3 left-3 z-50 rounded-full liquid-glass-pill p-2 text-foreground md:hidden"
         aria-label="Toggle navigation"
       >
         <svg
