@@ -52,3 +52,4 @@ pipeline/.sync_state.json
 pipeline/config.json
 pipeline/data/
 .wrangler/
+screenshots/

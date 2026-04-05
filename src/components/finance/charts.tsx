@@ -106,6 +106,8 @@ export function IncomeExpensesChart({
           tickFormatter={fmtMonth}
           fontSize={11}
           tick={{ fill: "#9ca3af" }}
+          axisLine={{ stroke: gridStroke(isDark) }}
+          tickLine={false}
         />
         <YAxis
           yAxisId="dollar"
@@ -113,6 +115,8 @@ export function IncomeExpensesChart({
           fontSize={11}
           tick={{ fill: "#9ca3af" }}
           width={isMobile ? 38 : 50}
+          axisLine={false}
+          tickLine={false}
         />
         {!isMobile && (
           <YAxis
@@ -123,6 +127,8 @@ export function IncomeExpensesChart({
             tick={{ fill: "#2563eb" }}
             domain={[0, 100]}
             width={40}
+            axisLine={false}
+            tickLine={false}
           />
         )}
         <Tooltip
@@ -176,6 +182,8 @@ export function NetWorthTrendChart({
           }}
           fontSize={11}
           tick={{ fill: "#9ca3af" }}
+          axisLine={{ stroke: gridStroke(isDark) }}
+          tickLine={false}
         />
         <YAxis
           tickFormatter={fmtCurrencyShort}
@@ -183,6 +191,8 @@ export function NetWorthTrendChart({
           tick={{ fill: "#9ca3af" }}
           width={55}
           domain={["dataMin - 10000", "dataMax + 10000"]}
+          axisLine={false}
+          tickLine={false}
         />
         <Tooltip
           contentStyle={tooltipStyle(isDark)}
