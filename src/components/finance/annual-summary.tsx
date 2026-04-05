@@ -10,6 +10,9 @@ import {
 } from "@/components/ui/table";
 
 export function AnnualSummary({ data }: { data: AnnualSummaryData }) {
+  const netSaved = data.totalIncome - data.totalExpenses;
+  const grossRate = data.totalIncome > 0 ? (netSaved / data.totalIncome * 100).toFixed(1) + "%" : "\u2014";
+
   return (
     <div className="grid md:grid-cols-2 gap-6">
       <div>
@@ -44,16 +47,14 @@ export function AnnualSummary({ data }: { data: AnnualSummaryData }) {
         </div>
         <div className="flex justify-between py-2 border-b border-border">
           <span className="text-muted-foreground">Net Saved</span>
-          <span className={`font-medium ${data.totalIncome - data.totalExpenses >= 0 ? "text-green-600" : "text-red-500"}`}>
-            {fmtCurrency(data.totalIncome - data.totalExpenses)}
+          <span className={`font-medium ${netSaved >= 0 ? "text-green-600" : "text-red-500"}`}>
+            {fmtCurrency(netSaved)}
           </span>
         </div>
         <div className="flex justify-between py-2 border-b border-border">
           <span className="text-muted-foreground">Gross Savings Rate</span>
-          <span className={`font-medium ${data.totalIncome > data.totalExpenses ? "text-green-600" : "text-red-500"}`}>
-            {data.totalIncome > 0
-              ? `${((data.totalIncome - data.totalExpenses) / data.totalIncome * 100).toFixed(1)}%`
-              : "\u2014"}
+          <span className={`font-medium ${netSaved >= 0 ? "text-green-600" : "text-red-500"}`}>
+            {grossRate}
           </span>
         </div>
         <div className="flex justify-between py-2">

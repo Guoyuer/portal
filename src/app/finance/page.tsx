@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ReportData } from "@/lib/types";
 import { REPORT_URL } from "@/lib/config";
+import type { StockDetail } from "@/lib/types";
 import { fmtCurrency, fmtPct } from "@/lib/format";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -20,6 +21,39 @@ import { GainLoss } from "@/components/finance/gain-loss";
 import { AnnualSummary } from "@/components/finance/annual-summary";
 import { NetWorthGrowth } from "@/components/finance/net-worth-growth";
 import { BackToTop } from "@/components/layout/back-to-top";
+
+function PerformersTable({ title, data }: { title: string; data: StockDetail[] }) {
+  if (data.length === 0) return null;
+  return (
+    <div className="mb-6">
+      <h3 className="font-semibold mb-2">{title}</h3>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Ticker</TableHead>
+            <TableHead className="text-right">Month Return</TableHead>
+            <TableHead className="text-right">Value</TableHead>
+            <TableHead className="text-right">vs 52W High</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {data.map((s) => (
+            <TableRow key={s.ticker} className="even:bg-muted/50">
+              <TableCell className="font-mono">{s.ticker}</TableCell>
+              <TableCell className={`text-right ${s.monthReturn >= 0 ? "text-green-600" : "text-red-500"}`}>
+                {fmtPct(s.monthReturn)}
+              </TableCell>
+              <TableCell className="text-right">{fmtCurrency(s.endValue)}</TableCell>
+              <TableCell className={`text-right ${s.vsHigh != null && s.vsHigh >= 0 ? "text-green-600" : "text-red-500"}`}>
+                {s.vsHigh != null ? fmtPct(s.vsHigh) : "N/A"}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
 
 export default function FinancePage() {
   const [r, setReport] = useState<ReportData | null>(null);
@@ -58,6 +92,14 @@ export default function FinancePage() {
       </div>
     );
   }
+
+  const now = Date.now();
+  const thirtyDays = 30 * 24 * 60 * 60 * 1000;
+  const upcomingEarnings = (r.holdingsDetail?.upcomingEarnings ?? []).filter((s) => {
+    if (!s.nextEarnings) return false;
+    const d = new Date(s.nextEarnings).getTime();
+    return !isNaN(d) && d >= now && d <= now + thirtyDays;
+  });
 
   return (
     <div className="max-w-5xl mx-auto space-y-10">
@@ -164,99 +206,21 @@ export default function FinancePage() {
           <SectionBody>
             {r.holdingsDetail && (
               <>
-                {r.holdingsDetail.topPerformers.length > 0 && (
+                <PerformersTable title="Top Performers" data={r.holdingsDetail.topPerformers} />
+                <PerformersTable title="Bottom Performers" data={r.holdingsDetail.bottomPerformers} />
+                {upcomingEarnings.length > 0 && (
                   <div className="mb-6">
-                    <h3 className="font-semibold mb-2">Top Performers</h3>
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Ticker</TableHead>
-                          <TableHead className="text-right">Month Return</TableHead>
-                          <TableHead className="text-right">Value</TableHead>
-                          <TableHead className="text-right">vs 52W High</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {r.holdingsDetail.topPerformers.slice(0, 5).map((s) => (
-                          <TableRow key={s.ticker} className="even:bg-muted/50">
-                            <TableCell className="font-mono">{s.ticker}</TableCell>
-                            <TableCell
-                              className={`text-right ${s.monthReturn >= 0 ? "text-green-600" : "text-red-500"}`}
-                            >
-                              {fmtPct(s.monthReturn)}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {fmtCurrency(s.endValue)}
-                            </TableCell>
-                            <TableCell
-                              className={`text-right ${s.vsHigh != null && s.vsHigh >= 0 ? "text-green-600" : "text-red-500"}`}
-                            >
-                              {s.vsHigh != null ? fmtPct(s.vsHigh) : "N/A"}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                )}
-                {r.holdingsDetail.bottomPerformers.length > 0 && (
-                  <div className="mb-6">
-                    <h3 className="font-semibold mb-2">Bottom Performers</h3>
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Ticker</TableHead>
-                          <TableHead className="text-right">Month Return</TableHead>
-                          <TableHead className="text-right">Value</TableHead>
-                          <TableHead className="text-right">vs 52W High</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {r.holdingsDetail.bottomPerformers.slice(0, 5).map((s) => (
-                          <TableRow key={s.ticker} className="even:bg-muted/50">
-                            <TableCell className="font-mono">{s.ticker}</TableCell>
-                            <TableCell
-                              className={`text-right ${s.monthReturn >= 0 ? "text-green-600" : "text-red-500"}`}
-                            >
-                              {fmtPct(s.monthReturn)}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {fmtCurrency(s.endValue)}
-                            </TableCell>
-                            <TableCell
-                              className={`text-right ${s.vsHigh != null && s.vsHigh >= 0 ? "text-green-600" : "text-red-500"}`}
-                            >
-                              {s.vsHigh != null ? fmtPct(s.vsHigh) : "N/A"}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                )}
-                {(() => {
-                  const now = Date.now();
-                  const thirtyDays = 30 * 24 * 60 * 60 * 1000;
-                  const soon = r.holdingsDetail!.upcomingEarnings.filter((s) => {
-                    if (!s.nextEarnings) return false;
-                    const d = new Date(s.nextEarnings).getTime();
-                    return !isNaN(d) && d >= now && d <= now + thirtyDays;
-                  });
-                  if (soon.length === 0) return null;
-                  return (
-                    <div className="mb-6">
-                      <h3 className="font-semibold mb-2">Upcoming Earnings (30 days)</h3>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 text-sm">
-                        {soon.map((s) => (
-                          <div key={s.ticker}>
-                            <span className="font-mono font-medium">{s.ticker}</span>
-                            <span className="text-muted-foreground"> &mdash; {s.nextEarnings}</span>
-                          </div>
-                        ))}
-                      </div>
+                    <h3 className="font-semibold mb-2">Upcoming Earnings (30 days)</h3>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 text-sm">
+                      {upcomingEarnings.map((s) => (
+                        <div key={s.ticker}>
+                          <span className="font-mono font-medium">{s.ticker}</span>
+                          <span className="text-muted-foreground"> &mdash; {s.nextEarnings}</span>
+                        </div>
+                      ))}
                     </div>
-                  );
-                })()}
+                  </div>
+                )}
               </>
             )}
             <GainLoss report={r} />
