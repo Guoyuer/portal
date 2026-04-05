@@ -74,7 +74,10 @@ class TestJsonOutput:
         assert parsed["balanceSheet"] is None
         assert parsed["cashflow"] is None
         assert parsed["chartData"] is None
-        assert parsed["narrative"] is None
+        # contribution, narrative, alerts are stripped from output
+        assert "contribution" not in parsed
+        assert "narrative" not in parsed
+        assert "alerts" not in parsed
 
 
 class TestActivityStripping:

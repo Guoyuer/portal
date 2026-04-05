@@ -13,7 +13,6 @@ from typing import Any
 
 from .analysis import (
     aggregate_by_symbol,
-    calculate_allocation,
     cat_value,
     get_tickers,
     group_by_subtype,
@@ -51,8 +50,6 @@ from .types import (
     CategoryData,
     ChartData,
     Config,
-    ContributionData,
-    ContributionRow,
     FidelityTransaction,
     HoldingData,
     Portfolio,
@@ -151,44 +148,6 @@ def _ordered_categories(
         [c for c in ordered if c in EQUITY_CATEGORIES],
         [c for c in ordered if c in NON_EQUITY_CATEGORIES],
     )
-
-
-def _build_contribution(
-    portfolio: Portfolio,
-    config: Config,
-    amount: float,
-) -> ContributionData:
-    """Build contribution guide data."""
-    allocation = calculate_allocation(portfolio, config, amount)
-    new_total = portfolio["total"] + amount
-
-    raw_rows: list[tuple[str, float, float, float]] = []
-    for cat, target in config["weights"].items():
-        current = cat_value(portfolio, config, cat)
-        gap = target - pct(current, portfolio["total"])
-        raw_rows.append((cat, current, target, gap))
-    raw_rows.sort(key=lambda x: x[3], reverse=True)
-
-    rows: list[ContributionRow] = []
-    for cat, current, target, _gap in raw_rows:
-        alloc = allocation[cat]
-        if alloc < 1:
-            continue
-        new_value = current + alloc
-        new_pct = pct(new_value, new_total)
-        improving = abs(new_pct - target) < abs(pct(current, portfolio["total"]) - target)
-        rows.append(
-            ContributionRow(
-                category=cat,
-                allocate=alloc,
-                new_value=new_value,
-                new_pct=new_pct,
-                target=target,
-                improving=improving,
-            )
-        )
-
-    return ContributionData(amount=amount, new_total=new_total, rows=rows)
 
 
 def _fidelity_date_to_ym(date_str: str) -> str:
@@ -328,39 +287,6 @@ def _build_balance_sheet_from_snapshot(
         total_liabilities=total_liabilities,
         total_assets=total_assets,
         net_worth=net_worth,
-    )
-
-
-def _build_balance_sheet_from_portfolio(
-    portfolio: Portfolio,
-    config: Config,
-) -> BalanceSheetData:
-    """Build balance sheet from portfolio positions (Fidelity = source of truth).
-
-    Fidelity positions already include linked external accounts (401k, brokerage,
-    Roth IRA, cash management). We separate out manual assets that are tracked
-    outside Fidelity (CNY Assets, I Bonds, etc.) for clarity.
-    """
-    # Split portfolio into Fidelity-tracked vs manually-tracked
-    fidelity_total = 0.0
-    manual_items: list[AccountBalance] = []
-
-    for ticker, value in portfolio["totals"].items():
-        if ticker in config["manual"]:
-            manual_items.append(AccountBalance(name=ticker, balance=value, currency="USD"))
-        else:
-            fidelity_total += value
-
-    manual_total = sum(a.balance for a in manual_items)
-
-    return BalanceSheetData(
-        investment_total=fidelity_total,
-        accounts=manual_items,
-        accounts_total=manual_total,
-        credit_cards=[],
-        total_liabilities=0.0,
-        total_assets=fidelity_total + manual_total,
-        net_worth=fidelity_total + manual_total,
     )
 
 
@@ -576,7 +502,6 @@ def build_report(
     config: Config,
     filename: str,
     *,
-    contribute: float = 0,
     transactions: list[FidelityTransaction] | None = None,
     cashflow: list[QianjiRecord] | None = None,
     balance_snapshot: dict[str, Any] | None = None,
@@ -586,16 +511,10 @@ def build_report(
     prev_totals: dict[str, float] | None = None,
     prev_date: str = "",
 ) -> ReportData:
-    """Build a complete ReportData from raw portfolio and config.
-
-    This is the single entry point for the middle layer. All renderers
-    should call this and then render the resulting ReportData.
-
-    All optional params default to None for graceful degradation —
-    the report works with just positions data.
-    """
+    """Build a complete ReportData from raw portfolio and config."""
     log.info("Building report for %s: $%s across %d tickers", filename, f"{portfolio['total']:,.2f}", len(portfolio["totals"]))
     s = sources or ReportSources()
+    report_date = _extract_date(filename)
 
     eq_names, non_eq_names = _ordered_categories(portfolio, config)
 
@@ -611,11 +530,7 @@ def build_report(
     # Build optional sections from available data
     activity = _build_activity(transactions, report_month) if transactions else None
 
-    # Balance sheet: use Qianji snapshot + flows if available, else portfolio-only
-    if balance_snapshot and cashflow is not None:
-        balance_sheet = _build_balance_sheet_from_snapshot(portfolio, config, balance_snapshot)
-    else:
-        balance_sheet = _build_balance_sheet_from_portfolio(portfolio, config)
+    balance_sheet = _build_balance_sheet_from_snapshot(portfolio, config, balance_snapshot) if balance_snapshot else None
 
     cashflow_data = _build_cashflow(cashflow, config, report_month) if cashflow else None
     annual_summary = _build_annual_summary(cashflow, config, report_month) if cashflow else None
@@ -635,19 +550,18 @@ def build_report(
             config=config,
         )
         recon.prev_date = prev_date
-        recon.curr_date = _extract_date(filename)
+        recon.curr_date = report_date
         reconciliation_data = recon
 
     log.info("Report built: %s equity cats, %s non-equity cats, reconciliation=%s", len(equity_categories), len(non_equity_categories), reconciliation_data is not None)
     return ReportData(
-        date=_extract_date(filename),
+        date=report_date,
         total=portfolio["total"],
         total_lots=sum(portfolio["counts"].values()),
         goal=goal,
         goal_pct=pct(portfolio["total"], goal) if goal > 0 else 0,
         equity_categories=equity_categories,
         non_equity_categories=non_equity_categories,
-        contribution=_build_contribution(portfolio, config, contribute) if contribute > 0 else None,
         activity=activity,
         reconciliation=reconciliation_data,
         balance_sheet=balance_sheet,
@@ -657,6 +571,4 @@ def build_report(
         annual_summary=annual_summary,
         market=s.market,
         holdings_detail=s.holdings_detail,
-        narrative=s.narrative,
-        alerts=s.alerts,
     )

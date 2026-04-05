@@ -54,7 +54,6 @@ def main() -> None:
         help="Fidelity Accounts History CSV (auto-detected from ~/Downloads if omitted)",
     )
     parser.add_argument("--config", type=Path, required=True, help="JSON config file")
-    parser.add_argument("--contribute", type=float, default=0, help="Contribution amount to simulate")
     parser.add_argument("--month", type=str, default="", help="Reporting month YYYY-MM (default: latest complete)")
     parser.add_argument("--qianji-db", type=Path, default=DEFAULT_DB_PATH, help="Qianji SQLite database path")
     args = parser.parse_args()
@@ -116,7 +115,6 @@ def main() -> None:
         portfolio,
         config,
         csv_path.name,
-        contribute=args.contribute,
         transactions=transactions,
         cashflow=cashflow,
         balance_snapshot=balance_snapshot,

@@ -20,6 +20,7 @@ import { GainLoss } from "@/components/finance/gain-loss";
 import { AnnualSummary } from "@/components/finance/annual-summary";
 import { NetWorthGrowth } from "@/components/finance/net-worth-growth";
 import { Reconciliation } from "@/components/finance/reconciliation";
+import { CrossReconciliation } from "@/components/finance/cross-reconciliation";
 import { BackToTop } from "@/components/layout/back-to-top";
 
 export default function FinancePage() {
@@ -137,6 +138,7 @@ export default function FinancePage() {
       {/* ── 6. Balance Sheet + Reconciliation ───────────────────────────── */}
       {r.balanceSheet && <div id="balance-sheet"><BalanceSheet data={r.balanceSheet} /></div>}
       {r.reconciliation && <div id="reconciliation"><Reconciliation data={r.reconciliation} /></div>}
+      {r.crossReconciliation && <CrossReconciliation data={r.crossReconciliation} />}
 
       {/* ── 7. Holdings: Detail + Gain/Loss ─────────────────────────────── */}
       {r.holdingsDetail && (
