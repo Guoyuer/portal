@@ -75,10 +75,12 @@ export function TimeSeriesChart({ title, lines, data, height = 280 }: TimeSeries
               borderRadius: "8px",
               padding: "8px 12px",
             }}
-            labelFormatter={fmtMonth}
-            formatter={(value: number, name: string) => {
-              const line = lines.find((l) => l.dataKey === name);
-              return [line?.formatter ? line.formatter(value) : value.toFixed(2), line?.label ?? name];
+            labelFormatter={(label) => fmtMonth(String(label))}
+            formatter={(value, name) => {
+              const v = Number(value);
+              const n = String(name);
+              const line = lines.find((l) => l.dataKey === n);
+              return [line?.formatter ? line.formatter(v) : v.toFixed(2), line?.label ?? n];
             }}
           />
           {lines.length > 1 && <Legend />}
