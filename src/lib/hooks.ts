@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export function useIsDark() {
   const [isDark, setIsDark] = useState(false);
@@ -12,6 +12,42 @@ export function useIsDark() {
     return () => observer.disconnect();
   }, []);
   return isDark;
+}
+
+/** Track which section ID is currently in the viewport. */
+export function useActiveSection(ids: string[]) {
+  const [active, setActive] = useState("");
+  const manualRef = useRef(false);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (manualRef.current) return;
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            setActive(entry.target.id);
+            break;
+          }
+        }
+      },
+      { rootMargin: "-80px 0px -60% 0px" },
+    );
+
+    for (const id of ids) {
+      const el = document.getElementById(id);
+      if (el) observer.observe(el);
+    }
+    return () => observer.disconnect();
+  }, [ids]);
+
+  const scrollTo = (id: string) => {
+    manualRef.current = true;
+    setActive(id);
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setTimeout(() => { manualRef.current = false; }, 1000);
+  };
+
+  return { active, scrollTo };
 }
 
 export function useIsMobile(breakpoint = 640) {
