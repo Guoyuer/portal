@@ -19,7 +19,6 @@ import {
 } from "recharts";
 import type {
   CategoryData,
-  ChartData,
   MonthlyFlowPoint,
   SnapshotPoint,
 } from "@/lib/types";

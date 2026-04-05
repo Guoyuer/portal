@@ -1,7 +1,6 @@
-// ── Zod schemas for runtime validation of ReportData from R2 ─────────────
-// Mirrors the interfaces in types.ts. If the Python pipeline changes its
-// output shape, validation will catch the mismatch immediately instead of
-// causing silent rendering bugs.
+// ── Zod schemas — single source of truth for report data types ───────────
+// All TypeScript types are derived from these schemas via z.infer.
+// Runtime validation + compile-time types from one definition.
 
 import { z } from "zod";
 
@@ -241,5 +240,27 @@ export const ReportDataSchema = z.object({
   }).optional(),
 });
 
-/** Inferred type from the Zod schema — use this instead of the hand-written ReportData interface. */
-export type ReportDataFromSchema = z.infer<typeof ReportDataSchema>;
+// ── Inferred types (single source of truth) ─────────────────────────────
+
+export type HoldingData = z.infer<typeof HoldingDataSchema>;
+export type SubtypeGroup = z.infer<typeof SubtypeGroupSchema>;
+export type CategoryData = z.infer<typeof CategoryDataSchema>;
+export type ActivityData = z.infer<typeof ActivityDataSchema>;
+export type AccountBalance = z.infer<typeof AccountBalanceSchema>;
+export type BalanceSheetData = z.infer<typeof BalanceSheetDataSchema>;
+export type CashFlowItem = z.infer<typeof CashFlowItemSchema>;
+export type CashFlowData = z.infer<typeof CashFlowDataSchema>;
+export type IndexReturn = z.infer<typeof IndexReturnSchema>;
+export type MarketData = z.infer<typeof MarketDataSchema>;
+export type StockDetail = z.infer<typeof StockDetailSchema>;
+export type HoldingsDetailData = z.infer<typeof HoldingsDetailDataSchema>;
+export type AnnualCategoryTotal = z.infer<typeof AnnualCategoryTotalSchema>;
+export type AnnualSummary = z.infer<typeof AnnualSummarySchema>;
+export type SnapshotPoint = z.infer<typeof SnapshotPointSchema>;
+export type MonthlyFlowPoint = z.infer<typeof MonthlyFlowPointSchema>;
+export type ChartData = z.infer<typeof ChartDataSchema>;
+export type ReconciliationMatch = z.infer<typeof ReconciliationMatchSchema>;
+export type CrossReconciliationData = z.infer<typeof CrossReconciliationDataSchema>;
+export type TierReconciliation = z.infer<typeof TierReconciliationSchema>;
+export type ReconciliationData = z.infer<typeof ReconciliationDataSchema>;
+export type ReportData = z.infer<typeof ReportDataSchema>;

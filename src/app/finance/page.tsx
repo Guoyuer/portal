@@ -1,9 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { ReportData } from "@/lib/types";
 import { REPORT_URL } from "@/lib/config";
-import { ReportDataSchema } from "@/lib/schema";
+import { ReportDataSchema, type ReportData } from "@/lib/schema";
 import { fmtCurrency, fmtPct } from "@/lib/format";
 import { valueColor } from "@/lib/style-helpers";
 import {
@@ -42,7 +41,7 @@ export default function FinancePage() {
         console.error("Report validation failed:", parsed.error.issues);
         throw new Error(`Invalid report data: ${parsed.error.issues[0]?.message ?? "schema mismatch"}`);
       }
-      setReport(parsed.data as ReportData);
+      setReport(parsed.data);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load report");
     } finally {
