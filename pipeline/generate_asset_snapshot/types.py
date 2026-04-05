@@ -50,6 +50,14 @@ TIER_CASH = "cash"
 CURRENCY_RE = re.compile(r"[^0-9.-]")
 
 
+def parse_currency(val: str) -> float:
+    """Parse a currency string like '$1,234.56' or '+$100.00' to float."""
+    val = val.strip()
+    if not val or val == "--":
+        return 0.0
+    return float(CURRENCY_RE.sub("", val))
+
+
 # ── Config / Portfolio types ────────────────────────────────────────────────
 
 
@@ -161,23 +169,6 @@ class CategoryData:
     is_equity: bool
     subtypes: list[SubtypeGroup] = field(default_factory=list)
     holdings: list[HoldingData] = field(default_factory=list)  # flat list for non-equity
-
-
-@dataclass
-class ContributionRow:
-    category: str
-    allocate: float
-    new_value: float
-    new_pct: float
-    target: float
-    improving: bool  # arrow indicator
-
-
-@dataclass
-class ContributionData:
-    amount: float
-    new_total: float
-    rows: list[ContributionRow]
 
 
 # ── Extended report sections ────────────────────────────────────────────────
@@ -352,16 +343,10 @@ class ChartData:
 
 @dataclass
 class ReportSources:
-    """Optional data sources passed through to ReportData.
-
-    Groups the pass-through parameters that build_report doesn't
-    process — just forwards to the final ReportData.
-    """
+    """Optional data sources passed through to ReportData."""
 
     market: MarketData | None = None
     holdings_detail: HoldingsDetailData | None = None
-    narrative: str | None = None
-    alerts: list[str] = field(default_factory=list)
 
 
 # ── Full ReportData ─────────────────────────────────────────────────────────
@@ -377,7 +362,6 @@ class ReportData:
     goal_pct: float
     equity_categories: list[CategoryData]
     non_equity_categories: list[CategoryData]
-    contribution: ContributionData | None = None
 
     # Investment activity (if Fidelity history available)
     activity: ActivityData | None = None
@@ -399,7 +383,3 @@ class ReportData:
 
     # Annual summary (if Qianji data spans multiple months)
     annual_summary: AnnualSummary | None = None
-
-    # AI-generated (if LLM available)
-    narrative: str | None = None
-    alerts: list[str] = field(default_factory=list)

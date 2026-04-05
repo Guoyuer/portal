@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { ReportData } from "@/lib/types";
 import { REPORT_URL } from "@/lib/config";
+import { ReportDataSchema, type ReportData } from "@/lib/schema";
 import { fmtCurrency, fmtPct } from "@/lib/format";
+import { valueColor } from "@/lib/style-helpers";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -20,6 +21,7 @@ import { GainLoss } from "@/components/finance/gain-loss";
 import { AnnualSummary } from "@/components/finance/annual-summary";
 import { NetWorthGrowth } from "@/components/finance/net-worth-growth";
 import { Reconciliation } from "@/components/finance/reconciliation";
+import { CrossReconciliation } from "@/components/finance/cross-reconciliation";
 import { BackToTop } from "@/components/layout/back-to-top";
 
 export default function FinancePage() {
@@ -33,7 +35,13 @@ export default function FinancePage() {
     try {
       const res = await fetch(REPORT_URL, { cache: "no-store" });
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-      setReport(await res.json());
+      const json = await res.json();
+      const parsed = ReportDataSchema.safeParse(json);
+      if (!parsed.success) {
+        console.error("Report validation failed:", parsed.error.issues);
+        throw new Error(`Invalid report data: ${parsed.error.issues[0]?.message ?? "schema mismatch"}`);
+      }
+      setReport(parsed.data);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load report");
     } finally {
@@ -137,6 +145,7 @@ export default function FinancePage() {
       {/* ── 6. Balance Sheet + Reconciliation ───────────────────────────── */}
       {r.balanceSheet && <div id="balance-sheet"><BalanceSheet data={r.balanceSheet} /></div>}
       {r.reconciliation && <div id="reconciliation"><Reconciliation data={r.reconciliation} /></div>}
+      {r.crossReconciliation && <CrossReconciliation data={r.crossReconciliation} />}
 
       {/* ── 7. Holdings: Detail + Gain/Loss ─────────────────────────────── */}
       {r.holdingsDetail && (
@@ -160,7 +169,7 @@ export default function FinancePage() {
                       <TableRow key={s.ticker} className="even:bg-muted/50">
                         <TableCell className="font-mono">{s.ticker}</TableCell>
                         <TableCell
-                          className={`text-right ${s.monthReturn >= 0 ? "text-green-600" : "text-red-500"}`}
+                          className={`text-right ${valueColor(s.monthReturn)}`}
                         >
                           {fmtPct(s.monthReturn)}
                         </TableCell>
@@ -168,7 +177,7 @@ export default function FinancePage() {
                           {fmtCurrency(s.endValue)}
                         </TableCell>
                         <TableCell
-                          className={`text-right ${s.vsHigh != null && s.vsHigh >= 0 ? "text-green-600" : "text-red-500"}`}
+                          className={`text-right ${valueColor(s.vsHigh ?? -1)}`}
                         >
                           {s.vsHigh != null ? fmtPct(s.vsHigh) : "N/A"}
                         </TableCell>
@@ -195,7 +204,7 @@ export default function FinancePage() {
                       <TableRow key={s.ticker} className="even:bg-muted/50">
                         <TableCell className="font-mono">{s.ticker}</TableCell>
                         <TableCell
-                          className={`text-right ${s.monthReturn >= 0 ? "text-green-600" : "text-red-500"}`}
+                          className={`text-right ${valueColor(s.monthReturn)}`}
                         >
                           {fmtPct(s.monthReturn)}
                         </TableCell>
@@ -203,7 +212,7 @@ export default function FinancePage() {
                           {fmtCurrency(s.endValue)}
                         </TableCell>
                         <TableCell
-                          className={`text-right ${s.vsHigh != null && s.vsHigh >= 0 ? "text-green-600" : "text-red-500"}`}
+                          className={`text-right ${valueColor(s.vsHigh ?? -1)}`}
                         >
                           {s.vsHigh != null ? fmtPct(s.vsHigh) : "N/A"}
                         </TableCell>

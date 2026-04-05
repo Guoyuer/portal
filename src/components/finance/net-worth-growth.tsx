@@ -1,5 +1,6 @@
 import type { SnapshotPoint } from "@/lib/types";
 import { fmtCurrency, fmtPct } from "@/lib/format";
+import { valueColor } from "@/lib/style-helpers";
 import { SectionHeader, SectionBody } from "@/components/finance/shared";
 import { NetWorthTrendChart } from "@/components/finance/charts";
 
@@ -42,19 +43,19 @@ export function NetWorthGrowth({ data: trend }: { data: SnapshotPoint[] }) {
         <div className="grid grid-cols-2 gap-6 mb-4">
           <div className="text-center p-4">
             <p className="text-sm text-muted-foreground">MoM Change</p>
-            <p className={`text-3xl font-bold ${mom >= 0 ? "text-green-600" : "text-red-500"}`}>
+            <p className={`text-3xl font-bold ${valueColor(mom)}`}>
               {fmtPct(mom)}
             </p>
-            <p className={`text-sm ${momDelta >= 0 ? "text-green-600" : "text-red-500"}`}>
+            <p className={`text-sm ${valueColor(momDelta)}`}>
               {fmtCurrency(momDelta)}
             </p>
           </div>
           <div className="text-center p-4">
             <p className="text-sm text-muted-foreground">YoY Change</p>
-            <p className={`text-3xl font-bold ${yoy >= 0 ? "text-green-600" : "text-red-500"}`}>
+            <p className={`text-3xl font-bold ${valueColor(yoy)}`}>
               {fmtPct(yoy)}
             </p>
-            <p className={`text-sm ${yoyDelta >= 0 ? "text-green-600" : "text-red-500"}`}>
+            <p className={`text-sm ${valueColor(yoyDelta)}`}>
               {fmtCurrency(yoyDelta)}
             </p>
           </div>

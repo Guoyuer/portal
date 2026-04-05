@@ -1,5 +1,6 @@
 import type { BalanceSheetData } from "@/lib/types";
 import { fmtCurrency, fmtYuan } from "@/lib/format";
+import { CC_GROUP_THRESHOLD } from "@/lib/style-helpers";
 import {
   Table,
   TableBody,
@@ -68,7 +69,7 @@ export function BalanceSheet({ data }: { data: BalanceSheetData }) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data.totalLiabilities < 500 && data.creditCards.length > 1 ? (
+                {data.totalLiabilities < CC_GROUP_THRESHOLD && data.creditCards.length > 1 ? (
                   <TableRow className="even:bg-muted/50">
                     <TableCell>Credit Cards ({data.creditCards.length})</TableCell>
                     <TableCell className="text-right text-red-500">

@@ -1,5 +1,6 @@
 import type { ReportData } from "@/lib/types";
 import { fmtCurrency, fmtCurrencyShort } from "@/lib/format";
+import { savingsRateColor } from "@/lib/style-helpers";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export function MetricCards({ report: r }: { report: ReportData }) {
@@ -34,7 +35,7 @@ export function MetricCards({ report: r }: { report: ReportData }) {
         <CardContent>
           {r.cashflow ? (
             <div>
-              <p className={`text-2xl font-bold ${r.cashflow.savingsRate >= 30 ? "text-green-600" : r.cashflow.savingsRate >= 15 ? "text-yellow-600" : "text-red-500"}`}>
+              <p className={`text-2xl font-bold ${savingsRateColor(r.cashflow.savingsRate)}`}>
                 {Math.round(r.cashflow.savingsRate)}%
               </p>
               <p className="text-xs text-muted-foreground">

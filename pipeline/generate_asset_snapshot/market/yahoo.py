@@ -68,11 +68,13 @@ def fetch_index_returns(tickers: list[str], period: str = "1mo") -> dict[str, An
 
 
 def fetch_cny_rate() -> float:
-    """Fetch current USD/CNY exchange rate. Raises on failure."""
+    """Fetch current USD/CNY exchange rate. Raises on failure or bad data."""
     data = yf.download("CNY=X", period="5d", progress=False)
     if data.empty:
         raise RuntimeError("Failed to fetch USD/CNY rate: no data returned")
     rate = float(data["Close"].iloc[-1].item())
+    if not 3.0 <= rate <= 10.0:
+        raise RuntimeError(f"USD/CNY rate {rate:.4f} outside plausible range [3.0, 10.0]")
     log.info("USD/CNY: %.4f", rate)
     return rate
 
@@ -109,7 +111,11 @@ def build_holdings_detail(portfolio: Portfolio) -> HoldingsDetailData | None:
 
     Returns None on total failure. Individual ticker failures are silently skipped.
     """
-    tickers = [t for t in portfolio["totals"] if _is_ticker(t)]
+    all_symbols = list(portfolio["totals"].keys())
+    tickers = [t for t in all_symbols if _is_ticker(t)]
+    skipped = [t for t in all_symbols if not _is_ticker(t)]
+    if skipped:
+        log.info("Holdings: skipped non-ticker symbols: %s", skipped)
     if not tickers:
         return None
 

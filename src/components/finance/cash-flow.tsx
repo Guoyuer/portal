@@ -1,5 +1,6 @@
 import type { CashFlowData } from "@/lib/types";
 import { fmtCurrency } from "@/lib/format";
+import { valueColor, MAJOR_EXPENSE_THRESHOLD } from "@/lib/style-helpers";
 import {
   Table,
   TableBody,
@@ -10,8 +11,6 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { SectionHeader, SectionBody } from "@/components/finance/shared";
-
-const MAJOR_EXPENSE_THRESHOLD = 200;
 
 export function CashFlow({ data }: { data: CashFlowData }) {
   const major = data.expenseItems.filter(
@@ -140,7 +139,7 @@ export function CashFlow({ data }: { data: CashFlowData }) {
             <TableBody>
               <TableRow className="even:bg-muted/50">
                 <TableCell className="font-medium">Net Cash Flow</TableCell>
-                <TableCell className={`text-right font-semibold ${data.netCashflow >= 0 ? "text-green-600" : "text-red-500"}`}>
+                <TableCell className={`text-right font-semibold ${valueColor(data.netCashflow)}`}>
                   {fmtCurrency(data.netCashflow)}
                 </TableCell>
               </TableRow>
