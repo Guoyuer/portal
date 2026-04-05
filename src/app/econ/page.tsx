@@ -102,14 +102,9 @@ export default function EconPage() {
   return (
     <div className="max-w-5xl mx-auto space-y-10">
       {/* Header */}
-      <div className="flex items-start sm:items-center justify-between gap-2">
-        <h1 className="text-xl sm:text-2xl font-bold tracking-tight">
-          Economy Dashboard
-        </h1>
-        <Button onClick={fetchData} variant="outline" size="sm" disabled={loading} className="flex-shrink-0">
-          {loading ? "Loading..." : "Reload"}
-        </Button>
-      </div>
+      <h1 className="text-xl sm:text-2xl font-bold tracking-tight">
+        Economy Dashboard
+      </h1>
 
       <p className="text-xs text-muted-foreground -mt-4">
         Updated: {new Date(data.generatedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
