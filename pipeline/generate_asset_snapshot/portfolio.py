@@ -99,5 +99,5 @@ def load_portfolio(csv_path: Path, config: Config) -> Portfolio:
     except FileNotFoundError as e:
         raise PortfolioError(f"CSV not found: {csv_path}") from e
     p = _apply_manual(totals, counts, cost_basis, gain_loss, gain_loss_pct, config)
-    log.info("Portfolio: %d tickers, %d lots, total $%,.2f (manual: %d)", len(p["totals"]), sum(p["counts"].values()), p["total"], len(config["manual"]))
+    log.info("Portfolio: %d tickers, %d lots, total $%s (manual: %d)", len(p["totals"]), sum(p["counts"].values()), f"{p['total']:,.2f}", len(config["manual"]))
     return p

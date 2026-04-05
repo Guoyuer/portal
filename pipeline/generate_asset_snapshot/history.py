@@ -112,7 +112,7 @@ def aggregate_monthly_flows(
 
     total_inc = sum(p.income for p in points)
     total_exp = sum(p.expenses for p in points)
-    log.info("Monthly flows: %d months, total income $%,.0f, expenses $%,.0f", len(points), total_inc, total_exp)
+    log.info("Monthly flows: %d months, total income $%s, expenses $%s", len(points), f"{total_inc:,.0f}", f"{total_exp:,.0f}")
     return points
 
 

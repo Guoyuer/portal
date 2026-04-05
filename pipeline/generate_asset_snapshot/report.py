@@ -249,7 +249,7 @@ def _build_activity(transactions: list[FidelityTransaction], report_month: str =
     sell_total = sum(t["amount"] for t in sells)
     dividend_total = sum(t["amount"] for t in dividends)
 
-    log.info("Activity %s\u2013%s: deposits=$%,.0f buys=$%,.0f sells=$%,.0f dividends=$%,.0f", period_start, period_end, deposit_total, buy_total, sell_total, dividend_total)
+    log.info("Activity %s\u2013%s: deposits=$%s buys=$%s sells=$%s dividends=$%s", period_start, period_end, f"{deposit_total:,.0f}", f"{buy_total:,.0f}", f"{sell_total:,.0f}", f"{dividend_total:,.0f}")
     return ActivityData(
         period_start=period_start,
         period_end=period_end,
@@ -319,7 +319,7 @@ def _build_balance_sheet_from_snapshot(
     total_assets = fidelity_total + cash_total + cny_total_usd
     net_worth = total_assets - total_liabilities
 
-    log.info("Balance sheet: assets=$%,.0f (fidelity=$%,.0f + cash=$%,.0f + cny=$%,.0f), liabilities=$%,.0f, net_worth=$%,.0f", total_assets, fidelity_total, cash_total, cny_total_usd, total_liabilities, net_worth)
+    log.info("Balance sheet: assets=$%s (fidelity=$%s + cash=$%s + cny=$%s), liabilities=$%s, net_worth=$%s", f"{total_assets:,.0f}", f"{fidelity_total:,.0f}", f"{cash_total:,.0f}", f"{cny_total_usd:,.0f}", f"{total_liabilities:,.0f}", f"{net_worth:,.0f}")
     return BalanceSheetData(
         investment_total=fidelity_total,
         accounts=cash_assets + cny_assets,
@@ -451,7 +451,7 @@ def _build_cashflow(cashflow: list[QianjiRecord], config: Config | None = None, 
     else:
         period = "Unknown"
 
-    log.info("Cashflow %s: income=$%,.0f expenses=$%,.0f savings=%.1f%% invested=$%,.0f", period, total_income, total_expenses, savings_rate, invested)
+    log.info("Cashflow %s: income=$%s expenses=$%s savings=%.1f%% invested=$%s", period, f"{total_income:,.0f}", f"{total_expenses:,.0f}", savings_rate, f"{invested:,.0f}")
     return CashFlowData(
         period=period,
         income_items=income_items,
@@ -556,7 +556,7 @@ def _build_annual_summary(
         return None
 
     total_expenses = sum(expense_by_cat.values())
-    log.info("Annual %d: expenses=$%,.0f (%d categories) income=$%,.0f", year, total_expenses, len(expense_by_cat), total_income)
+    log.info("Annual %d: expenses=$%s (%d categories) income=$%s", year, f"{total_expenses:,.0f}", len(expense_by_cat), f"{total_income:,.0f}")
     items = sorted(
         [AnnualCategoryTotal(category=cat, amount=amt, count=expense_counts[cat]) for cat, amt in expense_by_cat.items()],
         key=lambda x: x.amount,
@@ -594,7 +594,7 @@ def build_report(
     All optional params default to None for graceful degradation —
     the report works with just positions data.
     """
-    log.info("Building report for %s: $%,.2f across %d tickers", filename, portfolio["total"], len(portfolio["totals"]))
+    log.info("Building report for %s: $%s across %d tickers", filename, f"{portfolio['total']:,.2f}", len(portfolio["totals"]))
     s = sources or ReportSources()
 
     eq_names, non_eq_names = _ordered_categories(portfolio, config)

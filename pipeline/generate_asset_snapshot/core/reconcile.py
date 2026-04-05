@@ -141,7 +141,7 @@ def cross_reconcile(
 
     unmatched_amount = sum(t["amount"] for t in unmatched_qj) + sum(d["amount"] for d in unmatched_fd)
 
-    log.info("Cross-reconcile: %d Qianji ($%,.0f) vs %d Fidelity ($%,.0f) → %d matched, $%,.0f unmatched", len(qianji_transfers), qianji_total, len(fidelity_deposits), fidelity_total, len(matched), unmatched_amount)
+    log.info("Cross-reconcile: %d Qianji ($%s) vs %d Fidelity ($%s) → %d matched, $%s unmatched", len(qianji_transfers), f"{qianji_total:,.0f}", len(fidelity_deposits), f"{fidelity_total:,.0f}", len(matched), f"{unmatched_amount:,.0f}")
     return CrossReconciliationData(
         matched=matched,
         unmatched_qianji=unmatched_qj,
@@ -250,7 +250,7 @@ def portfolio_reconcile(
     total_end = fid_end + linked_end + manual_end
     total_change = total_end - total_start
 
-    log.info("Portfolio reconcile: fidelity Δ$%,.0f (market=$%,.0f deposits=$%,.0f), linked Δ$%,.0f, manual Δ$%,.0f, total Δ$%,.0f", fid_change, market_movement, deposits, linked_change, manual_change, total_change)
+    log.info("Portfolio reconcile: fidelity Δ$%s (market=$%s deposits=$%s), linked Δ$%s, manual Δ$%s, total Δ$%s", f"{fid_change:,.0f}", f"{market_movement:,.0f}", f"{deposits:,.0f}", f"{linked_change:,.0f}", f"{manual_change:,.0f}", f"{total_change:,.0f}")
     return ReconciliationData(
         prev_date="",  # caller fills in actual dates
         curr_date="",
