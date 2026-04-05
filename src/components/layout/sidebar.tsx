@@ -187,7 +187,7 @@ export default function Sidebar() {
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        <div className="flex h-14 items-center px-6">
+        <div className="flex h-14 items-center pl-14 pr-6">
           <span className="text-lg font-semibold text-white tracking-tight">
             Portal
           </span>
