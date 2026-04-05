@@ -50,6 +50,14 @@ TIER_CASH = "cash"
 CURRENCY_RE = re.compile(r"[^0-9.-]")
 
 
+def parse_currency(val: str) -> float:
+    """Parse a currency string like '$1,234.56' or '+$100.00' to float."""
+    val = val.strip()
+    if not val or val == "--":
+        return 0.0
+    return float(CURRENCY_RE.sub("", val))
+
+
 # ── Config / Portfolio types ────────────────────────────────────────────────
 
 

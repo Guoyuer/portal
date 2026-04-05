@@ -9,12 +9,20 @@ from __future__ import annotations
 import csv
 import logging
 import re
-import sys
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
-from .types import CURRENCY_RE, QJ_EXPENSE, QJ_INCOME, ChartData, Config, MonthlyFlowPoint, QianjiRecord, SnapshotPoint
+from .types import (
+    QJ_EXPENSE,
+    QJ_INCOME,
+    ChartData,
+    Config,
+    MonthlyFlowPoint,
+    QianjiRecord,
+    SnapshotPoint,
+    parse_currency,
+)
 
 log = logging.getLogger(__name__)
 
@@ -65,15 +73,13 @@ def _sum_csv_values(csv_path: Path) -> float:
                 identifier = (row.get(sym_h, "") or row.get(desc_h, "") or "").strip()
                 if not identifier or identifier.lower() == "pending activity":
                     continue
-                val = (row.get(val_h) or "").strip()
-                if val and val != "--":
-                    total += float(CURRENCY_RE.sub("", val))
+                total += parse_currency(row.get(val_h) or "")
             return total
     except OSError as e:
-        print(f"  [warn] Cannot read {csv_path.name}: {e}", file=sys.stderr)
+        log.warning("Cannot read %s: %s", csv_path.name, e)
         return 0.0
     except ValueError as e:
-        print(f"  [ERROR] Bad value in {csv_path.name}: {e} — skipping file", file=sys.stderr)
+        log.error("Bad value in %s: %s — skipping file", csv_path.name, e)
         return 0.0
 
 

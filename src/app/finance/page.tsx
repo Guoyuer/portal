@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ReportData } from "@/lib/types";
 import { REPORT_URL } from "@/lib/config";
+import { ReportDataSchema } from "@/lib/schema";
 import { fmtCurrency, fmtPct } from "@/lib/format";
+import { valueColor } from "@/lib/style-helpers";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -34,7 +36,13 @@ export default function FinancePage() {
     try {
       const res = await fetch(REPORT_URL, { cache: "no-store" });
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-      setReport(await res.json());
+      const json = await res.json();
+      const parsed = ReportDataSchema.safeParse(json);
+      if (!parsed.success) {
+        console.error("Report validation failed:", parsed.error.issues);
+        throw new Error(`Invalid report data: ${parsed.error.issues[0]?.message ?? "schema mismatch"}`);
+      }
+      setReport(parsed.data as ReportData);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load report");
     } finally {
@@ -162,7 +170,7 @@ export default function FinancePage() {
                       <TableRow key={s.ticker} className="even:bg-muted/50">
                         <TableCell className="font-mono">{s.ticker}</TableCell>
                         <TableCell
-                          className={`text-right ${s.monthReturn >= 0 ? "text-green-600" : "text-red-500"}`}
+                          className={`text-right ${valueColor(s.monthReturn)}`}
                         >
                           {fmtPct(s.monthReturn)}
                         </TableCell>
@@ -170,7 +178,7 @@ export default function FinancePage() {
                           {fmtCurrency(s.endValue)}
                         </TableCell>
                         <TableCell
-                          className={`text-right ${s.vsHigh != null && s.vsHigh >= 0 ? "text-green-600" : "text-red-500"}`}
+                          className={`text-right ${valueColor(s.vsHigh ?? -1)}`}
                         >
                           {s.vsHigh != null ? fmtPct(s.vsHigh) : "N/A"}
                         </TableCell>
@@ -197,7 +205,7 @@ export default function FinancePage() {
                       <TableRow key={s.ticker} className="even:bg-muted/50">
                         <TableCell className="font-mono">{s.ticker}</TableCell>
                         <TableCell
-                          className={`text-right ${s.monthReturn >= 0 ? "text-green-600" : "text-red-500"}`}
+                          className={`text-right ${valueColor(s.monthReturn)}`}
                         >
                           {fmtPct(s.monthReturn)}
                         </TableCell>
@@ -205,7 +213,7 @@ export default function FinancePage() {
                           {fmtCurrency(s.endValue)}
                         </TableCell>
                         <TableCell
-                          className={`text-right ${s.vsHigh != null && s.vsHigh >= 0 ? "text-green-600" : "text-red-500"}`}
+                          className={`text-right ${valueColor(s.vsHigh ?? -1)}`}
                         >
                           {s.vsHigh != null ? fmtPct(s.vsHigh) : "N/A"}
                         </TableCell>

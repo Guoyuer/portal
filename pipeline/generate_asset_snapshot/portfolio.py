@@ -7,17 +7,9 @@ import logging
 from collections import defaultdict
 from pathlib import Path
 
-from .types import CURRENCY_RE, Config, Portfolio, PortfolioError
+from .types import Config, Portfolio, PortfolioError, parse_currency
 
 log = logging.getLogger(__name__)
-
-
-def _parse_currency(val: str) -> float:
-    """Parse a currency string like '$1,234.56' or '+$100.00' to float."""
-    val = val.strip()
-    if not val or val == "--":
-        return 0.0
-    return float(CURRENCY_RE.sub("", val))
 
 
 def _parse_rows(
@@ -50,12 +42,12 @@ def _parse_rows(
                 f"is not configured in config.json. "
                 f"Please add it to the 'assets' section."
             )
-        totals[ticker] += _parse_currency(row.get(val_h, "0"))
+        totals[ticker] += parse_currency(row.get(val_h, "0"))
         counts[ticker] += 1
         if cb_h:
-            cost_basis[ticker] += _parse_currency(row.get(cb_h, "0"))
+            cost_basis[ticker] += parse_currency(row.get(cb_h, "0"))
         if gl_h:
-            gain_loss[ticker] += _parse_currency(row.get(gl_h, "0"))
+            gain_loss[ticker] += parse_currency(row.get(gl_h, "0"))
 
     # Compute gain/loss % from aggregated values
     for ticker in totals:

@@ -1,5 +1,6 @@
 import type { ReportData } from "@/lib/types";
 import { fmtCurrency, fmtPct } from "@/lib/format";
+import { valueColor } from "@/lib/style-helpers";
 import {
   Table,
   TableBody,
@@ -54,10 +55,10 @@ export function GainLoss({ report: r }: { report: ReportData }) {
                   <TableCell className="font-mono">{h.ticker}</TableCell>
                   <TableCell className="text-right">{fmtCurrency(h.value)}</TableCell>
                   <TableCell className="text-right hidden sm:table-cell">{fmtCurrency(h.costBasis)}</TableCell>
-                  <TableCell className={`text-right ${h.gainLoss >= 0 ? "text-green-600" : "text-red-500"}`}>
+                  <TableCell className={`text-right ${valueColor(h.gainLoss)}`}>
                     {fmtCurrency(h.gainLoss)}
                   </TableCell>
-                  <TableCell className={`text-right ${h.gainLossPct >= 0 ? "text-green-600" : "text-red-500"}`}>
+                  <TableCell className={`text-right ${valueColor(h.gainLossPct)}`}>
                     {fmtPct(h.gainLossPct)}
                   </TableCell>
                 </TableRow>
@@ -66,10 +67,10 @@ export function GainLoss({ report: r }: { report: ReportData }) {
                 <TableCell>Total</TableCell>
                 <TableCell className="text-right">{fmtCurrency(sorted.reduce((s, h) => s + h.value, 0))}</TableCell>
                 <TableCell className="text-right hidden sm:table-cell">{fmtCurrency(totalCost)}</TableCell>
-                <TableCell className={`text-right ${totalGain >= 0 ? "text-green-600" : "text-red-500"}`}>
+                <TableCell className={`text-right ${valueColor(totalGain)}`}>
                   {fmtCurrency(totalGain)}
                 </TableCell>
-                <TableCell className={`text-right ${totalGain >= 0 ? "text-green-600" : "text-red-500"}`}>
+                <TableCell className={`text-right ${valueColor(totalGain)}`}>
                   {totalCost > 0 ? fmtPct(totalGain / totalCost * 100) : "\u2014"}
                 </TableCell>
               </TableRow>

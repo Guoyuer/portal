@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import re
-import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -14,6 +14,8 @@ from .ingest.qianji_db import DEFAULT_DB_PATH, load_all_from_db
 from .portfolio import load_portfolio
 from .report import build_report
 from .types import ConfigError, PortfolioError
+
+log = logging.getLogger(__name__)
 
 _DOWNLOADS_DIR = Path.home() / "Downloads"
 
@@ -33,7 +35,7 @@ def _resolve_csv(explicit: Path | None, prefix: str, label: str) -> Path:
     found = _find_latest(_DOWNLOADS_DIR, prefix)
     if found is None:
         raise SystemExit(f"No {label} found in {_DOWNLOADS_DIR} (glob: {prefix}*)")
-    print(f"Auto-detected {label}: {found.name}", file=sys.stderr)
+    log.info("Auto-detected %s: %s", label, found.name)
     return found
 
 
@@ -73,9 +75,9 @@ def main() -> None:
         cashflow, balance_snapshot = load_all_from_db(args.qianji_db)
         if cashflow and balance_snapshot:
             config["manual"] = manual_values_from_snapshot(balance_snapshot, config)
-            print(f"Qianji: {len(cashflow)} records from {args.qianji_db.name}", file=sys.stderr)
+            log.info("Qianji: %d records from %s", len(cashflow), args.qianji_db.name)
     else:
-        print(f"Qianji DB not found: {args.qianji_db}", file=sys.stderr)
+        log.warning("Qianji DB not found: %s", args.qianji_db)
 
     try:
         portfolio = load_portfolio(csv_path, config)
@@ -93,8 +95,8 @@ def main() -> None:
     market_data = None
     try:
         market_data = build_market_data(cny_rate)
-    except Exception as e:  # noqa: BLE001
-        print(f"[warn] Market data fetch failed: {e}", file=sys.stderr)
+    except Exception:  # noqa: BLE001
+        log.warning("Market data fetch failed", exc_info=True)
 
     from .history import build_chart_data
     from .types import ReportSources

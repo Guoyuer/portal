@@ -1,4 +1,5 @@
 import { fmtCurrency, fmtPct } from "@/lib/format";
+import { valueColor } from "@/lib/style-helpers";
 import {
   Table,
   TableBody,
@@ -27,7 +28,7 @@ export function SectionBody({ children }: { children: React.ReactNode }) {
 export function DeviationCell({ value }: { value: number }) {
   return (
     <TableCell
-      className={`text-right ${value >= 0 ? "text-green-600" : "text-red-500"}`}
+      className={`text-right ${valueColor(value)}`}
     >
       {fmtPct(value)}
     </TableCell>
