@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { REPORT_URL } from "@/lib/config";
 import { ReportDataSchema, type ReportData } from "@/lib/schema";
 import { fmtCurrency, fmtPct } from "@/lib/format";
 import { valueColor } from "@/lib/style-helpers";
+import type { StockDetail } from "@/lib/types";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -14,15 +15,44 @@ import { IncomeExpensesChart } from "@/components/finance/charts";
 import { MetricCards } from "@/components/finance/metric-cards";
 import { CategorySummary } from "@/components/finance/category-summary";
 import { CashFlow } from "@/components/finance/cash-flow";
-import { InvestmentActivity } from "@/components/finance/investment-activity";
+import { PortfolioActivity } from "@/components/finance/portfolio-activity";
 import { BalanceSheet } from "@/components/finance/balance-sheet";
 import { MarketContext } from "@/components/finance/market-context";
 import { GainLoss } from "@/components/finance/gain-loss";
 import { AnnualSummary } from "@/components/finance/annual-summary";
 import { NetWorthGrowth } from "@/components/finance/net-worth-growth";
-import { Reconciliation } from "@/components/finance/reconciliation";
-import { CrossReconciliation } from "@/components/finance/cross-reconciliation";
 import { BackToTop } from "@/components/layout/back-to-top";
+
+// ── Performers Table ──────────────────────────────────────────────────
+
+function PerformersTable({ title, data }: { title: string; data: StockDetail[] }) {
+  if (data.length === 0) return null;
+  return (
+    <div className="mb-6">
+      <h3 className="font-semibold mb-2">{title}</h3>
+      <Table>
+        <TableHeader><TableRow>
+          <TableHead>Ticker</TableHead>
+          <TableHead className="text-right">Month Return</TableHead>
+          <TableHead className="text-right">Value</TableHead>
+          <TableHead className="text-right">vs 52W High</TableHead>
+        </TableRow></TableHeader>
+        <TableBody>
+          {data.map((s) => (
+            <TableRow key={s.ticker} className="even:bg-muted/50">
+              <TableCell className="font-mono">{s.ticker}</TableCell>
+              <TableCell className={`text-right ${valueColor(s.monthReturn)}`}>{fmtPct(s.monthReturn)}</TableCell>
+              <TableCell className="text-right">{fmtCurrency(s.endValue)}</TableCell>
+              <TableCell className={`text-right ${valueColor(s.vsHigh ?? -1)}`}>{s.vsHigh != null ? fmtPct(s.vsHigh) : "N/A"}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
+// ── Finance Page ──────────────────────────────────────────────────────
 
 export default function FinancePage() {
   const [r, setReport] = useState<ReportData | null>(null);
@@ -50,6 +80,18 @@ export default function FinancePage() {
   }, []);
 
   useEffect(() => { fetchReport(); }, [fetchReport]);
+
+  // Filter upcoming earnings to 30 days
+  const upcomingEarnings = useMemo(() => {
+    if (!r?.holdingsDetail) return [];
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() + 30);
+    return r.holdingsDetail.upcomingEarnings.filter((s) => {
+      if (!s.nextEarnings) return false;
+      const d = new Date(s.nextEarnings);
+      return d >= new Date() && d <= cutoff;
+    });
+  }, [r]);
 
   if (loading) {
     return (
@@ -83,7 +125,7 @@ export default function FinancePage() {
       {/* Data timestamps */}
       {r.metadata && (
         <p className="text-xs text-muted-foreground -mt-4">
-          Positions: {r.metadata.positionsDate || "?"} · History: {r.metadata.historyDate || "?"} · Qianji: {r.metadata.qianjiDate || "?"}
+          Positions: {r.metadata.positionsDate || "?"} · History: {r.metadata.historyDate || "?"} · Expense Tracker: {r.metadata.qianjiDate || "?"}
         </p>
       )}
 
@@ -93,7 +135,7 @@ export default function FinancePage() {
           ["net-worth", "Net Worth"],
           ["allocation", "Allocation"],
           ["cashflow", "Cash Flow"],
-          ["activity", "Activity"],
+          ["portfolio-activity", "Activity"],
           ["balance-sheet", "Balance Sheet"],
           ["holdings", "Holdings"],
           ["market", "Market"],
@@ -125,125 +167,73 @@ export default function FinancePage() {
         <CategorySummary report={r} />
       </div>
 
-      {/* ── 4. Cash Flow + Expenses ─────────────────────────────────────── */}
-      {r.cashflow && <div id="cashflow"><CashFlow data={r.cashflow} /></div>}
-
-      {r.chartData?.monthlyFlows && r.chartData.monthlyFlows.length > 0 && (
-        <section id="income-expenses">
-          <SectionHeader>Income vs Expenses</SectionHeader>
+      {/* ── 4. Cash Flow ────────────────────────────────────────────────── */}
+      {r.cashflow && (
+        <section id="cashflow">
+          <SectionHeader>Cash Flow &mdash; {r.cashflow.period}</SectionHeader>
           <SectionBody>
-            <IncomeExpensesChart data={r.chartData.monthlyFlows} />
+            <CashFlow data={r.cashflow} />
+            {r.chartData?.monthlyFlows && r.chartData.monthlyFlows.length > 0 && (
+              <div className="mt-6 pt-6 border-t border-border">
+                <h3 className="font-semibold mb-2">Income vs Expenses Trend</h3>
+                <IncomeExpensesChart data={r.chartData.monthlyFlows} />
+              </div>
+            )}
+            {r.annualSummary && (
+              <details className="mt-6 pt-6 border-t border-border">
+                <summary className="font-semibold cursor-pointer hover:text-foreground">
+                  {r.annualSummary.year} Year-to-Date
+                </summary>
+                <div className="mt-4"><AnnualSummary data={r.annualSummary} /></div>
+              </details>
+            )}
           </SectionBody>
         </section>
       )}
 
-      {r.annualSummary && <div id="annual"><AnnualSummary data={r.annualSummary} /></div>}
+      {/* ── 5. Portfolio Activity ───────────────────────────────────────── */}
+      {r.activity && (
+        <section id="portfolio-activity">
+          <SectionHeader>Portfolio Activity</SectionHeader>
+          <SectionBody>
+            <PortfolioActivity activity={r.activity} reconciliation={r.reconciliation} />
+          </SectionBody>
+        </section>
+      )}
 
-      {/* ── 5. Investment Activity ───────────────────────────────────────── */}
-      {r.activity && <div id="activity"><InvestmentActivity data={r.activity} /></div>}
-
-      {/* ── 6. Balance Sheet + Reconciliation ───────────────────────────── */}
+      {/* ── 6. Balance Sheet ────────────────────────────────────────────── */}
       {r.balanceSheet && <div id="balance-sheet"><BalanceSheet data={r.balanceSheet} /></div>}
-      {r.reconciliation && <div id="reconciliation"><Reconciliation data={r.reconciliation} /></div>}
-      {r.crossReconciliation && <CrossReconciliation data={r.crossReconciliation} />}
 
-      {/* ── 7. Holdings: Detail + Gain/Loss ─────────────────────────────── */}
-      {r.holdingsDetail && (
+      {/* ── 7. Holdings ─────────────────────────────────────────────────── */}
+      {(r.holdingsDetail || r.equityCategories.length > 0) && (
         <section id="holdings">
           <SectionHeader>Holdings Detail</SectionHeader>
           <SectionBody>
-            {r.holdingsDetail.topPerformers.length > 0 && (
-              <div className="mb-6">
-                <h3 className="font-semibold mb-2">Top Performers</h3>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Ticker</TableHead>
-                      <TableHead className="text-right">Month Return</TableHead>
-                      <TableHead className="text-right">Value</TableHead>
-                      <TableHead className="text-right">vs 52W High</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {r.holdingsDetail.topPerformers.slice(0, 5).map((s) => (
-                      <TableRow key={s.ticker} className="even:bg-muted/50">
-                        <TableCell className="font-mono">{s.ticker}</TableCell>
-                        <TableCell
-                          className={`text-right ${valueColor(s.monthReturn)}`}
-                        >
-                          {fmtPct(s.monthReturn)}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {fmtCurrency(s.endValue)}
-                        </TableCell>
-                        <TableCell
-                          className={`text-right ${valueColor(s.vsHigh ?? -1)}`}
-                        >
-                          {s.vsHigh != null ? fmtPct(s.vsHigh) : "N/A"}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
-            {r.holdingsDetail.bottomPerformers.length > 0 && (
-              <div className="mb-6">
-                <h3 className="font-semibold mb-2">Bottom Performers</h3>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Ticker</TableHead>
-                      <TableHead className="text-right">Month Return</TableHead>
-                      <TableHead className="text-right">Value</TableHead>
-                      <TableHead className="text-right">vs 52W High</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {r.holdingsDetail.bottomPerformers.slice(0, 5).map((s) => (
-                      <TableRow key={s.ticker} className="even:bg-muted/50">
-                        <TableCell className="font-mono">{s.ticker}</TableCell>
-                        <TableCell
-                          className={`text-right ${valueColor(s.monthReturn)}`}
-                        >
-                          {fmtPct(s.monthReturn)}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {fmtCurrency(s.endValue)}
-                        </TableCell>
-                        <TableCell
-                          className={`text-right ${valueColor(s.vsHigh ?? -1)}`}
-                        >
-                          {s.vsHigh != null ? fmtPct(s.vsHigh) : "N/A"}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
-            {r.holdingsDetail.upcomingEarnings.length > 0 && (
-              <div>
-                <h3 className="font-semibold mb-2">Upcoming Earnings</h3>
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 text-sm">
-                  {r.holdingsDetail.upcomingEarnings.map((s) => (
-                    <div key={s.ticker}>
-                      <span className="font-mono font-medium">{s.ticker}</span>
-                      <span className="text-muted-foreground"> &mdash; {s.nextEarnings}</span>
+            {r.holdingsDetail && (
+              <>
+                <PerformersTable title="Top Performers" data={r.holdingsDetail.topPerformers} />
+                <PerformersTable title="Bottom Performers" data={r.holdingsDetail.bottomPerformers} />
+                {upcomingEarnings.length > 0 && (
+                  <div>
+                    <h3 className="font-semibold mb-2">Upcoming Earnings</h3>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 text-sm">
+                      {upcomingEarnings.map((s) => (
+                        <div key={s.ticker}>
+                          <span className="font-mono font-medium">{s.ticker}</span>
+                          <span className="text-muted-foreground"> &mdash; {s.nextEarnings}</span>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-              </div>
+                  </div>
+                )}
+              </>
             )}
+            <GainLoss report={r} />
           </SectionBody>
         </section>
       )}
 
-      <div id="gain-loss">
-        <GainLoss report={r} />
-      </div>
-
-      {/* ── 8. Market Context ───────────────────────────────────────────── */}
+      {/* ── Market Context ──────────────────────────────────────────────── */}
       {r.market && <div id="market"><MarketContext data={r.market} /></div>}
 
       <BackToTop />

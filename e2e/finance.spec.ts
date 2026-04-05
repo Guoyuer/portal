@@ -16,12 +16,12 @@ test.describe("Finance Report", () => {
   test("shows four metric cards with values", async ({ page }) => {
     const cards = page.locator("[data-slot='card']");
     // Portfolio value
-    await expect(cards.getByText("Portfolio")).toBeVisible();
+    await expect(cards.getByText("Investments")).toBeVisible();
     await expect(cards.getByText(/\$\d{3},\d{3}/).first()).toBeVisible();
     // Net Worth
     await expect(cards.getByText("Net Worth")).toBeVisible();
     // Savings Rate
-    await expect(cards.getByText("Savings Rate")).toBeVisible();
+    await expect(cards.getByText("Monthly Savings Rate")).toBeVisible();
     // Goal
     await expect(cards.getByText("Goal")).toBeVisible();
   });
@@ -88,9 +88,8 @@ test.describe("Finance Report", () => {
 
   test("shows cash flow summary metrics", async ({ page }) => {
     await expect(page.getByRole("cell", { name: "Net Cash Flow" })).toBeVisible();
-    await expect(page.getByRole("cell", { name: "Invested" })).toBeVisible();
-    await expect(page.getByText("Gross Savings Rate")).toBeVisible();
-    await expect(page.getByText("Take-home Savings Rate")).toBeVisible();
+    await expect(page.getByRole("cell", { name: /Invested/ })).toBeVisible();
+    await expect(page.getByRole("cell", { name: /CC Bill Payments/ })).toBeVisible();
   });
 
   test("net cash flow uses correct color", async ({ page }) => {
@@ -101,7 +100,7 @@ test.describe("Finance Report", () => {
   });
 
   test("shows investment activity with period", async ({ page }) => {
-    await expect(page.getByText("Investment Activity")).toBeVisible();
+    await expect(page.getByText("Portfolio Activity")).toBeVisible();
     // Period dates
     await expect(page.getByText(/\d{2}\/\d{2}\/\d{4}/)).toBeVisible();
   });
@@ -132,7 +131,7 @@ test.describe("Finance Report", () => {
   test("shows balance sheet with assets and liabilities", async ({ page }) => {
     await expect(page.locator("#balance-sheet").getByText("Balance Sheet")).toBeVisible();
     // Fidelity investment total
-    await expect(page.getByText(/Investments \(Fidelity\)/)).toBeVisible();
+    await expect(page.locator("#balance-sheet").getByRole("cell", { name: "Investments" })).toBeVisible();
     // At least one personal account
     await expect(page.getByRole("cell", { name: "I bond" })).toBeVisible();
     // CNY accounts indented
@@ -162,7 +161,7 @@ test.describe("Finance Report", () => {
     const combined = sectionTexts.join(" ");
     expect(combined).toContain("Category Summary");
     expect(combined).toContain("Cash Flow");
-    expect(combined).toContain("Investment Activity");
+    expect(combined).toContain("Portfolio Activity");
     expect(combined).toContain("Balance Sheet");
   });
 
@@ -198,12 +197,9 @@ test.describe("Finance Report", () => {
     await expect(page.getByText("SPY").or(page.getByText("S&P 500")).first()).toBeVisible();
   });
 
-  test("shows macro indicators or FRED unavailable message", async ({ page }) => {
-    await expect(page.getByText("Macro Indicators")).toBeVisible();
-    // Either real indicators or unavailable message
-    await expect(
-      page.getByText("USD/CNY").first()
-    ).toBeVisible();
+  test("market section renders without macro when FRED unavailable", async ({ page }) => {
+    await expect(page.getByText("Market Context")).toBeVisible();
+    await expect(page.getByText("Index Returns")).toBeVisible();
   });
 
   // ── UI Polish ────────────────────────────────────────────────────────
@@ -223,7 +219,7 @@ test.describe("Finance Report", () => {
   });
 
   test("savings rate has conditional color", async ({ page }) => {
-    const card = page.locator("[data-slot='card']").filter({ hasText: "Savings Rate" });
+    const card = page.locator("[data-slot='card']").filter({ hasText: "Monthly Savings Rate" });
     const rate = card.locator("p.text-2xl").first();
     const className = await rate.getAttribute("class");
     // Should have one of the conditional colors
@@ -261,7 +257,7 @@ test.describe("Finance Report", () => {
   // ── Savings Rate Card ──────────────────────────────────────────────────
 
   test("savings rate card shows gross and take-home", async ({ page }) => {
-    const card = page.locator("[data-slot='card']").filter({ hasText: "Savings Rate" });
+    const card = page.locator("[data-slot='card']").filter({ hasText: "Monthly Savings Rate" });
     // Gross rate (large)
     await expect(card.getByText(/\d+%/).first()).toBeVisible();
     // Take-home (smaller text)
