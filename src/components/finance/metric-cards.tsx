@@ -20,7 +20,6 @@ export function MetricCards({ report: r }: { report: ReportData }) {
         <CardHeader>
           <CardTitle className="text-sm text-muted-foreground">
             Net Worth
-            <span className="block text-xs font-normal">Assets &minus; Liabilities</span>
           </CardTitle>
         </CardHeader>
         <CardContent>
