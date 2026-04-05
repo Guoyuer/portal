@@ -20,3 +20,16 @@ export function fmtPct(val: number, signed = true): string {
 export function fmtYuan(val: number): string {
   return `\u00a5${val.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
+
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+export function fmtMonth(m: string): string {
+  const monthIdx = parseInt(m.slice(5, 7), 10) - 1;
+  return MONTH_NAMES[monthIdx] ?? m;
+}
+
+export function fmtMonthYear(m: string): string {
+  const monthIdx = parseInt(m.slice(5, 7), 10) - 1;
+  const year = m.slice(2, 4);
+  return `${MONTH_NAMES[monthIdx] ?? m} ${year}`;
+}

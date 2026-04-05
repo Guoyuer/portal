@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -22,47 +21,11 @@ import type {
   MonthlyFlowPoint,
   SnapshotPoint,
 } from "@/lib/types";
-import { fmtCurrencyShort } from "@/lib/format";
+import { fmtCurrencyShort, fmtMonth, fmtMonthYear } from "@/lib/format";
+import { useIsDark, useIsMobile } from "@/lib/hooks";
+import { tooltipStyle, gridStroke } from "@/lib/chart-styles";
 
 const COLORS = ["#2563eb", "#7c3aed", "#f59e0b", "#10b981", "#ef4444"];
-
-function useIsMobile(breakpoint = 640) {
-  const [isMobile, setIsMobile] = useState(false);
-  useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth < breakpoint);
-    check();
-    window.addEventListener("resize", check);
-    return () => window.removeEventListener("resize", check);
-  }, [breakpoint]);
-  return isMobile;
-}
-
-function useIsDark() {
-  const [isDark, setIsDark] = useState(false);
-  useEffect(() => {
-    const check = () => setIsDark(document.documentElement.classList.contains("dark"));
-    check();
-    const observer = new MutationObserver(check);
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
-    return () => observer.disconnect();
-  }, []);
-  return isDark;
-}
-
-const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-function fmtMonth(m: string) {
-  // "2025-11" → "Nov" (no Date object — avoids timezone shift)
-  const monthIdx = parseInt(m.slice(5, 7), 10) - 1;
-  return MONTH_NAMES[monthIdx] ?? m;
-}
-
-function fmtMonthYear(m: string) {
-  // "2025-11" → "Nov 25"
-  const monthIdx = parseInt(m.slice(5, 7), 10) - 1;
-  const year = m.slice(2, 4);
-  return `${MONTH_NAMES[monthIdx] ?? m} ${year}`;
-}
 
 // ── Donut: Category Allocation ─────────────────────────────────────────────
 
@@ -137,7 +100,7 @@ export function IncomeExpensesChart({
         data={filtered}
         margin={{ top: 10, right: isMobile ? 5 : 40, left: isMobile ? -5 : 10, bottom: 0 }}
       >
-        <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#e5e7eb"} />
+        <CartesianGrid strokeDasharray="3 3" stroke={gridStroke(isDark)} />
         <XAxis
           dataKey="month"
           tickFormatter={fmtMonth}
@@ -163,12 +126,7 @@ export function IncomeExpensesChart({
           />
         )}
         <Tooltip
-          contentStyle={{
-            backgroundColor: isDark ? "#1e293b" : "#fff",
-            border: `1px solid ${isDark ? "#334155" : "#e5e7eb"}`,
-            borderRadius: "8px",
-            padding: "8px 12px",
-          }}
+          contentStyle={tooltipStyle(isDark)}
           formatter={(value, name) => {
             const v = Number(value);
             if (name === "Savings %") return `${v.toFixed(1)}%`;
@@ -208,7 +166,7 @@ export function NetWorthTrendChart({
   return (
     <ResponsiveContainer width="100%" height={250}>
       <AreaChart data={data} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#e5e7eb"} />
+        <CartesianGrid strokeDasharray="3 3" stroke={gridStroke(isDark)} />
         <XAxis
           dataKey="date"
           tickFormatter={(d: string) => {
@@ -226,12 +184,7 @@ export function NetWorthTrendChart({
           domain={["dataMin - 10000", "dataMax + 10000"]}
         />
         <Tooltip
-          contentStyle={{
-            backgroundColor: isDark ? "#1e293b" : "#fff",
-            border: `1px solid ${isDark ? "#334155" : "#e5e7eb"}`,
-            borderRadius: "8px",
-            padding: "8px 12px",
-          }}
+          contentStyle={tooltipStyle(isDark)}
           formatter={(value) => `$${Number(value).toLocaleString("en-US", { maximumFractionDigits: 0 })}`}
           labelFormatter={(label) => new Date(String(label)).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
         />

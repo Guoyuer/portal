@@ -1,30 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import {
   CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import type { EconPoint } from "@/lib/econ-schema";
-
-const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-function fmtMonth(d: string) {
-  const idx = parseInt(d.slice(5, 7), 10) - 1;
-  const year = d.slice(2, 4);
-  return `${MONTH_NAMES[idx] ?? d} ${year}`;
-}
-
-function useIsDark() {
-  const [isDark, setIsDark] = useState(false);
-  useEffect(() => {
-    const check = () => setIsDark(document.documentElement.classList.contains("dark"));
-    check();
-    const observer = new MutationObserver(check);
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
-    return () => observer.disconnect();
-  }, []);
-  return isDark;
-}
+import { fmtMonthYear } from "@/lib/format";
+import { useIsDark } from "@/lib/hooks";
+import { tooltipStyle, gridStroke } from "@/lib/chart-styles";
 
 export interface LineConfig {
   dataKey: string;
@@ -65,17 +47,12 @@ export function TimeSeriesChart({ title, lines, data, height = 280 }: TimeSeries
       <h3 className="font-semibold mb-3">{title}</h3>
       <ResponsiveContainer width="100%" height={height}>
         <LineChart data={merged} margin={{ top: 5, right: 20, left: 10, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#e5e7eb"} />
-          <XAxis dataKey="date" tickFormatter={fmtMonth} fontSize={11} tick={{ fill: "#9ca3af" }} interval="preserveStartEnd" />
+          <CartesianGrid strokeDasharray="3 3" stroke={gridStroke(isDark)} />
+          <XAxis dataKey="date" tickFormatter={fmtMonthYear} fontSize={11} tick={{ fill: "#9ca3af" }} interval="preserveStartEnd" />
           <YAxis fontSize={11} tick={{ fill: "#9ca3af" }} width={50} tickFormatter={lines[0]?.formatter ?? String} />
           <Tooltip
-            contentStyle={{
-              backgroundColor: isDark ? "#1e293b" : "#fff",
-              border: `1px solid ${isDark ? "#334155" : "#e5e7eb"}`,
-              borderRadius: "8px",
-              padding: "8px 12px",
-            }}
-            labelFormatter={(label) => fmtMonth(String(label))}
+            contentStyle={tooltipStyle(isDark)}
+            labelFormatter={(label) => fmtMonthYear(String(label))}
             formatter={(value, name) => {
               const v = Number(value);
               const n = String(name);
