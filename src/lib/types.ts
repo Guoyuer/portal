@@ -166,6 +166,7 @@ export interface AnnualSummary {
   expenseByCategory: AnnualCategoryTotal[];
   totalExpenses: number;
   totalIncome: number;
+  takehomeSavingsRate: number; // excludes pre-tax retirement contributions
 }
 
 // ── Charts ────────────────────────────────────────────────────────────────

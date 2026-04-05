@@ -537,6 +537,7 @@ def _build_annual_summary(
     expense_by_cat: dict[str, float] = defaultdict(float)
     expense_counts: dict[str, int] = defaultdict(int)
     total_income = 0.0
+    pretax_income = 0.0
     fidelity_tracked = frozenset(config["qianji_accounts"].get("fidelity_tracked", []))
 
     for record in cashflow:
@@ -548,7 +549,10 @@ def _build_annual_summary(
             expense_by_cat[cat] += record["amount"]
             expense_counts[cat] += 1
         elif record["type"] == QJ_INCOME:
+            cat = record["category"] or "Other"
             total_income += record["amount"]
+            if "401" in cat.lower():
+                pretax_income += record["amount"]
         elif record["type"] == QJ_TRANSFER and record["account_to"] in fidelity_tracked:
             pass  # investment transfers, not expense
 
@@ -563,11 +567,15 @@ def _build_annual_summary(
         reverse=True,
     )
 
+    takehome_income = total_income - pretax_income
+    takehome_savings_rate = ((takehome_income - total_expenses) / takehome_income * 100) if takehome_income > 0 else 0.0
+
     return AnnualSummary(
         year=year,
         expense_by_category=items,
         total_expenses=total_expenses,
         total_income=total_income,
+        takehome_savings_rate=takehome_savings_rate,
     )
 
 
