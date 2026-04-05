@@ -44,9 +44,6 @@ def render(report: ReportData, *, metadata: dict[str, str] | None = None) -> str
     # Strip allStocks from holdings detail — frontend only uses top/bottom/upcoming
     if data.get("holdings_detail"):
         data["holdings_detail"].pop("all_stocks", None)
-    # Strip fields that are always null/empty (dead features)
-    for key in ("contribution", "narrative", "alerts"):
-        data.pop(key, None)
     if metadata:
         data["metadata"] = metadata
     result = json.dumps(_camel_keys(data), indent=2, default=str)

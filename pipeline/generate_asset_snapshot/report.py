@@ -313,10 +313,10 @@ def _latest_complete_month(cashflow: list[QianjiRecord]) -> str:
     return latest
 
 
-def _build_cashflow(cashflow: list[QianjiRecord], config: Config | None = None, report_month: str = "") -> CashFlowData:
+def _build_cashflow(cashflow: list[QianjiRecord], config: Config, report_month: str = "") -> CashFlowData:
     """Build CashFlowData from Qianji cashflow records for the given month."""
     target_month = report_month or _latest_complete_month(cashflow)
-    fidelity_accounts = _fidelity_account_set(config) if config else frozenset()
+    fidelity_accounts = _fidelity_account_set(config)
 
     income_by_cat: dict[str, float] = defaultdict(float)
     income_counts: dict[str, int] = defaultdict(int)
@@ -395,14 +395,14 @@ def _build_cashflow(cashflow: list[QianjiRecord], config: Config | None = None, 
 def _build_cross_reconciliation(
     transactions: list[FidelityTransaction],
     cashflow: list[QianjiRecord],
-    config: Config | None = None,
+    config: Config,
 ) -> CrossReconciliationData:
     """Build CrossReconciliationData by matching Qianji transfers to Fidelity deposits.
 
     Only compares transfers within the Fidelity date range to avoid misleading
     unmatched counts from Qianji records outside the history window.
     """
-    fidelity_accts = _fidelity_account_set(config) if config else frozenset()
+    fidelity_accts = _fidelity_account_set(config)
 
     # First, collect Fidelity deposits and determine the date range
     # Single pass: collect deposits and all dates

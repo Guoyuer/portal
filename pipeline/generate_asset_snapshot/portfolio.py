@@ -59,7 +59,7 @@ def _parse_rows(
 
     # Compute gain/loss % from aggregated values
     for ticker in totals:
-        cb = cost_basis.get(ticker, 0)
+        cb = cost_basis[ticker]
         if cb > 0:
             gain_loss_pct[ticker] = (totals[ticker] - cb) / cb * 100
         else:
