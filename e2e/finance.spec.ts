@@ -87,6 +87,13 @@ test.describe("Finance Report", () => {
     await expect(page.getByText("Take-home Savings Rate")).toBeVisible();
   });
 
+  test("net cash flow uses correct color", async ({ page }) => {
+    const netRow = page.locator("tr").filter({ hasText: "Net Cash Flow" });
+    const valueCell = netRow.locator("td").nth(1);
+    const className = await valueCell.getAttribute("class");
+    expect(className).toMatch(/text-(green-600|red-500)/);
+  });
+
   test("shows investment activity with period", async ({ page }) => {
     await expect(page.getByText("Investment Activity")).toBeVisible();
     // Period dates
