@@ -1,5 +1,6 @@
 import type { ReconciliationData } from "@/lib/types";
 import { fmtCurrency } from "@/lib/format";
+import { valueColor } from "@/lib/style-helpers";
 import {
   Table,
   TableBody,
@@ -16,7 +17,7 @@ function TierRow({ label, tier }: { label: string; tier: { startValue: number; e
       <TableCell className="font-medium">{label}</TableCell>
       <TableCell className="text-right">{fmtCurrency(tier.startValue)}</TableCell>
       <TableCell className="text-right">{fmtCurrency(tier.endValue)}</TableCell>
-      <TableCell className={`text-right ${tier.netChange >= 0 ? "text-green-600" : "text-red-500"}`}>
+      <TableCell className={`text-right ${valueColor(tier.netChange)}`}>
         {fmtCurrency(tier.netChange)}
       </TableCell>
     </TableRow>
@@ -55,7 +56,7 @@ export function Reconciliation({ data }: { data: ReconciliationData }) {
                 <TableCell>Total</TableCell>
                 <TableCell className="text-right">{fmtCurrency(data.totalStart)}</TableCell>
                 <TableCell className="text-right">{fmtCurrency(data.totalEnd)}</TableCell>
-                <TableCell className={`text-right ${data.totalChange >= 0 ? "text-green-600" : "text-red-500"}`}>
+                <TableCell className={`text-right ${valueColor(data.totalChange)}`}>
                   {fmtCurrency(data.totalChange)}
                 </TableCell>
               </TableRow>
@@ -82,7 +83,7 @@ export function Reconciliation({ data }: { data: ReconciliationData }) {
               </div>
               <div>
                 <p className="text-muted-foreground">Market Movement</p>
-                <p className={`font-medium ${(fid.market_movement ?? 0) >= 0 ? "text-green-600" : "text-red-500"}`}>
+                <p className={`font-medium ${valueColor(fid.market_movement ?? 0)}`}>
                   {fmtCurrency(fid.market_movement ?? 0)}
                 </p>
               </div>

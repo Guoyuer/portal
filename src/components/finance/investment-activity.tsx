@@ -1,5 +1,6 @@
 import type { ActivityData } from "@/lib/types";
 import { fmtCurrency } from "@/lib/format";
+import { valueColor } from "@/lib/style-helpers";
 import {
   Table,
   TableBody,
@@ -39,7 +40,7 @@ export function InvestmentActivity({ data }: { data: ActivityData }) {
               <TableRow key={row.label} className="even:bg-muted/50">
                 <TableCell className="font-medium">{row.label}</TableCell>
                 <TableCell
-                  className={`text-right ${row.amount >= 0 ? "text-green-600" : "text-red-500"}`}
+                  className={`text-right ${valueColor(row.amount)}`}
                 >
                   {fmtCurrency(row.amount)}
                 </TableCell>

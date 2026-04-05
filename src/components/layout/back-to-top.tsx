@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { SCROLL_SHOW_THRESHOLD } from "@/lib/style-helpers";
 
 export function BackToTop() {
   const [show, setShow] = useState(false);
 
   useEffect(() => {
-    const onScroll = () => setShow(window.scrollY > 600);
+    const onScroll = () => setShow(window.scrollY > SCROLL_SHOW_THRESHOLD);
     window.addEventListener("scroll", onScroll);
     return () => window.removeEventListener("scroll", onScroll);
   }, []);

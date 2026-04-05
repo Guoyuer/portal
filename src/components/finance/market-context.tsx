@@ -1,5 +1,6 @@
 import type { MarketData } from "@/lib/types";
 import { fmtCurrency, fmtPct } from "@/lib/format";
+import { valueColor } from "@/lib/style-helpers";
 import {
   Table,
   TableBody,
@@ -30,13 +31,13 @@ export function MarketContext({ data: m }: { data: MarketData }) {
     indicators.push({
       label: "Gold",
       value: fmtPct(m.goldReturn),
-      color: m.goldReturn >= 0 ? "text-green-600" : "text-red-500",
+      color: valueColor(m.goldReturn),
     });
   if (m.btcReturn != null)
     indicators.push({
       label: "Bitcoin",
       value: fmtPct(m.btcReturn),
-      color: m.btcReturn >= 0 ? "text-green-600" : "text-red-500",
+      color: valueColor(m.btcReturn),
     });
 
   return (
@@ -69,12 +70,12 @@ export function MarketContext({ data: m }: { data: MarketData }) {
                       {fmtCurrency(idx.current)}
                     </TableCell>
                     <TableCell
-                      className={`text-right ${idx.monthReturn >= 0 ? "text-green-600" : "text-red-500"}`}
+                      className={`text-right ${valueColor(idx.monthReturn)}`}
                     >
                       {fmtPct(idx.monthReturn)}
                     </TableCell>
                     <TableCell
-                      className={`text-right ${idx.ytdReturn >= 0 ? "text-green-600" : "text-red-500"}`}
+                      className={`text-right ${valueColor(idx.ytdReturn)}`}
                     >
                       {fmtPct(idx.ytdReturn)}
                     </TableCell>

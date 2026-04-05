@@ -419,9 +419,7 @@ def _build_cross_reconciliation(
         if txn["action_type"] == ACT_DEPOSIT:
             fidelity_deposits.append({"date": date_str, "amount": txn["amount"], "description": txn["description"]})
     if skipped:
-        import sys
-
-        print(f"  [warn] Skipped {skipped} transactions with unparseable dates", file=sys.stderr)
+        log.warning("Skipped %d transactions with unparseable dates", skipped)
     fi_min = min(all_dates) if all_dates else ""
     fi_max = max(all_dates) if all_dates else ""
 
