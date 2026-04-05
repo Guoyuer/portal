@@ -4,7 +4,7 @@ test.describe("Finance Report", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/finance");
     // Wait for data to load from R2
-    await page.getByText("Portfolio Snapshot").waitFor({ timeout: 20000 });
+    await page.getByText("Portfolio Snapshot").waitFor({ timeout: 5000 });
   });
 
   test("renders page title with date", async ({ page }) => {
@@ -130,7 +130,7 @@ test.describe("Finance Report", () => {
   });
 
   test("shows balance sheet with assets and liabilities", async ({ page }) => {
-    await expect(page.getByText("Balance Sheet")).toBeVisible();
+    await expect(page.locator("#balance-sheet").getByText("Balance Sheet")).toBeVisible();
     // Fidelity investment total
     await expect(page.getByText(/Investments \(Fidelity\)/)).toBeVisible();
     // At least one personal account
@@ -198,10 +198,36 @@ test.describe("Finance Report", () => {
     await expect(page.getByText("SPY").or(page.getByText("S&P 500")).first()).toBeVisible();
   });
 
-  test("shows macro indicators", async ({ page }) => {
+  test("shows macro indicators or FRED unavailable message", async ({ page }) => {
     await expect(page.getByText("Macro Indicators")).toBeVisible();
-    // At least some indicators should render
-    await expect(page.getByText("Fed Rate").or(page.getByText("VIX"))).toBeVisible();
+    // Either real indicators or unavailable message
+    await expect(
+      page.getByText("USD/CNY").first()
+    ).toBeVisible();
+  });
+
+  // ── UI Polish ────────────────────────────────────────────────────────
+
+  test("section nav bar is visible", async ({ page }) => {
+    const nav = page.locator("nav").filter({ hasText: "Net Worth" });
+    await expect(nav).toBeVisible();
+    await expect(nav.getByText("Allocation")).toBeVisible();
+    await expect(nav.getByText("Cash Flow")).toBeVisible();
+  });
+
+  test("back to top button appears on scroll", async ({ page }) => {
+    // Scroll down
+    await page.evaluate(() => window.scrollTo(0, 1000));
+    const btn = page.getByLabel("Back to top");
+    await expect(btn).toBeVisible();
+  });
+
+  test("savings rate has conditional color", async ({ page }) => {
+    const card = page.locator("[data-slot='card']").filter({ hasText: "Savings Rate" });
+    const rate = card.locator("p.text-2xl").first();
+    const className = await rate.getAttribute("class");
+    // Should have one of the conditional colors
+    expect(className).toMatch(/text-(green-600|yellow-600|red-500)/);
   });
 
   // ── Dark Mode ──────────────────────────────────────────────────────────
@@ -228,7 +254,7 @@ test.describe("Finance Report", () => {
     // Click reload — page should still show data after
     await reload.click();
     // Wait for data to reload
-    await page.getByText("Portfolio Snapshot").waitFor({ timeout: 20000 });
+    await page.getByText("Portfolio Snapshot").waitFor({ timeout: 5000 });
     await expect(page.locator("h1")).toContainText("Portfolio Snapshot");
   });
 

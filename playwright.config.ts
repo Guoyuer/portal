@@ -9,7 +9,7 @@ export default defineConfig({
     baseURL: "http://localhost:3100",
   },
   webServer: {
-    command: "npx serve out -l 3100 --single",
+    command: "npx cross-env PORT=3100 npx serve out --single",
     port: 3100,
     reuseExistingServer: true,
   },
