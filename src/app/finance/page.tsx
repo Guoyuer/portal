@@ -78,9 +78,10 @@ export default function FinancePage() {
         </p>
       )}
 
+      {/* ── 1. Overview ─────────────────────────────────────────────────── */}
       <MetricCards report={r} />
 
-      {/* Net Worth Trend */}
+      {/* ── 2. Net Worth: Trend + Growth (together) ─────────────────────── */}
       {r.chartData?.netWorthTrend && r.chartData.netWorthTrend.length > 0 && (
         <section>
           <SectionHeader>Net Worth Trend</SectionHeader>
@@ -89,12 +90,14 @@ export default function FinancePage() {
           </SectionBody>
         </section>
       )}
+      <NetWorthGrowth data={r.chartData?.netWorthTrend ?? []} />
 
+      {/* ── 3. Allocation ───────────────────────────────────────────────── */}
       <CategorySummary report={r} />
 
+      {/* ── 4. Cash Flow + Expenses ─────────────────────────────────────── */}
       {r.cashflow && <CashFlow data={r.cashflow} />}
 
-      {/* Income vs Expenses Chart */}
       {r.chartData?.monthlyFlows && r.chartData.monthlyFlows.length > 0 && (
         <section>
           <SectionHeader>Income vs Expenses</SectionHeader>
@@ -104,12 +107,16 @@ export default function FinancePage() {
         </section>
       )}
 
+      {r.annualSummary && <AnnualSummary data={r.annualSummary} />}
+
+      {/* ── 5. Investment Activity ───────────────────────────────────────── */}
       {r.activity && <InvestmentActivity data={r.activity} />}
+
+      {/* ── 6. Balance Sheet + Reconciliation ───────────────────────────── */}
       {r.balanceSheet && <BalanceSheet data={r.balanceSheet} />}
       {r.reconciliation && <Reconciliation data={r.reconciliation} />}
-      {r.market && <MarketContext data={r.market} />}
 
-      {/* Holdings Detail */}
+      {/* ── 7. Holdings: Detail + Gain/Loss ─────────────────────────────── */}
       {r.holdingsDetail && (
         <section>
           <SectionHeader>Holdings Detail</SectionHeader>
@@ -202,8 +209,9 @@ export default function FinancePage() {
       )}
 
       <GainLoss report={r} />
-      {r.annualSummary && <AnnualSummary data={r.annualSummary} />}
-      <NetWorthGrowth data={r.chartData?.netWorthTrend ?? []} />
+
+      {/* ── 8. Market Context ───────────────────────────────────────────── */}
+      {r.market && <MarketContext data={r.market} />}
     </div>
   );
 }
