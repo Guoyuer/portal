@@ -64,6 +64,8 @@ jobs:
 
       - name: Generate report JSON
         if: steps.freshness.outputs.stale == 'false'
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
         run: cd pipeline && python scripts/send_report.py --data-dir ../data
 
       - name: Upload JSON to R2
@@ -76,3 +78,8 @@ jobs:
             --file ./data/report.json --remote
           npx wrangler r2 object put asset-snapshot-data/data/net_worth_history.json \
             --file ./data/net_worth_history.json --remote
+          if [ -f ./data/econ.json ]; then
+            npx wrangler r2 object put asset-snapshot-data/reports/econ.json \
+              --file ./data/econ.json --remote
+            echo "Uploaded econ.json"
+          fi

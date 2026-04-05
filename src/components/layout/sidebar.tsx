@@ -73,7 +73,7 @@ const navItems = [
   {
     label: "Economy",
     href: "/econ",
-    comingSoon: true,
+    comingSoon: false,
     icon: (
       <svg
         xmlns="http://www.w3.org/2000/svg"

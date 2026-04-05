@@ -240,6 +240,24 @@ def main() -> None:
     json_path = args.data_dir / "report.json"
     json_path.write_text(json_output)
 
+    # ── Economic indicators (optional — requires FRED_API_KEY) ──────────
+    import os
+
+    from generate_asset_snapshot.market.fred import fetch_fred_data
+
+    fred_key = os.environ.get("FRED_API_KEY", "")
+    econ_data = fetch_fred_data(fred_key)
+    if econ_data:
+        if market_data:
+            econ_data["snapshot"].setdefault("usdCny", market_data.usd_cny)
+        econ_data["generatedAt"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
+        econ_json = json.dumps(econ_data, indent=2)
+        econ_path = args.data_dir / "econ.json"
+        econ_path.write_text(econ_json)
+        _log(f"Econ data: {len(econ_data['snapshot'])} indicators → {econ_path}")
+    else:
+        _log("Econ data: skipped (FRED API key not set or all series failed)")
+
     elapsed = time.time() - t_start
     print("=" * 60, file=sys.stderr)
     print(f"Done in {elapsed:.1f}s — {len(json_output):,} chars → {json_path}", file=sys.stderr)
