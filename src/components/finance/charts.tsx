@@ -23,6 +23,7 @@ import type {
   MonthlyFlowPoint,
   SnapshotPoint,
 } from "@/lib/types";
+import { fmtCurrencyShort } from "@/lib/format";
 
 const COLORS = ["#2563eb", "#7c3aed", "#f59e0b", "#10b981", "#ef4444"];
 
@@ -35,11 +36,6 @@ function useIsMobile(breakpoint = 640) {
     return () => window.removeEventListener("resize", check);
   }, [breakpoint]);
   return isMobile;
-}
-
-function fmtK(v: number) {
-  if (v >= 1000) return `$${(v / 1000).toFixed(0)}k`;
-  return `$${v.toFixed(0)}`;
 }
 
 function fmtMonth(m: string) {
@@ -90,7 +86,7 @@ export function AllocationDonut({
         </ResponsiveContainer>
         {/* Center label — positioned with CSS, not SVG <text> */}
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-          <span className="text-xl font-bold text-foreground">{fmtK(total)}</span>
+          <span className="text-xl font-bold text-foreground">{fmtCurrencyShort(total)}</span>
           <span className="text-xs text-muted-foreground">Total</span>
         </div>
       </div>
@@ -134,7 +130,7 @@ export function IncomeExpensesChart({
         />
         <YAxis
           yAxisId="dollar"
-          tickFormatter={fmtK}
+          tickFormatter={fmtCurrencyShort}
           fontSize={11}
           tick={{ fill: "#9ca3af" }}
           width={isMobile ? 38 : 50}
@@ -199,7 +195,7 @@ export function NetWorthTrendChart({
           tick={{ fill: "#9ca3af" }}
         />
         <YAxis
-          tickFormatter={fmtK}
+          tickFormatter={fmtCurrencyShort}
           fontSize={11}
           tick={{ fill: "#9ca3af" }}
           width={55}
