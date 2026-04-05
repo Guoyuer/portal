@@ -6,11 +6,11 @@ export default defineConfig({
   retries: 0,
   workers: process.env.CI ? 4 : undefined,
   use: {
-    baseURL: "http://localhost:3000",
+    baseURL: "http://localhost:3100",
   },
   webServer: {
-    command: "npx serve out -l 3000 --single",
-    port: 3000,
+    command: "npx serve out -l 3100 --single",
+    port: 3100,
     reuseExistingServer: true,
   },
   projects: [

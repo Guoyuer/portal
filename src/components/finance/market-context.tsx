@@ -38,12 +38,6 @@ export function MarketContext({ data: m }: { data: MarketData }) {
       value: fmtPct(m.btcReturn),
       color: m.btcReturn >= 0 ? "text-green-600" : "text-red-500",
     });
-  if (m.portfolioMonthReturn != null)
-    indicators.push({
-      label: "Portfolio",
-      value: fmtPct(m.portfolioMonthReturn),
-      color: m.portfolioMonthReturn >= 0 ? "text-green-600" : "text-red-500",
-    });
 
   return (
     <section>
