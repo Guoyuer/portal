@@ -53,8 +53,13 @@ test.describe("Finance Report", () => {
     await expect(safeNetRow.locator(".text-red-500")).toBeVisible();
   });
 
-  test("shows goal progress", async ({ page }) => {
+  test("shows goal progress with bar", async ({ page }) => {
     await expect(page.getByText("$2,000,000")).toBeVisible();
+    const goalCard = page.locator("[data-slot='card']").filter({ hasText: "Goal" });
+    const progressBar = goalCard.locator(".bg-blue-600");
+    await expect(progressBar).toBeVisible();
+    const style = await progressBar.getAttribute("style");
+    expect(style).toMatch(/width:\s*\d+/);
   });
 
   test("shows cash flow section with period", async ({ page }) => {
@@ -85,6 +90,13 @@ test.describe("Finance Report", () => {
     await expect(page.getByRole("cell", { name: "Invested" })).toBeVisible();
     await expect(page.getByText("Gross Savings Rate")).toBeVisible();
     await expect(page.getByText("Take-home Savings Rate")).toBeVisible();
+  });
+
+  test("net cash flow uses correct color", async ({ page }) => {
+    const netRow = page.locator("tr").filter({ hasText: "Net Cash Flow" });
+    const valueCell = netRow.locator("td").nth(1);
+    const className = await valueCell.getAttribute("class");
+    expect(className).toMatch(/text-(green-600|red-500)/);
   });
 
   test("shows investment activity with period", async ({ page }) => {

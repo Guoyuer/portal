@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import type { ReportData } from "@/lib/types";
 import { fmtCurrency, fmtPct } from "@/lib/format";
 import {
@@ -37,8 +38,8 @@ export function CategorySummary({ report: r }: { report: ReportData }) {
           <TableBody>
             {/* Equity categories */}
             {r.equityCategories.map((cat) => (
-              <>
-                <TableRow key={cat.name} className="even:bg-muted/50">
+              <Fragment key={cat.name}>
+                <TableRow className="even:bg-muted/50">
                   <TableCell className="font-medium">{cat.name}</TableCell>
                   <TableCell className="text-right hidden sm:table-cell">
                     {fmtCurrency(cat.value)}
@@ -70,7 +71,7 @@ export function CategorySummary({ report: r }: { report: ReportData }) {
                     <TableCell />
                   </TableRow>
                 ))}
-              </>
+              </Fragment>
             ))}
 
             {/* Non-Equity group header */}

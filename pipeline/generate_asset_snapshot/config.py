@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
 from .types import (
-    DEFAULT_CNY_RATE,
     EQUITY_CATEGORIES,
     TIER_CASH,
     TIER_CNY,
@@ -16,6 +16,8 @@ from .types import (
     Config,
     ConfigError,
 )
+
+log = logging.getLogger(__name__)
 
 
 def validate_config(data: dict[str, object]) -> list[str]:
@@ -86,7 +88,7 @@ def load_config(path: Path) -> Config:
     if errors := validate_config(data):
         raise ConfigError("Config errors:\n  - " + "\n  - ".join(errors))
 
-    return Config(
+    cfg = Config(
         assets=data["assets"].copy(),
         weights=data["target_weights"],
         order=data.get("category_order", list(data["target_weights"].keys())),
@@ -95,6 +97,8 @@ def load_config(path: Path) -> Config:
         goal=data.get("goal", 0),
         qianji_accounts=data.get("qianji_accounts", {}),
     )
+    log.info("Config: %d assets, %d categories, goal $%,.0f", len(data["assets"]), len(data["target_weights"]), data.get("goal", 0))
+    return cfg
 
 
 # ── Qianji account classification ───────────────────────────────────────────
@@ -126,7 +130,7 @@ def manual_values_from_snapshot(
         if classify_account(acct, config) != TIER_FIDELITY and abs(bal) >= 0.01
     }
 
-    cny_rate = snapshot.get("cny_rate", DEFAULT_CNY_RATE)
+    cny_rate = snapshot["cny_rate"]
     qa = config["qianji_accounts"]
     ticker_map: dict[str, str] = qa.get("ticker_map", {})
     cny_accounts: list[str] = qa.get("cny", [])
@@ -140,4 +144,5 @@ def manual_values_from_snapshot(
     if cny_total > 0:
         result["CNY Assets"] = cny_total / cny_rate
 
+    log.info("Manual values: %s", {k: f"${v:,.2f}" for k, v in result.items()})
     return result

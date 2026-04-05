@@ -5,6 +5,7 @@ All renderers consume ReportData — they never touch Portfolio or Config direct
 
 from __future__ import annotations
 
+import logging
 import re
 from collections import defaultdict
 from datetime import datetime
@@ -29,7 +30,6 @@ from .types import (
     ACT_REINVESTMENT,
     ACT_SELL,
     ACT_WITHDRAWAL,
-    DEFAULT_CNY_RATE,
     EQUITY_CATEGORIES,
     MIN_RECORDS_FOR_COMPLETE_MONTH,
     NON_EQUITY_CATEGORIES,
@@ -61,6 +61,8 @@ from .types import (
     ReportSources,
     SubtypeGroup,
 )
+
+log = logging.getLogger(__name__)
 
 
 def _extract_date(filename: str) -> str:
@@ -247,6 +249,7 @@ def _build_activity(transactions: list[FidelityTransaction], report_month: str =
     sell_total = sum(t["amount"] for t in sells)
     dividend_total = sum(t["amount"] for t in dividends)
 
+    log.info("Activity %s\u2013%s: deposits=$%,.0f buys=$%,.0f sells=$%,.0f dividends=$%,.0f", period_start, period_end, deposit_total, buy_total, sell_total, dividend_total)
     return ActivityData(
         period_start=period_start,
         period_end=period_end,
@@ -286,7 +289,7 @@ def _build_balance_sheet_from_snapshot(
     - No double-counting: Fidelity accounts in Qianji are skipped
     """
     # Classify all accounts once, filter out Fidelity-tracked and zero balances
-    cny_rate = snapshot.get("cny_rate", DEFAULT_CNY_RATE)
+    cny_rate = snapshot["cny_rate"]
     account_tiers = {acct: classify_account(acct, config) for acct in snapshot.get("balances", {})}
 
     # Fidelity total = positions CSV total minus manual entries (those come from Qianji)
@@ -316,6 +319,7 @@ def _build_balance_sheet_from_snapshot(
     total_assets = fidelity_total + cash_total + cny_total_usd
     net_worth = total_assets - total_liabilities
 
+    log.info("Balance sheet: assets=$%,.0f (fidelity=$%,.0f + cash=$%,.0f + cny=$%,.0f), liabilities=$%,.0f, net_worth=$%,.0f", total_assets, fidelity_total, cash_total, cny_total_usd, total_liabilities, net_worth)
     return BalanceSheetData(
         investment_total=fidelity_total,
         accounts=cash_assets + cny_assets,
@@ -447,6 +451,7 @@ def _build_cashflow(cashflow: list[QianjiRecord], config: Config | None = None, 
     else:
         period = "Unknown"
 
+    log.info("Cashflow %s: income=$%,.0f expenses=$%,.0f savings=%.1f%% invested=$%,.0f", period, total_income, total_expenses, savings_rate, invested)
     return CashFlowData(
         period=period,
         income_items=income_items,
@@ -477,14 +482,20 @@ def _build_cross_reconciliation(
     # Single pass: collect deposits and all dates
     fidelity_deposits: list[dict[str, Any]] = []
     all_dates: list[str] = []
+    skipped = 0
     for txn in transactions:
         try:
             date_str = datetime.strptime(txn["date"], "%m/%d/%Y").strftime("%Y-%m-%d")
         except ValueError:
+            skipped += 1
             continue
         all_dates.append(date_str)
         if txn["action_type"] == ACT_DEPOSIT:
             fidelity_deposits.append({"date": date_str, "amount": txn["amount"], "description": txn["description"]})
+    if skipped:
+        import sys
+
+        print(f"  [warn] Skipped {skipped} transactions with unparseable dates", file=sys.stderr)
     fi_min = min(all_dates) if all_dates else ""
     fi_max = max(all_dates) if all_dates else ""
 
@@ -503,7 +514,9 @@ def _build_cross_reconciliation(
                     }
                 )
 
-    return cross_reconcile(qianji_transfers, fidelity_deposits)
+    result = cross_reconcile(qianji_transfers, fidelity_deposits)
+    log.info("Cross-reconciliation: %d matched, %d unmatched Qianji, %d unmatched Fidelity", len(result.matched), len(result.unmatched_qianji), len(result.unmatched_fidelity))
+    return result
 
 
 def _build_annual_summary(
@@ -543,6 +556,7 @@ def _build_annual_summary(
         return None
 
     total_expenses = sum(expense_by_cat.values())
+    log.info("Annual %d: expenses=$%,.0f (%d categories) income=$%,.0f", year, total_expenses, len(expense_by_cat), total_income)
     items = sorted(
         [AnnualCategoryTotal(category=cat, amount=amt, count=expense_counts[cat]) for cat, amt in expense_by_cat.items()],
         key=lambda x: x.amount,
@@ -569,6 +583,8 @@ def build_report(
     report_month: str = "",
     sources: ReportSources | None = None,
     chart_data: ChartData | None = None,
+    prev_totals: dict[str, float] | None = None,
+    prev_date: str = "",
 ) -> ReportData:
     """Build a complete ReportData from raw portfolio and config.
 
@@ -578,6 +594,7 @@ def build_report(
     All optional params default to None for graceful degradation —
     the report works with just positions data.
     """
+    log.info("Building report for %s: $%,.2f across %d tickers", filename, portfolio["total"], len(portfolio["totals"]))
     s = sources or ReportSources()
 
     eq_names, non_eq_names = _ordered_categories(portfolio, config)
@@ -606,6 +623,22 @@ def build_report(
         _build_cross_reconciliation(transactions, cashflow, config) if transactions and cashflow else None
     )
 
+    # Portfolio reconciliation: break down value changes by tier
+    reconciliation_data = None
+    if prev_totals and transactions:
+        from .core.reconcile import portfolio_reconcile
+
+        recon = portfolio_reconcile(
+            current=portfolio["totals"],
+            previous=prev_totals,
+            transactions=transactions,
+            config=config,
+        )
+        recon.prev_date = prev_date
+        recon.curr_date = _extract_date(filename)
+        reconciliation_data = recon
+
+    log.info("Report built: %s equity cats, %s non-equity cats, reconciliation=%s", len(equity_categories), len(non_equity_categories), reconciliation_data is not None)
     return ReportData(
         date=_extract_date(filename),
         total=portfolio["total"],
@@ -616,7 +649,7 @@ def build_report(
         non_equity_categories=non_equity_categories,
         contribution=_build_contribution(portfolio, config, contribute) if contribute > 0 else None,
         activity=activity,
-        reconciliation=None,  # requires prev_snapshot + portfolio_reconcile
+        reconciliation=reconciliation_data,
         balance_sheet=balance_sheet,
         cashflow=cashflow_data,
         cross_reconciliation=cross_reconciliation_data,

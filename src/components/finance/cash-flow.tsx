@@ -140,7 +140,7 @@ export function CashFlow({ data }: { data: CashFlowData }) {
             <TableBody>
               <TableRow className="even:bg-muted/50">
                 <TableCell className="font-medium">Net Cash Flow</TableCell>
-                <TableCell className="text-right text-green-600 font-semibold">
+                <TableCell className={`text-right font-semibold ${data.netCashflow >= 0 ? "text-green-600" : "text-red-500"}`}>
                   {fmtCurrency(data.netCashflow)}
                 </TableCell>
               </TableRow>

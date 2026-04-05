@@ -13,6 +13,7 @@ This is more reliable than CSV export:
 
 from __future__ import annotations
 
+import logging
 import os
 import sqlite3
 import sys
@@ -20,7 +21,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from ..types import DEFAULT_CNY_RATE, QJ_EXPENSE, QJ_INCOME, QJ_REPAYMENT, QJ_TRANSFER, QianjiRecord
+from ..types import QJ_EXPENSE, QJ_INCOME, QJ_REPAYMENT, QJ_TRANSFER, QianjiRecord
+
+log = logging.getLogger(__name__)
 
 _MAC_DB_PATH = Path.home() / "Library/Containers/com.mutangtech.qianji.fltios/Data/Documents/qianjiapp.db"
 _WIN_DB_PATH = Path(os.environ.get("APPDATA", "")) / "com.mutangtech.qianji.win/qianji_flutter/qianjiapp.db"
@@ -56,25 +59,30 @@ def _load_records(conn: sqlite3.Connection) -> list[QianjiRecord]:
                 "note": remark or "",
             }
         )
+    by_type: dict[str, int] = {}
+    for r in records:
+        by_type[r["type"]] = by_type.get(r["type"], 0) + 1
+    log.info("Qianji records: %d total (%s)", len(records), ", ".join(f"{t}={c}" for t, c in sorted(by_type.items())))
     return records
 
 
 def _load_balances(conn: sqlite3.Connection) -> dict[str, float]:
     """Load account balances from an open DB connection."""
-    return {
+    balances = {
         name: float(money)
         for name, money, _currency in conn.execute("SELECT name, money, currency FROM user_asset WHERE status = 0")
     }
+    log.info("Qianji balances: %d accounts", len(balances))
+    return balances
 
 
 def _fetch_live_cny_rate() -> float:
-    """Fetch live USD/CNY rate, falling back to DEFAULT_CNY_RATE on failure."""
-    try:
-        from ..market.yahoo import fetch_cny_rate
+    """Fetch live USD/CNY rate. Raises if unavailable."""
+    from ..market.yahoo import fetch_cny_rate
 
-        return fetch_cny_rate()
-    except Exception:  # noqa: BLE001
-        return DEFAULT_CNY_RATE
+    rate = fetch_cny_rate()
+    log.info("USD/CNY rate: %.4f (live from Yahoo Finance)", rate)
+    return rate
 
 
 def _build_snapshot(db_path: Path, balances: dict[str, float]) -> dict[str, Any]:

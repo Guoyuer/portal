@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 # ── Constants ───────────────────────────────────────────────────────────────
 
-DEFAULT_CNY_RATE = 7.27
+DEFAULT_CNY_RATE = 6.88
 
 EQUITY_CATEGORIES = ["US Equity", "Non-US Equity"]
 NON_EQUITY_CATEGORIES = ["Crypto", "Safe Net", "Hedge"]

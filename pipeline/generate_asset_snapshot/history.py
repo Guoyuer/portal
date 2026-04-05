@@ -7,12 +7,16 @@ time-series data for net worth trends and monthly income/expense charts.
 from __future__ import annotations
 
 import csv
+import logging
 import re
+import sys
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
 from .types import CURRENCY_RE, QJ_EXPENSE, QJ_INCOME, ChartData, Config, MonthlyFlowPoint, QianjiRecord, SnapshotPoint
+
+log = logging.getLogger(__name__)
 
 _DATE_RE = re.compile(r"Portfolio_Positions_([A-Za-z]+-\d+-\d+)")
 
@@ -38,7 +42,9 @@ def load_portfolio_totals(data_dir: Path) -> list[SnapshotPoint]:
         if total > 0:
             points.append(SnapshotPoint(date=date, total=total))
 
-    return sorted(points, key=lambda p: p.date)
+    points = sorted(points, key=lambda p: p.date)
+    log.info("Historical snapshots: %d CSVs parsed from %s", len(points), data_dir)
+    return points
 
 
 def _sum_csv_values(csv_path: Path) -> float:
@@ -63,7 +69,11 @@ def _sum_csv_values(csv_path: Path) -> float:
                 if val and val != "--":
                     total += float(CURRENCY_RE.sub("", val))
             return total
-    except (OSError, ValueError):
+    except OSError as e:
+        print(f"  [warn] Cannot read {csv_path.name}: {e}", file=sys.stderr)
+        return 0.0
+    except ValueError as e:
+        print(f"  [ERROR] Bad value in {csv_path.name}: {e} — skipping file", file=sys.stderr)
         return 0.0
 
 
@@ -100,6 +110,9 @@ def aggregate_monthly_flows(
         sr = ((income - expenses) / income * 100) if income > 0 else 0.0
         points.append(MonthlyFlowPoint(month=month, income=income, expenses=expenses, savings_rate=sr))
 
+    total_inc = sum(p.income for p in points)
+    total_exp = sum(p.expenses for p in points)
+    log.info("Monthly flows: %d months, total income $%,.0f, expenses $%,.0f", len(points), total_inc, total_exp)
     return points
 
 
@@ -134,4 +147,5 @@ def build_chart_data(
             trend.sort(key=lambda p: p.date)
 
     flows = aggregate_monthly_flows(cashflow, config) if cashflow else []
+    log.info("Chart data: %d trend points, %d monthly flows", len(trend), len(flows))
     return ChartData(net_worth_trend=trend, monthly_flows=flows)

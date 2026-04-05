@@ -6,11 +6,15 @@ All external calls are wrapped in try/except — this module never raises.
 
 from __future__ import annotations
 
+import logging
+import time
 from typing import Any
 
 import yfinance as yf
 
-from ..types import DEFAULT_CNY_RATE, IndexReturn, MarketData
+from ..types import HoldingsDetailData, IndexReturn, MarketData, Portfolio, StockDetail
+
+log = logging.getLogger(__name__)
 
 
 def fetch_index_returns(tickers: list[str], period: str = "1mo") -> dict[str, Any]:
@@ -25,10 +29,12 @@ def fetch_index_returns(tickers: list[str], period: str = "1mo") -> dict[str, An
     if not tickers:
         return {}
 
+    t0 = time.time()
     try:
         data = yf.download(tickers, period=period, progress=False)
 
         if data.empty:
+            log.info("Index returns: no data for %s (%s)", tickers, period)
             return {}
 
         result: dict[str, Any] = {}
@@ -55,23 +61,23 @@ def fetch_index_returns(tickers: list[str], period: str = "1mo") -> dict[str, An
             except Exception:  # noqa: BLE001
                 continue
 
+        log.info("Index returns (%s, %s): %s in %.1fs", period, tickers, list(result.keys()), time.time() - t0)
         return result
     except Exception:  # noqa: BLE001
         return {}
 
 
-def fetch_cny_rate(fallback: float = DEFAULT_CNY_RATE) -> float:
-    """Fetch current USD/CNY exchange rate. Returns fallback on failure."""
-    try:
-        data = yf.download("CNY=X", period="1d", progress=False)
-        if not data.empty:
-            return float(data["Close"].iloc[-1])
-    except Exception:  # noqa: BLE001
-        pass
-    return fallback
+def fetch_cny_rate() -> float:
+    """Fetch current USD/CNY exchange rate. Raises on failure."""
+    data = yf.download("CNY=X", period="5d", progress=False)
+    if data.empty:
+        raise RuntimeError("Failed to fetch USD/CNY rate: no data returned")
+    rate = float(data["Close"].iloc[-1])
+    log.info("USD/CNY: %.4f", rate)
+    return rate
 
 
-def build_market_data(cny_rate: float = DEFAULT_CNY_RATE) -> MarketData | None:
+def build_market_data(cny_rate: float) -> MarketData | None:
     """Fetch index returns and build MarketData. Returns None on failure."""
     tickers = ["SPY", "QQQ", "VT"]
     idx_month = fetch_index_returns(tickers, period="1mo")
@@ -91,3 +97,97 @@ def build_market_data(cny_rate: float = DEFAULT_CNY_RATE) -> MarketData | None:
         for t in idx_month
     ]
     return MarketData(indices=indices, usd_cny=cny_rate)
+
+
+def _is_ticker(symbol: str) -> bool:
+    """Return True if symbol looks like a real ticker (not '401k sp500' or 'I Bonds')."""
+    return bool(symbol) and symbol.isascii() and " " not in symbol and len(symbol) <= 5
+
+
+def build_holdings_detail(portfolio: Portfolio) -> HoldingsDetailData | None:
+    """Fetch per-stock detail from Yahoo Finance for portfolio holdings.
+
+    Returns None on total failure. Individual ticker failures are silently skipped.
+    """
+    tickers = [t for t in portfolio["totals"] if _is_ticker(t)]
+    if not tickers:
+        return None
+
+    log.info("Fetching holdings for %d tickers...", len(tickers))
+
+    # Batch download 1-month price history
+    month_returns: dict[str, float] = {}
+    try:
+        returns = fetch_index_returns(tickers, period="1mo")
+        for t, data in returns.items():
+            month_returns[t] = data["return_pct"]
+    except Exception:  # noqa: BLE001
+        pass
+
+    if not month_returns:
+        return None
+
+    # Fetch per-ticker info (52w high/low, PE, earnings, market cap)
+    stocks: list[StockDetail] = []
+    for ticker in month_returns:
+        value = portfolio["totals"].get(ticker, 0.0)
+        month_ret = month_returns[ticker]
+        start_value = value / (1 + month_ret / 100) if month_ret != -100 else 0.0
+
+        detail = StockDetail(
+            ticker=ticker,
+            month_return=month_ret,
+            start_value=round(start_value, 2),
+            end_value=round(value, 2),
+            pe_ratio=None,
+            market_cap=None,
+            high_52w=None,
+            low_52w=None,
+            vs_high=None,
+            next_earnings=None,
+        )
+
+        try:
+            ticker_obj = yf.Ticker(ticker)
+            info = ticker_obj.info
+            if info:
+                high = info.get("fiftyTwoWeekHigh")
+                low = info.get("fiftyTwoWeekLow")
+                price = info.get("currentPrice") or info.get("regularMarketPrice")
+                detail.pe_ratio = info.get("trailingPE")
+                detail.market_cap = info.get("marketCap")
+                detail.high_52w = high
+                detail.low_52w = low
+                if high and price:
+                    detail.vs_high = round((price / high - 1) * 100, 2)
+                # Earnings date
+                cal = ticker_obj.calendar
+                if cal is not None and "Earnings Date" in cal:
+                    dates = cal["Earnings Date"]
+                    if dates:
+                        d = dates[0]
+                        detail.next_earnings = d.strftime("%Y-%m-%d")
+        except Exception:  # noqa: BLE001
+            pass
+
+        log.debug("Ticker %s: month=%.1f%% pe=%s mcap=%s", ticker, month_ret, detail.pe_ratio, detail.market_cap)
+        stocks.append(detail)
+
+    # Sort by month return
+    sorted_by_return = sorted(stocks, key=lambda s: s.month_return, reverse=True)
+    top = sorted_by_return[:5]
+    bottom = sorted_by_return[-5:][::-1] if len(sorted_by_return) > 5 else []
+    # Bottom should be sorted worst first
+    bottom = sorted(bottom, key=lambda s: s.month_return)
+
+    upcoming = sorted(
+        [s for s in stocks if s.next_earnings],
+        key=lambda s: s.next_earnings or "",
+    )
+
+    return HoldingsDetailData(
+        top_performers=top,
+        bottom_performers=bottom,
+        upcoming_earnings=upcoming,
+        all_stocks=sorted_by_return,
+    )

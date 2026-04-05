@@ -19,6 +19,7 @@ import { MarketContext } from "@/components/finance/market-context";
 import { GainLoss } from "@/components/finance/gain-loss";
 import { AnnualSummary } from "@/components/finance/annual-summary";
 import { NetWorthGrowth } from "@/components/finance/net-worth-growth";
+import { Reconciliation } from "@/components/finance/reconciliation";
 
 export default function FinancePage() {
   const [r, setReport] = useState<ReportData | null>(null);
@@ -105,6 +106,7 @@ export default function FinancePage() {
 
       {r.activity && <InvestmentActivity data={r.activity} />}
       {r.balanceSheet && <BalanceSheet data={r.balanceSheet} />}
+      {r.reconciliation && <Reconciliation data={r.reconciliation} />}
       {r.market && <MarketContext data={r.market} />}
 
       {/* Holdings Detail */}
@@ -201,7 +203,7 @@ export default function FinancePage() {
 
       <GainLoss report={r} />
       {r.annualSummary && <AnnualSummary data={r.annualSummary} />}
-      {r.chartData?.netWorthTrend && <NetWorthGrowth data={r.chartData.netWorthTrend} />}
+      <NetWorthGrowth data={r.chartData?.netWorthTrend ?? []} />
     </div>
   );
 }
