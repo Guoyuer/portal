@@ -35,22 +35,6 @@ export interface CategoryData {
   holdings: HoldingData[]; // flat list for non-equity
 }
 
-// ── Contribution Guide ────────────────────────────────────────────────────
-
-export interface ContributionRow {
-  category: string;
-  allocate: number;
-  newValue: number;
-  newPct: number;
-  target: number;
-  improving: boolean; // arrow indicator
-}
-
-export interface ContributionData {
-  amount: number;
-  newTotal: number;
-  rows: ContributionRow[];
-}
 
 // ── Investment Activity ───────────────────────────────────────────────────
 
@@ -237,7 +221,6 @@ export interface ReportData {
   goalPct: number;
   equityCategories: CategoryData[];
   nonEquityCategories: CategoryData[];
-  contribution: ContributionData | null;
 
   // Investment activity (if Fidelity history available)
   activity: ActivityData | null;
@@ -259,10 +242,6 @@ export interface ReportData {
 
   // Annual summary
   annualSummary: AnnualSummary | null;
-
-  // AI-generated (if LLM available)
-  narrative: string | null;
-  alerts: string[];
 
   // Pipeline metadata (file timestamps)
   metadata?: {
