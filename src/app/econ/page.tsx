@@ -112,7 +112,9 @@ export default function EconPage() {
       </div>
 
       <p className="text-xs text-muted-foreground -mt-4">
-        Generated: {data.generatedAt}
+        Updated: {new Date(data.generatedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+        {" "}
+        {new Date(data.generatedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
       </p>
 
       {/* Range toggle */}
@@ -154,27 +156,17 @@ export default function EconPage() {
         </SectionBody>
       </section>
 
-      {/* ── Labor Market ────────────────────────────────────────────────── */}
+      {/* ── Labor / Sentiment / Commodities ──────────────────────────── */}
       <section>
-        <SectionHeader>Labor Market</SectionHeader>
+        <SectionHeader>Labor / Sentiment / Commodities</SectionHeader>
         <SectionBody>
           <TimeSeriesChart title="Unemployment Rate" lines={UNEMPLOYMENT_LINES} data={filtered} />
-        </SectionBody>
-      </section>
-
-      {/* ── Market Sentiment ────────────────────────────────────────────── */}
-      <section>
-        <SectionHeader>Market Sentiment</SectionHeader>
-        <SectionBody>
-          <TimeSeriesChart title="VIX (Volatility Index)" lines={VIX_LINES} data={filtered} />
-        </SectionBody>
-      </section>
-
-      {/* ── Commodities ─────────────────────────────────────────────────── */}
-      <section>
-        <SectionHeader>Commodities</SectionHeader>
-        <SectionBody>
-          <TimeSeriesChart title="Oil WTI" lines={OIL_LINES} data={filtered} />
+          <div className="mt-6 pt-6 border-t border-border">
+            <TimeSeriesChart title="VIX (Volatility Index)" lines={VIX_LINES} data={filtered} />
+          </div>
+          <div className="mt-6 pt-6 border-t border-border">
+            <TimeSeriesChart title="Oil WTI" lines={OIL_LINES} data={filtered} />
+          </div>
         </SectionBody>
       </section>
 
