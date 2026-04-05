@@ -14,7 +14,7 @@ export function PortfolioActivity({
   reconciliation?: ReconciliationData | null;
 }) {
   const fid = reconciliation?.fidelity?.details as Record<string, number> | undefined;
-  const marketMovement = fid?.market_movement;
+  const marketMovement = fid?.marketMovement ?? fid?.market_movement;
 
   const rows: { label: string; amount: number; indent?: boolean }[] = [
     { label: "Net Cash In", amount: activity.netCashIn },
@@ -31,7 +31,7 @@ export function PortfolioActivity({
       <p className="text-sm text-muted-foreground mb-4">
         {activity.periodStart} &ndash; {activity.periodEnd}
       </p>
-      {reconciliation && (
+      {reconciliation && reconciliation.totalChange !== 0 && (
         <div className="flex flex-wrap items-center gap-2 mb-4 py-2 px-3 rounded-md bg-muted text-sm">
           <span>{fmtCurrency(reconciliation.totalStart)}</span>
           <span className="text-muted-foreground">&rarr;</span>
