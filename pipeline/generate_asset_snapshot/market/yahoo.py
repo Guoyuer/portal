@@ -10,7 +10,7 @@ from typing import Any
 
 import yfinance as yf
 
-from ..types import DEFAULT_CNY_RATE, HoldingsDetailData, IndexReturn, MarketData, Portfolio, StockDetail
+from ..types import HoldingsDetailData, IndexReturn, MarketData, Portfolio, StockDetail
 
 
 def fetch_index_returns(tickers: list[str], period: str = "1mo") -> dict[str, Any]:
@@ -60,18 +60,15 @@ def fetch_index_returns(tickers: list[str], period: str = "1mo") -> dict[str, An
         return {}
 
 
-def fetch_cny_rate(fallback: float = DEFAULT_CNY_RATE) -> float:
-    """Fetch current USD/CNY exchange rate. Returns fallback on failure."""
-    try:
-        data = yf.download("CNY=X", period="1d", progress=False)
-        if not data.empty:
-            return float(data["Close"].iloc[-1])
-    except Exception:  # noqa: BLE001
-        pass
-    return fallback
+def fetch_cny_rate() -> float:
+    """Fetch current USD/CNY exchange rate. Raises on failure."""
+    data = yf.download("CNY=X", period="5d", progress=False)
+    if data.empty:
+        raise RuntimeError("Failed to fetch USD/CNY rate: no data returned")
+    return float(data["Close"].iloc[-1])
 
 
-def build_market_data(cny_rate: float = DEFAULT_CNY_RATE) -> MarketData | None:
+def build_market_data(cny_rate: float) -> MarketData | None:
     """Fetch index returns and build MarketData. Returns None on failure."""
     tickers = ["SPY", "QQQ", "VT"]
     idx_month = fetch_index_returns(tickers, period="1mo")

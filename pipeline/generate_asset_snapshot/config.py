@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .types import (
-    DEFAULT_CNY_RATE,
+
     EQUITY_CATEGORIES,
     TIER_CASH,
     TIER_CNY,
@@ -126,7 +126,7 @@ def manual_values_from_snapshot(
         if classify_account(acct, config) != TIER_FIDELITY and abs(bal) >= 0.01
     }
 
-    cny_rate = snapshot.get("cny_rate", DEFAULT_CNY_RATE)
+    cny_rate = snapshot["cny_rate"]
     qa = config["qianji_accounts"]
     ticker_map: dict[str, str] = qa.get("ticker_map", {})
     cny_accounts: list[str] = qa.get("cny", [])

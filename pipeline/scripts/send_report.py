@@ -27,7 +27,7 @@ def _build_report(data_dir: Path):  # noqa: ANN202
     from generate_asset_snapshot.ingest.qianji_db import load_all_from_db
     from generate_asset_snapshot.portfolio import load_portfolio
     from generate_asset_snapshot.report import build_report
-    from generate_asset_snapshot.types import DEFAULT_CNY_RATE, ReportSources
+    from generate_asset_snapshot.types import ReportSources
 
     config_path = data_dir / "config.json"
     if not config_path.exists():
@@ -75,18 +75,22 @@ def _build_report(data_dir: Path):  # noqa: ANN202
         except Exception:  # noqa: BLE001
             prev_totals = None
 
+    # CNY rate: must succeed — affects asset calculations
+    from generate_asset_snapshot.market.yahoo import build_holdings_detail, build_market_data, fetch_cny_rate
+
+    cny_rate = balance_snapshot["cny_rate"] if balance_snapshot else fetch_cny_rate()
+    print(f"  CNY rate: {cny_rate}", file=sys.stderr)
+
+    # Market data & holdings: optional — API failure doesn't block report
     market_data = None
     holdings_detail = None
     try:
-        from generate_asset_snapshot.market.yahoo import build_holdings_detail, build_market_data
-
-        cny_rate = balance_snapshot.get("cny_rate", DEFAULT_CNY_RATE) if balance_snapshot else DEFAULT_CNY_RATE
         market_data = build_market_data(cny_rate)
         holdings_detail = build_holdings_detail(portfolio)
         if holdings_detail:
             print(f"  Holdings: {len(holdings_detail.all_stocks)} stocks", file=sys.stderr)
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as e:  # noqa: BLE001
+        print(f"  [warn] Market/holdings fetch failed: {e}", file=sys.stderr)
 
     return build_report(
         portfolio,

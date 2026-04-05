@@ -20,7 +20,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from ..types import DEFAULT_CNY_RATE, QJ_EXPENSE, QJ_INCOME, QJ_REPAYMENT, QJ_TRANSFER, QianjiRecord
+from ..types import QJ_EXPENSE, QJ_INCOME, QJ_REPAYMENT, QJ_TRANSFER, QianjiRecord
 
 _MAC_DB_PATH = Path.home() / "Library/Containers/com.mutangtech.qianji.fltios/Data/Documents/qianjiapp.db"
 _WIN_DB_PATH = Path(os.environ.get("APPDATA", "")) / "com.mutangtech.qianji.win/qianji_flutter/qianjiapp.db"
@@ -68,13 +68,10 @@ def _load_balances(conn: sqlite3.Connection) -> dict[str, float]:
 
 
 def _fetch_live_cny_rate() -> float:
-    """Fetch live USD/CNY rate, falling back to DEFAULT_CNY_RATE on failure."""
-    try:
-        from ..market.yahoo import fetch_cny_rate
+    """Fetch live USD/CNY rate. Raises if unavailable."""
+    from ..market.yahoo import fetch_cny_rate
 
-        return fetch_cny_rate()
-    except Exception:  # noqa: BLE001
-        return DEFAULT_CNY_RATE
+    return fetch_cny_rate()
 
 
 def _build_snapshot(db_path: Path, balances: dict[str, float]) -> dict[str, Any]:

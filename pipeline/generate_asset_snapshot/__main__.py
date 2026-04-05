@@ -13,7 +13,7 @@ from .ingest.fidelity_history import load_transactions
 from .ingest.qianji_db import DEFAULT_DB_PATH, load_all_from_db
 from .portfolio import load_portfolio
 from .report import build_report
-from .types import DEFAULT_CNY_RATE, ConfigError, PortfolioError
+from .types import ConfigError, PortfolioError
 
 _DOWNLOADS_DIR = Path.home() / "Downloads"
 
@@ -90,7 +90,9 @@ def main() -> None:
     try:
         from .market.yahoo import build_market_data
 
-        cny_rate = balance_snapshot.get("cny_rate", DEFAULT_CNY_RATE) if balance_snapshot else DEFAULT_CNY_RATE
+        from .market.yahoo import fetch_cny_rate
+
+        cny_rate = balance_snapshot["cny_rate"] if balance_snapshot else fetch_cny_rate()
         market_data = build_market_data(cny_rate)
     except Exception:  # noqa: BLE001
         pass  # yfinance not installed or API down

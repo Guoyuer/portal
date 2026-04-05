@@ -29,7 +29,6 @@ from .types import (
     ACT_REINVESTMENT,
     ACT_SELL,
     ACT_WITHDRAWAL,
-    DEFAULT_CNY_RATE,
     EQUITY_CATEGORIES,
     MIN_RECORDS_FOR_COMPLETE_MONTH,
     NON_EQUITY_CATEGORIES,
@@ -286,7 +285,7 @@ def _build_balance_sheet_from_snapshot(
     - No double-counting: Fidelity accounts in Qianji are skipped
     """
     # Classify all accounts once, filter out Fidelity-tracked and zero balances
-    cny_rate = snapshot.get("cny_rate", DEFAULT_CNY_RATE)
+    cny_rate = snapshot["cny_rate"]
     account_tiers = {acct: classify_account(acct, config) for acct in snapshot.get("balances", {})}
 
     # Fidelity total = positions CSV total minus manual entries (those come from Qianji)
