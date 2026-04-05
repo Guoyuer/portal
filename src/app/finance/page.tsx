@@ -217,19 +217,29 @@ export default function FinancePage() {
                 </Table>
               </div>
             )}
-            {r.holdingsDetail.upcomingEarnings.length > 0 && (
-              <div>
-                <h3 className="font-semibold mb-2">Upcoming Earnings</h3>
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 text-sm">
-                  {r.holdingsDetail.upcomingEarnings.map((s) => (
-                    <div key={s.ticker}>
-                      <span className="font-mono font-medium">{s.ticker}</span>
-                      <span className="text-muted-foreground"> &mdash; {s.nextEarnings}</span>
-                    </div>
-                  ))}
+            {(() => {
+              const now = Date.now();
+              const thirtyDays = 30 * 24 * 60 * 60 * 1000;
+              const soon = r.holdingsDetail!.upcomingEarnings.filter((s) => {
+                if (!s.nextEarnings) return false;
+                const d = new Date(s.nextEarnings).getTime();
+                return !isNaN(d) && d >= now && d <= now + thirtyDays;
+              });
+              if (soon.length === 0) return null;
+              return (
+                <div>
+                  <h3 className="font-semibold mb-2">Upcoming Earnings (30 days)</h3>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 text-sm">
+                    {soon.map((s) => (
+                      <div key={s.ticker}>
+                        <span className="font-mono font-medium">{s.ticker}</span>
+                        <span className="text-muted-foreground"> &mdash; {s.nextEarnings}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
           </SectionBody>
         </section>
       )}
