@@ -13,6 +13,7 @@ This is more reliable than CSV export:
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sqlite3
@@ -33,18 +34,37 @@ DEFAULT_DB_PATH = _WIN_DB_PATH if sys.platform == "win32" else _MAC_DB_PATH
 # Qianji type codes → internal type names
 _TYPE_MAP = {0: QJ_EXPENSE, 1: QJ_INCOME, 2: QJ_TRANSFER, 3: QJ_REPAYMENT}
 
-_BILL_QUERY = "SELECT id, type, money, fromact, targetact, remark, time, cateid FROM user_bill ORDER BY time"
+_BILL_QUERY = "SELECT id, type, money, fromact, targetact, remark, time, cateid, extra FROM user_bill ORDER BY time"
+
+
+def _parse_amount(money: float, extra_str: str | None) -> float:
+    """Return USD amount, using currency conversion from extra if available."""
+    if extra_str:
+        try:
+            extra = json.loads(extra_str)
+            curr = extra.get("curr") if isinstance(extra, dict) else None
+            if isinstance(curr, dict) and curr.get("ss") == "CNY":
+                bv = curr.get("bv")
+                if bv is not None:
+                    return float(bv)
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return float(money)
 
 
 def _load_records(conn: sqlite3.Connection) -> list[QianjiRecord]:
     """Load cashflow records from an open DB connection."""
     categories = dict(conn.execute("SELECT id, name FROM category"))
     records: list[QianjiRecord] = []
-    for bill_id, bill_type, money, fromact, targetact, remark, ts, cateid in conn.execute(_BILL_QUERY):
+    cny_converted = 0
+    for bill_id, bill_type, money, fromact, targetact, remark, ts, cateid, extra_str in conn.execute(_BILL_QUERY):
         mapped_type = _TYPE_MAP.get(bill_type)
         if mapped_type is None:
             continue
         dt = datetime.fromtimestamp(ts, tz=UTC)
+        amount = _parse_amount(money, extra_str)
+        if abs(amount - float(money)) > 0.01:
+            cny_converted += 1
         records.append(
             {
                 "id": str(bill_id),
@@ -52,7 +72,7 @@ def _load_records(conn: sqlite3.Connection) -> list[QianjiRecord]:
                 "category": categories.get(cateid, ""),
                 "subcategory": "",
                 "type": mapped_type,
-                "amount": float(money),
+                "amount": amount,
                 "currency": "USD",
                 "account_from": fromact or "",
                 "account_to": targetact or "",
@@ -62,7 +82,7 @@ def _load_records(conn: sqlite3.Connection) -> list[QianjiRecord]:
     by_type: dict[str, int] = {}
     for r in records:
         by_type[r["type"]] = by_type.get(r["type"], 0) + 1
-    log.info("Qianji records: %d total (%s)", len(records), ", ".join(f"{t}={c}" for t, c in sorted(by_type.items())))
+    log.info("Qianji records: %d total (%s), %d CNY→USD converted", len(records), ", ".join(f"{t}={c}" for t, c in sorted(by_type.items())), cny_converted)
     return records
 
 

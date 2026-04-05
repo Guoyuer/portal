@@ -20,6 +20,7 @@ import { GainLoss } from "@/components/finance/gain-loss";
 import { AnnualSummary } from "@/components/finance/annual-summary";
 import { NetWorthGrowth } from "@/components/finance/net-worth-growth";
 import { Reconciliation } from "@/components/finance/reconciliation";
+import { BackToTop } from "@/components/layout/back-to-top";
 
 export default function FinancePage() {
   const [r, setReport] = useState<ReportData | null>(null);
@@ -60,7 +61,7 @@ export default function FinancePage() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto space-y-8">
+    <div className="max-w-5xl mx-auto space-y-10">
       {/* Header */}
       <div className="flex items-start sm:items-center justify-between gap-2">
         <h1 className="text-xl sm:text-2xl font-bold tracking-tight">
@@ -78,20 +79,49 @@ export default function FinancePage() {
         </p>
       )}
 
+      {/* Section nav */}
+      <nav className="sticky top-0 z-40 -mx-4 px-4 py-2 bg-background/95 backdrop-blur border-b border-border overflow-x-auto flex gap-3 text-sm">
+        {[
+          ["net-worth", "Net Worth"],
+          ["allocation", "Allocation"],
+          ["cashflow", "Cash Flow"],
+          ["activity", "Activity"],
+          ["balance-sheet", "Balance Sheet"],
+          ["holdings", "Holdings"],
+          ["market", "Market"],
+        ].map(([id, label]) => (
+          <a
+            key={id}
+            href={`#${id}`}
+            onClick={(e) => {
+              e.preventDefault();
+              document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }}
+            className="whitespace-nowrap text-muted-foreground hover:text-foreground transition-colors"
+          >
+            {label}
+          </a>
+        ))}
+      </nav>
+
       {/* ── 1. Overview ─────────────────────────────────────────────────── */}
       <MetricCards report={r} />
 
       {/* ── 2. Net Worth ────────────────────────────────────────────────── */}
-      <NetWorthGrowth data={r.chartData?.netWorthTrend ?? []} />
+      <div id="net-worth">
+        <NetWorthGrowth data={r.chartData?.netWorthTrend ?? []} />
+      </div>
 
       {/* ── 3. Allocation ───────────────────────────────────────────────── */}
-      <CategorySummary report={r} />
+      <div id="allocation">
+        <CategorySummary report={r} />
+      </div>
 
       {/* ── 4. Cash Flow + Expenses ─────────────────────────────────────── */}
-      {r.cashflow && <CashFlow data={r.cashflow} />}
+      {r.cashflow && <div id="cashflow"><CashFlow data={r.cashflow} /></div>}
 
       {r.chartData?.monthlyFlows && r.chartData.monthlyFlows.length > 0 && (
-        <section>
+        <section id="income-expenses">
           <SectionHeader>Income vs Expenses</SectionHeader>
           <SectionBody>
             <IncomeExpensesChart data={r.chartData.monthlyFlows} />
@@ -99,18 +129,18 @@ export default function FinancePage() {
         </section>
       )}
 
-      {r.annualSummary && <AnnualSummary data={r.annualSummary} />}
+      {r.annualSummary && <div id="annual"><AnnualSummary data={r.annualSummary} /></div>}
 
       {/* ── 5. Investment Activity ───────────────────────────────────────── */}
-      {r.activity && <InvestmentActivity data={r.activity} />}
+      {r.activity && <div id="activity"><InvestmentActivity data={r.activity} /></div>}
 
       {/* ── 6. Balance Sheet + Reconciliation ───────────────────────────── */}
-      {r.balanceSheet && <BalanceSheet data={r.balanceSheet} />}
-      {r.reconciliation && <Reconciliation data={r.reconciliation} />}
+      {r.balanceSheet && <div id="balance-sheet"><BalanceSheet data={r.balanceSheet} /></div>}
+      {r.reconciliation && <div id="reconciliation"><Reconciliation data={r.reconciliation} /></div>}
 
       {/* ── 7. Holdings: Detail + Gain/Loss ─────────────────────────────── */}
       {r.holdingsDetail && (
-        <section>
+        <section id="holdings">
           <SectionHeader>Holdings Detail</SectionHeader>
           <SectionBody>
             {r.holdingsDetail.topPerformers.length > 0 && (
@@ -186,24 +216,28 @@ export default function FinancePage() {
             {r.holdingsDetail.upcomingEarnings.length > 0 && (
               <div>
                 <h3 className="font-semibold mb-2">Upcoming Earnings</h3>
-                <ul className="space-y-1 text-sm">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 text-sm">
                   {r.holdingsDetail.upcomingEarnings.map((s) => (
-                    <li key={s.ticker}>
+                    <div key={s.ticker}>
                       <span className="font-mono font-medium">{s.ticker}</span>
                       <span className="text-muted-foreground"> &mdash; {s.nextEarnings}</span>
-                    </li>
+                    </div>
                   ))}
-                </ul>
+                </div>
               </div>
             )}
           </SectionBody>
         </section>
       )}
 
-      <GainLoss report={r} />
+      <div id="gain-loss">
+        <GainLoss report={r} />
+      </div>
 
       {/* ── 8. Market Context ───────────────────────────────────────────── */}
-      {r.market && <MarketContext data={r.market} />}
+      {r.market && <div id="market"><MarketContext data={r.market} /></div>}
+
+      <BackToTop />
     </div>
   );
 }

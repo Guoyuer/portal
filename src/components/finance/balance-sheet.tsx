@@ -68,14 +68,23 @@ export function BalanceSheet({ data }: { data: BalanceSheetData }) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data.creditCards.map((l) => (
-                  <TableRow key={l.name} className="even:bg-muted/50">
-                    <TableCell>{l.name}</TableCell>
+                {data.totalLiabilities < 500 && data.creditCards.length > 1 ? (
+                  <TableRow className="even:bg-muted/50">
+                    <TableCell>Credit Cards ({data.creditCards.length})</TableCell>
                     <TableCell className="text-right text-red-500">
-                      {fmtCurrency(l.balance)}
+                      {fmtCurrency(data.creditCards.reduce((s, c) => s + c.balance, 0))}
                     </TableCell>
                   </TableRow>
-                ))}
+                ) : (
+                  data.creditCards.map((l) => (
+                    <TableRow key={l.name} className="even:bg-muted/50">
+                      <TableCell>{l.name}</TableCell>
+                      <TableCell className="text-right text-red-500">
+                        {fmtCurrency(l.balance)}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
                 <TableRow className="font-bold border-t-2 border-b-2 border-foreground/20">
                   <TableCell>Total Liabilities</TableCell>
                   <TableCell className="text-right text-red-500">
