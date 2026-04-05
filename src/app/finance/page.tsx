@@ -186,14 +186,14 @@ export default function FinancePage() {
             {r.holdingsDetail.upcomingEarnings.length > 0 && (
               <div>
                 <h3 className="font-semibold mb-2">Upcoming Earnings</h3>
-                <ul className="space-y-1 text-sm">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 text-sm">
                   {r.holdingsDetail.upcomingEarnings.map((s) => (
-                    <li key={s.ticker}>
+                    <div key={s.ticker}>
                       <span className="font-mono font-medium">{s.ticker}</span>
                       <span className="text-muted-foreground"> &mdash; {s.nextEarnings}</span>
-                    </li>
+                    </div>
                   ))}
-                </ul>
+                </div>
               </div>
             )}
           </SectionBody>

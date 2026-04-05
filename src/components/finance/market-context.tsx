@@ -102,6 +102,11 @@ export function MarketContext({ data: m }: { data: MarketData }) {
                 </div>
               ))}
             </div>
+            {indicators.length <= 1 && (
+              <p className="text-xs text-muted-foreground mt-2">
+                Economic indicators (Fed Rate, CPI, VIX) unavailable — FRED API not configured.
+              </p>
+            )}
           </div>
         )}
       </SectionBody>
