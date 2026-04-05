@@ -9,7 +9,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { SectionHeader, SectionBody } from "@/components/finance/shared";
+import { SectionHeader, SectionBody, TOTAL_ROW_CLASS } from "@/components/finance/shared";
 
 export function BalanceSheet({ data }: { data: BalanceSheetData }) {
   return (
@@ -48,7 +48,7 @@ export function BalanceSheet({ data }: { data: BalanceSheetData }) {
                     </TableCell>
                   </TableRow>
                 ))}
-                <TableRow className="font-bold border-t-2 border-b-2 border-foreground/20">
+                <TableRow className={TOTAL_ROW_CLASS}>
                   <TableCell>Total Assets</TableCell>
                   <TableCell className="text-right">
                     {fmtCurrency(data.totalAssets)}
@@ -86,7 +86,7 @@ export function BalanceSheet({ data }: { data: BalanceSheetData }) {
                     </TableRow>
                   ))
                 )}
-                <TableRow className="font-bold border-t-2 border-b-2 border-foreground/20">
+                <TableRow className={TOTAL_ROW_CLASS}>
                   <TableCell>Total Liabilities</TableCell>
                   <TableCell className="text-right text-red-500">
                     {fmtCurrency(data.totalLiabilities)}

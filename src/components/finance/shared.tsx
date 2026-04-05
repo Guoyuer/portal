@@ -11,6 +11,8 @@ import {
 
 export const ACTIVITY_TOP_SYMBOLS = 5;
 
+export const TOTAL_ROW_CLASS = "font-bold border-t-2 border-b-2 border-foreground/20";
+
 export function SectionHeader({ children }: { children: React.ReactNode }) {
   return (
     <div className="bg-[#16213e] text-white px-4 py-2.5 rounded-t-md font-bold">

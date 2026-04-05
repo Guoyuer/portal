@@ -1,6 +1,7 @@
 import type { ReportData } from "@/lib/types";
 import { fmtCurrency, fmtPct } from "@/lib/format";
 import { valueColor } from "@/lib/style-helpers";
+import { TOTAL_ROW_CLASS } from "@/components/finance/shared";
 import {
   Table,
   TableBody,
@@ -90,7 +91,7 @@ export function GainLoss({ report: r }: { report: ReportData }) {
                 </TableCell>
               </TableRow>
             )}
-            <TableRow className="font-bold border-t-2 border-b-2 border-foreground/20">
+            <TableRow className={TOTAL_ROW_CLASS}>
               <TableCell>Total</TableCell>
               <TableCell className="text-right">{fmtCurrency(totalValue)}</TableCell>
               <TableCell className="text-right hidden sm:table-cell">{fmtCurrency(totalCost)}</TableCell>

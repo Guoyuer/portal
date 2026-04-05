@@ -9,7 +9,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { DeviationCell, SectionHeader, SectionBody } from "@/components/finance/shared";
+import { DeviationCell, SectionHeader, SectionBody, TOTAL_ROW_CLASS } from "@/components/finance/shared";
 import { AllocationDonut } from "@/components/finance/charts";
 
 export function CategorySummary({ report: r }: { report: ReportData }) {
@@ -100,7 +100,7 @@ export function CategorySummary({ report: r }: { report: ReportData }) {
             ))}
 
             {/* Total row */}
-            <TableRow className="font-bold border-t-2 border-b-2 border-foreground/20">
+            <TableRow className={TOTAL_ROW_CLASS}>
               <TableCell>Total</TableCell>
               <TableCell className="text-right hidden sm:table-cell">
                 {fmtCurrency(totalValue)}

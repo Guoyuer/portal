@@ -1,6 +1,7 @@
 import type { CashFlowData } from "@/lib/types";
 import { fmtCurrency } from "@/lib/format";
 import { valueColor, MAJOR_EXPENSE_THRESHOLD } from "@/lib/style-helpers";
+import { TOTAL_ROW_CLASS } from "@/components/finance/shared";
 import {
   Table,
   TableBody,
@@ -48,7 +49,7 @@ export function CashFlow({ data }: { data: CashFlowData }) {
                   </TableCell>
                 </TableRow>
               ))}
-              <TableRow className="font-bold border-t-2 border-b-2 border-foreground/20">
+              <TableRow className={TOTAL_ROW_CLASS}>
                 <TableCell>Total</TableCell>
                 <TableCell />
                 <TableCell className="text-right">
@@ -116,7 +117,7 @@ export function CashFlow({ data }: { data: CashFlowData }) {
                   </TableCell>
                 </TableRow>
               )}
-              <TableRow className="font-bold border-t-2 border-b-2 border-foreground/20">
+              <TableRow className={TOTAL_ROW_CLASS}>
                 <TableCell>Total</TableCell>
                 <TableCell />
                 <TableCell className="text-right">

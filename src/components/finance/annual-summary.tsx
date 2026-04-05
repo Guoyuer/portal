@@ -1,6 +1,7 @@
 import type { AnnualSummary as AnnualSummaryData } from "@/lib/types";
 import { fmtCurrency } from "@/lib/format";
 import { valueColor } from "@/lib/style-helpers";
+import { TOTAL_ROW_CLASS } from "@/components/finance/shared";
 import {
   Table,
   TableBody,
@@ -36,7 +37,7 @@ export function AnnualSummary({ data }: { data: AnnualSummaryData }) {
                   <TableCell className="text-right">{fmtCurrency(item.amount)}</TableCell>
                 </TableRow>
               ))}
-              <TableRow className="font-bold border-t-2 border-b-2 border-foreground/20">
+              <TableRow className={TOTAL_ROW_CLASS}>
                 <TableCell>Total Expenses</TableCell>
                 <TableCell />
                 <TableCell className="text-right">{fmtCurrency(data.totalExpenses)}</TableCell>
