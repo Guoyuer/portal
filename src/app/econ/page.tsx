@@ -126,7 +126,7 @@ export default function EconPage() {
             onClick={() => setRange(r)}
             className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
               range === r
-                ? "bg-white/40 dark:bg-white/12 text-foreground shadow-sm backdrop-blur-sm border-0.5 border-white/30"
+                ? "bg-white/40 dark:bg-white/12 text-foreground shadow-sm backdrop-blur-sm border border-white/30"
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
