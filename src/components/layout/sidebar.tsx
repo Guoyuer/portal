@@ -107,7 +107,7 @@ export default function Sidebar() {
             onClick={() => setOpen(false)}
             className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
               active
-                ? "bg-white/12 text-foreground shadow-[inset_0_0.5px_0_rgba(255,255,255,0.25),inset_0_0_8px_rgba(255,255,255,0.06)] backdrop-blur-sm rounded-xl"
+                ? "bg-black/5 dark:bg-white/12 text-foreground shadow-[inset_0_0.5px_0_rgba(255,255,255,0.25),inset_0_0_8px_rgba(255,255,255,0.06)] backdrop-blur-sm rounded-xl"
                 : item.comingSoon
                   ? "cursor-default text-muted-foreground"
                   : "text-muted-foreground hover:bg-white/8 hover:text-foreground hover:shadow-[inset_0_0.5px_0_rgba(255,255,255,0.15),inset_0_0_6px_rgba(255,255,255,0.04)] hover:backdrop-blur-sm rounded-xl transition-all duration-200"
