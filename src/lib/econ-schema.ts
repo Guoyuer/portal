@@ -9,12 +9,12 @@ const EconPointSchema = z.object({
 });
 
 const EconSnapshotSchema = z.object({
-  fedRate: z.number().optional(),
+  fedFundsRate: z.number().optional(),
   treasury10y: z.number().optional(),
   treasury2y: z.number().optional(),
   spread2s10s: z.number().optional(),
-  cpi: z.number().optional(),
-  coreCpi: z.number().optional(),
+  cpiYoy: z.number().optional(),
+  coreCpiYoy: z.number().optional(),
   unemployment: z.number().optional(),
   vix: z.number().optional(),
   dxy: z.number().optional(),

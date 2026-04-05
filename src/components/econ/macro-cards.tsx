@@ -2,10 +2,10 @@ import type { EconSnapshot } from "@/lib/econ-schema";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 const INDICATORS: { key: keyof EconSnapshot; label: string; format: (v: number) => string }[] = [
-  { key: "fedRate", label: "Fed Rate", format: (v) => `${v.toFixed(2)}%` },
+  { key: "fedFundsRate", label: "Fed Rate", format: (v) => `${v.toFixed(2)}%` },
   { key: "treasury10y", label: "10Y Treasury", format: (v) => `${v.toFixed(2)}%` },
   { key: "spread2s10s", label: "2s10s Spread", format: (v) => `${v >= 0 ? "+" : ""}${(v * 100).toFixed(0)} bps` },
-  { key: "cpi", label: "CPI (YoY)", format: (v) => `${v.toFixed(1)}%` },
+  { key: "cpiYoy", label: "CPI (YoY)", format: (v) => `${v.toFixed(1)}%` },
   { key: "unemployment", label: "Unemployment", format: (v) => `${v.toFixed(1)}%` },
   { key: "vix", label: "VIX", format: (v) => v.toFixed(1) },
   { key: "dxy", label: "DXY", format: (v) => v.toFixed(1) },

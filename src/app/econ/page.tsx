@@ -29,7 +29,7 @@ function filterSeries(series: Record<string, EconPoint[]>, months: number): Reco
 // ── Line configs ─────────────────────────────────────────────────────
 
 const RATE_LINES: LineConfig[] = [
-  { dataKey: "fedRate", label: "Fed Rate", color: "#2563eb", formatter: (v) => `${v.toFixed(2)}%` },
+  { dataKey: "fedFundsRate", label: "Fed Rate", color: "#2563eb", formatter: (v) => `${v.toFixed(2)}%` },
   { dataKey: "treasury10y", label: "10Y Treasury", color: "#7c3aed", formatter: (v) => `${v.toFixed(2)}%` },
   { dataKey: "treasury2y", label: "2Y Treasury", color: "#f59e0b", formatter: (v) => `${v.toFixed(2)}%` },
 ];
@@ -37,8 +37,8 @@ const SPREAD_LINES: LineConfig[] = [
   { dataKey: "spread2s10s", label: "2s10s Spread", color: "#ef4444", formatter: (v) => `${(v * 100).toFixed(0)} bps` },
 ];
 const INFLATION_LINES: LineConfig[] = [
-  { dataKey: "cpi", label: "CPI (YoY)", color: "#ef4444", formatter: (v) => `${v.toFixed(1)}%` },
-  { dataKey: "coreCpi", label: "Core CPI (YoY)", color: "#f59e0b", formatter: (v) => `${v.toFixed(1)}%` },
+  { dataKey: "cpiYoy", label: "CPI (YoY)", color: "#ef4444", formatter: (v) => `${v.toFixed(1)}%` },
+  { dataKey: "coreCpiYoy", label: "Core CPI (YoY)", color: "#f59e0b", formatter: (v) => `${v.toFixed(1)}%` },
 ];
 const UNEMPLOYMENT_LINES: LineConfig[] = [
   { dataKey: "unemployment", label: "Unemployment Rate", color: "#2563eb", formatter: (v) => `${v.toFixed(1)}%` },
