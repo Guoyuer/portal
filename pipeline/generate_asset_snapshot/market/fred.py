@@ -73,7 +73,7 @@ def _compute_yoy_pct(series: pd.Series) -> pd.Series:
 # ── Main fetcher ─────────────────────────────────────────────────────────────
 
 
-def fetch_fred_data(api_key: str) -> dict | None:
+def fetch_fred_data(api_key: str) -> dict[str, object] | None:
     """Fetch macro-economic data from FRED.
 
     Parameters
