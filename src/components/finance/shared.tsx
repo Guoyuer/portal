@@ -15,7 +15,7 @@ export const TOTAL_ROW_CLASS = "font-bold border-t-2 border-b-2 border-foregroun
 
 export function SectionHeader({ children }: { children: React.ReactNode }) {
   return (
-    <div className="bg-[#16213e] text-white px-4 py-2.5 rounded-t-md font-bold">
+    <div className="text-foreground font-semibold text-lg tracking-tight mb-3">
       {children}
     </div>
   );
@@ -23,7 +23,7 @@ export function SectionHeader({ children }: { children: React.ReactNode }) {
 
 export function SectionBody({ children }: { children: React.ReactNode }) {
   return (
-    <div className="border border-border rounded-b-md p-4">{children}</div>
+    <div className="liquid-glass p-5">{children}</div>
   );
 }
 

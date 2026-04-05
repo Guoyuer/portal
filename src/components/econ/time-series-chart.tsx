@@ -60,10 +60,26 @@ export function TimeSeriesChart({ title, lines, data, height = 280 }: TimeSeries
               return [line?.formatter ? line.formatter(v) : v.toFixed(2), line?.label ?? n];
             }}
           />
-          {lines.length > 1 && <Legend />}
+          {lines.length > 1 && (
+            <Legend
+              wrapperStyle={{
+                paddingTop: "8px",
+                background: isDark ? "rgba(255,255,255,0.03)" : "rgba(255,255,255,0.4)",
+                backdropFilter: "blur(12px)",
+                borderRadius: "10px",
+                padding: "4px 12px",
+                border: `1px solid ${isDark ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.3)"}`,
+              }}
+            />
+          )}
           {lines.map((line) => (
-            <Line key={line.dataKey} dataKey={line.dataKey} name={line.label} stroke={line.color} strokeWidth={2} dot={false} connectNulls />
+            <Line key={line.dataKey} dataKey={line.dataKey} name={line.label} stroke={line.color} strokeWidth={2} dot={false} connectNulls filter="url(#line-shadow)" />
           ))}
+          <defs>
+            <filter id="line-shadow" x="-2%" y="-2%" width="104%" height="104%">
+              <feDropShadow dx="0" dy="1" stdDeviation="2" floodColor={isDark ? "#000" : "#fff"} floodOpacity={isDark ? 0.4 : 0.6} />
+            </filter>
+          </defs>
         </LineChart>
       </ResponsiveContainer>
     </div>
