@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { REPORT_URL } from "@/lib/config";
 import { ReportDataSchema, type ReportData } from "@/lib/schema";
 import { fmtCurrency, fmtPct } from "@/lib/format";
+import { useActiveSection } from "@/lib/hooks";
 import { valueColor } from "@/lib/style-helpers";
 import type { StockDetail } from "@/lib/types";
 import {
@@ -93,6 +94,9 @@ export default function FinancePage() {
     });
   }, [r]);
 
+  const NAV_IDS = useMemo(() => ["net-worth", "allocation", "cashflow", "portfolio-activity", "balance-sheet", "holdings", "market"], []);
+  const { active, scrollTo } = useActiveSection(NAV_IDS);
+
   if (loading) {
     return (
       <div className="max-w-5xl mx-auto py-20 text-center text-muted-foreground">
@@ -140,17 +144,17 @@ export default function FinancePage() {
           ["holdings", "Holdings"],
           ["market", "Market"],
         ].map(([id, label]) => (
-          <a
+          <button
             key={id}
-            href={`#${id}`}
-            onClick={(e) => {
-              e.preventDefault();
-              document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
-            }}
-            className="whitespace-nowrap text-muted-foreground hover:text-foreground transition-colors"
+            onClick={() => scrollTo(id)}
+            className={`whitespace-nowrap pb-1 transition-colors ${
+              active === id
+                ? "text-foreground font-medium border-b-2 border-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
           >
             {label}
-          </a>
+          </button>
         ))}
       </nav>
 
