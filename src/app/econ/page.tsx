@@ -80,6 +80,11 @@ export default function EconPage() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  const filtered = useMemo(
+    () => data ? filterSeries(data.series, RANGE_MONTHS[range]) : {},
+    [data, range],
+  );
+
   if (loading) {
     return (
       <div className="max-w-5xl mx-auto py-20 text-center text-muted-foreground">
@@ -96,8 +101,6 @@ export default function EconPage() {
       </div>
     );
   }
-
-  const filtered = useMemo(() => filterSeries(data.series, RANGE_MONTHS[range]), [data.series, range]);
 
   return (
     <div className="max-w-5xl mx-auto space-y-10">
