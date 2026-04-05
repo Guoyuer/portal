@@ -559,7 +559,7 @@ def build_report(
         total=portfolio["total"],
         total_lots=sum(portfolio["counts"].values()),
         goal=goal,
-        goal_pct=pct(portfolio["total"], goal) if goal > 0 else 0,
+        goal_pct=pct(balance_sheet.net_worth if balance_sheet else portfolio["total"], goal) if goal > 0 else 0,
         equity_categories=equity_categories,
         non_equity_categories=non_equity_categories,
         activity=activity,
