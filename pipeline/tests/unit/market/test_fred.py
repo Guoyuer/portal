@@ -75,9 +75,9 @@ class TestFetchFredDataHappyPath:
     """fetch_fred_data returns properly structured data on success."""
 
     @patch("generate_asset_snapshot.market.fred.Fred")
-    def test_returns_snapshot_and_series(self, MockFred: MagicMock) -> None:
+    def test_returns_snapshot_and_series(self, mock_fred_cls: MagicMock) -> None:
         """Result contains both 'snapshot' and 'series' top-level keys."""
-        MockFred.return_value = _build_mock_fred()
+        mock_fred_cls.return_value = _build_mock_fred()
 
         from generate_asset_snapshot.market.fred import fetch_fred_data
 
@@ -88,9 +88,9 @@ class TestFetchFredDataHappyPath:
         assert "series" in result
 
     @patch("generate_asset_snapshot.market.fred.Fred")
-    def test_snapshot_has_expected_fields(self, MockFred: MagicMock) -> None:
+    def test_snapshot_has_expected_fields(self, mock_fred_cls: MagicMock) -> None:
         """Snapshot contains camelCase keys for all indicator latest values."""
-        MockFred.return_value = _build_mock_fred()
+        mock_fred_cls.return_value = _build_mock_fred()
 
         from generate_asset_snapshot.market.fred import fetch_fred_data
 
@@ -107,9 +107,9 @@ class TestFetchFredDataHappyPath:
         )
 
     @patch("generate_asset_snapshot.market.fred.Fred")
-    def test_series_entries_have_date_value_format(self, MockFred: MagicMock) -> None:
+    def test_series_entries_have_date_value_format(self, mock_fred_cls: MagicMock) -> None:
         """Every series entry is a list of {date: 'YYYY-MM', value: number}."""
-        MockFred.return_value = _build_mock_fred()
+        mock_fred_cls.return_value = _build_mock_fred()
 
         from generate_asset_snapshot.market.fred import fetch_fred_data
 
@@ -127,9 +127,9 @@ class TestFetchFredDataHappyPath:
                 assert isinstance(entry["value"], (int, float)), f"Value should be numeric: {entry['value']}"
 
     @patch("generate_asset_snapshot.market.fred.Fred")
-    def test_cpi_returned_as_yoy_percentage(self, MockFred: MagicMock) -> None:
+    def test_cpi_returned_as_yoy_percentage(self, mock_fred_cls: MagicMock) -> None:
         """CPI values are YoY percentage changes, not raw index values."""
-        MockFred.return_value = _build_mock_fred()
+        mock_fred_cls.return_value = _build_mock_fred()
 
         from generate_asset_snapshot.market.fred import fetch_fred_data
 
@@ -149,9 +149,9 @@ class TestFetchFredDataHappyPath:
             assert -10 < entry["value"] < 30, f"CPI series entry looks like raw index: {entry}"
 
     @patch("generate_asset_snapshot.market.fred.Fred")
-    def test_2s10s_spread_is_computed(self, MockFred: MagicMock) -> None:
+    def test_2s10s_spread_is_computed(self, mock_fred_cls: MagicMock) -> None:
         """spread2s10s = treasury10y - treasury2y."""
-        MockFred.return_value = _build_mock_fred()
+        mock_fred_cls.return_value = _build_mock_fred()
 
         from generate_asset_snapshot.market.fred import fetch_fred_data
 
@@ -164,9 +164,9 @@ class TestFetchFredDataHappyPath:
         assert spread == pytest.approx(t10 - t2, abs=0.01)
 
     @patch("generate_asset_snapshot.market.fred.Fred")
-    def test_series_has_expected_keys(self, MockFred: MagicMock) -> None:
+    def test_series_has_expected_keys(self, mock_fred_cls: MagicMock) -> None:
         """Series dict contains keys for each indicator."""
-        MockFred.return_value = _build_mock_fred()
+        mock_fred_cls.return_value = _build_mock_fred()
 
         from generate_asset_snapshot.market.fred import fetch_fred_data
 
@@ -193,9 +193,9 @@ class TestFetchFredDataEdgeCases:
         assert fetch_fred_data("") is None
 
     @patch("generate_asset_snapshot.market.fred.Fred")
-    def test_api_failure_does_not_raise(self, MockFred: MagicMock) -> None:
+    def test_api_failure_does_not_raise(self, mock_fred_cls: MagicMock) -> None:
         """Full API failure returns None, never raises."""
-        MockFred.side_effect = Exception("auth error")
+        mock_fred_cls.side_effect = Exception("auth error")
 
         from generate_asset_snapshot.market.fred import fetch_fred_data
 
@@ -203,7 +203,7 @@ class TestFetchFredDataEdgeCases:
         assert result is None
 
     @patch("generate_asset_snapshot.market.fred.Fred")
-    def test_partial_series_failure_still_returns_data(self, MockFred: MagicMock) -> None:
+    def test_partial_series_failure_still_returns_data(self, mock_fred_cls: MagicMock) -> None:
         """If one series fails, the rest are still returned."""
         mock_fred = _build_mock_fred()
         original_get = mock_fred.get_series.side_effect
@@ -219,7 +219,7 @@ class TestFetchFredDataEdgeCases:
             return original_get(series_id, **kwargs)
 
         mock_fred.get_series = MagicMock(side_effect=_fail_first)
-        MockFred.return_value = mock_fred
+        mock_fred_cls.return_value = mock_fred
 
         from generate_asset_snapshot.market.fred import fetch_fred_data
 
@@ -231,9 +231,9 @@ class TestFetchFredDataEdgeCases:
         assert "series" in result
 
     @patch("generate_asset_snapshot.market.fred.Fred")
-    def test_snapshot_values_are_floats(self, MockFred: MagicMock) -> None:
+    def test_snapshot_values_are_floats(self, mock_fred_cls: MagicMock) -> None:
         """All snapshot values should be numeric (float)."""
-        MockFred.return_value = _build_mock_fred()
+        mock_fred_cls.return_value = _build_mock_fred()
 
         from generate_asset_snapshot.market.fred import fetch_fred_data
 
