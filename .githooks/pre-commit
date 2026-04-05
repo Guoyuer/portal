@@ -7,8 +7,16 @@ set -e
 echo "Pre-commit: checking..."
 
 # Python lint (fast, ~0.5s)
-if [ -d pipeline/generate_asset_snapshot ] && [ -f pipeline/.venv/bin/ruff ]; then
-  pipeline/.venv/bin/ruff check pipeline/ --quiet || { echo "❌ ruff failed"; exit 1; }
+if [ -d pipeline/generate_asset_snapshot ]; then
+  if [ -f pipeline/.venv/bin/ruff ]; then
+    pipeline/.venv/bin/ruff check pipeline/ --quiet || { echo "❌ ruff failed"; exit 1; }
+  elif [ -f pipeline/.venv/Scripts/ruff.exe ]; then
+    pipeline/.venv/Scripts/ruff.exe check pipeline/ --quiet || { echo "❌ ruff failed"; exit 1; }
+  elif python -m ruff --version &> /dev/null; then
+    python -m ruff check pipeline/ --quiet || { echo "❌ ruff failed"; exit 1; }
+  else
+    echo "⚠️  ruff not found — skipping lint"
+  fi
 fi
 
 # TypeScript build check (~2s)
