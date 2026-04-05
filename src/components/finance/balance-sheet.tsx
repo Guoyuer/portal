@@ -72,7 +72,7 @@ export function BalanceSheet({ data }: { data: BalanceSheetData }) {
                   <TableRow className="even:bg-muted/50">
                     <TableCell>Credit Cards ({data.creditCards.length})</TableCell>
                     <TableCell className="text-right text-red-500">
-                      {fmtCurrency(-data.totalLiabilities)}
+                      {fmtCurrency(data.creditCards.reduce((s, c) => s + c.balance, 0))}
                     </TableCell>
                   </TableRow>
                 ) : (

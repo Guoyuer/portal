@@ -90,13 +90,17 @@ export default function FinancePage() {
           ["holdings", "Holdings"],
           ["market", "Market"],
         ].map(([id, label]) => (
-          <button
+          <a
             key={id}
-            onClick={() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" })}
+            href={`#${id}`}
+            onClick={(e) => {
+              e.preventDefault();
+              document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }}
             className="whitespace-nowrap text-muted-foreground hover:text-foreground transition-colors"
           >
             {label}
-          </button>
+          </a>
         ))}
       </nav>
 
