@@ -28,7 +28,7 @@ export function BalanceSheet({ data }: { data: BalanceSheetData }) {
               </TableHeader>
               <TableBody>
                 <TableRow className="even:bg-muted/50">
-                  <TableCell className="font-medium">Investments (Fidelity)</TableCell>
+                  <TableCell className="font-medium">Investments</TableCell>
                   <TableCell className="text-right">
                     {fmtCurrency(data.investmentTotal)}
                   </TableCell>

@@ -85,8 +85,8 @@ export function MarketContext({ data: m }: { data: MarketData }) {
           </div>
         )}
 
-        {/* Macro Indicators */}
-        {indicators.length > 0 && (
+        {/* Macro Indicators — only show when meaningful data is available */}
+        {indicators.length > 1 && (
           <div className="mt-6">
             <h3 className="font-semibold mb-2">Macro Indicators</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2">
@@ -102,11 +102,6 @@ export function MarketContext({ data: m }: { data: MarketData }) {
                 </div>
               ))}
             </div>
-            {indicators.length <= 1 && (
-              <p className="text-xs text-muted-foreground mt-2">
-                Economic indicators (Fed Rate, CPI, VIX) unavailable — FRED API not configured.
-              </p>
-            )}
           </div>
         )}
       </SectionBody>

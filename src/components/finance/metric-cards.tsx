@@ -8,7 +8,7 @@ export function MetricCards({ report: r }: { report: ReportData }) {
       <Card>
         <CardHeader>
           <CardTitle className="text-sm text-muted-foreground">
-            Portfolio
+            Investments
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -19,6 +19,7 @@ export function MetricCards({ report: r }: { report: ReportData }) {
         <CardHeader>
           <CardTitle className="text-sm text-muted-foreground">
             Net Worth
+            <span className="block text-xs font-normal">Assets &minus; Liabilities</span>
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -28,7 +29,7 @@ export function MetricCards({ report: r }: { report: ReportData }) {
       <Card>
         <CardHeader>
           <CardTitle className="text-sm text-muted-foreground">
-            Savings Rate
+            Monthly Savings Rate
           </CardTitle>
         </CardHeader>
         <CardContent>

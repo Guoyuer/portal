@@ -8,8 +8,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { SectionHeader, SectionBody } from "@/components/finance/shared";
-
 export function GainLoss({ report: r }: { report: ReportData }) {
   const allHoldings = [
     ...r.equityCategories.flatMap((c) =>
@@ -19,14 +17,7 @@ export function GainLoss({ report: r }: { report: ReportData }) {
   ].filter((h) => h.costBasis > 0);
 
   if (allHoldings.length === 0) {
-    return (
-      <section>
-        <SectionHeader>Unrealized Gain/Loss</SectionHeader>
-        <SectionBody>
-          <p className="text-sm text-muted-foreground">No cost basis data available.</p>
-        </SectionBody>
-      </section>
-    );
+    return <p className="text-sm text-muted-foreground mt-4">No cost basis data available.</p>;
   }
 
   const sorted = [...allHoldings].sort((a, b) => b.gainLoss - a.gainLoss);
@@ -39,10 +30,9 @@ export function GainLoss({ report: r }: { report: ReportData }) {
   const rest = showCollapse ? sorted.slice(TOP_N) : [];
 
   return (
-    <section>
-      <SectionHeader>Unrealized Gain/Loss</SectionHeader>
-      <SectionBody>
-        <div className="overflow-x-auto">
+    <div className="mt-6 pt-6 border-t border-border">
+      <h3 className="font-semibold mb-3">Unrealized Gain/Loss</h3>
+      <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -108,8 +98,7 @@ export function GainLoss({ report: r }: { report: ReportData }) {
               </TableRow>
             </TableBody>
           </Table>
-        </div>
-      </SectionBody>
-    </section>
+      </div>
+    </div>
   );
 }
