@@ -7,7 +7,6 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
 def _daily_series(values: list[float], start: str = "2025-03-24") -> pd.Series:
