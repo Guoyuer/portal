@@ -7,10 +7,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-log = logging.getLogger(__name__)
-
 from .types import (
-
     EQUITY_CATEGORIES,
     TIER_CASH,
     TIER_CNY,
@@ -19,6 +16,8 @@ from .types import (
     Config,
     ConfigError,
 )
+
+log = logging.getLogger(__name__)
 
 
 def validate_config(data: dict[str, object]) -> list[str]:

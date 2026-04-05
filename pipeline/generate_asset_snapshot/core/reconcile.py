@@ -11,9 +11,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
-log = logging.getLogger(__name__)
-
 from ..types import ACT_BUY, ACT_DEPOSIT, ACT_DIVIDEND, ACT_REINVESTMENT, ACT_SELL, Config, FidelityTransaction
+
+log = logging.getLogger(__name__)
 
 # ── Data classes ─────────────────────────────────────────────────────────────
 

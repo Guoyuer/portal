@@ -11,8 +11,6 @@ from collections import defaultdict
 from datetime import datetime
 from typing import Any
 
-log = logging.getLogger(__name__)
-
 from .analysis import (
     aggregate_by_symbol,
     calculate_allocation,
@@ -63,6 +61,8 @@ from .types import (
     ReportSources,
     SubtypeGroup,
 )
+
+log = logging.getLogger(__name__)
 
 
 def _extract_date(filename: str) -> str:

@@ -11,11 +11,6 @@ import logging
 import re
 from pathlib import Path
 
-log = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Action classification
-# ---------------------------------------------------------------------------
 from ..types import (
     ACT_BUY,
     ACT_COLLATERAL,
@@ -32,6 +27,12 @@ from ..types import (
     ACT_TRANSFER,
     FidelityTransaction,
 )
+
+log = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Action classification
+# ---------------------------------------------------------------------------
 
 _ACTION_RULES: list[tuple[str, str]] = [
     # Order matters: more specific patterns first

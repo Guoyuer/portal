@@ -11,12 +11,12 @@ import logging
 import re
 import sys
 from collections import defaultdict
-
-log = logging.getLogger(__name__)
 from datetime import datetime
 from pathlib import Path
 
 from .types import CURRENCY_RE, QJ_EXPENSE, QJ_INCOME, ChartData, Config, MonthlyFlowPoint, QianjiRecord, SnapshotPoint
+
+log = logging.getLogger(__name__)
 
 _DATE_RE = re.compile(r"Portfolio_Positions_([A-Za-z]+-\d+-\d+)")
 

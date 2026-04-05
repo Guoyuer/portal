@@ -10,9 +10,9 @@ import logging
 from dataclasses import asdict
 from typing import Any
 
-log = logging.getLogger(__name__)
-
 from ..types import ReportData
+
+log = logging.getLogger(__name__)
 
 
 def _to_camel(s: str) -> str:

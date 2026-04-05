@@ -7,9 +7,9 @@ import logging
 from collections import defaultdict
 from pathlib import Path
 
-log = logging.getLogger(__name__)
-
 from .types import CURRENCY_RE, Config, Portfolio, PortfolioError
+
+log = logging.getLogger(__name__)
 
 
 def _parse_currency(val: str) -> float:

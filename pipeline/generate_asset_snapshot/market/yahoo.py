@@ -12,9 +12,9 @@ from typing import Any
 
 import yfinance as yf
 
-log = logging.getLogger(__name__)
-
 from ..types import HoldingsDetailData, IndexReturn, MarketData, Portfolio, StockDetail
+
+log = logging.getLogger(__name__)
 
 
 def fetch_index_returns(tickers: list[str], period: str = "1mo") -> dict[str, Any]:
