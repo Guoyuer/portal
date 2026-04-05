@@ -56,6 +56,12 @@ export function MetricCards({ report: r }: { report: ReportData }) {
           <p className="text-2xl font-bold">
             {Math.round(r.goalPct)}% of {fmtCurrencyShort(r.goal)}
           </p>
+          <div className="mt-2 h-2 w-full rounded-full bg-muted">
+            <div
+              className="h-2 rounded-full bg-blue-600 transition-all"
+              style={{ width: `${Math.min(r.goalPct, 100)}%` }}
+            />
+          </div>
         </CardContent>
       </Card>
     </div>

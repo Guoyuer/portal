@@ -53,8 +53,13 @@ test.describe("Finance Report", () => {
     await expect(safeNetRow.locator(".text-red-500")).toBeVisible();
   });
 
-  test("shows goal progress", async ({ page }) => {
+  test("shows goal progress with bar", async ({ page }) => {
     await expect(page.getByText("$2,000,000")).toBeVisible();
+    const goalCard = page.locator("[data-slot='card']").filter({ hasText: "Goal" });
+    const progressBar = goalCard.locator(".bg-blue-600");
+    await expect(progressBar).toBeVisible();
+    const style = await progressBar.getAttribute("style");
+    expect(style).toMatch(/width:\s*\d+/);
   });
 
   test("shows cash flow section with period", async ({ page }) => {
