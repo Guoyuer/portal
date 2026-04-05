@@ -1,6 +1,8 @@
 export function fmtCurrency(val: number): string {
-  if (val < 0) return `-$${Math.abs(val).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  return `$${val.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const abs = Math.abs(val);
+  const decimals = abs < 10 ? 2 : 0;
+  const formatted = abs.toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+  return val < 0 ? `-$${formatted}` : `$${formatted}`;
 }
 
 export function fmtCurrencyShort(val: number): string {
@@ -18,7 +20,7 @@ export function fmtPct(val: number, signed = true): string {
 }
 
 export function fmtYuan(val: number): string {
-  return `\u00a5${val.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `\u00a5${val.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
 
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
