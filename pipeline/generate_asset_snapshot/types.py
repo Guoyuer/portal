@@ -331,6 +331,7 @@ class AnnualSummary:
     expense_by_category: list[AnnualCategoryTotal]
     total_expenses: float
     total_income: float
+    takehome_savings_rate: float = 0.0
 
 
 @dataclass

@@ -151,6 +151,7 @@ const AnnualSummarySchema = z.object({
   expenseByCategory: z.array(AnnualCategoryTotalSchema),
   totalExpenses: z.number(),
   totalIncome: z.number(),
+  takehomeSavingsRate: z.number().default(0),
 });
 
 // ── Charts ───────────────────────────────────────────────────────────────
