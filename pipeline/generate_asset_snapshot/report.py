@@ -569,6 +569,8 @@ def build_report(
     report_month: str = "",
     sources: ReportSources | None = None,
     chart_data: ChartData | None = None,
+    prev_totals: dict[str, float] | None = None,
+    prev_date: str = "",
 ) -> ReportData:
     """Build a complete ReportData from raw portfolio and config.
 
@@ -606,6 +608,21 @@ def build_report(
         _build_cross_reconciliation(transactions, cashflow, config) if transactions and cashflow else None
     )
 
+    # Portfolio reconciliation: break down value changes by tier
+    reconciliation_data = None
+    if prev_totals and transactions:
+        from .core.reconcile import portfolio_reconcile
+
+        recon = portfolio_reconcile(
+            current=portfolio["totals"],
+            previous=prev_totals,
+            transactions=transactions,
+            config=config,
+        )
+        recon.prev_date = prev_date
+        recon.curr_date = _extract_date(filename)
+        reconciliation_data = recon
+
     return ReportData(
         date=_extract_date(filename),
         total=portfolio["total"],
@@ -616,7 +633,7 @@ def build_report(
         non_equity_categories=non_equity_categories,
         contribution=_build_contribution(portfolio, config, contribute) if contribute > 0 else None,
         activity=activity,
-        reconciliation=None,  # requires prev_snapshot + portfolio_reconcile
+        reconciliation=reconciliation_data,
         balance_sheet=balance_sheet,
         cashflow=cashflow_data,
         cross_reconciliation=cross_reconciliation_data,

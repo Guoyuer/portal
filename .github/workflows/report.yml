@@ -38,6 +38,10 @@ jobs:
           npx wrangler r2 object get "asset-snapshot-data/data/net_worth_history.json" --file "./data/net_worth_history.json" --remote 2>/dev/null \
             && echo "Downloaded net_worth_history.json" \
             || echo "[skip] net_worth_history.json not found (first run)"
+          # Previous report (for portfolio reconciliation)
+          npx wrangler r2 object get "asset-snapshot-data/reports/latest.json" --file "./data/previous_report.json" --remote 2>/dev/null \
+            && echo "Downloaded previous_report.json" \
+            || echo "[skip] previous_report.json not found (first run)"
 
       - name: Check data freshness
         id: freshness

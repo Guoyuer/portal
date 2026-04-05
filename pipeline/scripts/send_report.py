@@ -56,6 +56,25 @@ def _build_report(data_dir: Path):  # noqa: ANN202
 
     chart_data = build_chart_data(data_dir, cashflow=cashflow, config=config, portfolio_total=portfolio["total"])
 
+    # Load previous report for portfolio reconciliation
+    prev_totals: dict[str, float] | None = None
+    prev_date = ""
+    prev_report_path = data_dir / "previous_report.json"
+    if prev_report_path.exists():
+        try:
+            prev = json.loads(prev_report_path.read_text())
+            prev_totals = {}
+            for cat in prev.get("equityCategories", []) + prev.get("nonEquityCategories", []):
+                for sub in cat.get("subtypes", []):
+                    for h in sub.get("holdings", []):
+                        prev_totals[h["ticker"]] = h["value"]
+                for h in cat.get("holdings", []):
+                    prev_totals[h["ticker"]] = h["value"]
+            prev_date = prev.get("date", "")
+            print(f"  Previous snapshot: {len(prev_totals)} tickers ({prev_date})", file=sys.stderr)
+        except Exception:  # noqa: BLE001
+            prev_totals = None
+
     market_data = None
     holdings_detail = None
     try:
@@ -78,6 +97,8 @@ def _build_report(data_dir: Path):  # noqa: ANN202
         balance_snapshot=balance_snapshot,
         sources=ReportSources(market=market_data, holdings_detail=holdings_detail),
         chart_data=chart_data,
+        prev_totals=prev_totals,
+        prev_date=prev_date,
     )
 
 
