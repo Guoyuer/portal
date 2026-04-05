@@ -57,11 +57,15 @@ def _build_report(data_dir: Path):  # noqa: ANN202
     chart_data = build_chart_data(data_dir, cashflow=cashflow, config=config, portfolio_total=portfolio["total"])
 
     market_data = None
+    holdings_detail = None
     try:
-        from generate_asset_snapshot.market.yahoo import build_market_data
+        from generate_asset_snapshot.market.yahoo import build_holdings_detail, build_market_data
 
         cny_rate = balance_snapshot.get("cny_rate", DEFAULT_CNY_RATE) if balance_snapshot else DEFAULT_CNY_RATE
         market_data = build_market_data(cny_rate)
+        holdings_detail = build_holdings_detail(portfolio)
+        if holdings_detail:
+            print(f"  Holdings: {len(holdings_detail.all_stocks)} stocks", file=sys.stderr)
     except Exception:  # noqa: BLE001
         pass
 
@@ -72,7 +76,7 @@ def _build_report(data_dir: Path):  # noqa: ANN202
         transactions=transactions,
         cashflow=cashflow,
         balance_snapshot=balance_snapshot,
-        sources=ReportSources(market=market_data),
+        sources=ReportSources(market=market_data, holdings_detail=holdings_detail),
         chart_data=chart_data,
     )
 

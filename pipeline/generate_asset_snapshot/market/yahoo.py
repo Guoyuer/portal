@@ -10,7 +10,7 @@ from typing import Any
 
 import yfinance as yf
 
-from ..types import DEFAULT_CNY_RATE, IndexReturn, MarketData
+from ..types import DEFAULT_CNY_RATE, HoldingsDetailData, IndexReturn, MarketData, Portfolio, StockDetail
 
 
 def fetch_index_returns(tickers: list[str], period: str = "1mo") -> dict[str, Any]:
@@ -91,3 +91,93 @@ def build_market_data(cny_rate: float = DEFAULT_CNY_RATE) -> MarketData | None:
         for t in idx_month
     ]
     return MarketData(indices=indices, usd_cny=cny_rate)
+
+
+def _is_ticker(symbol: str) -> bool:
+    """Return True if symbol looks like a real ticker (not '401k sp500' or 'I Bonds')."""
+    return bool(symbol) and symbol.isascii() and " " not in symbol and len(symbol) <= 5
+
+
+def build_holdings_detail(portfolio: Portfolio) -> HoldingsDetailData | None:
+    """Fetch per-stock detail from Yahoo Finance for portfolio holdings.
+
+    Returns None on total failure. Individual ticker failures are silently skipped.
+    """
+    tickers = [t for t in portfolio["totals"] if _is_ticker(t)]
+    if not tickers:
+        return None
+
+    # Batch download 1-month price history
+    month_returns: dict[str, float] = {}
+    try:
+        returns = fetch_index_returns(tickers, period="1mo")
+        for t, data in returns.items():
+            month_returns[t] = data["return_pct"]
+    except Exception:  # noqa: BLE001
+        pass
+
+    if not month_returns:
+        return None
+
+    # Fetch per-ticker info (52w high/low, PE, earnings, market cap)
+    stocks: list[StockDetail] = []
+    for ticker in month_returns:
+        value = portfolio["totals"].get(ticker, 0.0)
+        month_ret = month_returns[ticker]
+        start_value = value / (1 + month_ret / 100) if month_ret != -100 else 0.0
+
+        detail = StockDetail(
+            ticker=ticker,
+            month_return=month_ret,
+            start_value=round(start_value, 2),
+            end_value=round(value, 2),
+            pe_ratio=None,
+            market_cap=None,
+            high_52w=None,
+            low_52w=None,
+            vs_high=None,
+            next_earnings=None,
+        )
+
+        try:
+            info = yf.Ticker(ticker).info
+            if info:
+                high = info.get("fiftyTwoWeekHigh")
+                low = info.get("fiftyTwoWeekLow")
+                price = info.get("currentPrice") or info.get("regularMarketPrice")
+                detail.pe_ratio = info.get("trailingPE")
+                detail.market_cap = info.get("marketCap")
+                detail.high_52w = high
+                detail.low_52w = low
+                if high and price:
+                    detail.vs_high = round((price / high - 1) * 100, 2)
+                # Earnings date
+                cal = yf.Ticker(ticker).calendar
+                if cal is not None and "Earnings Date" in cal:
+                    dates = cal["Earnings Date"]
+                    if dates:
+                        d = dates[0]
+                        detail.next_earnings = d.strftime("%b %d (%a)")
+        except Exception:  # noqa: BLE001
+            pass
+
+        stocks.append(detail)
+
+    # Sort by month return
+    sorted_by_return = sorted(stocks, key=lambda s: s.month_return, reverse=True)
+    top = sorted_by_return[:5]
+    bottom = sorted_by_return[-5:][::-1] if len(sorted_by_return) > 5 else []
+    # Bottom should be sorted worst first
+    bottom = sorted(bottom, key=lambda s: s.month_return)
+
+    upcoming = sorted(
+        [s for s in stocks if s.next_earnings],
+        key=lambda s: s.next_earnings or "",
+    )
+
+    return HoldingsDetailData(
+        top_performers=top,
+        bottom_performers=bottom,
+        upcoming_earnings=upcoming,
+        all_stocks=sorted_by_return,
+    )
