@@ -49,8 +49,8 @@ def fetch_index_returns(tickers: list[str], period: str = "1mo") -> dict[str, An
                 if len(closes) < 2:
                     continue
 
-                previous = float(closes.iloc[0])
-                current = float(closes.iloc[-1])
+                previous = float(closes.iloc[0].item())
+                current = float(closes.iloc[-1].item())
                 return_pct = (current - previous) / previous * 100
 
                 result[ticker] = {
@@ -72,7 +72,7 @@ def fetch_cny_rate() -> float:
     data = yf.download("CNY=X", period="5d", progress=False)
     if data.empty:
         raise RuntimeError("Failed to fetch USD/CNY rate: no data returned")
-    rate = float(data["Close"].iloc[-1])
+    rate = float(data["Close"].iloc[-1].item())
     log.info("USD/CNY: %.4f", rate)
     return rate
 
