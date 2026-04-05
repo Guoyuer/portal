@@ -117,6 +117,14 @@ def main() -> None:
     else:
         report.chart_data = ChartData(net_worth_trend=trend, monthly_flows=[])
 
+    # ── Portfolio month return (for benchmark comparison) ────────────────
+    if len(nw_history) >= 2 and report.market:
+        prev_total = float(nw_history[-2]["total"])
+        curr_total = float(nw_history[-1]["total"])
+        if prev_total > 0:
+            report.market.portfolio_month_return = round((curr_total - prev_total) / prev_total * 100, 2)
+            print(f"  Portfolio MoM: {report.market.portfolio_month_return:+.2f}%", file=sys.stderr)
+
     # ── Metadata ─────────────────────────────────────────────────────────
     sync_meta_path = args.data_dir / "sync_meta.json"
     sync_meta = json.loads(sync_meta_path.read_text()) if sync_meta_path.exists() else {}
