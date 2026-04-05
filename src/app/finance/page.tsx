@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { SectionHeader, SectionBody } from "@/components/finance/shared";
-import { IncomeExpensesChart, NetWorthTrendChart } from "@/components/finance/charts";
+import { IncomeExpensesChart } from "@/components/finance/charts";
 import { MetricCards } from "@/components/finance/metric-cards";
 import { CategorySummary } from "@/components/finance/category-summary";
 import { CashFlow } from "@/components/finance/cash-flow";
@@ -81,15 +81,7 @@ export default function FinancePage() {
       {/* ── 1. Overview ─────────────────────────────────────────────────── */}
       <MetricCards report={r} />
 
-      {/* ── 2. Net Worth: Trend + Growth (together) ─────────────────────── */}
-      {r.chartData?.netWorthTrend && r.chartData.netWorthTrend.length > 0 && (
-        <section>
-          <SectionHeader>Net Worth Trend</SectionHeader>
-          <SectionBody>
-            <NetWorthTrendChart data={r.chartData.netWorthTrend} />
-          </SectionBody>
-        </section>
-      )}
+      {/* ── 2. Net Worth ────────────────────────────────────────────────── */}
       <NetWorthGrowth data={r.chartData?.netWorthTrend ?? []} />
 
       {/* ── 3. Allocation ───────────────────────────────────────────────── */}
