@@ -7,9 +7,12 @@ time-series data for net worth trends and monthly income/expense charts.
 from __future__ import annotations
 
 import csv
+import logging
 import re
 import sys
 from collections import defaultdict
+
+log = logging.getLogger(__name__)
 from datetime import datetime
 from pathlib import Path
 
@@ -39,7 +42,9 @@ def load_portfolio_totals(data_dir: Path) -> list[SnapshotPoint]:
         if total > 0:
             points.append(SnapshotPoint(date=date, total=total))
 
-    return sorted(points, key=lambda p: p.date)
+    points = sorted(points, key=lambda p: p.date)
+    log.info("Historical snapshots: %d CSVs parsed from %s", len(points), data_dir)
+    return points
 
 
 def _sum_csv_values(csv_path: Path) -> float:
@@ -105,6 +110,9 @@ def aggregate_monthly_flows(
         sr = ((income - expenses) / income * 100) if income > 0 else 0.0
         points.append(MonthlyFlowPoint(month=month, income=income, expenses=expenses, savings_rate=sr))
 
+    total_inc = sum(p.income for p in points)
+    total_exp = sum(p.expenses for p in points)
+    log.info("Monthly flows: %d months, total income $%,.0f, expenses $%,.0f", len(points), total_inc, total_exp)
     return points
 
 
@@ -139,4 +147,5 @@ def build_chart_data(
             trend.sort(key=lambda p: p.date)
 
     flows = aggregate_monthly_flows(cashflow, config) if cashflow else []
+    log.info("Chart data: %d trend points, %d monthly flows", len(trend), len(flows))
     return ChartData(net_worth_trend=trend, monthly_flows=flows)

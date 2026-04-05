@@ -6,9 +6,13 @@ All external calls are wrapped in try/except — this module never raises.
 
 from __future__ import annotations
 
+import logging
+import time
 from typing import Any
 
 import yfinance as yf
+
+log = logging.getLogger(__name__)
 
 from ..types import HoldingsDetailData, IndexReturn, MarketData, Portfolio, StockDetail
 
@@ -25,10 +29,12 @@ def fetch_index_returns(tickers: list[str], period: str = "1mo") -> dict[str, An
     if not tickers:
         return {}
 
+    t0 = time.time()
     try:
         data = yf.download(tickers, period=period, progress=False)
 
         if data.empty:
+            log.info("Index returns: no data for %s (%s)", tickers, period)
             return {}
 
         result: dict[str, Any] = {}
@@ -55,6 +61,7 @@ def fetch_index_returns(tickers: list[str], period: str = "1mo") -> dict[str, An
             except Exception:  # noqa: BLE001
                 continue
 
+        log.info("Index returns (%s, %s): %s in %.1fs", period, tickers, list(result.keys()), time.time() - t0)
         return result
     except Exception:  # noqa: BLE001
         return {}
@@ -65,7 +72,9 @@ def fetch_cny_rate() -> float:
     data = yf.download("CNY=X", period="5d", progress=False)
     if data.empty:
         raise RuntimeError("Failed to fetch USD/CNY rate: no data returned")
-    return float(data["Close"].iloc[-1])
+    rate = float(data["Close"].iloc[-1])
+    log.info("USD/CNY: %.4f", rate)
+    return rate
 
 
 def build_market_data(cny_rate: float) -> MarketData | None:
@@ -104,6 +113,8 @@ def build_holdings_detail(portfolio: Portfolio) -> HoldingsDetailData | None:
     if not tickers:
         return None
 
+    log.info("Fetching holdings for %d tickers...", len(tickers))
+
     # Batch download 1-month price history
     month_returns: dict[str, float] = {}
     try:
@@ -137,7 +148,8 @@ def build_holdings_detail(portfolio: Portfolio) -> HoldingsDetailData | None:
         )
 
         try:
-            info = yf.Ticker(ticker).info
+            ticker_obj = yf.Ticker(ticker)
+            info = ticker_obj.info
             if info:
                 high = info.get("fiftyTwoWeekHigh")
                 low = info.get("fiftyTwoWeekLow")
@@ -149,15 +161,16 @@ def build_holdings_detail(portfolio: Portfolio) -> HoldingsDetailData | None:
                 if high and price:
                     detail.vs_high = round((price / high - 1) * 100, 2)
                 # Earnings date
-                cal = yf.Ticker(ticker).calendar
+                cal = ticker_obj.calendar
                 if cal is not None and "Earnings Date" in cal:
                     dates = cal["Earnings Date"]
                     if dates:
                         d = dates[0]
-                        detail.next_earnings = d.strftime("%b %d (%a)")
+                        detail.next_earnings = d.strftime("%Y-%m-%d")
         except Exception:  # noqa: BLE001
             pass
 
+        log.debug("Ticker %s: month=%.1f%% pe=%s mcap=%s", ticker, month_ret, detail.pe_ratio, detail.market_cap)
         stocks.append(detail)
 
     # Sort by month return

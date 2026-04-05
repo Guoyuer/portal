@@ -7,8 +7,11 @@ Action strings are verbose and must be classified into canonical action_types.
 from __future__ import annotations
 
 import csv
+import logging
 import re
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Action classification
@@ -132,4 +135,9 @@ def _parse_csv_text(text: str) -> list[FidelityTransaction]:
 
 def load_transactions(csv_path: Path) -> list[FidelityTransaction]:
     """Load Fidelity Accounts History CSV from a file path."""
-    return _parse_csv_text(csv_path.read_text(encoding="utf-8-sig"))
+    txns = _parse_csv_text(csv_path.read_text(encoding="utf-8-sig"))
+    by_type: dict[str, int] = {}
+    for t in txns:
+        by_type[t["action_type"]] = by_type.get(t["action_type"], 0) + 1
+    log.info("Transactions: %d from %s (%s)", len(txns), csv_path.name, ", ".join(f"{t}={c}" for t, c in sorted(by_type.items())))
+    return txns

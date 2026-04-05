@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import csv
+import logging
 from collections import defaultdict
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 from .types import CURRENCY_RE, Config, Portfolio, PortfolioError
 
@@ -95,4 +98,6 @@ def load_portfolio(csv_path: Path, config: Config) -> Portfolio:
             totals, counts, cost_basis, gain_loss, gain_loss_pct = _parse_rows(reader, config)
     except FileNotFoundError as e:
         raise PortfolioError(f"CSV not found: {csv_path}") from e
-    return _apply_manual(totals, counts, cost_basis, gain_loss, gain_loss_pct, config)
+    p = _apply_manual(totals, counts, cost_basis, gain_loss, gain_loss_pct, config)
+    log.info("Portfolio: %d tickers, %d lots, total $%,.2f (manual: %d)", len(p["totals"]), sum(p["counts"].values()), p["total"], len(config["manual"]))
+    return p

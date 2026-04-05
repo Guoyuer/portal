@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 from .types import (
 
@@ -86,7 +89,7 @@ def load_config(path: Path) -> Config:
     if errors := validate_config(data):
         raise ConfigError("Config errors:\n  - " + "\n  - ".join(errors))
 
-    return Config(
+    cfg = Config(
         assets=data["assets"].copy(),
         weights=data["target_weights"],
         order=data.get("category_order", list(data["target_weights"].keys())),
@@ -95,6 +98,8 @@ def load_config(path: Path) -> Config:
         goal=data.get("goal", 0),
         qianji_accounts=data.get("qianji_accounts", {}),
     )
+    log.info("Config: %d assets, %d categories, goal $%,.0f", len(data["assets"]), len(data["target_weights"]), data.get("goal", 0))
+    return cfg
 
 
 # ── Qianji account classification ───────────────────────────────────────────
@@ -140,4 +145,5 @@ def manual_values_from_snapshot(
     if cny_total > 0:
         result["CNY Assets"] = cny_total / cny_rate
 
+    log.info("Manual values: %s", {k: f"${v:,.2f}" for k, v in result.items()})
     return result

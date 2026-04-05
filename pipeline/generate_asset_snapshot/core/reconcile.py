@@ -6,9 +6,12 @@ Portfolio reconciliation: break down value changes by tier (fidelity/linked/manu
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 from ..types import ACT_BUY, ACT_DEPOSIT, ACT_DIVIDEND, ACT_REINVESTMENT, ACT_SELL, Config, FidelityTransaction
 
@@ -138,6 +141,7 @@ def cross_reconcile(
 
     unmatched_amount = sum(t["amount"] for t in unmatched_qj) + sum(d["amount"] for d in unmatched_fd)
 
+    log.info("Cross-reconcile: %d Qianji ($%,.0f) vs %d Fidelity ($%,.0f) → %d matched, $%,.0f unmatched", len(qianji_transfers), qianji_total, len(fidelity_deposits), fidelity_total, len(matched), unmatched_amount)
     return CrossReconciliationData(
         matched=matched,
         unmatched_qianji=unmatched_qj,
@@ -246,6 +250,7 @@ def portfolio_reconcile(
     total_end = fid_end + linked_end + manual_end
     total_change = total_end - total_start
 
+    log.info("Portfolio reconcile: fidelity Δ$%,.0f (market=$%,.0f deposits=$%,.0f), linked Δ$%,.0f, manual Δ$%,.0f, total Δ$%,.0f", fid_change, market_movement, deposits, linked_change, manual_change, total_change)
     return ReconciliationData(
         prev_date="",  # caller fills in actual dates
         curr_date="",

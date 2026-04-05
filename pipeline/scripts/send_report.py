@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 import time
 from datetime import datetime
@@ -175,6 +176,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Generate report JSON")
     parser.add_argument("--data-dir", type=Path, required=True, help="Directory with positions.csv, history.csv, etc.")
     args = parser.parse_args()
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="  %(name)s: %(message)s",
+        stream=sys.stderr,
+    )
 
     t_start = time.time()
     print("=" * 60, file=sys.stderr)

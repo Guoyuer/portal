@@ -6,8 +6,11 @@ Zero manual field mapping. TypeScript types mirror this output exactly.
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import asdict
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 from ..types import ReportData
 
@@ -40,4 +43,6 @@ def render(report: ReportData, *, metadata: dict[str, str] | None = None) -> str
             data["activity"].pop(key, None)
     if metadata:
         data["metadata"] = metadata
-    return json.dumps(_camel_keys(data), indent=2, default=str)
+    result = json.dumps(_camel_keys(data), indent=2, default=str)
+    log.info("JSON rendered: %d chars, %d sections populated", len(result), sum(1 for k, v in data.items() if v is not None))
+    return result
