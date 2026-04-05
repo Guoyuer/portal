@@ -8,7 +8,7 @@ export function BackToTop() {
 
   useEffect(() => {
     const onScroll = () => setShow(window.scrollY > SCROLL_SHOW_THRESHOLD);
-    window.addEventListener("scroll", onScroll);
+    window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ECON_URL } from "@/lib/config";
 import { EconDataSchema, type EconData, type EconPoint } from "@/lib/econ-schema";
 import { Button } from "@/components/ui/button";
@@ -97,7 +97,7 @@ export default function EconPage() {
     );
   }
 
-  const filtered = filterSeries(data.series, RANGE_MONTHS[range]);
+  const filtered = useMemo(() => filterSeries(data.series, RANGE_MONTHS[range]), [data.series, range]);
 
   return (
     <div className="max-w-5xl mx-auto space-y-10">
