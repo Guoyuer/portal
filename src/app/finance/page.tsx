@@ -95,7 +95,7 @@ export default function FinancePage() {
   }, [r]);
 
   const NAV_IDS = useMemo(() => ["net-worth", "allocation", "cashflow", "portfolio-activity", "balance-sheet", "holdings", "market"], []);
-  const { active, scrollTo } = useActiveSection(NAV_IDS);
+  const { active, scrollTo } = useActiveSection(NAV_IDS, !!r);
 
   if (loading) {
     return (
@@ -117,14 +117,9 @@ export default function FinancePage() {
   return (
     <div className="max-w-5xl mx-auto space-y-10">
       {/* Header */}
-      <div className="flex items-start sm:items-center justify-between gap-2">
-        <h1 className="text-xl sm:text-2xl font-bold tracking-tight">
-          Portfolio Snapshot &mdash; {r.date}
-        </h1>
-        <Button onClick={fetchReport} variant="outline" size="sm" disabled={loading} className="flex-shrink-0">
-          {loading ? "Loading..." : "Reload"}
-        </Button>
-      </div>
+      <h1 className="text-xl sm:text-2xl font-bold tracking-tight">
+        Portfolio Snapshot &mdash; {r.date}
+      </h1>
 
       {/* Data timestamps */}
       {r.metadata && (

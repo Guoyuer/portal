@@ -137,16 +137,17 @@ export function IncomeExpensesChart({
         <Legend />
         <Bar yAxisId="dollar" dataKey="income" name="Income" fill={isDark ? "#4ade80" : "#27ae60"} opacity={0.85} radius={[2, 2, 0, 0]} />
         <Bar yAxisId="dollar" dataKey="expenses" name="Expenses" fill={isDark ? "#f87171" : "#e94560"} opacity={0.85} radius={[2, 2, 0, 0]} />
-        <Line
-          yAxisId={isMobile ? "dollar" : "pct"}
-          dataKey="savingsRate"
-          name="Savings %"
-          stroke="#2563eb"
-          strokeWidth={2}
-          strokeDasharray="4 3"
-          dot={false}
-          hide={isMobile}
-        />
+        {!isMobile && (
+          <Line
+            yAxisId="pct"
+            dataKey="savingsRate"
+            name="Savings %"
+            stroke="#2563eb"
+            strokeWidth={2}
+            strokeDasharray="4 3"
+            dot={false}
+          />
+        )}
       </ComposedChart>
     </ResponsiveContainer>
   );

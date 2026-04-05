@@ -15,11 +15,13 @@ export function useIsDark() {
 }
 
 /** Track which section ID is currently in the viewport. */
-export function useActiveSection(ids: string[]) {
+export function useActiveSection(ids: string[], ready = true) {
   const [active, setActive] = useState("");
   const manualRef = useRef(false);
 
   useEffect(() => {
+    if (!ready) return;
+
     const observer = new IntersectionObserver(
       (entries) => {
         if (manualRef.current) return;
@@ -30,7 +32,7 @@ export function useActiveSection(ids: string[]) {
           }
         }
       },
-      { rootMargin: "-80px 0px -60% 0px" },
+      { rootMargin: "0px 0px -50% 0px", threshold: 0 },
     );
 
     for (const id of ids) {
@@ -38,7 +40,7 @@ export function useActiveSection(ids: string[]) {
       if (el) observer.observe(el);
     }
     return () => observer.disconnect();
-  }, [ids]);
+  }, [ids, ready]);
 
   const scrollTo = (id: string) => {
     manualRef.current = true;

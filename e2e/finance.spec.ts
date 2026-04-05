@@ -242,18 +242,6 @@ test.describe("Finance Report", () => {
     await expect(html).not.toHaveClass(/dark/);
   });
 
-  // ── Reload Button ──────────────────────────────────────────────────────
-
-  test("reload button fetches fresh data", async ({ page }) => {
-    const reload = page.getByRole("button", { name: "Reload" });
-    await expect(reload).toBeVisible();
-    // Click reload — page should still show data after
-    await reload.click();
-    // Wait for data to reload
-    await page.getByText("Portfolio Snapshot").waitFor({ timeout: 5000 });
-    await expect(page.locator("h1")).toContainText("Portfolio Snapshot");
-  });
-
   // ── Savings Rate Card ──────────────────────────────────────────────────
 
   test("savings rate card shows gross and take-home", async ({ page }) => {
