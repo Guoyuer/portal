@@ -131,7 +131,7 @@ export default function Sidebar() {
       {/* Desktop sidebar */}
       <aside className="hidden md:flex md:w-56 md:flex-col md:fixed md:inset-y-0 md:z-40 liquid-glass-sidebar">
         <div className="flex h-14 items-center px-6">
-          <span className="text-lg font-semibold text-white tracking-tight">
+          <span className="text-lg font-semibold text-foreground tracking-tight">
             Portal
           </span>
         </div>
@@ -188,7 +188,7 @@ export default function Sidebar() {
         }`}
       >
         <div className="flex h-14 items-center pl-14 pr-6">
-          <span className="text-lg font-semibold text-white tracking-tight">
+          <span className="text-lg font-semibold text-foreground tracking-tight">
             Portal
           </span>
         </div>

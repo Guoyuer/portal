@@ -50,8 +50,8 @@ export function TimeSeriesChart({ title, lines, data, height = 280 }: TimeSeries
       <ResponsiveContainer width="100%" height={height}>
         <LineChart data={merged} margin={{ top: 5, right: 20, left: 10, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke={gridStroke(isDark)} />
-          <XAxis dataKey="date" tickFormatter={fmtMonthYear} fontSize={11} tick={{ fill: "#9ca3af" }} interval="preserveStartEnd" />
-          <YAxis fontSize={11} tick={{ fill: "#9ca3af" }} width={50} tickFormatter={lines[0]?.formatter ?? String} />
+          <XAxis dataKey="date" tickFormatter={fmtMonthYear} fontSize={11} tick={{ fill: "#9ca3af" }} axisLine={{ stroke: gridStroke(isDark) }} tickLine={false} interval="preserveStartEnd" />
+          <YAxis fontSize={11} tick={{ fill: "#9ca3af" }} width={50} tickFormatter={lines[0]?.formatter ?? String} axisLine={false} tickLine={false} />
           <Tooltip
             contentStyle={tooltipStyle(isDark)}
             labelFormatter={(label) => fmtMonthYear(String(label))}
