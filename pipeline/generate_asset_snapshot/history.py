@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import csv
 import re
+import sys
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -63,7 +64,11 @@ def _sum_csv_values(csv_path: Path) -> float:
                 if val and val != "--":
                     total += float(CURRENCY_RE.sub("", val))
             return total
-    except (OSError, ValueError):
+    except OSError as e:
+        print(f"  [warn] Cannot read {csv_path.name}: {e}", file=sys.stderr)
+        return 0.0
+    except ValueError as e:
+        print(f"  [ERROR] Bad value in {csv_path.name}: {e} — skipping file", file=sys.stderr)
         return 0.0
 
 

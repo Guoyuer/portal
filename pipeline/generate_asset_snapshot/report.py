@@ -476,14 +476,20 @@ def _build_cross_reconciliation(
     # Single pass: collect deposits and all dates
     fidelity_deposits: list[dict[str, Any]] = []
     all_dates: list[str] = []
+    skipped = 0
     for txn in transactions:
         try:
             date_str = datetime.strptime(txn["date"], "%m/%d/%Y").strftime("%Y-%m-%d")
         except ValueError:
+            skipped += 1
             continue
         all_dates.append(date_str)
         if txn["action_type"] == ACT_DEPOSIT:
             fidelity_deposits.append({"date": date_str, "amount": txn["amount"], "description": txn["description"]})
+    if skipped:
+        import sys
+
+        print(f"  [warn] Skipped {skipped} transactions with unparseable dates", file=sys.stderr)
     fi_min = min(all_dates) if all_dates else ""
     fi_max = max(all_dates) if all_dates else ""
 

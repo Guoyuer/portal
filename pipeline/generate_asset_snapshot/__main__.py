@@ -85,17 +85,17 @@ def main() -> None:
 
     transactions = load_transactions(history_path)
 
-    # Fetch market data (optional — API failure doesn't block report)
+    # CNY rate: must succeed — affects asset calculations
+    from .market.yahoo import build_market_data, fetch_cny_rate
+
+    cny_rate = balance_snapshot["cny_rate"] if balance_snapshot else fetch_cny_rate()
+
+    # Market data: optional — API failure doesn't block report
     market_data = None
     try:
-        from .market.yahoo import build_market_data
-
-        from .market.yahoo import fetch_cny_rate
-
-        cny_rate = balance_snapshot["cny_rate"] if balance_snapshot else fetch_cny_rate()
         market_data = build_market_data(cny_rate)
-    except Exception:  # noqa: BLE001
-        pass  # yfinance not installed or API down
+    except Exception as e:  # noqa: BLE001
+        print(f"[warn] Market data fetch failed: {e}", file=sys.stderr)
 
     from .history import build_chart_data
     from .types import ReportSources
