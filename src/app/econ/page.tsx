@@ -119,14 +119,14 @@ export default function EconPage() {
       <MacroCards snapshot={data.snapshot} />
 
       {/* Range toggle — controls chart time range below */}
-      <div className="flex gap-1 bg-muted rounded-full p-1 w-fit">
+      <div className="flex gap-1 liquid-glass-pill rounded-full p-1 w-fit">
         {RANGES.map((r) => (
           <button
             key={r}
             onClick={() => setRange(r)}
             className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
               range === r
-                ? "bg-background text-foreground shadow-sm"
+                ? "bg-white/40 dark:bg-white/12 text-foreground shadow-sm backdrop-blur-sm border-0.5 border-white/30"
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >

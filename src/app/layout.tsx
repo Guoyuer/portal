@@ -29,10 +29,16 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full bg-white dark:bg-slate-950 tabular-nums">
-        <Sidebar />
-        <div className="md:pl-56">
-          <main className="min-h-screen p-6 pt-14 md:pt-6">{children}</main>
+      <body className="min-h-full tabular-nums">
+        {/* Animated mesh gradient — gives liquid glass something to refract */}
+        <div className="lg-mesh" />
+        <div className="lg-blob-c" />
+        <div className="lg-blob-d" />
+        <div className="relative z-10">
+          <Sidebar />
+          <div className="md:pl-56">
+            <main className="min-h-screen p-6 pt-14 md:pt-6">{children}</main>
+          </div>
         </div>
       </body>
     </html>

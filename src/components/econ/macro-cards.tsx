@@ -1,5 +1,4 @@
 import type { EconSnapshot } from "@/lib/econ-schema";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 const INDICATORS: { key: keyof EconSnapshot; label: string; format: (v: number) => string }[] = [
   { key: "fedFundsRate", label: "Fed Rate", format: (v) => `${v.toFixed(2)}%` },
@@ -19,14 +18,10 @@ export function MacroCards({ snapshot }: { snapshot: EconSnapshot }) {
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
       {visible.map((ind) => (
-        <Card key={ind.key}>
-          <CardHeader className="pb-1">
-            <CardTitle className="text-xs text-muted-foreground">{ind.label}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-lg font-bold">{ind.format(snapshot[ind.key]!)}</p>
-          </CardContent>
-        </Card>
+        <div key={ind.key} className="liquid-glass-thin px-4 pt-3 pb-3">
+          <p className="text-xs text-muted-foreground">{ind.label}</p>
+          <p className="text-lg font-bold mt-0.5">{ind.format(snapshot[ind.key]!)}</p>
+        </div>
       ))}
     </div>
   );
