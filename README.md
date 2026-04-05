@@ -247,6 +247,7 @@ pipeline/...                     ← data generation (if needed)
 - [ ] Gmail module — important email auto-triage
 - [ ] News aggregation — RSS feeds
 - [ ] Economic indicators dashboard — FRED time series charts
+- [ ] FRED API integration — populate macro indicators (Fed Rate, 10Y Treasury, CPI, VIX, etc.) in Market Context section
 
 ## License
 

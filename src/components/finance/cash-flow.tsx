@@ -151,7 +151,7 @@ export function CashFlow({ data }: { data: CashFlowData }) {
                 </TableCell>
               </TableRow>
               <TableRow className="even:bg-muted/50">
-                <TableCell className="font-medium">CC Payments</TableCell>
+                <TableCell className="font-medium">CC Bill Payments</TableCell>
                 <TableCell className="text-right">
                   {fmtCurrency(data.creditCardPayments)}
                 </TableCell>

@@ -33,6 +33,11 @@ export function GainLoss({ report: r }: { report: ReportData }) {
   const totalCost = sorted.reduce((s, h) => s + h.costBasis, 0);
   const totalGain = sorted.reduce((s, h) => s + h.gainLoss, 0);
 
+  const TOP_N = 10;
+  const showCollapse = sorted.length > TOP_N;
+  const top = showCollapse ? sorted.slice(0, TOP_N) : sorted;
+  const rest = showCollapse ? sorted.slice(TOP_N) : [];
+
   return (
     <section>
       <SectionHeader>Unrealized Gain/Loss</SectionHeader>
@@ -49,7 +54,7 @@ export function GainLoss({ report: r }: { report: ReportData }) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {sorted.map((h) => (
+              {top.map((h) => (
                 <TableRow key={h.ticker} className="even:bg-muted/50">
                   <TableCell className="font-mono">{h.ticker}</TableCell>
                   <TableCell className="text-right">{fmtCurrency(h.value)}</TableCell>
@@ -62,6 +67,34 @@ export function GainLoss({ report: r }: { report: ReportData }) {
                   </TableCell>
                 </TableRow>
               ))}
+              {rest.length > 0 && (
+                <TableRow>
+                  <TableCell colSpan={5} className="p-0">
+                    <details className="group">
+                      <summary className="px-2 py-1.5 text-sm text-muted-foreground cursor-pointer hover:text-foreground">
+                        ... and {rest.length} more
+                      </summary>
+                      <table className="w-full text-sm">
+                        <tbody>
+                          {rest.map((h) => (
+                            <tr key={h.ticker} className="border-b border-border even:bg-muted/50">
+                              <td className="px-2 py-1.5 font-mono">{h.ticker}</td>
+                              <td className="px-2 py-1.5 text-right">{fmtCurrency(h.value)}</td>
+                              <td className="px-2 py-1.5 text-right hidden sm:table-cell">{fmtCurrency(h.costBasis)}</td>
+                              <td className={`px-2 py-1.5 text-right ${h.gainLoss >= 0 ? "text-green-600" : "text-red-500"}`}>
+                                {fmtCurrency(h.gainLoss)}
+                              </td>
+                              <td className={`px-2 py-1.5 text-right ${h.gainLossPct >= 0 ? "text-green-600" : "text-red-500"}`}>
+                                {fmtPct(h.gainLossPct)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </details>
+                  </TableCell>
+                </TableRow>
+              )}
               <TableRow className="font-bold border-t-2 border-b-2 border-foreground/20">
                 <TableCell>Total</TableCell>
                 <TableCell className="text-right">{fmtCurrency(sorted.reduce((s, h) => s + h.value, 0))}</TableCell>

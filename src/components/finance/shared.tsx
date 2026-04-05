@@ -8,7 +8,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-export const ACTIVITY_TOP_SYMBOLS = 5;
+export const ACTIVITY_TOP_SYMBOLS = 8;
 
 export function SectionHeader({ children }: { children: React.ReactNode }) {
   return (

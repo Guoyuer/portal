@@ -52,13 +52,13 @@ export function AnnualSummary({ data }: { data: AnnualSummaryData }) {
             </div>
             <div className="flex justify-between py-2 border-b border-border">
               <span className="text-muted-foreground">Net Saved</span>
-              <span className="font-medium text-green-600">
+              <span className={`font-medium ${data.totalIncome - data.totalExpenses >= 0 ? "text-green-600" : "text-red-500"}`}>
                 {fmtCurrency(data.totalIncome - data.totalExpenses)}
               </span>
             </div>
             <div className="flex justify-between py-2">
               <span className="text-muted-foreground">Annual Savings Rate</span>
-              <span className="font-medium text-green-600">
+              <span className={`font-medium ${data.totalIncome > data.totalExpenses ? "text-green-600" : "text-red-500"}`}>
                 {data.totalIncome > 0
                   ? `${((data.totalIncome - data.totalExpenses) / data.totalIncome * 100).toFixed(1)}%`
                   : "\u2014"}

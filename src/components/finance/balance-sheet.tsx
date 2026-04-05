@@ -33,20 +33,33 @@ export function BalanceSheet({ data }: { data: BalanceSheetData }) {
                     {fmtCurrency(data.investmentTotal)}
                   </TableCell>
                 </TableRow>
-                {data.accounts.map((a) => (
-                  <TableRow key={a.name} className="even:bg-muted/50">
-                    <TableCell
-                      className={a.currency === "CNY" ? "pl-6 text-muted-foreground" : ""}
-                    >
-                      {a.name}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {a.currency === "CNY"
-                        ? fmtYuan(a.balance)
-                        : fmtCurrency(a.balance)}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {(() => {
+                  const usdAccounts = data.accounts.filter((a) => a.currency !== "CNY");
+                  const cnyAccounts = data.accounts.filter((a) => a.currency === "CNY");
+                  return (
+                    <>
+                      {usdAccounts.map((a) => (
+                        <TableRow key={a.name} className="even:bg-muted/50">
+                          <TableCell>{a.name}</TableCell>
+                          <TableCell className="text-right">{fmtCurrency(a.balance)}</TableCell>
+                        </TableRow>
+                      ))}
+                      {cnyAccounts.length > 0 && (
+                        <>
+                          <TableRow className="bg-muted">
+                            <TableCell colSpan={2} className="text-xs font-semibold text-muted-foreground">CNY Accounts</TableCell>
+                          </TableRow>
+                          {cnyAccounts.map((a) => (
+                            <TableRow key={a.name} className="even:bg-muted/50">
+                              <TableCell className="pl-6 text-muted-foreground">{a.name}</TableCell>
+                              <TableCell className="text-right text-muted-foreground">{fmtYuan(a.balance)}</TableCell>
+                            </TableRow>
+                          ))}
+                        </>
+                      )}
+                    </>
+                  );
+                })()}
                 <TableRow className="font-bold border-t-2 border-b-2 border-foreground/20">
                   <TableCell>Total Assets</TableCell>
                   <TableCell className="text-right">

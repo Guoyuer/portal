@@ -75,7 +75,7 @@ export default function FinancePage() {
       {/* Data timestamps */}
       {r.metadata && (
         <p className="text-xs text-muted-foreground -mt-4">
-          Positions: {r.metadata.positionsDate || "?"} · History: {r.metadata.historyDate || "?"} · Qianji: {r.metadata.qianjiDate || "?"}
+          Positions: {r.metadata.positionsDate || "?"} · History: {r.metadata.historyDate || "?"} · Expense Tracker: {r.metadata.qianjiDate || "?"}
         </p>
       )}
 
@@ -85,9 +85,13 @@ export default function FinancePage() {
           ["net-worth", "Net Worth"],
           ["allocation", "Allocation"],
           ["cashflow", "Cash Flow"],
+          ["income-expenses", "Income/Expenses"],
+          ["annual", "Annual"],
           ["activity", "Activity"],
           ["balance-sheet", "Balance Sheet"],
+          ["reconciliation", "Reconciliation"],
           ["holdings", "Holdings"],
+          ["gain-loss", "Gain/Loss"],
           ["market", "Market"],
         ].map(([id, label]) => (
           <a

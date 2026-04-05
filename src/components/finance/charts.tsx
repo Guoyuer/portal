@@ -150,7 +150,8 @@ export function IncomeExpensesChart({
           tickFormatter={fmtCurrencyShort}
           fontSize={11}
           tick={{ fill: "#9ca3af" }}
-          width={isMobile ? 38 : 50}
+          width={isMobile ? 38 : 55}
+          label={isMobile ? undefined : { value: "USD", angle: -90, position: "insideLeft", offset: -5, style: { fill: "#9ca3af", fontSize: 11 } }}
         />
         {!isMobile && (
           <YAxis
