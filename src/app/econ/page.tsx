@@ -115,7 +115,10 @@ export default function EconPage() {
         {new Date(data.generatedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
       </p>
 
-      {/* Range toggle */}
+      {/* Macro snapshot cards */}
+      <MacroCards snapshot={data.snapshot} />
+
+      {/* Range toggle — controls chart time range below */}
       <div className="flex gap-1 bg-muted rounded-full p-1 w-fit">
         {RANGES.map((r) => (
           <button
@@ -131,9 +134,6 @@ export default function EconPage() {
           </button>
         ))}
       </div>
-
-      {/* Macro snapshot cards */}
-      <MacroCards snapshot={data.snapshot} />
 
       {/* ── Interest Rates ──────────────────────────────────────────────── */}
       <section>
