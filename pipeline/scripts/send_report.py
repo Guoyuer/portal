@@ -12,11 +12,16 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
 # Add project root to path so we can import generate_asset_snapshot
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+
+def _log(msg: str) -> None:
+    print(f"  {msg}", file=sys.stderr)
 
 
 def _build_report(data_dir: Path):  # noqa: ANN202
@@ -29,15 +34,21 @@ def _build_report(data_dir: Path):  # noqa: ANN202
     from generate_asset_snapshot.report import build_report
     from generate_asset_snapshot.types import ReportSources
 
+    # ── Config ───────────────────────────────────────────────────────────
     config_path = data_dir / "config.json"
     if not config_path.exists():
         config_path = Path(__file__).resolve().parent.parent / "config.json"
     config = load_config(config_path)
+    _log(f"Config: {config_path} ({len(config['assets'])} assets, goal=${config['goal']:,.0f})")
 
+    # ── Positions ────────────────────────────────────────────────────────
     positions_csv = data_dir / "positions.csv"
     if not positions_csv.exists():
         raise SystemExit("No positions.csv found in data dir")
+    portfolio = load_portfolio(positions_csv, config)
+    _log(f"Portfolio: ${portfolio['total']:,.2f} ({len(portfolio['totals'])} tickers, {sum(portfolio['counts'].values())} lots)")
 
+    # ── Qianji ───────────────────────────────────────────────────────────
     cashflow = None
     balance_snapshot = None
     db_path = data_dir / "qianjiapp.db"
@@ -45,18 +56,28 @@ def _build_report(data_dir: Path):  # noqa: ANN202
         cashflow, balance_snapshot = load_all_from_db(db_path)
         if cashflow and balance_snapshot:
             config["manual"] = manual_values_from_snapshot(balance_snapshot, config)
-            print(f"  Qianji: {len(cashflow)} records", file=sys.stderr)
+            n_accounts = len(balance_snapshot.get("balances", {}))
+            _log(f"Qianji: {len(cashflow)} records, {n_accounts} accounts, snapshot date={balance_snapshot.get('date', '?')}")
+        else:
+            _log("Qianji: DB exists but no data loaded")
+    else:
+        _log("Qianji: no DB found")
 
-    portfolio = load_portfolio(positions_csv, config)
-
+    # ── Transactions ─────────────────────────────────────────────────────
     transactions = None
     history_csv = data_dir / "history.csv"
     if history_csv.exists():
         transactions = load_transactions(history_csv)
+        _log(f"Transactions: {len(transactions)} records")
+    else:
+        _log("Transactions: no history.csv found")
 
+    # ── Chart data ───────────────────────────────────────────────────────
     chart_data = build_chart_data(data_dir, cashflow=cashflow, config=config, portfolio_total=portfolio["total"])
+    flows_count = len(chart_data.monthly_flows) if chart_data else 0
+    _log(f"Chart data: {flows_count} monthly flow points")
 
-    # Load previous report for portfolio reconciliation
+    # ── Previous report (for reconciliation) ─────────────────────────────
     prev_totals: dict[str, float] | None = None
     prev_date = ""
     prev_report_path = data_dir / "previous_report.json"
@@ -71,28 +92,52 @@ def _build_report(data_dir: Path):  # noqa: ANN202
                 for h in cat.get("holdings", []):
                     prev_totals[h["ticker"]] = h["value"]
             prev_date = prev.get("date", "")
-            print(f"  Previous snapshot: {len(prev_totals)} tickers ({prev_date})", file=sys.stderr)
-        except Exception:  # noqa: BLE001
+            prev_total = sum(prev_totals.values())
+            _log(f"Previous snapshot: {len(prev_totals)} tickers, ${prev_total:,.0f} ({prev_date})")
+        except Exception as e:  # noqa: BLE001
+            _log(f"[warn] Failed to load previous report: {e}")
             prev_totals = None
+    else:
+        _log("Previous report: not found (first run — no reconciliation)")
 
-    # CNY rate: must succeed — affects asset calculations
+    # ── CNY rate (must succeed — affects asset calculations) ─────────────
     from generate_asset_snapshot.market.yahoo import build_holdings_detail, build_market_data, fetch_cny_rate
 
-    cny_rate = balance_snapshot["cny_rate"] if balance_snapshot else fetch_cny_rate()
-    print(f"  CNY rate: {cny_rate}", file=sys.stderr)
+    if balance_snapshot:
+        cny_rate = balance_snapshot["cny_rate"]
+        _log(f"CNY rate: {cny_rate:.4f} (from Qianji snapshot)")
+    else:
+        cny_rate = fetch_cny_rate()
+        _log(f"CNY rate: {cny_rate:.4f} (from Yahoo Finance)")
 
-    # Market data & holdings: optional — API failure doesn't block report
+    # ── Market data (optional) ───────────────────────────────────────────
     market_data = None
     holdings_detail = None
     try:
+        t0 = time.time()
         market_data = build_market_data(cny_rate)
+        if market_data:
+            idx_names = [i.ticker for i in market_data.indices]
+            _log(f"Market data: indices={idx_names} ({time.time() - t0:.1f}s)")
+        else:
+            _log(f"Market data: no index data returned ({time.time() - t0:.1f}s)")
+    except Exception as e:  # noqa: BLE001
+        _log(f"[warn] Market data fetch failed: {e}")
+
+    try:
+        t0 = time.time()
         holdings_detail = build_holdings_detail(portfolio)
         if holdings_detail:
-            print(f"  Holdings: {len(holdings_detail.all_stocks)} stocks", file=sys.stderr)
+            top = [s.ticker for s in holdings_detail.top_performers[:3]]
+            bottom = [s.ticker for s in holdings_detail.bottom_performers[:3]]
+            _log(f"Holdings: {len(holdings_detail.all_stocks)} stocks, top={top}, bottom={bottom} ({time.time() - t0:.1f}s)")
+        else:
+            _log(f"Holdings: no data returned ({time.time() - t0:.1f}s)")
     except Exception as e:  # noqa: BLE001
-        print(f"  [warn] Market/holdings fetch failed: {e}", file=sys.stderr)
+        _log(f"[warn] Holdings detail fetch failed: {e}")
 
-    return build_report(
+    # ── Build report ─────────────────────────────────────────────────────
+    report = build_report(
         portfolio,
         config,
         positions_csv.name,
@@ -105,17 +150,42 @@ def _build_report(data_dir: Path):  # noqa: ANN202
         prev_date=prev_date,
     )
 
+    # Log what sections are populated
+    sections = []
+    if report.activity:
+        sections.append(f"activity({report.activity.period_start}..{report.activity.period_end})")
+    if report.cashflow:
+        sections.append(f"cashflow({report.cashflow.period})")
+    if report.balance_sheet:
+        sections.append(f"balance(nw=${report.balance_sheet.net_worth:,.0f})")
+    if report.reconciliation:
+        sections.append(f"reconciliation(Δ${report.reconciliation.total_change:,.0f})")
+    if report.annual_summary:
+        sections.append(f"annual({report.annual_summary.year})")
+    if report.market:
+        sections.append("market")
+    if report.holdings_detail:
+        sections.append("holdings")
+    _log(f"Report sections: {', '.join(sections) or 'core only'}")
+
+    return report
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate report JSON")
     parser.add_argument("--data-dir", type=Path, required=True, help="Directory with positions.csv, history.csv, etc.")
     args = parser.parse_args()
 
-    print("Generating report...", file=sys.stderr)
+    t_start = time.time()
+    print("=" * 60, file=sys.stderr)
+    print(f"Report generation started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", file=sys.stderr)
+    print(f"Data dir: {args.data_dir.resolve()}", file=sys.stderr)
+    print("=" * 60, file=sys.stderr)
+
     report = _build_report(args.data_dir)
 
     # ── Net worth history: load, append, inject into report ──────────────
-    
+
     from generate_asset_snapshot.types import ChartData, SnapshotPoint
 
     history_path = args.data_dir / "net_worth_history.json"
@@ -128,13 +198,12 @@ def main() -> None:
     if today not in existing_dates:
         nw_history.append({"date": today, "total": round(current_nw)})
         nw_history.sort(key=lambda x: str(x["date"]))
-        print(f"  Net worth history: appended {today} = ${current_nw:,.0f}", file=sys.stderr)
+        _log(f"Net worth history: appended {today} = ${current_nw:,.0f} ({len(nw_history)} total points)")
     else:
-        # Update current month's value
         for entry in nw_history:
             if entry["date"] == today:
                 entry["total"] = round(current_nw)
-        print(f"  Net worth history: updated {today} = ${current_nw:,.0f}", file=sys.stderr)
+        _log(f"Net worth history: updated {today} = ${current_nw:,.0f} ({len(nw_history)} total points)")
 
     # Write updated history back (workflow uploads to R2)
     history_path.write_text(json.dumps(nw_history, indent=2))
@@ -152,7 +221,7 @@ def main() -> None:
         curr_total = float(nw_history[-1]["total"])
         if prev_total > 0:
             report.market.portfolio_month_return = round((curr_total - prev_total) / prev_total * 100, 2)
-            print(f"  Portfolio MoM: {report.market.portfolio_month_return:+.2f}%", file=sys.stderr)
+            _log(f"Portfolio MoM: {report.market.portfolio_month_return:+.2f}% (${prev_total:,.0f} → ${curr_total:,.0f})")
 
     # ── Metadata ─────────────────────────────────────────────────────────
     sync_meta_path = args.data_dir / "sync_meta.json"
@@ -164,14 +233,18 @@ def main() -> None:
         "history_date": sync_meta.get("history_date", ""),
         "qianji_date": sync_meta.get("qianji_date", ""),
     }
+    _log(f"Metadata: positions={metadata['positions_date'] or '?'}, history={metadata['history_date'] or '?'}, qianji={metadata['qianji_date'] or '?'}")
 
     from generate_asset_snapshot.renderers import json_renderer
 
     json_output = json_renderer.render(report, metadata=metadata)
     json_path = args.data_dir / "report.json"
     json_path.write_text(json_output)
-    print(f"  JSON: {len(json_output)} chars -> {json_path}", file=sys.stderr)
-    print("Done.", file=sys.stderr)
+
+    elapsed = time.time() - t_start
+    print("=" * 60, file=sys.stderr)
+    print(f"Done in {elapsed:.1f}s — {len(json_output):,} chars → {json_path}", file=sys.stderr)
+    print("=" * 60, file=sys.stderr)
 
 
 if __name__ == "__main__":
