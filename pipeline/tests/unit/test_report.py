@@ -112,6 +112,37 @@ class TestBuildActivity:
         assert buys["VOO"] == pytest.approx(1500)
         assert buys["QQQM"] == pytest.approx(2000)
 
+    def test_dividends_by_symbol(self, report_config):
+        portfolio = make_portfolio({"VOO": 50_000, "SGOV": 10_000})
+        txns = [
+            _txn("03/10/2026", ACT_DIVIDEND, 50, "VOO"),
+            _txn("03/15/2026", ACT_DIVIDEND, 30, "VOO"),
+            _txn("03/20/2026", ACT_DIVIDEND, 10, "SGOV"),
+        ]
+        report = build_report(portfolio, report_config, "test_Mar-01-2026.csv", transactions=txns, report_month="2026-03")
+        a = report.activity
+        assert a is not None
+        divs = {s[0]: (s[1], s[2]) for s in a.dividends_by_symbol}
+        assert divs["VOO"] == (2, pytest.approx(80))
+        assert divs["SGOV"] == (1, pytest.approx(10))
+
+    def test_activity_json_has_no_raw_lists(self, report_config):
+        """After render, activity should NOT contain raw transaction lists."""
+        import json
+
+        from generate_asset_snapshot.renderers.json_renderer import render
+
+        portfolio = make_portfolio({"VOO": 50_000})
+        txns = [_txn("03/01/2026", ACT_DEPOSIT, 5000), _txn("03/05/2026", ACT_BUY, -2000, "VOO")]
+        report = build_report(portfolio, report_config, "test_Mar-01-2026.csv", transactions=txns, report_month="2026-03")
+        parsed = json.loads(render(report))
+        act = parsed["activity"]
+        for key in ("deposits", "withdrawals", "buys", "sells", "dividends"):
+            assert key not in act
+        # But aggregated values should be present
+        assert "netCashIn" in act
+        assert "buysBySymbol" in act
+
     def test_no_transactions_returns_none(self, report_config):
         portfolio = make_portfolio({"VOO": 50_000})
         report = build_report(portfolio, report_config, "test_Mar-01-2026.csv")

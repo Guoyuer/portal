@@ -12,7 +12,6 @@ from datetime import datetime
 from typing import Any
 
 from .analysis import (
-    aggregate_by_symbol,
     cat_value,
     get_tickers,
     group_by_subtype,
@@ -159,15 +158,17 @@ def _build_activity(transactions: list[FidelityTransaction], report_month: str) 
     If report_month is set (e.g., '2026-03'), only include transactions
     from that month. Otherwise include all.
     """
-    deposits: list[FidelityTransaction] = []
-    withdrawals: list[FidelityTransaction] = []
-    buys: list[FidelityTransaction] = []
-    sells: list[FidelityTransaction] = []
-    dividends: list[FidelityTransaction] = []
+    deposit_total = 0.0
+    withdrawal_total = 0.0
+    buy_total = 0.0
+    sell_total = 0.0
+    dividend_total = 0.0
     reinvestments_total = 0.0
     interest_total = 0.0
     foreign_tax_total = 0.0
 
+    buys_agg: dict[str, list[float]] = defaultdict(list)
+    divs_agg: dict[str, list[float]] = defaultdict(list)
     dates: list[str] = []
 
     for txn in transactions:
@@ -175,15 +176,18 @@ def _build_activity(transactions: list[FidelityTransaction], report_month: str) 
             continue
         action = txn["action_type"]
         dates.append(txn["date"])
+        sym = (txn.get("symbol") or "").strip() or "Cash"
 
         if action == ACT_DEPOSIT:
-            deposits.append(txn)
+            deposit_total += txn["amount"]
         elif action == ACT_BUY:
-            buys.append(txn)
+            buy_total += abs(txn["amount"])
+            buys_agg[sym].append(abs(txn["amount"]))
         elif action == ACT_SELL:
-            sells.append(txn)
+            sell_total += txn["amount"]
         elif action == ACT_DIVIDEND:
-            dividends.append(txn)
+            dividend_total += txn["amount"]
+            divs_agg[sym].append(abs(txn["amount"]))
         elif action == ACT_REINVESTMENT:
             reinvestments_total += txn["amount"]
         elif action == ACT_INTEREST:
@@ -191,35 +195,27 @@ def _build_activity(transactions: list[FidelityTransaction], report_month: str) 
         elif action == ACT_FOREIGN_TAX:
             foreign_tax_total += txn["amount"]
         elif action == ACT_WITHDRAWAL:
-            withdrawals.append(txn)
+            withdrawal_total += txn["amount"]
 
     sorted_dates = sorted(d for d in dates if d)
     period_start = sorted_dates[0] if sorted_dates else ""
     period_end = sorted_dates[-1] if sorted_dates else ""
 
-    deposit_total = sum(t["amount"] for t in deposits)
-    withdrawal_total = sum(t["amount"] for t in withdrawals)
-    buy_total = sum(abs(t["amount"]) for t in buys)
-    sell_total = sum(t["amount"] for t in sells)
-    dividend_total = sum(t["amount"] for t in dividends)
+    def _agg_to_list(agg: dict[str, list[float]]) -> list[tuple[str, int, float]]:
+        return sorted([(sym, len(amts), sum(amts)) for sym, amts in agg.items()], key=lambda x: x[2], reverse=True)
 
     log.info("Activity %s\u2013%s: deposits=$%s buys=$%s sells=$%s dividends=$%s", period_start, period_end, f"{deposit_total:,.0f}", f"{buy_total:,.0f}", f"{sell_total:,.0f}", f"{dividend_total:,.0f}")
     return ActivityData(
         period_start=period_start,
         period_end=period_end,
-        deposits=deposits,
-        withdrawals=withdrawals,
-        buys=buys,
-        sells=sells,
-        dividends=dividends,
         reinvestments_total=reinvestments_total,
         interest_total=interest_total,
         foreign_tax_total=foreign_tax_total,
         net_cash_in=deposit_total - withdrawal_total,
         net_deployed=buy_total - sell_total,
         net_passive=dividend_total + interest_total - abs(foreign_tax_total),
-        buys_by_symbol=aggregate_by_symbol(buys),
-        dividends_by_symbol=aggregate_by_symbol(dividends),
+        buys_by_symbol=_agg_to_list(buys_agg),
+        dividends_by_symbol=_agg_to_list(divs_agg),
     )
 
 

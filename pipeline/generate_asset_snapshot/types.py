@@ -179,19 +179,14 @@ class ActivityData:
 
     period_start: str  # "2026-03-12"
     period_end: str  # "2026-04-02"
-    deposits: list[FidelityTransaction]
-    withdrawals: list[FidelityTransaction]
-    buys: list[FidelityTransaction]
-    sells: list[FidelityTransaction]
-    dividends: list[FidelityTransaction]
     reinvestments_total: float
     interest_total: float
     foreign_tax_total: float
     net_cash_in: float  # deposits - withdrawals
     net_deployed: float  # buys - sells
     net_passive: float  # dividends + interest - foreign_tax
-    buys_by_symbol: list[tuple[str, int, float]] = field(default_factory=list)
-    dividends_by_symbol: list[tuple[str, int, float]] = field(default_factory=list)
+    buys_by_symbol: list[tuple[str, int, float]]
+    dividends_by_symbol: list[tuple[str, int, float]]
 
 
 @dataclass
