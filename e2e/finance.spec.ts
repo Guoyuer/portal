@@ -233,6 +233,64 @@ test.describe("Finance Report", () => {
     await expect(card.getByText(/take-home/)).toBeVisible();
   });
 
+  // ── UI Polish (nav, charts, bento cards) ────────────────────────────────
+
+  test("nav buttons use pill style", async ({ page }) => {
+    const nav = page.locator("nav").filter({ hasText: "Net Worth" });
+    const activeBtn = nav.locator("button.rounded-full").first();
+    await expect(activeBtn).toBeVisible();
+    const className = await activeBtn.getAttribute("class");
+    expect(className).toMatch(/bg-foreground|bg-white/);
+  });
+
+  test("net worth section shows MoM and YoY badges", async ({ page }) => {
+    const section = page.locator("#net-worth");
+    await expect(section.getByText("MoM")).toBeVisible();
+    await expect(section.getByText("YoY")).toBeVisible();
+    // Values should include percentage
+    await expect(section.getByText(/[+-]\d+\.\d+%/).first()).toBeVisible();
+  });
+
+  test("net worth chart has brush slider", async ({ page }) => {
+    const brush = page.locator("#net-worth .recharts-brush");
+    await expect(brush).toBeVisible();
+  });
+
+  test("income vs expenses chart has brush slider", async ({ page }) => {
+    const section = page.locator("section").filter({ hasText: "Income vs Expenses" });
+    const brush = section.locator(".recharts-brush");
+    await expect(brush).toBeVisible();
+  });
+
+  test("income vs expenses chart renders bars", async ({ page }) => {
+    // Scroll to chart area
+    await page.locator("#cashflow").scrollIntoViewIfNeeded();
+    await page.waitForTimeout(500);
+    const bars = page.locator("#cashflow .recharts-bar-rectangle");
+    expect(await bars.count()).toBeGreaterThan(0);
+  });
+
+  test("cash flow bento cards have semantic colors", async ({ page }) => {
+    // Net Cash Flow — green background
+    const cashFlowCard = page.locator("text=Net Cash Flow").locator("..");
+    const cashFlowClass = await cashFlowCard.getAttribute("class");
+    expect(cashFlowClass).toMatch(/bg-emerald/);
+    // Invested — blue background
+    const investedCard = page.locator("text=Invested").locator("..");
+    const investedClass = await investedCard.getAttribute("class");
+    expect(investedClass).toMatch(/bg-blue/);
+  });
+
+  test("nav highlights correct section on scroll", async ({ page }) => {
+    const nav = page.locator("nav").filter({ hasText: "Net Worth" });
+    // Scroll to cashflow
+    await page.locator("#cashflow").scrollIntoViewIfNeeded();
+    await page.waitForTimeout(500);
+    const cashFlowBtn = nav.getByText("Cash Flow");
+    const className = await cashFlowBtn.getAttribute("class");
+    expect(className).toMatch(/bg-foreground|bg-white|font-medium/);
+  });
+
   // ── Production URL ─────────────────────────────────────────────────────
 
   test("production site is accessible", async ({ page }) => {
