@@ -152,7 +152,7 @@ class TestCategoriesIncludeAllAssets:
         # Non-ticker_map CNY account should still appear
         assert "建行卡" in account_names
 
-    def test_net_worth_consistent(self, tmp_path, full_config):
+    def test_total_assets_equals_portfolio_total(self, tmp_path, full_config):
         csv_path = write_csv(tmp_path, [
             {"Symbol": "VOO", "Description": "VOO", "Current Value": "$50,000.00"},
             {"Symbol": "SGOV", "Description": "SGOV", "Current Value": "$10,000.00"},
@@ -164,7 +164,88 @@ class TestCategoriesIncludeAllAssets:
         bs = report.balance_sheet
         assert bs is not None
 
-        # Net worth = total assets - liabilities
+        # total_assets must equal portfolio total (portfolio includes everything)
+        assert bs.total_assets == pytest.approx(portfolio["total"])
+
+    def test_net_worth_equals_assets_minus_liabilities(self, tmp_path, full_config):
+        csv_path = write_csv(tmp_path, [
+            {"Symbol": "VOO", "Description": "VOO", "Current Value": "$50,000.00"},
+            {"Symbol": "SGOV", "Description": "SGOV", "Current Value": "$10,000.00"},
+        ])
+        manual = manual_values_from_snapshot(SNAPSHOT, full_config)
+        portfolio = load_portfolio(csv_path, full_config, manual_values=manual)
+        report = build_report(portfolio, full_config, "test_Jan-01-2026.csv", balance_snapshot=SNAPSHOT)
+
+        bs = report.balance_sheet
+        assert bs is not None
         assert bs.net_worth == pytest.approx(bs.total_assets - bs.total_liabilities)
-        # Total assets = fidelity positions + remaining accounts
-        assert bs.total_assets > portfolio["total"] - sum(manual.values())
+        # Amex Gold is -100 in snapshot
+        assert bs.total_liabilities == pytest.approx(100)
+
+    def test_category_sum_equals_portfolio_total(self, tmp_path, full_config):
+        csv_path = write_csv(tmp_path, [
+            {"Symbol": "VOO", "Description": "VOO", "Current Value": "$50,000.00"},
+            {"Symbol": "SGOV", "Description": "SGOV", "Current Value": "$10,000.00"},
+        ])
+        manual = manual_values_from_snapshot(SNAPSHOT, full_config)
+        portfolio = load_portfolio(csv_path, full_config, manual_values=manual)
+        report = build_report(portfolio, full_config, "test_Jan-01-2026.csv", balance_snapshot=SNAPSHOT)
+
+        all_cats = report.equity_categories + report.non_equity_categories
+        cat_sum = sum(c.value for c in all_cats)
+        assert cat_sum == pytest.approx(portfolio["total"])
+
+    def test_investment_plus_safenet_equals_total_assets(self, tmp_path, full_config):
+        """Mirrors the frontend metric card calculation."""
+        csv_path = write_csv(tmp_path, [
+            {"Symbol": "VOO", "Description": "VOO", "Current Value": "$50,000.00"},
+            {"Symbol": "SGOV", "Description": "SGOV", "Current Value": "$10,000.00"},
+        ])
+        manual = manual_values_from_snapshot(SNAPSHOT, full_config)
+        portfolio = load_portfolio(csv_path, full_config, manual_values=manual)
+        report = build_report(portfolio, full_config, "test_Jan-01-2026.csv", balance_snapshot=SNAPSHOT)
+
+        all_cats = report.equity_categories + report.non_equity_categories
+        safe_net = sum(c.value for c in all_cats if c.name == "Safe Net")
+        investment = sum(c.value for c in all_cats) - safe_net
+
+        bs = report.balance_sheet
+        assert bs is not None
+        assert investment + safe_net == pytest.approx(bs.total_assets)
+
+    def test_no_double_counting_cny_assets(self, tmp_path, full_config):
+        """CNY accounts in ticker_map must not appear in both portfolio AND CNY Assets aggregate."""
+        manual = manual_values_from_snapshot(SNAPSHOT, full_config)
+
+        # Alipay Funds is in ticker_map AND cny list — should be individual, not in CNY Assets
+        alipay_usd = 70_000 / 7.0
+        assert manual["Alipay Funds"] == pytest.approx(alipay_usd)
+
+        # CNY Assets should only contain 建行卡 (30k CNY), not Alipay Funds
+        cny_assets_usd = 30_000 / 7.0
+        assert manual["CNY Assets"] == pytest.approx(cny_assets_usd)
+
+        # Total manual CNY exposure = Alipay Funds + CNY Assets (no overlap)
+        assert manual["Alipay Funds"] + manual["CNY Assets"] == pytest.approx((70_000 + 30_000) / 7.0)
+
+    def test_exact_net_worth_calculation(self, tmp_path, full_config):
+        """Verify exact net worth from known inputs."""
+        csv_path = write_csv(tmp_path, [
+            {"Symbol": "VOO", "Description": "VOO", "Current Value": "$50,000.00"},
+            {"Symbol": "SGOV", "Description": "SGOV", "Current Value": "$10,000.00"},
+        ])
+        manual = manual_values_from_snapshot(SNAPSHOT, full_config)
+        portfolio = load_portfolio(csv_path, full_config, manual_values=manual)
+        report = build_report(portfolio, full_config, "test_Jan-01-2026.csv", balance_snapshot=SNAPSHOT)
+
+        bs = report.balance_sheet
+        assert bs is not None
+
+        # Expected: Fidelity (60k) + Chase Debit (5k) + I bond (20k) + Robinhood (3k)
+        #         + Alipay Funds (70k/7=10k) + CNY Assets (30k/7≈4286) + SGOV (10k from CSV)
+        #         - Amex Gold (100)
+        expected_assets = 50_000 + 10_000 + 5_000 + 20_000 + 3_000 + 70_000 / 7.0 + 30_000 / 7.0
+        expected_nw = expected_assets - 100
+
+        assert bs.total_assets == pytest.approx(expected_assets, rel=0.01)
+        assert bs.net_worth == pytest.approx(expected_nw, rel=0.01)
