@@ -25,7 +25,7 @@ export function CashFlow({ data }: { data: CashFlowData }) {
       <div className="grid md:grid-cols-2 gap-6">
         {/* Income */}
         <div>
-          <h3 className="font-semibold mb-2">Income</h3>
+          <h3 className="font-semibold mb-2 text-foreground">Income</h3>
           <Table>
             <TableHeader>
               <TableRow>
@@ -62,7 +62,7 @@ export function CashFlow({ data }: { data: CashFlowData }) {
 
         {/* Expenses */}
         <div>
-          <h3 className="font-semibold mb-2">Expenses</h3>
+          <h3 className="font-semibold mb-2 text-foreground">Expenses</h3>
           <Table>
             <TableHeader>
               <TableRow>

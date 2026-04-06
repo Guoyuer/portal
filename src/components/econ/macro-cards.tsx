@@ -16,11 +16,11 @@ const INDICATORS: { key: keyof EconSnapshot; label: string; format: (v: number) 
 export function MacroCards({ snapshot }: { snapshot: EconSnapshot }) {
   const visible = INDICATORS.filter((ind) => snapshot[ind.key] != null);
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+    <div className="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 sm:gap-3">
       {visible.map((ind) => (
-        <div key={ind.key} className="liquid-glass-thin px-4 pt-3 pb-3">
-          <p className="text-xs text-muted-foreground">{ind.label}</p>
-          <p className="text-lg font-bold mt-0.5">{ind.format(snapshot[ind.key]!)}</p>
+        <div key={ind.key} className="liquid-glass-thin px-3 sm:px-4 pt-2 sm:pt-3 pb-2 sm:pb-3">
+          <p className="text-[10px] sm:text-xs text-muted-foreground">{ind.label}</p>
+          <p className="text-base sm:text-lg font-bold mt-0.5">{ind.format(snapshot[ind.key]!)}</p>
         </div>
       ))}
     </div>

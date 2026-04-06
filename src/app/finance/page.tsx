@@ -29,7 +29,7 @@ import { BackToTop } from "@/components/layout/back-to-top";
 function PerformersTable({ title, data }: { title: string; data: StockDetail[] }) {
   if (data.length === 0) return null;
   return (
-    <div className="mb-6">
+    <div className="mb-6 overflow-x-auto">
       <h3 className="font-semibold mb-2">{title}</h3>
       <Table>
         <TableHeader><TableRow>
@@ -117,19 +117,19 @@ export default function FinancePage() {
   return (
     <div className="max-w-5xl mx-auto space-y-10">
       {/* Header */}
-      <h1 className="text-xl sm:text-2xl font-bold tracking-tight">
+      <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">
         Portfolio Snapshot &mdash; {r.date}
       </h1>
 
       {/* Data timestamps */}
       {r.metadata && (
-        <p className="text-xs text-muted-foreground -mt-4">
+        <p className="text-xs text-foreground/50 -mt-4">
           Positions: {r.metadata.positionsDate || "?"} · History: {r.metadata.historyDate || "?"} · Expense Tracker: {r.metadata.qianjiDate || "?"}
         </p>
       )}
 
       {/* Section nav */}
-      <nav className="sticky top-0 z-30 -mx-6 px-6 py-2 bg-background/80 backdrop-blur-xl backdrop-saturate-150 border-b border-border !rounded-none overflow-x-auto scrollbar-none flex gap-3 text-sm">
+      <nav className="sticky top-0 z-30 -mx-6 px-6 py-2 bg-background/80 backdrop-blur-xl backdrop-saturate-150 border-b border-white/20 dark:border-white/8 !rounded-none overflow-x-auto scrollbar-none flex gap-3 text-sm">
         {[
           ["net-worth", "Net Worth"],
           ["allocation", "Allocation"],

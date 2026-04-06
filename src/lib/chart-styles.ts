@@ -1,6 +1,6 @@
 export function tooltipStyle(isDark: boolean) {
   return {
-    backgroundColor: isDark ? "rgba(20, 25, 45, 0.65)" : "rgba(255, 255, 255, 0.60)",
+    backgroundColor: isDark ? "rgba(20, 25, 45, 0.80)" : "rgba(255, 255, 255, 0.85)",
     backdropFilter: "blur(40px) saturate(200%)",
     WebkitBackdropFilter: "blur(40px) saturate(200%)",
     border: `0.5px solid ${isDark ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.5)"}`,

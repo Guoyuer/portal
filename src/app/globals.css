@@ -179,32 +179,27 @@
   animation: lg-blob-b 25s ease-in-out infinite alternate;
 }
 
-/* Blob C — rose, center-left (intersects with cards for depth) */
-.lg-blob-c {
+/* Blobs C & D — shared base */
+.lg-blob-c,
+.lg-blob-d {
   position: fixed;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.30;
+}
+.lg-blob-c {
   width: 480px; height: 480px;
   top: 25%; left: 25%;
   border-radius: 45% 55% 60% 40% / 50% 45% 55% 50%;
   filter: blur(75px);
-  opacity: 0.30;
-  z-index: 0;
-  pointer-events: none;
-
   background: radial-gradient(circle, rgba(244,114,182,0.5), rgba(251,146,60,0.2), transparent 65%);
   animation: lg-blob-c 22s ease-in-out infinite alternate;
 }
-
-/* Blob D — deep purple, bottom-center */
 .lg-blob-d {
-  position: fixed;
   width: 500px; height: 500px;
   bottom: -5%; left: 35%;
   border-radius: 50% 40% 55% 45% / 40% 55% 50% 50%;
   filter: blur(80px);
-  opacity: 0.30;
-  z-index: 0;
-  pointer-events: none;
-
   background: radial-gradient(circle, rgba(99,102,241,0.45), rgba(168,85,247,0.2), transparent 65%);
   animation: lg-blob-d 28s ease-in-out infinite alternate;
 }
@@ -258,141 +253,5 @@
   }
 }
 
-/* ── 2. Core glass material ───────────────────────────────────────────
-   Low opacity + heavy blur + gradient border + specular highlight.
-   This is the main class applied to cards & panels.                */
-
-.liquid-glass {
-  position: relative;
-  background: rgba(255, 255, 255, 0.25);
-  backdrop-filter: blur(40px) saturate(200%);
-  -webkit-backdrop-filter: blur(40px) saturate(200%);
-  border-radius: 22px;
-  /* Directional border: top/left bright, bottom/right dim-dark */
-  border-top: 1px solid rgba(255, 255, 255, 0.50);
-  border-left: 1px solid rgba(255, 255, 255, 0.40);
-  border-right: 1px solid rgba(255, 255, 255, 0.10);
-  border-bottom: 1px solid rgba(100, 80, 140, 0.08);
-  box-shadow:
-    /* float shadow */
-    0 20px 60px rgba(0, 0, 0, 0.07),
-    0 4px 16px rgba(0, 0, 0, 0.04),
-    /* specular: top-left corner light catch */
-    inset 1px 1px 0 rgba(255, 255, 255, 0.5),
-    /* inner glow */
-    inset 0 0 16px rgba(255, 255, 255, 0.10);
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
-}
-
-.dark .liquid-glass {
-  background: rgba(255, 255, 255, 0.05);
-  border-top: 1px solid rgba(255, 255, 255, 0.18);
-  border-left: 1px solid rgba(255, 255, 255, 0.12);
-  border-right: 1px solid rgba(255, 255, 255, 0.04);
-  border-bottom: 1px solid rgba(100, 80, 160, 0.06);
-  box-shadow:
-    0 20px 60px rgba(0, 0, 0, 0.3),
-    0 4px 16px rgba(0, 0, 0, 0.2),
-    inset 1px 1px 0 rgba(255, 255, 255, 0.12),
-    inset 0 0 16px rgba(255, 255, 255, 0.03);
-}
-
-/* Hover: lift + brighter specular */
-.liquid-glass:hover {
-  transform: translateY(-2px);
-  box-shadow:
-    0 28px 70px rgba(0, 0, 0, 0.10),
-    0 8px 24px rgba(0, 0, 0, 0.06),
-    inset 1px 1px 0 rgba(255, 255, 255, 0.65),
-    inset 0 0 20px rgba(255, 255, 255, 0.12);
-}
-.dark .liquid-glass:hover {
-  box-shadow:
-    0 28px 70px rgba(0, 0, 0, 0.4),
-    0 8px 24px rgba(0, 0, 0, 0.25),
-    inset 1px 1px 0 rgba(255, 255, 255, 0.18),
-    inset 0 0 20px rgba(255, 255, 255, 0.04);
-}
-
-/* ── 3. Thin glass (metric cards — lighter, quick-glance) ─────────── */
-.liquid-glass-thin {
-  position: relative;
-  background: rgba(255, 255, 255, 0.30);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border-radius: 18px;
-  border-top: 1px solid rgba(255, 255, 255, 0.45);
-  border-left: 1px solid rgba(255, 255, 255, 0.35);
-  border-right: 1px solid rgba(255, 255, 255, 0.08);
-  border-bottom: 1px solid rgba(100, 80, 140, 0.05);
-  box-shadow:
-    0 8px 30px rgba(0, 0, 0, 0.04),
-    inset 1px 1px 0 rgba(255, 255, 255, 0.4),
-    inset 0 0 10px rgba(255, 255, 255, 0.08);
-  transition: transform 0.25s ease, box-shadow 0.25s ease;
-}
-.dark .liquid-glass-thin {
-  background: rgba(255, 255, 255, 0.04);
-  border-top-color: rgba(255, 255, 255, 0.14);
-  border-left-color: rgba(255, 255, 255, 0.10);
-  border-right-color: rgba(255, 255, 255, 0.03);
-  border-bottom-color: rgba(100, 80, 160, 0.04);
-  box-shadow:
-    0 8px 30px rgba(0, 0, 0, 0.2),
-    inset 1px 1px 0 rgba(255, 255, 255, 0.10),
-    inset 0 0 10px rgba(255, 255, 255, 0.02);
-}
-.liquid-glass-thin:hover {
-  transform: translateY(-1px);
-  box-shadow:
-    0 12px 35px rgba(0, 0, 0, 0.06),
-    inset 1px 1px 0 rgba(255, 255, 255, 0.55),
-    inset 0 0 12px rgba(255, 255, 255, 0.10);
-}
-.dark .liquid-glass-thin:hover {
-  box-shadow:
-    0 12px 35px rgba(0, 0, 0, 0.25),
-    inset 1px 1px 0 rgba(255, 255, 255, 0.14),
-    inset 0 0 12px rgba(255, 255, 255, 0.03);
-}
-
-/* ── 4. Deep glass (sidebar — thicker, heavier blur) ──────────────── */
-.liquid-glass-sidebar {
-  background: rgba(240, 240, 250, 0.25);
-  backdrop-filter: blur(60px) saturate(200%);
-  -webkit-backdrop-filter: blur(60px) saturate(200%);
-  border-right: 1px solid rgba(255, 255, 255, 0.30);
-  box-shadow:
-    8px 0 50px rgba(0, 0, 0, 0.06),
-    /* bright inner edge — makes sidebar feel like separate pane */
-    inset -1px 0 0 rgba(255, 255, 255, 0.35),
-    inset 0 0 20px rgba(255, 255, 255, 0.06);
-}
-.dark .liquid-glass-sidebar {
-  background: rgba(10, 12, 30, 0.50);
-  backdrop-filter: blur(60px) saturate(220%);
-  -webkit-backdrop-filter: blur(60px) saturate(220%);
-  border-right: 1px solid rgba(255, 255, 255, 0.10);
-  box-shadow:
-    8px 0 50px rgba(0, 0, 0, 0.35),
-    inset -1px 0 0 rgba(255, 255, 255, 0.08),
-    inset 0 0 20px rgba(255, 255, 255, 0.02);
-}
-
-/* ── 5. Nav pill (thin glass bar) ──────────────────────────────────── */
-.liquid-glass-pill {
-  background: rgba(255, 255, 255, 0.20);
-  backdrop-filter: blur(30px) saturate(180%);
-  -webkit-backdrop-filter: blur(30px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  box-shadow:
-    0 2px 10px rgba(0, 0, 0, 0.04),
-    inset 0 1px 0 rgba(255, 255, 255, 0.4);
-}
-.dark .liquid-glass-pill {
-  background: rgba(255, 255, 255, 0.04);
-  border-color: rgba(255, 255, 255, 0.08);
-  box-shadow:
-    0 2px 10px rgba(0, 0, 0, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
-}
+/* Glass material system lives in glass.css — imported separately in layout.tsx
+   to avoid Tailwind v4 stripping backdrop-filter properties */

@@ -14,10 +14,10 @@ export function MetricCards({ report: r }: { report: ReportData }) {
         <p className="text-2xl font-bold mt-1">{fmtCurrency(r.balanceSheet?.netWorth ?? r.total)}</p>
       </div>
       <div data-slot="card" className="liquid-glass p-4">
-        <p className="text-sm text-muted-foreground">Monthly Savings Rate</p>
+        <p className="text-xs sm:text-sm text-muted-foreground">Savings Rate</p>
         {r.cashflow ? (
           <div className="mt-1">
-            <p className={`text-2xl font-bold ${savingsRateColor(r.cashflow.savingsRate)}`}>
+            <p className={`text-xl sm:text-2xl font-bold ${savingsRateColor(r.cashflow.savingsRate)}`}>
               {Math.round(r.cashflow.savingsRate)}%
             </p>
             <p className="text-xs text-muted-foreground">
@@ -25,14 +25,13 @@ export function MetricCards({ report: r }: { report: ReportData }) {
             </p>
           </div>
         ) : (
-          <p className="text-2xl font-bold mt-1">N/A</p>
+          <p className="text-xl sm:text-2xl font-bold mt-1">N/A</p>
         )}
       </div>
       <div data-slot="card" className="liquid-glass p-4">
-        <p className="text-sm text-muted-foreground">Goal</p>
-        <p className="text-2xl font-bold mt-1">
-          {Math.round(r.goalPct)}% of {fmtCurrencyShort(r.goal)}
-        </p>
+        <p className="text-xs sm:text-sm text-muted-foreground">Goal</p>
+        <p className="text-xl sm:text-2xl font-bold mt-1">{Math.round(r.goalPct)}%</p>
+        <p className="text-xs text-muted-foreground">of {fmtCurrencyShort(r.goal)}</p>
         <div className="mt-2 h-2 w-full rounded-full bg-black/5 dark:bg-white/10">
           <div
             className="h-2 rounded-full bg-blue-500 transition-all"

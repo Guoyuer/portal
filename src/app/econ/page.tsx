@@ -105,11 +105,11 @@ export default function EconPage() {
   return (
     <div className="max-w-5xl mx-auto space-y-10">
       {/* Header */}
-      <h1 className="text-xl sm:text-2xl font-bold tracking-tight">
+      <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">
         Economy Dashboard
       </h1>
 
-      <p className="text-xs text-muted-foreground -mt-4">
+      <p className="text-xs text-foreground/50 -mt-4">
         Updated: {new Date(data.generatedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
         {" "}
         {new Date(data.generatedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}

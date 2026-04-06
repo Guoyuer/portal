@@ -39,7 +39,7 @@ export function CategorySummary({ report: r }: { report: ReportData }) {
             {/* Equity categories */}
             {r.equityCategories.map((cat) => (
               <Fragment key={cat.name}>
-                <TableRow className="even:bg-muted/50">
+                <TableRow className="hover:bg-white/10 dark:hover:bg-white/5 transition-colors">
                   <TableCell className="font-medium">{cat.name}</TableCell>
                   <TableCell className="text-right hidden sm:table-cell">
                     {fmtCurrency(cat.value)}
@@ -55,7 +55,7 @@ export function CategorySummary({ report: r }: { report: ReportData }) {
                 {cat.subtypes.map((sub) => (
                   <TableRow
                     key={`${cat.name}-${sub.name}`}
-                    className="even:bg-muted/50"
+                    className="hover:bg-white/10 dark:hover:bg-white/5 transition-colors"
                   >
                     <TableCell className="text-muted-foreground">
                       &nbsp;&nbsp;
@@ -75,7 +75,7 @@ export function CategorySummary({ report: r }: { report: ReportData }) {
             ))}
 
             {/* Non-Equity group header */}
-            <TableRow className="bg-muted">
+            <TableRow className="bg-white/5 dark:bg-white/3">
               <TableCell
                 colSpan={5}
                 className="font-semibold text-muted-foreground"
@@ -84,7 +84,7 @@ export function CategorySummary({ report: r }: { report: ReportData }) {
               </TableCell>
             </TableRow>
             {r.nonEquityCategories.map((cat) => (
-              <TableRow key={cat.name} className="even:bg-muted/50">
+              <TableRow key={cat.name} className="hover:bg-white/10 dark:hover:bg-white/5 transition-colors">
                 <TableCell className="font-medium">{cat.name}</TableCell>
                 <TableCell className="text-right hidden sm:table-cell">
                   {fmtCurrency(cat.value)}

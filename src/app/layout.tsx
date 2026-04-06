@@ -29,6 +29,9 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
+      <head>
+        <link rel="stylesheet" href="/glass.css" />
+      </head>
       <body className="min-h-full tabular-nums">
         {/* Animated mesh gradient — gives liquid glass something to refract */}
         <div className="lg-mesh" />

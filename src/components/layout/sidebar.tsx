@@ -105,18 +105,18 @@ export default function Sidebar() {
             key={item.href}
             href={item.comingSoon ? "#" : item.href}
             onClick={() => setOpen(false)}
-            className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+            className={`flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition-all duration-200 ${
               active
-                ? "bg-black/5 dark:bg-white/12 text-foreground shadow-[inset_0_0.5px_0_rgba(255,255,255,0.25),inset_0_0_8px_rgba(255,255,255,0.06)] backdrop-blur-sm rounded-xl"
+                ? "bg-black/8 dark:bg-white/12 font-semibold border border-black/10 dark:border-white/20 backdrop-blur-sm"
                 : item.comingSoon
-                  ? "cursor-default text-muted-foreground"
-                  : "text-muted-foreground hover:bg-white/8 hover:text-foreground hover:shadow-[inset_0_0.5px_0_rgba(255,255,255,0.15),inset_0_0_6px_rgba(255,255,255,0.04)] hover:backdrop-blur-sm rounded-xl transition-all duration-200"
+                  ? "cursor-default text-current/40"
+                  : "text-current/70 hover:text-current hover:bg-white/10"
             }`}
           >
             {item.icon}
             {item.label}
             {item.comingSoon && (
-              <span className="ml-auto rounded-md bg-white/8 backdrop-blur-sm px-1.5 py-0.5 text-[10px] text-muted-foreground/60 border border-white/5">
+              <span className="ml-auto rounded-md bg-white/10 px-1.5 py-0.5 text-[10px] border border-white/10">
                 soon
               </span>
             )}
@@ -131,7 +131,7 @@ export default function Sidebar() {
       {/* Desktop sidebar */}
       <aside className="hidden md:flex md:w-56 md:flex-col md:fixed md:inset-y-0 md:z-40 liquid-glass-sidebar">
         <div className="flex h-14 items-center px-6">
-          <span className="text-lg font-semibold text-foreground tracking-tight">
+          <span className="text-lg font-semibold tracking-tight">
             Portal
           </span>
         </div>
@@ -145,7 +145,7 @@ export default function Sidebar() {
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="fixed top-3 left-3 z-50 rounded-lg liquid-glass-pill p-2 text-foreground md:hidden"
+        className="fixed top-3 left-3 z-50 rounded-full bg-white/20 dark:bg-white/10 backdrop-blur-md border border-white/40 dark:border-white/20 p-2 md:hidden"
         aria-label="Toggle navigation"
       >
         <svg
@@ -176,19 +176,19 @@ export default function Sidebar() {
       {/* Mobile overlay */}
       {open && (
         <div
-          className="fixed inset-0 z-40 bg-black/50 md:hidden"
+          className="fixed inset-0 z-40 bg-black/30 md:hidden"
           onClick={() => setOpen(false)}
         />
       )}
 
       {/* Mobile drawer */}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 w-56 liquid-glass-sidebar transition-transform duration-200 md:hidden ${
+        className={`fixed inset-y-0 left-0 z-40 w-48 liquid-glass-sidebar transition-transform duration-200 md:hidden ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
         <div className="flex h-14 items-center pl-14 pr-6">
-          <span className="text-lg font-semibold text-foreground tracking-tight">
+          <span className="text-lg font-semibold tracking-tight">
             Portal
           </span>
         </div>
