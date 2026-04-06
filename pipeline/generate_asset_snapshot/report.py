@@ -274,13 +274,14 @@ def _build_balance_sheet_from_snapshot(
         else:
             cash_assets.append(entry)
 
-    cny_total_usd = sum(a.balance for a in cny_assets) / cny_rate
+    cny_total_usd = sum(a.balance for a in cny_assets) / cny_rate if cny_assets else 0
     cash_total = sum(a.balance for a in cash_assets)
     total_liabilities = abs(sum(a.balance for a in credit_cards if a.balance < 0))
-    total_assets = fidelity_total + cash_total + cny_total_usd
+    # Portfolio total already includes all assets (Fidelity + manual entries)
+    total_assets = portfolio["total"]
     net_worth = total_assets - total_liabilities
 
-    log.info("Balance sheet: assets=$%s (fidelity=$%s + cash=$%s + cny=$%s), liabilities=$%s, net_worth=$%s", f"{total_assets:,.0f}", f"{fidelity_total:,.0f}", f"{cash_total:,.0f}", f"{cny_total_usd:,.0f}", f"{total_liabilities:,.0f}", f"{net_worth:,.0f}")
+    log.info("Balance sheet: assets=$%s (portfolio=$%s), liabilities=$%s, net_worth=$%s", f"{total_assets:,.0f}", f"{portfolio['total']:,.0f}", f"{total_liabilities:,.0f}", f"{net_worth:,.0f}")
     return BalanceSheetData(
         investment_total=fidelity_total,
         accounts=cash_assets + cny_assets,
