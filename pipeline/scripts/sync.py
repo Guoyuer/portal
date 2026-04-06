@@ -102,29 +102,71 @@ def _upload(local: Path, remote_name: str, *, dry_run: bool = False) -> bool:
     return True
 
 
+def _download(remote_name: str, local: Path) -> bool:
+    """Download a file from R2 bucket latest/. Returns True if successful."""
+    src = f"latest/{remote_name}"
+    result = subprocess.run(
+        ["wrangler", "r2", "object", "get", f"{_BUCKET}/{src}", "--file", str(local), "--remote"],
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
+
+
+# ── Meta merge (preserve values across computers) ─────────────────────────
+
+
+def _merge_meta(existing: dict[str, object], incoming: dict[str, object]) -> dict[str, object]:
+    """Merge incoming sync metadata into existing, preserving valid values.
+
+    A field in *incoming* overwrites *existing* unless its value is ``"?"``
+    or ``None``, which signals the file was not present on this computer.
+    """
+    merged = dict(existing)
+    for key, value in incoming.items():
+        if value is None or value == "?":
+            merged.setdefault(key, value)
+        else:
+            merged[key] = value
+    return merged
+
+
 def _upload_meta(
     positions_path: Path | None,
     history_path: Path | None,
     *,
     dry_run: bool = False,
 ) -> None:
-    """Upload sync metadata with original file modification times."""
+    """Upload sync metadata, merging with existing to preserve cross-computer values."""
     import tempfile
 
-    meta = {
+    incoming: dict[str, object] = {
         "synced_at": datetime.now(tz=UTC).isoformat(),
         "positions_file": positions_path.name if positions_path else None,
         "positions_date": _file_date(positions_path),
         "history_date": _file_date(history_path),
         "qianji_date": _file_date(_QIANJI_DB if _QIANJI_DB.exists() else None),
     }
-    if not dry_run:
-        tmp = Path(tempfile.mktemp(suffix=".json"))
-        tmp.write_text(json.dumps(meta, indent=2))
-        _upload(tmp, "sync_meta.json")
-        tmp.unlink()
-    else:
+
+    if dry_run:
         print(f"  [dry-run] sync_meta.json -> r2://{_BUCKET}/latest/sync_meta.json")
+        return
+
+    # Download existing meta from R2 to preserve other computer's values
+    existing: dict[str, object] = {}
+    tmp_dl = Path(tempfile.mktemp(suffix=".json"))
+    try:
+        if _download("sync_meta.json", tmp_dl):
+            existing = json.loads(tmp_dl.read_text())
+    finally:
+        tmp_dl.unlink(missing_ok=True)
+
+    meta = _merge_meta(existing, incoming)
+
+    tmp_up = Path(tempfile.mktemp(suffix=".json"))
+    tmp_up.write_text(json.dumps(meta, indent=2))
+    _upload(tmp_up, "sync_meta.json")
+    tmp_up.unlink()
 
 
 # ── macOS notification ───────────────────────────────────────────────────────
