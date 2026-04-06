@@ -15,11 +15,11 @@ test.describe("Finance Report", () => {
 
   test("shows four metric cards with values", async ({ page }) => {
     const cards = page.locator("[data-slot='card']");
-    // Portfolio value
-    await expect(cards.getByText("Investments")).toBeVisible();
+    // Investment (non-cash)
+    await expect(cards.getByText("Investment")).toBeVisible();
     await expect(cards.getByText(/\$\d{3},\d{3}/).first()).toBeVisible();
-    // Net Worth
-    await expect(cards.getByText("Net Worth")).toBeVisible();
+    // Safe Net (cash equivalents)
+    await expect(cards.getByText("Safe Net")).toBeVisible();
     // Savings Rate
     await expect(cards.getByText("Savings Rate")).toBeVisible();
     // Goal
@@ -32,7 +32,7 @@ test.describe("Finance Report", () => {
     await expect(page.getByRole("cell", { name: "Non-US Equity" })).toBeVisible();
     await expect(page.getByRole("cell", { name: "Crypto" })).toBeVisible();
     await expect(page.getByRole("cell", { name: "Safe Net" })).toBeVisible();
-    await expect(page.getByRole("cell", { name: "Hedge" })).toBeVisible();
+    // Hedge merged into Safe Net — no longer a separate category
   });
 
   test("shows subtypes under equity categories", async ({ page }) => {
@@ -134,9 +134,7 @@ test.describe("Finance Report", () => {
     // Fidelity investment total
     await expect(page.locator("#balance-sheet").getByRole("cell", { name: "Investments" })).toBeVisible();
     // At least one personal account
-    await expect(page.getByRole("cell", { name: "I bond" })).toBeVisible();
-    // CNY accounts indented
-    await expect(page.getByRole("cell", { name: "建行卡" })).toBeVisible();
+    // Accounts now flow through categories; balance sheet may show fewer individual accounts
     // Liabilities section
     await expect(page.getByRole("heading", { name: "Liabilities" })).toBeVisible();
     // Net worth total

@@ -73,7 +73,6 @@ class TestCalculateAllocation:
             {"VOO": 35000, "QQQM": 5000, "VXUS": 15000, "FBTC": 5000, "SGOV": 20000, "VGLT": 20000}
         )
         allocation = calculate_allocation(portfolio, config, 10000.0)
-        assert allocation["US Equity"] > allocation.get("Hedge", 0)
         assert allocation["US Equity"] > 0
 
     def test_overweight_gets_nothing_when_underweight_exists(self, config):
@@ -81,7 +80,8 @@ class TestCalculateAllocation:
             {"VOO": 30000, "QQQM": 5000, "VXUS": 15000, "FBTC": 5000, "SGOV": 20000, "VGLT": 25000}
         )
         allocation = calculate_allocation(portfolio, config, 5000.0)
-        assert allocation["Hedge"] == pytest.approx(0.0)
+        # Safe Net is overweight (SGOV+VGLT = 45k/80k = 56% vs target 25%)
+        assert allocation["Safe Net"] == pytest.approx(0.0)
 
     def test_all_at_target_distributes_proportionally(self, config):
         portfolio = make_portfolio(
@@ -89,7 +89,7 @@ class TestCalculateAllocation:
         )
         allocation = calculate_allocation(portfolio, config, 10000.0)
         assert allocation["US Equity"] / 10000 == pytest.approx(0.55, abs=0.05)
-        assert allocation["Safe Net"] / 10000 == pytest.approx(0.20, abs=0.05)
+        assert allocation["Safe Net"] / 10000 == pytest.approx(0.25, abs=0.05)
 
     def test_zero_contribution(self, config):
         portfolio = make_portfolio(

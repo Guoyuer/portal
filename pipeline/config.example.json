@@ -29,6 +29,10 @@
       "category": "US Equity",
       "subtype": "broad"
     },
+    "Robinhood": {
+      "category": "US Equity",
+      "subtype": "broad"
+    },
     "QQQM": {
       "category": "US Equity",
       "subtype": "growth"
@@ -97,11 +101,15 @@
       "category": "Non-US Equity",
       "subtype": "broad"
     },
-    "CNY Assets": {
+    "LVMUY": {
       "category": "Non-US Equity",
       "subtype": "broad"
     },
-    "LVMUY": {
+    "Alipay Funds": {
+      "category": "Non-US Equity",
+      "subtype": "broad"
+    },
+    "Managed Fund": {
       "category": "Non-US Equity",
       "subtype": "broad"
     },
@@ -147,29 +155,36 @@
     "FZFXX": {
       "category": "Safe Net"
     },
+    "VGLT": {
+      "category": "Safe Net"
+    },
     "Debit Cash": {
       "category": "Safe Net"
     },
     "I Bonds": {
       "category": "Safe Net"
     },
-    "VGLT": {
-      "category": "Hedge"
+    "CNY Assets": {
+      "category": "Safe Net"
+    },
+    "Gift Card": {
+      "category": "Safe Net"
+    },
+    "Cash": {
+      "category": "Safe Net"
     }
   },
   "target_weights": {
     "US Equity": 55,
     "Non-US Equity": 15,
     "Crypto": 3,
-    "Safe Net": 25,
-    "Hedge": 2
+    "Safe Net": 27
   },
   "category_order": [
     "US Equity",
     "Non-US Equity",
     "Crypto",
-    "Safe Net",
-    "Hedge"
+    "Safe Net"
   ],
   "aliases": {
     "State Street S&P 500 Index": "401k sp500"
@@ -182,7 +197,9 @@
     ],
     "cny": [
       "Bank Card",
-      "WeChat Pay"
+      "WeChat Pay",
+      "Alipay Funds",
+      "Managed Fund"
     ],
     "credit": [
       "Visa Card",
@@ -190,7 +207,12 @@
     ],
     "ticker_map": {
       "Checking Account": "Debit Cash",
-      "I bond": "I Bonds"
+      "I bond": "I Bonds",
+      "Robinhood": "Robinhood",
+      "Alipay Funds": "Alipay Funds",
+      "Managed Fund": "Managed Fund",
+      "Gift Card": "Gift Card",
+      "Cash": "Cash"
     }
   }
 }

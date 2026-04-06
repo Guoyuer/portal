@@ -260,9 +260,10 @@ def _build_balance_sheet_from_snapshot(
     credit_cards: list[AccountBalance] = []
     cash_assets: list[AccountBalance] = []
 
+    ticker_map_accounts = set(config["qianji_accounts"].get("ticker_map", {}).keys())
     for acct, bal in sorted(snapshot.get("balances", {}).items()):
         tier = account_tiers[acct]
-        if tier == TIER_FIDELITY or abs(bal) < 0.01:
+        if tier == TIER_FIDELITY or acct in ticker_map_accounts or abs(bal) < 0.01:
             continue
         entry = AccountBalance(name=acct, balance=bal, currency="CNY" if tier == TIER_CNY else "USD")
         if tier == TIER_CNY:

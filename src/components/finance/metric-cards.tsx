@@ -3,15 +3,23 @@ import { fmtCurrency, fmtCurrencyShort } from "@/lib/format";
 import { savingsRateColor } from "@/lib/style-helpers";
 
 export function MetricCards({ report: r }: { report: ReportData }) {
+  const allCats = [...r.equityCategories, ...r.nonEquityCategories];
+  const cashCategories = new Set(["Safe Net", "Hedge"]);
+  const safeNetValue = allCats.filter((c) => cashCategories.has(c.name)).reduce((s, c) => s + c.value, 0);
+  const investmentValue = allCats.reduce((s, c) => s + c.value, 0) - safeNetValue;
+
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
       <div data-slot="card" className="liquid-glass p-4">
-        <p className="text-sm text-muted-foreground">Investments</p>
-        <p className="text-2xl font-bold mt-1">{fmtCurrency(r.total)}</p>
+        <p className="text-sm text-muted-foreground">Investment</p>
+        <p className="text-2xl font-bold mt-1">{fmtCurrency(investmentValue)}</p>
       </div>
       <div data-slot="card" className="liquid-glass p-4">
-        <p className="text-sm text-muted-foreground">Net Worth</p>
-        <p className="text-2xl font-bold mt-1">{fmtCurrency(r.balanceSheet?.netWorth ?? r.total)}</p>
+        <p className="text-sm text-muted-foreground">Safe Net</p>
+        <p className="text-2xl font-bold mt-1">{fmtCurrency(safeNetValue)}</p>
+        <p className="text-xs text-muted-foreground">
+          NW {fmtCurrencyShort(r.balanceSheet?.netWorth ?? r.total)}
+        </p>
       </div>
       <div data-slot="card" className="liquid-glass p-4">
         <p className="text-xs sm:text-sm text-muted-foreground">Savings Rate</p>
