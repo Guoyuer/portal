@@ -20,7 +20,7 @@ export function MacroCards({ snapshot }: { snapshot: EconSnapshot }) {
       {visible.map((ind) => (
         <div key={ind.key} className="liquid-glass-thin px-3 sm:px-4 pt-2 sm:pt-3 pb-2 sm:pb-3">
           <p className="text-[10px] sm:text-xs text-muted-foreground">{ind.label}</p>
-          <p className="text-sm sm:text-lg font-bold mt-0.5">{ind.format(snapshot[ind.key]!)}</p>
+          <p className="text-base sm:text-lg font-bold mt-0.5">{ind.format(snapshot[ind.key]!)}</p>
         </div>
       ))}
     </div>

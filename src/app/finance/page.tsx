@@ -29,7 +29,7 @@ import { BackToTop } from "@/components/layout/back-to-top";
 function PerformersTable({ title, data }: { title: string; data: StockDetail[] }) {
   if (data.length === 0) return null;
   return (
-    <div className="mb-6">
+    <div className="mb-6 overflow-x-auto">
       <h3 className="font-semibold mb-2">{title}</h3>
       <Table>
         <TableHeader><TableRow>

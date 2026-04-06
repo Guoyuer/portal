@@ -107,7 +107,7 @@ export default function Sidebar() {
             onClick={() => setOpen(false)}
             className={`flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition-all duration-200 ${
               active
-                ? "bg-white/25 dark:bg-white/12 font-semibold border border-white/50 dark:border-white/20 backdrop-blur-sm"
+                ? "bg-black/8 dark:bg-white/12 font-semibold border border-black/10 dark:border-white/20 backdrop-blur-sm"
                 : item.comingSoon
                   ? "cursor-default text-current/40"
                   : "text-current/70 hover:text-current hover:bg-white/10"
@@ -183,7 +183,7 @@ export default function Sidebar() {
 
       {/* Mobile drawer */}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 w-56 liquid-glass-sidebar transition-transform duration-200 md:hidden ${
+        className={`fixed inset-y-0 left-0 z-40 w-48 liquid-glass-sidebar transition-transform duration-200 md:hidden ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
