@@ -158,7 +158,7 @@ def _fidelity_date_to_ym(date_str: str) -> str:
         return ""
 
 
-def _build_activity(transactions: list[FidelityTransaction], report_month: str = "") -> ActivityData:
+def _build_activity(transactions: list[FidelityTransaction], report_month: str) -> ActivityData:
     """Build ActivityData from Fidelity transaction records.
 
     If report_month is set (e.g., '2026-03'), only include transactions
@@ -252,7 +252,8 @@ def _build_balance_sheet_from_snapshot(
     account_tiers = {acct: classify_account(acct, config) for acct in snapshot.get("balances", {})}
 
     # Fidelity total = positions CSV total minus manual entries (those come from Qianji)
-    manual_tickers = set(config["manual"].keys())
+    ticker_map = config["qianji_accounts"].get("ticker_map", {})
+    manual_tickers = set(ticker_map.values()) | {"CNY Assets"}
     fidelity_total = sum(v for t, v in portfolio["totals"].items() if t not in manual_tickers)
 
     # Group non-Fidelity accounts by tier
@@ -314,7 +315,7 @@ def _latest_complete_month(cashflow: list[QianjiRecord]) -> str:
     return latest
 
 
-def _build_cashflow(cashflow: list[QianjiRecord], config: Config, report_month: str = "") -> CashFlowData:
+def _build_cashflow(cashflow: list[QianjiRecord], config: Config, report_month: str) -> CashFlowData:
     """Build CashFlowData from Qianji cashflow records for the given month."""
     target_month = report_month or _latest_complete_month(cashflow)
     fidelity_accounts = _fidelity_account_set(config)

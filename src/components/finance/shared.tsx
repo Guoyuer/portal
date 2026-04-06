@@ -32,7 +32,7 @@ export function DeviationCell({ value }: { value: number }) {
     <TableCell
       className={`text-right ${valueColor(value)}`}
     >
-      {fmtPct(value)}
+      {fmtPct(value, true)}
     </TableCell>
   );
 }

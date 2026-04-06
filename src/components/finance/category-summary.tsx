@@ -133,9 +133,6 @@ export function CategorySummary({ report: r }: { report: ReportData }) {
             </TableRow>
           </TableBody>
         </Table>
-        <p className="mt-3 text-sm text-muted-foreground">
-          {r.goalPct.toFixed(2)}% of {fmtCurrency(r.goal)} goal
-        </p>
         </div>
         <div className="lg:w-80 flex-shrink-0">
           <AllocationDonut categories={allCategories} total={totalValue} />

@@ -11,7 +11,7 @@ export function fmtCurrencyShort(val: number): string {
   return fmtCurrency(val);
 }
 
-export function fmtPct(val: number, signed = true): string {
+export function fmtPct(val: number, signed: boolean): string {
   if (signed) {
     const sign = val >= 0 ? "+" : "";
     return `${sign}${val.toFixed(1)}%`;

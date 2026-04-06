@@ -44,7 +44,7 @@ export function NetWorthGrowth({ data: trend }: { data: SnapshotPoint[] }) {
           <div className="text-center p-4">
             <p className="text-sm text-muted-foreground">MoM Change</p>
             <p className={`text-3xl font-bold ${valueColor(mom)}`}>
-              {fmtPct(mom)}
+              {fmtPct(mom, true)}
             </p>
             <p className={`text-sm ${valueColor(momDelta)}`}>
               {fmtCurrency(momDelta)}
@@ -53,7 +53,7 @@ export function NetWorthGrowth({ data: trend }: { data: SnapshotPoint[] }) {
           <div className="text-center p-4">
             <p className="text-sm text-muted-foreground">YoY Change</p>
             <p className={`text-3xl font-bold ${valueColor(yoy)}`}>
-              {fmtPct(yoy)}
+              {fmtPct(yoy, true)}
             </p>
             <p className={`text-sm ${valueColor(yoyDelta)}`}>
               {fmtCurrency(yoyDelta)}

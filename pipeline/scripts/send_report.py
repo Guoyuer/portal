@@ -42,27 +42,28 @@ def _build_report(data_dir: Path):  # noqa: ANN202
     config = load_config(config_path)
     _log(f"Config: {config_path} ({len(config['assets'])} assets, goal=${config['goal']:,.0f})")
 
-    # ── Positions ────────────────────────────────────────────────────────
-    positions_csv = data_dir / "positions.csv"
-    if not positions_csv.exists():
-        raise SystemExit("No positions.csv found in data dir")
-    portfolio = load_portfolio(positions_csv, config)
-    _log(f"Portfolio: ${portfolio['total']:,.2f} ({len(portfolio['totals'])} tickers, {sum(portfolio['counts'].values())} lots)")
-
     # ── Qianji ───────────────────────────────────────────────────────────
     cashflow = None
     balance_snapshot = None
+    manual_values: dict[str, float] = {}
     db_path = data_dir / "qianjiapp.db"
     if db_path.exists():
         cashflow, balance_snapshot = load_all_from_db(db_path)
         if cashflow and balance_snapshot:
-            config["manual"] = manual_values_from_snapshot(balance_snapshot, config)
+            manual_values = manual_values_from_snapshot(balance_snapshot, config)
             n_accounts = len(balance_snapshot.get("balances", {}))
-            _log(f"Qianji: {len(cashflow)} records, {n_accounts} accounts, snapshot date={balance_snapshot.get('date', '?')}")
+            _log(f"Qianji: {len(cashflow)} records, {n_accounts} accounts, manual={len(manual_values)} tickers, snapshot date={balance_snapshot.get('date', '?')}")
         else:
             _log("Qianji: DB exists but no data loaded")
     else:
         _log("Qianji: no DB found")
+
+    # ── Positions ────────────────────────────────────────────────────────
+    positions_csv = data_dir / "positions.csv"
+    if not positions_csv.exists():
+        raise SystemExit("No positions.csv found in data dir")
+    portfolio = load_portfolio(positions_csv, config, manual_values=manual_values)
+    _log(f"Portfolio: ${portfolio['total']:,.2f} ({len(portfolio['totals'])} tickers, {sum(portfolio['counts'].values())} lots)")
 
     # ── Transactions ─────────────────────────────────────────────────────
     transactions = None

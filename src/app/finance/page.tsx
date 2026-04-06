@@ -42,9 +42,9 @@ function PerformersTable({ title, data }: { title: string; data: StockDetail[] }
           {data.map((s) => (
             <TableRow key={s.ticker} className="even:bg-muted/50">
               <TableCell className="font-mono">{s.ticker}</TableCell>
-              <TableCell className={`text-right ${valueColor(s.monthReturn)}`}>{fmtPct(s.monthReturn)}</TableCell>
+              <TableCell className={`text-right ${valueColor(s.monthReturn)}`}>{fmtPct(s.monthReturn, true)}</TableCell>
               <TableCell className="text-right">{fmtCurrency(s.endValue)}</TableCell>
-              <TableCell className={`text-right ${valueColor(s.vsHigh ?? -1)}`}>{s.vsHigh != null ? fmtPct(s.vsHigh) : "N/A"}</TableCell>
+              <TableCell className={`text-right ${valueColor(s.vsHigh ?? -1)}`}>{s.vsHigh != null ? fmtPct(s.vsHigh, true) : "N/A"}</TableCell>
             </TableRow>
           ))}
         </TableBody>

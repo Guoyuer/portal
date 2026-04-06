@@ -42,7 +42,7 @@ export function GainLoss({ report: r }: { report: ReportData }) {
         {fmtCurrency(h.gainLoss)}
       </TableCell>
       <TableCell className={`text-right ${valueColor(h.gainLossPct)}`}>
-        {fmtPct(h.gainLossPct)}
+        {fmtPct(h.gainLossPct, true)}
       </TableCell>
     </TableRow>
   );
@@ -81,7 +81,7 @@ export function GainLoss({ report: r }: { report: ReportData }) {
                               {fmtCurrency(h.gainLoss)}
                             </td>
                             <td className={`px-2 py-1.5 text-right ${valueColor(h.gainLossPct)}`}>
-                              {fmtPct(h.gainLossPct)}
+                              {fmtPct(h.gainLossPct, true)}
                             </td>
                           </tr>
                         ))}
@@ -99,7 +99,7 @@ export function GainLoss({ report: r }: { report: ReportData }) {
                 {fmtCurrency(totalGain)}
               </TableCell>
               <TableCell className={`text-right ${valueColor(totalGain)}`}>
-                {totalCost > 0 ? fmtPct(totalGain / totalCost * 100) : "\u2014"}
+                {totalCost > 0 ? fmtPct(totalGain / totalCost * 100, true) : "\u2014"}
               </TableCell>
             </TableRow>
           </TableBody>
