@@ -22,15 +22,17 @@ export function useActiveSection(ids: string[], ready = true) {
   useEffect(() => {
     if (!ready) return;
 
+    const visibleSet = new Set<string>();
     const observer = new IntersectionObserver(
       (entries) => {
         if (manualRef.current) return;
         for (const entry of entries) {
-          if (entry.isIntersecting) {
-            setActive(entry.target.id);
-            break;
-          }
+          if (entry.isIntersecting) visibleSet.add(entry.target.id);
+          else visibleSet.delete(entry.target.id);
         }
+        // Pick the first visible section in DOM order
+        const top = ids.find((id) => visibleSet.has(id));
+        if (top) setActive(top);
       },
       { rootMargin: "0px 0px -50% 0px", threshold: 0 },
     );
