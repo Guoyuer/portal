@@ -93,7 +93,6 @@ def load_config(path: Path) -> Config:
         weights=data["target_weights"],
         order=data.get("category_order", list(data["target_weights"].keys())),
         aliases=data.get("aliases", {}),
-        manual={},
         goal=data.get("goal", 0),
         qianji_accounts=data.get("qianji_accounts", {}),
     )

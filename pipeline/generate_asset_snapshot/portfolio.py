@@ -60,19 +60,22 @@ def _parse_rows(
     return totals, counts, cost_basis, gain_loss, gain_loss_pct
 
 
-def _apply_manual(
-    totals: dict[str, float],
-    counts: dict[str, int],
-    cost_basis: dict[str, float],
-    gain_loss: dict[str, float],
-    gain_loss_pct: dict[str, float],
+def load_portfolio(
+    csv_path: Path,
     config: Config,
+    manual_values: dict[str, float] | None = None,
 ) -> Portfolio:
-    """Add manual assets and return final Portfolio."""
-    for ticker, value in config["manual"].items():
+    """Load portfolio from a Fidelity CSV file with optional manual assets."""
+    try:
+        with csv_path.open(newline="", encoding="utf-8-sig") as f:
+            reader = csv.DictReader(f)
+            totals, counts, cost_basis, gain_loss, gain_loss_pct = _parse_rows(reader, config)
+    except FileNotFoundError as e:
+        raise PortfolioError(f"CSV not found: {csv_path}") from e
+    for ticker, value in (manual_values or {}).items():
         totals[ticker] += value
         counts[ticker] += 1
-    return Portfolio(
+    p = Portfolio(
         totals=totals,
         counts=counts,
         total=sum(totals.values()),
@@ -80,16 +83,5 @@ def _apply_manual(
         gain_loss=gain_loss,
         gain_loss_pct=gain_loss_pct,
     )
-
-
-def load_portfolio(csv_path: Path, config: Config) -> Portfolio:
-    """Load portfolio from a Fidelity CSV file."""
-    try:
-        with csv_path.open(newline="", encoding="utf-8-sig") as f:
-            reader = csv.DictReader(f)
-            totals, counts, cost_basis, gain_loss, gain_loss_pct = _parse_rows(reader, config)
-    except FileNotFoundError as e:
-        raise PortfolioError(f"CSV not found: {csv_path}") from e
-    p = _apply_manual(totals, counts, cost_basis, gain_loss, gain_loss_pct, config)
-    log.info("Portfolio: %d tickers, %d lots, total $%s (manual: %d)", len(p["totals"]), sum(p["counts"].values()), f"{p['total']:,.2f}", len(config["manual"]))
+    log.info("Portfolio: %d tickers, %d lots, total $%s (manual: %d)", len(p["totals"]), sum(p["counts"].values()), f"{p['total']:,.2f}", len(manual_values or {}))
     return p

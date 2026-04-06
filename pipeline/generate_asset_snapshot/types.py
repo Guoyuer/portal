@@ -79,7 +79,6 @@ class Config(TypedDict):
     weights: dict[str, float]
     order: list[str]
     aliases: dict[str, str]
-    manual: dict[str, float]
     goal: float
     qianji_accounts: QianjiAccountsConfig
 

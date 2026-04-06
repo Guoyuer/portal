@@ -252,7 +252,8 @@ def _build_balance_sheet_from_snapshot(
     account_tiers = {acct: classify_account(acct, config) for acct in snapshot.get("balances", {})}
 
     # Fidelity total = positions CSV total minus manual entries (those come from Qianji)
-    manual_tickers = set(config["manual"].keys())
+    ticker_map = config["qianji_accounts"].get("ticker_map", {})
+    manual_tickers = set(ticker_map.values()) | {"CNY Assets"}
     fidelity_total = sum(v for t, v in portfolio["totals"].items() if t not in manual_tickers)
 
     # Group non-Fidelity accounts by tier

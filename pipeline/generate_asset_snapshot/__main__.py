@@ -73,16 +73,17 @@ def main() -> None:
     # Load Qianji data directly from SQLite (auto-detected, no export needed)
     cashflow = None
     balance_snapshot = None
+    manual_values: dict[str, float] = {}
     if args.qianji_db.exists():
         cashflow, balance_snapshot = load_all_from_db(args.qianji_db)
         if cashflow and balance_snapshot:
-            config["manual"] = manual_values_from_snapshot(balance_snapshot, config)
+            manual_values = manual_values_from_snapshot(balance_snapshot, config)
             log.info("Qianji: %d records from %s", len(cashflow), args.qianji_db.name)
     else:
         log.warning("Qianji DB not found: %s", args.qianji_db)
 
     try:
-        portfolio = load_portfolio(csv_path, config)
+        portfolio = load_portfolio(csv_path, config, manual_values=manual_values)
     except PortfolioError as e:
         raise SystemExit(str(e)) from e
 
