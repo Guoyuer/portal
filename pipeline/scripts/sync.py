@@ -154,7 +154,8 @@ def _upload_meta(
 
     # Download existing meta from R2 to preserve other computer's values
     existing: dict[str, object] = {}
-    tmp_dl = Path(tempfile.mktemp(suffix=".json"))
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+        tmp_dl = Path(f.name)
     try:
         if _download("sync_meta.json", tmp_dl):
             existing = json.loads(tmp_dl.read_text())
@@ -163,10 +164,13 @@ def _upload_meta(
 
     meta = _merge_meta(existing, incoming)
 
-    tmp_up = Path(tempfile.mktemp(suffix=".json"))
-    tmp_up.write_text(json.dumps(meta, indent=2))
-    _upload(tmp_up, "sync_meta.json")
-    tmp_up.unlink()
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+        tmp_up = Path(f.name)
+    try:
+        tmp_up.write_text(json.dumps(meta, indent=2))
+        _upload(tmp_up, "sync_meta.json")
+    finally:
+        tmp_up.unlink(missing_ok=True)
 
 
 # ── macOS notification ───────────────────────────────────────────────────────
