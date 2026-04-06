@@ -172,7 +172,10 @@ function niceYDomain(data: SnapshotPoint[]): [number, number] {
   const min = Math.min(...vals);
   const max = Math.max(...vals);
   const step = 50_000;
-  return [Math.floor(min / step) * step, Math.ceil(max / step) * step];
+  let lo = Math.floor(min / step) * step;
+  let hi = Math.ceil(max / step) * step;
+  if (lo === hi) { lo -= step / 2; hi += step / 2; }
+  return [lo, hi];
 }
 
 export function NetWorthTrendChart({
