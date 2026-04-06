@@ -24,11 +24,11 @@ export function MetricCards({ report: r }: { report: ReportData }) {
         <div className="mt-2 flex justify-between text-xs">
           <div>
             <span className="inline-block w-2 h-2 rounded-sm bg-emerald-400 dark:bg-emerald-500 mr-1.5 align-middle" />
-            <span className="text-muted-foreground">Safe Net</span>
+            <span className="text-muted-foreground">Safe Net {Math.round(100 - invPct)}%</span>
             <p className="text-base font-semibold mt-0.5">{fmtCurrencyShort(safeNetValue)}</p>
           </div>
           <div className="text-right">
-            <span className="text-muted-foreground">Investment</span>
+            <span className="text-muted-foreground">{Math.round(invPct)}% Investment</span>
             <span className="inline-block w-2 h-2 rounded-sm bg-blue-500 ml-1.5 align-middle" />
             <p className="text-base font-semibold mt-0.5">{fmtCurrencyShort(investmentValue)}</p>
           </div>
