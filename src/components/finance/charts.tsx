@@ -4,11 +4,11 @@ import {
   Area,
   AreaChart,
   Bar,
+  BarChart,
+  Brush,
   CartesianGrid,
   Cell,
-  ComposedChart,
   Legend,
-  Line,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -81,7 +81,30 @@ export function AllocationDonut({
   );
 }
 
-// ── Grouped Bars + Line: Income vs Expenses ────────────────────────────────
+// ── Custom bar label: savings rate % above income bar ─────────────────────
+
+function SavingsLabel(props: Record<string, unknown>) {
+  const { x, y, width, index, data } = props as {
+    x: number; y: number; width: number; index: number;
+    data: MonthlyFlowPoint[];
+  };
+  const point = data[index];
+  if (!point || point.savingsRate <= 0) return null;
+  return (
+    <text
+      x={x + width / 2}
+      y={y - 6}
+      textAnchor="middle"
+      fontSize={9}
+      fill="#2563eb"
+      fontWeight={500}
+    >
+      {Math.round(point.savingsRate)}%
+    </text>
+  );
+}
+
+// ── Grouped Bars: Income vs Expenses ──────────────────────────────────────
 
 export function IncomeExpensesChart({
   data,
@@ -90,76 +113,70 @@ export function IncomeExpensesChart({
 }) {
   const isMobile = useIsMobile();
   const isDark = useIsDark();
-  // Skip months with zero income (likely incomplete)
-  const all = data.filter((d) => d.income > 0);
-  const filtered = isMobile ? all.slice(-12) : all;
+  const filtered = data.filter((d) => d.income > 0);
 
   return (
-    <ResponsiveContainer width="100%" height={isMobile ? 260 : 320}>
-      <ComposedChart
+    <ResponsiveContainer width="100%" height={isMobile ? 280 : 360}>
+      <BarChart
         data={filtered}
-        margin={{ top: 10, right: isMobile ? 5 : 40, left: isMobile ? -5 : 10, bottom: 0 }}
+        barGap={2}
+        barCategoryGap="20%"
+        margin={{ top: 20, right: 10, left: isMobile ? -5 : 10, bottom: 0 }}
       >
-        <CartesianGrid strokeDasharray="3 3" stroke={gridStroke(isDark)} />
+        <CartesianGrid vertical={false} stroke={gridStroke(isDark)} />
         <XAxis
           dataKey="month"
           tickFormatter={fmtMonth}
           fontSize={11}
-          tick={{ fill: "#9ca3af" }}
+          tick={{ fill: isDark ? "#9ca3af" : "#6b7280" }}
           axisLine={{ stroke: gridStroke(isDark) }}
           tickLine={false}
         />
         <YAxis
-          yAxisId="dollar"
           tickFormatter={fmtCurrencyShort}
           fontSize={11}
-          tick={{ fill: "#9ca3af" }}
+          tick={{ fill: isDark ? "#9ca3af" : "#6b7280" }}
           width={isMobile ? 38 : 50}
           axisLine={false}
           tickLine={false}
         />
-        {!isMobile && (
-          <YAxis
-            yAxisId="pct"
-            orientation="right"
-            tickFormatter={(v: number) => `${v.toFixed(0)}%`}
-            fontSize={11}
-            tick={{ fill: "#2563eb" }}
-            domain={[0, 100]}
-            width={40}
-            axisLine={false}
-            tickLine={false}
-          />
-        )}
         <Tooltip
           contentStyle={tooltipStyle(isDark)}
-          formatter={(value, name) => {
-            const v = Number(value);
-            if (name === "Savings %") return `${v.toFixed(1)}%`;
-            return `$${v.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
-          }}
+          formatter={(value) => `$${Number(value).toLocaleString("en-US", { maximumFractionDigits: 0 })}`}
           labelFormatter={(label) => fmtMonthYear(String(label))}
         />
-        <Legend />
-        <Bar yAxisId="dollar" dataKey="income" name="Income" fill={isDark ? "#4ade80" : "#27ae60"} opacity={0.85} radius={[2, 2, 0, 0]} />
-        <Bar yAxisId="dollar" dataKey="expenses" name="Expenses" fill={isDark ? "#f87171" : "#e94560"} opacity={0.85} radius={[2, 2, 0, 0]} />
-        {!isMobile && (
-          <Line
-            yAxisId="pct"
-            dataKey="savingsRate"
-            name="Savings %"
-            stroke="#2563eb"
-            strokeWidth={2}
-            strokeDasharray="4 3"
-            dot={false}
+        <Legend verticalAlign="top" height={28} />
+        <Bar dataKey="income" name="Income" fill={isDark ? "#4ade80" : "#27ae60"} opacity={0.85} radius={[2, 2, 0, 0]}
+          label={<SavingsLabel data={filtered} />}
+        />
+        <Bar dataKey="expenses" name="Expenses" fill={isDark ? "#f87171" : "#e94560"} opacity={0.85} radius={[2, 2, 0, 0]} />
+        {filtered.length > 12 && (
+          <Brush
+            dataKey="month"
+            height={24}
+            stroke={isDark ? "#4ade80" : "#27ae60"}
+            fill={isDark ? "rgba(30,95,58,0.3)" : "rgba(220,252,231,0.5)"}
+            tickFormatter={fmtMonth}
           />
         )}
-      </ComposedChart>
+      </BarChart>
     </ResponsiveContainer>
   );
 }
 
 // ── Area: Net Worth Trend ──────────────────────────────────────────────────
+
+/** Round Y-axis domain to nice $50k boundaries */
+function niceYDomain(data: SnapshotPoint[]): [number, number] {
+  const vals = data.map((d) => d.total);
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
+  const step = 50_000;
+  let lo = Math.floor(min / step) * step;
+  let hi = Math.ceil(max / step) * step;
+  if (lo === hi) { lo -= step / 2; hi += step / 2; }
+  return [lo, hi];
+}
 
 export function NetWorthTrendChart({
   data,
@@ -167,30 +184,42 @@ export function NetWorthTrendChart({
   data: SnapshotPoint[];
 }) {
   const isDark = useIsDark();
+  const isMobile = useIsMobile();
 
   if (data.length === 0) return null;
 
+  const [yMin, yMax] = niceYDomain(data);
+  const nwEndIdx = data.length - 1;
+  const nwStartIdx = Math.max(0, nwEndIdx - 11);
+  const brushColor = isDark ? "#60a5fa" : "#2563eb";
+
   return (
-    <ResponsiveContainer width="100%" height={250}>
+    <ResponsiveContainer width="100%" height={isMobile ? 260 : 300}>
       <AreaChart data={data} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
+        <defs>
+          <linearGradient id="nwGradient" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={isDark ? "#60a5fa" : "#2563eb"} stopOpacity={0.35} />
+            <stop offset="100%" stopColor={isDark ? "#60a5fa" : "#2563eb"} stopOpacity={0.02} />
+          </linearGradient>
+        </defs>
         <CartesianGrid strokeDasharray="3 3" stroke={gridStroke(isDark)} />
         <XAxis
           dataKey="date"
           tickFormatter={(d: string) => {
             const dt = new Date(d);
-            return dt.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+            return dt.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
           }}
           fontSize={11}
-          tick={{ fill: "#9ca3af" }}
+          tick={{ fill: isDark ? "#9ca3af" : "#6b7280" }}
           axisLine={{ stroke: gridStroke(isDark) }}
           tickLine={false}
         />
         <YAxis
           tickFormatter={fmtCurrencyShort}
           fontSize={11}
-          tick={{ fill: "#9ca3af" }}
+          tick={{ fill: isDark ? "#9ca3af" : "#6b7280" }}
           width={55}
-          domain={["dataMin - 10000", "dataMax + 10000"]}
+          domain={[yMin, yMax]}
           axisLine={false}
           tickLine={false}
         />
@@ -203,10 +232,24 @@ export function NetWorthTrendChart({
           type="monotone"
           dataKey="total"
           stroke={isDark ? "#60a5fa" : "#2563eb"}
-          fill={isDark ? "#1e3a5f" : "#dbeafe"}
-          fillOpacity={0.5}
+          fill="url(#nwGradient)"
           strokeWidth={2}
         />
+        {data.length > 12 && (
+          <Brush
+            key={`nw-brush-${data.length}`}
+            dataKey="date"
+            height={28}
+            stroke={brushColor}
+            fill={isDark ? "rgba(30,58,95,0.3)" : "rgba(219,234,254,0.5)"}
+            startIndex={nwStartIdx}
+            endIndex={nwEndIdx}
+            tickFormatter={(d: string) => {
+              const dt = new Date(d);
+              return dt.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+            }}
+          />
+        )}
       </AreaChart>
     </ResponsiveContainer>
   );

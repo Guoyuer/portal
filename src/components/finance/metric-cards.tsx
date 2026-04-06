@@ -15,7 +15,7 @@ export function MetricCards({ report: r }: { report: ReportData }) {
       <div data-slot="card" className="liquid-glass p-4 col-span-2">
         <div className="flex items-baseline justify-between">
           <p className="text-sm text-muted-foreground">Net Worth</p>
-          <p className="text-lg font-bold">{fmtCurrency(netWorth)}</p>
+          <p className="text-2xl font-bold tabular-nums">{fmtCurrency(netWorth)}</p>
         </div>
         <div className="mt-2 flex h-2 w-full rounded-full overflow-hidden">
           <div className="h-2 bg-emerald-400 dark:bg-emerald-500 transition-all" style={{ width: `${100 - invPct}%` }} />
@@ -25,12 +25,12 @@ export function MetricCards({ report: r }: { report: ReportData }) {
           <div>
             <span className="inline-block w-2 h-2 rounded-sm bg-emerald-400 dark:bg-emerald-500 mr-1.5 align-middle" />
             <span className="text-muted-foreground">Safe Net {Math.round(100 - invPct)}%</span>
-            <p className="text-base font-semibold mt-0.5">{fmtCurrencyShort(safeNetValue)}</p>
+            <p className="text-base font-semibold tabular-nums mt-0.5">{fmtCurrencyShort(safeNetValue)}</p>
           </div>
           <div className="text-right">
             <span className="text-muted-foreground">{Math.round(invPct)}% Investment</span>
             <span className="inline-block w-2 h-2 rounded-sm bg-blue-500 ml-1.5 align-middle" />
-            <p className="text-base font-semibold mt-0.5">{fmtCurrencyShort(investmentValue)}</p>
+            <p className="text-base font-semibold tabular-nums mt-0.5">{fmtCurrencyShort(investmentValue)}</p>
           </div>
         </div>
       </div>

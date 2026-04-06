@@ -134,23 +134,23 @@ export default function FinancePage() {
         Portfolio Snapshot &mdash; {r.date}
       </h1>
 
-      {/* Data timestamps */}
+      {/* Data timestamps — compact */}
       {r.metadata && (
-        <p className="text-xs text-foreground/50 -mt-4">
-          Positions: {r.metadata.positionsDate || "?"} · History: {r.metadata.historyDate || "?"} · Expense Tracker: {r.metadata.qianjiDate || "?"}
+        <p className="text-[11px] text-foreground/40 -mt-6 font-mono tracking-tight">
+          Data: {r.metadata.positionsDate || "?"} · {r.metadata.historyDate || "?"} · {r.metadata.qianjiDate || "?"}
         </p>
       )}
 
       {/* Section nav */}
-      <nav className="sticky top-0 z-30 -mx-6 pl-14 md:pl-6 pr-6 py-2 bg-background/80 backdrop-blur-xl backdrop-saturate-150 border-b border-white/20 dark:border-white/8 !rounded-none overflow-x-auto scrollbar-none flex gap-3 text-sm">
+      <nav className="sticky top-0 z-30 -mx-6 pl-14 md:pl-6 pr-6 py-2 bg-background/80 backdrop-blur-xl backdrop-saturate-150 border-b border-white/20 dark:border-white/8 !rounded-none overflow-x-auto scrollbar-none flex gap-2 text-sm">
         {SECTION_IDS.map((id) => (
           <button
             key={id}
             onClick={() => scrollTo(id)}
-            className={`whitespace-nowrap pb-1 transition-colors ${
+            className={`whitespace-nowrap px-3 py-1 rounded-full transition-all ${
               active === id
-                ? "text-foreground font-medium border-b-2 border-foreground"
-                : "text-muted-foreground hover:text-foreground"
+                ? "bg-foreground/10 dark:bg-white/12 text-foreground font-medium"
+                : "text-muted-foreground hover:text-foreground hover:bg-foreground/5"
             }`}
           >
             {SECTION_LABELS[id]}

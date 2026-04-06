@@ -1,14 +1,13 @@
 import type { SnapshotPoint } from "@/lib/types";
 import { fmtCurrency, fmtPct } from "@/lib/format";
 import { valueColor } from "@/lib/style-helpers";
-import { SectionHeader, SectionBody } from "@/components/finance/shared";
+import { SectionBody } from "@/components/finance/shared";
 import { NetWorthTrendChart } from "@/components/finance/charts";
 
 export function NetWorthGrowth({ data: trend }: { data: SnapshotPoint[] }) {
   if (trend.length < 2) {
     return (
       <section>
-        <SectionHeader>Net Worth</SectionHeader>
         <SectionBody>
           {trend.length === 1 ? (
             <NetWorthTrendChart data={trend} />
@@ -38,26 +37,19 @@ export function NetWorthGrowth({ data: trend }: { data: SnapshotPoint[] }) {
 
   return (
     <section>
-      <SectionHeader>Net Worth</SectionHeader>
       <SectionBody>
-        <div className="grid grid-cols-2 gap-6 mb-4">
-          <div className="text-center p-4">
-            <p className="text-sm text-muted-foreground">MoM Change</p>
-            <p className={`text-3xl font-bold ${valueColor(mom)}`}>
-              {fmtPct(mom, true)}
-            </p>
-            <p className={`text-sm ${valueColor(momDelta)}`}>
-              {fmtCurrency(momDelta)}
-            </p>
+        {/* MoM / YoY badges — integrated into chart header */}
+        <div className="flex items-center gap-4 mb-4">
+          <div>
+            <span className="text-xs text-muted-foreground mr-1.5">MoM</span>
+            <span className={`text-sm font-semibold ${valueColor(mom)}`}>{fmtPct(mom, true)}</span>
+            <span className={`text-xs ml-1 ${valueColor(momDelta)}`}>{fmtCurrency(momDelta)}</span>
           </div>
-          <div className="text-center p-4">
-            <p className="text-sm text-muted-foreground">YoY Change</p>
-            <p className={`text-3xl font-bold ${valueColor(yoy)}`}>
-              {fmtPct(yoy, true)}
-            </p>
-            <p className={`text-sm ${valueColor(yoyDelta)}`}>
-              {fmtCurrency(yoyDelta)}
-            </p>
+          <div className="w-px h-4 bg-border" />
+          <div>
+            <span className="text-xs text-muted-foreground mr-1.5">YoY</span>
+            <span className={`text-sm font-semibold ${valueColor(yoy)}`}>{fmtPct(yoy, true)}</span>
+            <span className={`text-xs ml-1 ${valueColor(yoyDelta)}`}>{fmtCurrency(yoyDelta)}</span>
           </div>
         </div>
         <NetWorthTrendChart data={trend} />
