@@ -93,7 +93,7 @@ export default function FinancePage() {
     });
   }, [r]);
 
-  const NAV_IDS = useMemo(() => ["net-worth", "allocation", "cashflow", "portfolio-activity", "balance-sheet", "holdings", "market"], []);
+  const NAV_IDS = useMemo(() => ["net-worth", "allocation", "cashflow", "fidelity-activity", "holdings", "market"], []);
   const { active, scrollTo } = useActiveSection(NAV_IDS, !!r);
 
   if (loading) {
@@ -133,7 +133,7 @@ export default function FinancePage() {
           ["net-worth", "Net Worth"],
           ["allocation", "Allocation"],
           ["cashflow", "Cash Flow"],
-          ["portfolio-activity", "Activity"],
+          ["fidelity-activity", "Fidelity Activity"],
           ["holdings", "Holdings"],
           ["market", "Market"],
         ].map(([id, label]) => (
@@ -190,8 +190,8 @@ export default function FinancePage() {
 
       {/* ── 5. Portfolio Activity ───────────────────────────────────────── */}
       {r.activity && (
-        <section id="portfolio-activity">
-          <SectionHeader>Portfolio Activity</SectionHeader>
+        <section id="fidelity-activity">
+          <SectionHeader>Fidelity Activity</SectionHeader>
           <SectionBody>
             <PortfolioActivity activity={r.activity} reconciliation={r.reconciliation} />
           </SectionBody>

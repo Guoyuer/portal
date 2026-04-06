@@ -100,7 +100,7 @@ test.describe("Finance Report", () => {
   });
 
   test("shows investment activity with period", async ({ page }) => {
-    await expect(page.getByText("Portfolio Activity")).toBeVisible();
+    await expect(page.getByText("Fidelity Activity")).toBeVisible();
     // Period dates
     await expect(page.getByText(/\d{2}\/\d{2}\/\d{4}/)).toBeVisible();
   });
@@ -144,7 +144,7 @@ test.describe("Finance Report", () => {
   test("page renders all major sections in order", async ({ page }) => {
     await expect(page.getByText("Category Summary")).toBeVisible();
     await expect(page.getByText(/Cash Flow —/)).toBeVisible();
-    await expect(page.getByText("Portfolio Activity")).toBeVisible();
+    await expect(page.getByText("Fidelity Activity")).toBeVisible();
   });
 
   // ── Charts ─────────────────────────────────────────────────────────────
