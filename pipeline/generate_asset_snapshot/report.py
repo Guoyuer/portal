@@ -18,7 +18,6 @@ from .analysis import (
     group_by_subtype,
     pct,
 )
-from .config import classify_account
 from .core.reconcile import CrossReconciliationData, cross_reconcile
 from .types import (
     ACT_BUY,
@@ -37,10 +36,6 @@ from .types import (
     QJ_REPAYMENT,
     QJ_TRANSFER,
     SUBTYPE_ORDER,
-    TIER_CNY,
-    TIER_CREDIT,
-    TIER_FIDELITY,
-    AccountBalance,
     ActivityData,
     AnnualCategoryTotal,
     AnnualSummary,
@@ -247,48 +242,20 @@ def _build_balance_sheet_from_snapshot(
     - Qianji snapshot + flows: authoritative for bank, cash, CNY, credit cards
     - No double-counting: Fidelity accounts in Qianji are skipped
     """
-    # Classify all accounts once, filter out Fidelity-tracked and zero balances
-    cny_rate = snapshot["cny_rate"]
-    account_tiers = {acct: classify_account(acct, config) for acct in snapshot.get("balances", {})}
+    # Sum credit card liabilities from Qianji balances
+    total_liabilities = 0.0
+    credit_accounts = set(config["qianji_accounts"].get("credit", []))
+    for acct, bal in snapshot.get("balances", {}).items():
+        if acct in credit_accounts and bal < 0:
+            total_liabilities += abs(bal)
 
-    # Fidelity total = positions CSV total minus manual entries (those come from Qianji)
-    ticker_map = config["qianji_accounts"].get("ticker_map", {})
-    manual_tickers = set(ticker_map.values()) | {"CNY Assets"}
-    fidelity_total = sum(v for t, v in portfolio["totals"].items() if t not in manual_tickers)
-
-    # Group non-Fidelity accounts by tier
-    cny_assets: list[AccountBalance] = []
-    credit_cards: list[AccountBalance] = []
-    cash_assets: list[AccountBalance] = []
-
-    ticker_map_accounts = set(config["qianji_accounts"].get("ticker_map", {}).keys())
-    for acct, bal in sorted(snapshot.get("balances", {}).items()):
-        tier = account_tiers[acct]
-        if tier == TIER_FIDELITY or acct in ticker_map_accounts or abs(bal) < 0.01:
-            continue
-        entry = AccountBalance(name=acct, balance=bal, currency="CNY" if tier == TIER_CNY else "USD")
-        if tier == TIER_CNY:
-            cny_assets.append(entry)
-        elif tier == TIER_CREDIT:
-            credit_cards.append(entry)
-        else:
-            cash_assets.append(entry)
-
-    cny_total_usd = sum(a.balance for a in cny_assets) / cny_rate if cny_assets else 0
-    cash_total = sum(a.balance for a in cash_assets)
-    total_liabilities = abs(sum(a.balance for a in credit_cards if a.balance < 0))
-    # Portfolio total already includes all assets (Fidelity + manual entries)
     total_assets = portfolio["total"]
     net_worth = total_assets - total_liabilities
 
-    log.info("Balance sheet: assets=$%s (portfolio=$%s), liabilities=$%s, net_worth=$%s", f"{total_assets:,.0f}", f"{portfolio['total']:,.0f}", f"{total_liabilities:,.0f}", f"{net_worth:,.0f}")
+    log.info("Balance sheet: assets=$%s, liabilities=$%s, net_worth=$%s", f"{total_assets:,.0f}", f"{total_liabilities:,.0f}", f"{net_worth:,.0f}")
     return BalanceSheetData(
-        investment_total=fidelity_total,
-        accounts=cash_assets + cny_assets,
-        accounts_total=cash_total + cny_total_usd,
-        credit_cards=credit_cards,
-        total_liabilities=total_liabilities,
         total_assets=total_assets,
+        total_liabilities=total_liabilities,
         net_worth=net_worth,
     )
 

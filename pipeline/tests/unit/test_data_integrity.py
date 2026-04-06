@@ -130,28 +130,6 @@ class TestCategoriesIncludeAllAssets:
         safe_net = next(c for c in all_cats if c.name == "Safe Net")
         assert safe_net.value >= 30_000  # SGOV 10k + Debit Cash 5k + I Bonds 20k + CNY Assets ~4.3k
 
-    def test_balance_sheet_excludes_ticker_map_accounts(self, tmp_path, full_config):
-        csv_path = write_csv(tmp_path, [
-            {"Symbol": "VOO", "Description": "VOO", "Current Value": "$50,000.00"},
-            {"Symbol": "SGOV", "Description": "SGOV", "Current Value": "$10,000.00"},
-        ])
-        manual = manual_values_from_snapshot(SNAPSHOT, full_config)
-        portfolio = load_portfolio(csv_path, full_config, manual_values=manual)
-        report = build_report(portfolio, full_config, "test_Jan-01-2026.csv", balance_snapshot=SNAPSHOT)
-
-        bs = report.balance_sheet
-        assert bs is not None
-        account_names = [a.name for a in bs.accounts]
-
-        # ticker_map accounts should NOT appear in balance sheet
-        assert "Chase Debit" not in account_names
-        assert "I bond" not in account_names
-        assert "Robinhood" not in account_names
-        assert "Alipay Funds" not in account_names
-
-        # Non-ticker_map CNY account should still appear
-        assert "建行卡" in account_names
-
     def test_total_assets_equals_portfolio_total(self, tmp_path, full_config):
         csv_path = write_csv(tmp_path, [
             {"Symbol": "VOO", "Description": "VOO", "Current Value": "$50,000.00"},

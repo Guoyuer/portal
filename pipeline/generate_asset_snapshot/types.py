@@ -195,24 +195,11 @@ class ActivityData:
 
 
 @dataclass
-class AccountBalance:
-    """Single account in the balance sheet."""
-
-    name: str  # "Chase Debit", "Amex Gold"
-    balance: float
-    currency: str  # "USD" or "CNY"
-
-
-@dataclass
 class BalanceSheetData:
     """Personal balance sheet from Qianji + Fidelity."""
 
-    investment_total: float  # from Fidelity positions
-    accounts: list[AccountBalance]  # non-Fidelity: cash, I bonds, CNY, etc.
-    accounts_total: float  # USD value of all non-Fidelity accounts
-    credit_cards: list[AccountBalance]  # credit card balances (negative)
-    total_liabilities: float
     total_assets: float
+    total_liabilities: float
     net_worth: float
 
 

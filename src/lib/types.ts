@@ -5,7 +5,6 @@ export type {
   SubtypeGroup,
   CategoryData,
   ActivityData,
-  AccountBalance,
   BalanceSheetData,
   CashFlowItem,
   CashFlowData,
