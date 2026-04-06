@@ -138,9 +138,12 @@ def manual_values_from_snapshot(
     result: dict[str, float] = {}
     for qj_account, ticker in ticker_map.items():
         if qj_account in balances:
-            result[ticker] = balances[qj_account]
+            val = balances[qj_account]
+            if qj_account in cny_accounts:
+                val = val / cny_rate
+            result[ticker] = val
 
-    cny_total = sum(balances.get(acct, 0) for acct in cny_accounts)
+    cny_total = sum(balances.get(acct, 0) for acct in cny_accounts if acct not in ticker_map)
     if cny_total > 0:
         result["CNY Assets"] = cny_total / cny_rate
 

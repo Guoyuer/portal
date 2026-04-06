@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 DEFAULT_CNY_RATE = 6.88
 
 EQUITY_CATEGORIES = ["US Equity", "Non-US Equity"]
-NON_EQUITY_CATEGORIES = ["Crypto", "Safe Net", "Hedge"]
+NON_EQUITY_CATEGORIES = ["Crypto", "Safe Net"]
 SUBTYPE_ORDER = ["broad", "growth", "other"]
 
 MIN_RECORDS_FOR_COMPLETE_MONTH = 25  # fewer records → likely partial month

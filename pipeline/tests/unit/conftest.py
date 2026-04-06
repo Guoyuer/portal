@@ -19,16 +19,15 @@ MINIMAL_CONFIG_DATA = {
         "VXUS": {"category": "Non-US Equity", "subtype": "broad"},
         "FBTC": {"category": "Crypto"},
         "SGOV": {"category": "Safe Net"},
-        "VGLT": {"category": "Hedge"},
+        "VGLT": {"category": "Safe Net"},
     },
     "target_weights": {
         "US Equity": 55,
         "Non-US Equity": 15,
         "Crypto": 5,
-        "Safe Net": 20,
-        "Hedge": 5,
+        "Safe Net": 25,
     },
-    "category_order": ["US Equity", "Non-US Equity", "Crypto", "Safe Net", "Hedge"],
+    "category_order": ["US Equity", "Non-US Equity", "Crypto", "Safe Net"],
 }
 
 ALL_TICKERS_ROWS = [

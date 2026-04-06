@@ -1,6 +1,6 @@
 import { Fragment } from "react";
-import type { ReportData } from "@/lib/types";
-import { fmtCurrency, fmtPct } from "@/lib/format";
+import type { ReportData, CategoryData } from "@/lib/types";
+import { fmtCurrency, fmtCurrencyShort, fmtPct } from "@/lib/format";
 import {
   Table,
   TableBody,
@@ -11,6 +11,24 @@ import {
 } from "@/components/ui/table";
 import { DeviationCell, SectionHeader, SectionBody, TOTAL_ROW_CLASS } from "@/components/finance/shared";
 import { AllocationDonut } from "@/components/finance/charts";
+
+function categoryTooltip(cat: CategoryData): string {
+  if (cat.subtypes.length > 0) {
+    return cat.subtypes
+      .map((st) => {
+        const items = st.holdings
+          .sort((a, b) => b.value - a.value)
+          .map((h) => `${h.ticker} (${fmtCurrencyShort(h.value)})`)
+          .join(", ");
+        return `${st.name}: ${items}`;
+      })
+      .join("\n");
+  }
+  return cat.holdings
+    .sort((a, b) => b.value - a.value)
+    .map((h) => `${h.ticker} (${fmtCurrencyShort(h.value)})`)
+    .join(", ");
+}
 
 export function CategorySummary({ report: r }: { report: ReportData }) {
   const allCategories = [...r.equityCategories, ...r.nonEquityCategories];
@@ -39,7 +57,7 @@ export function CategorySummary({ report: r }: { report: ReportData }) {
             {/* Equity categories */}
             {r.equityCategories.map((cat) => (
               <Fragment key={cat.name}>
-                <TableRow className="hover:bg-white/10 dark:hover:bg-white/5 transition-colors">
+                <TableRow className="hover:bg-white/10 dark:hover:bg-white/5 transition-colors" title={categoryTooltip(cat)}>
                   <TableCell className="font-medium">{cat.name}</TableCell>
                   <TableCell className="text-right hidden sm:table-cell">
                     {fmtCurrency(cat.value)}
@@ -84,7 +102,7 @@ export function CategorySummary({ report: r }: { report: ReportData }) {
               </TableCell>
             </TableRow>
             {r.nonEquityCategories.map((cat) => (
-              <TableRow key={cat.name} className="hover:bg-white/10 dark:hover:bg-white/5 transition-colors">
+              <TableRow key={cat.name} className="hover:bg-white/10 dark:hover:bg-white/5 transition-colors" title={categoryTooltip(cat)}>
                 <TableCell className="font-medium">{cat.name}</TableCell>
                 <TableCell className="text-right hidden sm:table-cell">
                   {fmtCurrency(cat.value)}
