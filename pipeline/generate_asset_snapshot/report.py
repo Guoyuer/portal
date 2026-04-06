@@ -158,7 +158,7 @@ def _fidelity_date_to_ym(date_str: str) -> str:
         return ""
 
 
-def _build_activity(transactions: list[FidelityTransaction], report_month: str = "") -> ActivityData:
+def _build_activity(transactions: list[FidelityTransaction], report_month: str) -> ActivityData:
     """Build ActivityData from Fidelity transaction records.
 
     If report_month is set (e.g., '2026-03'), only include transactions
@@ -315,7 +315,7 @@ def _latest_complete_month(cashflow: list[QianjiRecord]) -> str:
     return latest
 
 
-def _build_cashflow(cashflow: list[QianjiRecord], config: Config, report_month: str = "") -> CashFlowData:
+def _build_cashflow(cashflow: list[QianjiRecord], config: Config, report_month: str) -> CashFlowData:
     """Build CashFlowData from Qianji cashflow records for the given month."""
     target_month = report_month or _latest_complete_month(cashflow)
     fidelity_accounts = _fidelity_account_set(config)
