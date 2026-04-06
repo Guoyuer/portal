@@ -51,8 +51,7 @@ export function MetricCards({ report: r }: { report: ReportData }) {
       </div>
       <div data-slot="card" className="liquid-glass p-4">
         <p className="text-xs sm:text-sm text-muted-foreground">Goal</p>
-        <p className="text-xl sm:text-2xl font-bold mt-1">{Math.round(r.goalPct)}%</p>
-        <p className="text-xs text-muted-foreground">of {fmtCurrencyShort(r.goal)}</p>
+        <p className="text-xl sm:text-2xl font-bold mt-1">{Math.round(r.goalPct)}% <span className="text-xs font-normal text-muted-foreground">of {fmtCurrencyShort(r.goal)}</span></p>
         <div className="mt-2 h-2 w-full rounded-full bg-black/5 dark:bg-white/10">
           <div
             className="h-2 rounded-full bg-blue-500 transition-all"
