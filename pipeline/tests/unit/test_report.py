@@ -372,3 +372,104 @@ class TestLatestCompleteMonth:
         cf = report.cashflow
         assert cf is not None
         assert cf.period == "March 2026"
+
+
+# ── Cross Reconciliation ─────────────────────────────────────────────────────
+
+
+class TestCrossReconciliation:
+    def test_matches_deposit_to_transfer(self, report_config):
+        portfolio = make_portfolio({"VOO": 50_000})
+        txns = [
+            _txn("03/01/2026", ACT_DEPOSIT, 5000, desc="ELECTRONIC FUNDS TRANSFER"),
+            _txn("03/15/2026", ACT_BUY, -5000, "VOO"),
+        ]
+        records = [
+            _qj("2026-03-01", QJ_TRANSFER, 5000, account_to="Fidelity Brokerage"),
+            _qj("2026-03-01", QJ_INCOME, 10_000, "Salary"),
+        ]
+        report = build_report(portfolio, report_config, "test_Mar-01-2026.csv",
+                              transactions=txns, cashflow=records, report_month="2026-03")
+        xr = report.cross_reconciliation
+        assert xr is not None
+        assert len(xr.matched) == 1
+        assert xr.matched[0].amount == pytest.approx(5000)
+
+    def test_unmatched_deposits(self, report_config):
+        portfolio = make_portfolio({"VOO": 50_000})
+        txns = [
+            _txn("03/01/2026", ACT_DEPOSIT, 5000),
+            _txn("03/10/2026", ACT_DEPOSIT, 3000),
+        ]
+        records = [
+            _qj("2026-03-01", QJ_TRANSFER, 5000, account_to="Fidelity Brokerage"),
+            _qj("2026-03-01", QJ_INCOME, 10_000, "Salary"),
+        ]
+        report = build_report(portfolio, report_config, "test_Mar-01-2026.csv",
+                              transactions=txns, cashflow=records, report_month="2026-03")
+        xr = report.cross_reconciliation
+        assert xr is not None
+        assert len(xr.unmatched_fidelity) == 1
+        assert xr.unmatched_fidelity[0]["amount"] == pytest.approx(3000)  # unmatched are dicts
+
+    def test_no_cross_recon_without_both_sources(self, report_config):
+        portfolio = make_portfolio({"VOO": 50_000})
+        # Only transactions, no cashflow
+        txns = [_txn("03/01/2026", ACT_DEPOSIT, 5000)]
+        report = build_report(portfolio, report_config, "test_Mar-01-2026.csv", transactions=txns)
+        assert report.cross_reconciliation is None
+
+
+# ── Portfolio Reconciliation ─────────────────────────────────────────────────
+
+
+class TestPortfolioReconciliation:
+    def test_reconciliation_with_prev_totals(self, report_config):
+        portfolio = make_portfolio({"VOO": 55_000, "SGOV": 10_000})
+        prev = {"VOO": 50_000, "SGOV": 10_000}
+        txns = [_txn("03/01/2026", ACT_DEPOSIT, 5000)]
+        report = build_report(portfolio, report_config, "test_Mar-01-2026.csv",
+                              transactions=txns, prev_totals=prev, prev_date="February 01, 2026")
+        recon = report.reconciliation
+        assert recon is not None
+        assert recon.prev_date == "February 01, 2026"
+
+    def test_no_reconciliation_without_prev(self, report_config):
+        portfolio = make_portfolio({"VOO": 55_000})
+        txns = [_txn("03/01/2026", ACT_DEPOSIT, 5000)]
+        report = build_report(portfolio, report_config, "test_Mar-01-2026.csv", transactions=txns)
+        assert report.reconciliation is None
+
+
+# ── Full Report with All Sections ────────────────────────────────────────────
+
+
+class TestFullReportIntegration:
+    def test_all_optional_sections_populated(self, report_config):
+        portfolio = make_portfolio({"VOO": 55_000, "SGOV": 10_000})
+        snapshot = {"balances": {"Fidelity Brokerage": 65_000, "Amex Gold": -50}, "cny_rate": 7.0}
+        txns = [
+            _txn("03/01/2026", ACT_DEPOSIT, 5000),
+            _txn("03/05/2026", ACT_BUY, -5000, "VOO"),
+            _txn("03/15/2026", ACT_DIVIDEND, 30, "VOO"),
+        ]
+        records = [
+            _qj("2026-03-01", QJ_INCOME, 10_000, "Salary"),
+            _qj("2026-03-05", QJ_EXPENSE, 2_000, "Housing"),
+            _qj("2026-03-10", QJ_TRANSFER, 5000, account_to="Fidelity Brokerage"),
+        ] + [_qj(f"2026-03-{d:02d}", QJ_EXPENSE, 10, "Food") for d in range(1, 26)]
+        report = build_report(portfolio, report_config, "test_Mar-01-2026.csv",
+                              transactions=txns, cashflow=records, balance_snapshot=snapshot, report_month="2026-03")
+
+        assert report.activity is not None
+        assert report.cashflow is not None
+        assert report.balance_sheet is not None
+        assert report.cross_reconciliation is not None
+        assert report.annual_summary is not None
+        assert "2026" in report.date
+
+    def test_report_total_matches_portfolio(self, report_config):
+        portfolio = make_portfolio({"VOO": 55_000, "QQQM": 10_000, "VXUS": 15_000, "FBTC": 5_000, "SGOV": 10_000, "VGLT": 5_000})
+        report = build_report(portfolio, report_config, "test_Jan-01-2026.csv")
+        assert report.total == pytest.approx(100_000)
+        assert report.total_lots == 6
