@@ -17,7 +17,6 @@ import { MetricCards } from "@/components/finance/metric-cards";
 import { CategorySummary } from "@/components/finance/category-summary";
 import { CashFlow } from "@/components/finance/cash-flow";
 import { PortfolioActivity } from "@/components/finance/portfolio-activity";
-import { BalanceSheet } from "@/components/finance/balance-sheet";
 import { MarketContext } from "@/components/finance/market-context";
 import { GainLoss } from "@/components/finance/gain-loss";
 import { AnnualSummary } from "@/components/finance/annual-summary";
@@ -135,7 +134,6 @@ export default function FinancePage() {
           ["allocation", "Allocation"],
           ["cashflow", "Cash Flow"],
           ["portfolio-activity", "Activity"],
-          ["balance-sheet", "Balance Sheet"],
           ["holdings", "Holdings"],
           ["market", "Market"],
         ].map(([id, label]) => (
@@ -200,10 +198,7 @@ export default function FinancePage() {
         </section>
       )}
 
-      {/* ── 6. Balance Sheet ────────────────────────────────────────────── */}
-      {r.balanceSheet && <div id="balance-sheet"><BalanceSheet data={r.balanceSheet} /></div>}
-
-      {/* ── 7. Holdings ─────────────────────────────────────────────────── */}
+      {/* ── 6. Holdings ──────────────────────────────────────────────────── */}
       {(r.holdingsDetail || r.equityCategories.length > 0) && (
         <section id="holdings">
           <SectionHeader>Holdings Detail</SectionHeader>

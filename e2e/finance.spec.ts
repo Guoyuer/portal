@@ -128,17 +128,6 @@ test.describe("Finance Report", () => {
     }
   });
 
-  test("shows balance sheet with assets and liabilities", async ({ page }) => {
-    await expect(page.locator("#balance-sheet").getByText("Balance Sheet")).toBeVisible();
-    // Fidelity investment total
-    await expect(page.locator("#balance-sheet").getByRole("cell", { name: "Investments" })).toBeVisible();
-    // At least one personal account
-    // Accounts now flow through categories; balance sheet may show fewer individual accounts
-    // Liabilities section
-    await expect(page.getByRole("heading", { name: "Liabilities" })).toBeVisible();
-    // Net worth total
-    await expect(page.getByText("Net Worth").first()).toBeVisible();
-  });
 
   test("sidebar has navigation links", async ({ page }) => {
     const sidebar = page.locator("aside").first();
@@ -156,7 +145,6 @@ test.describe("Finance Report", () => {
     await expect(page.getByText("Category Summary")).toBeVisible();
     await expect(page.getByText(/Cash Flow —/)).toBeVisible();
     await expect(page.getByText("Portfolio Activity")).toBeVisible();
-    await expect(page.locator("#balance-sheet")).toBeAttached();
   });
 
   // ── Charts ─────────────────────────────────────────────────────────────
