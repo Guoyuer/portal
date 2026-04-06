@@ -132,7 +132,7 @@ def _build_report(data_dir: Path):  # noqa: ANN202
         if holdings_detail:
             top = [s.ticker for s in holdings_detail.top_performers[:3]]
             bottom = [s.ticker for s in holdings_detail.bottom_performers[:3]]
-            _log(f"Holdings: {len(holdings_detail.all_stocks)} stocks, top={top}, bottom={bottom} ({time.time() - t0:.1f}s)")
+            _log(f"Holdings: top={top}, bottom={bottom} ({time.time() - t0:.1f}s)")
         else:
             _log(f"Holdings: no data returned ({time.time() - t0:.1f}s)")
     except Exception as e:  # noqa: BLE001

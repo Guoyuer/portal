@@ -279,7 +279,6 @@ class HoldingsDetailData:
     top_performers: list[StockDetail]  # sorted by month_return desc, top 5
     bottom_performers: list[StockDetail]  # sorted by month_return asc, top 5
     upcoming_earnings: list[StockDetail]  # stocks with earnings in next 30 days
-    all_stocks: list[StockDetail]  # all individual stocks with data
 
 
 @dataclass

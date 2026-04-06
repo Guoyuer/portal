@@ -125,7 +125,6 @@ const HoldingsDetailDataSchema = z.object({
   topPerformers: z.array(StockDetailSchema),
   bottomPerformers: z.array(StockDetailSchema),
   upcomingEarnings: z.array(StockDetailSchema),
-  allStocks: z.array(StockDetailSchema).default([]),
 });
 
 // ── Annual Summary ───────────────────────────────────────────────────────

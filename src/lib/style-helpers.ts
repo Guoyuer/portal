@@ -25,8 +25,6 @@ export function savingsRateColor(rate: number): string {
 /** Cash-flow: expenses below this are grouped into "... and N more" */
 export const MAJOR_EXPENSE_THRESHOLD = 200;
 
-/** Balance sheet: group credit cards into one row when total < this */
-export const CC_GROUP_THRESHOLD = 500;
 
 /** Back-to-top button: show after scrolling past this many pixels */
 export const SCROLL_SHOW_THRESHOLD = 600;

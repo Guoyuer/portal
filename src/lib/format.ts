@@ -19,9 +19,6 @@ export function fmtPct(val: number, signed: boolean): string {
   return `${val.toFixed(1)}%`;
 }
 
-export function fmtYuan(val: number): string {
-  return `\u00a5${val.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
-}
 
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
