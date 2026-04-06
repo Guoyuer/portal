@@ -11,6 +11,20 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
+/** Merge income items below $10 into "Other" */
+function consolidateSmallItems(items: CashFlowData["incomeItems"], threshold = 10) {
+  const big = items.filter((i) => i.amount >= threshold);
+  const small = items.filter((i) => i.amount < threshold);
+  if (small.length === 0) return big;
+  const extraAmt = small.reduce((s, i) => s + i.amount, 0);
+  const extraCnt = small.reduce((s, i) => s + i.count, 0);
+  const existing = big.find((i) => i.category === "Other");
+  if (existing) {
+    return big.map((i) => i === existing ? { ...i, amount: i.amount + extraAmt, count: i.count + extraCnt } : i);
+  }
+  return [...big, { category: "Other", amount: extraAmt, count: extraCnt }];
+}
+
 export function CashFlow({ data }: { data: CashFlowData }) {
   const major = data.expenseItems.filter(
     (i) => i.amount >= MAJOR_EXPENSE_THRESHOLD
@@ -19,10 +33,11 @@ export function CashFlow({ data }: { data: CashFlowData }) {
     (i) => i.amount < MAJOR_EXPENSE_THRESHOLD
   );
   const minorTotal = minor.reduce((s, i) => s + i.amount, 0);
+  const incomeItems = consolidateSmallItems(data.incomeItems);
 
   return (
     <>
-      <div className="grid md:grid-cols-2 gap-6">
+      <div className="grid md:grid-cols-2 gap-6 items-start">
         {/* Income */}
         <div>
           <h3 className="font-semibold mb-2 text-foreground">Income</h3>
@@ -35,7 +50,7 @@ export function CashFlow({ data }: { data: CashFlowData }) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {data.incomeItems.map((item) => (
+              {incomeItems.map((item) => (
                 <TableRow
                   key={item.category}
                   className="even:bg-muted/50"
@@ -129,32 +144,29 @@ export function CashFlow({ data }: { data: CashFlowData }) {
         </div>
       </div>
 
-      {/* Cash Flow Summary */}
-      <div className="mt-6">
-        <h3 className="font-semibold mb-2">Summary</h3>
-        <p className="text-xs text-muted-foreground mb-2">Transfers excluded from income/expenses above</p>
-        <Table>
-          <TableBody>
-            <TableRow className="even:bg-muted/50">
-              <TableCell className="font-medium">Net Cash Flow</TableCell>
-              <TableCell className={`text-right font-semibold ${valueColor(data.netCashflow)}`}>
-                {fmtCurrency(data.netCashflow)}
-              </TableCell>
-            </TableRow>
-            <TableRow className="even:bg-muted/50">
-              <TableCell className="font-medium">Invested <span className="text-xs text-muted-foreground font-normal">(brokerage transfers)</span></TableCell>
-              <TableCell className="text-right">
-                {fmtCurrency(data.invested)}
-              </TableCell>
-            </TableRow>
-            <TableRow className="even:bg-muted/50">
-              <TableCell className="font-medium">CC Bill Payments <span className="text-xs text-muted-foreground font-normal">(not expenses)</span></TableCell>
-              <TableCell className="text-right">
-                {fmtCurrency(data.creditCardPayments)}
-              </TableCell>
-            </TableRow>
-          </TableBody>
-        </Table>
+      {/* Cash Flow Summary — bento cards */}
+      <div className="mt-6 pt-6 border-t border-border">
+        <p className="text-xs text-muted-foreground mb-3">Transfers excluded from income/expenses above</p>
+        <div className="grid grid-cols-3 gap-3">
+          <div className="rounded-xl bg-emerald-500/10 dark:bg-emerald-500/15 p-3">
+            <p className="text-xs text-muted-foreground">Net Cash Flow</p>
+            <p className={`text-lg font-bold tabular-nums mt-1 ${valueColor(data.netCashflow)}`}>
+              {fmtCurrency(data.netCashflow)}
+            </p>
+          </div>
+          <div className="rounded-xl bg-blue-500/10 dark:bg-blue-500/15 p-3">
+            <p className="text-xs text-muted-foreground">Invested</p>
+            <p className="text-lg font-bold tabular-nums mt-1 text-blue-600 dark:text-blue-400">
+              {fmtCurrency(data.invested)}
+            </p>
+          </div>
+          <div className="rounded-xl bg-foreground/5 dark:bg-white/5 p-3">
+            <p className="text-xs text-muted-foreground">CC Payments</p>
+            <p className="text-lg font-bold tabular-nums mt-1">
+              {fmtCurrency(data.creditCardPayments)}
+            </p>
+          </div>
+        </div>
       </div>
     </>
   );
