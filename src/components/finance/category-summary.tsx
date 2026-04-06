@@ -74,7 +74,7 @@ function HoldingsTooltip({ cat, children }: { cat: CategoryData; children: React
   );
 }
 
-export function CategorySummary({ report: r }: { report: ReportData }) {
+export function CategorySummary({ report: r, title }: { report: ReportData; title: string }) {
   const allCategories = [...r.equityCategories, ...r.nonEquityCategories];
   const totalValue = allCategories.reduce((s, c) => s + c.value, 0);
   const totalPct = allCategories.reduce((s, c) => s + c.pct, 0);
@@ -83,7 +83,7 @@ export function CategorySummary({ report: r }: { report: ReportData }) {
 
   return (
     <section>
-      <SectionHeader>Allocation</SectionHeader>
+      <SectionHeader>{title}</SectionHeader>
       <SectionBody>
         <div className="flex flex-col lg:flex-row gap-6">
         <div className="flex-1 min-w-0 overflow-x-auto scrollbar-none">

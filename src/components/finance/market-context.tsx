@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/table";
 import { SectionHeader, SectionBody } from "@/components/finance/shared";
 
-export function MarketContext({ data: m }: { data: MarketData }) {
+export function MarketContext({ data: m, title }: { data: MarketData; title: string }) {
   const indicators: { label: string; value: string; color?: string }[] = [];
   if (m.fedRate != null)
     indicators.push({ label: "Fed Rate", value: fmtPct(m.fedRate, false) });
@@ -42,7 +42,7 @@ export function MarketContext({ data: m }: { data: MarketData }) {
 
   return (
     <section>
-      <SectionHeader>Market</SectionHeader>
+      <SectionHeader>{title}</SectionHeader>
       <SectionBody>
         {/* Index Returns */}
         {m.indices.length > 0 && (
