@@ -86,17 +86,16 @@ test.describe("Finance Report", () => {
   });
 
   test("shows cash flow summary metrics", async ({ page }) => {
-    await expect(page.getByRole("cell", { name: "Net Cash Flow" })).toBeVisible();
-    await expect(page.getByRole("cell", { name: /Invested/ })).toBeVisible();
-    await expect(page.getByRole("cell", { name: /CC Bill Payments/ })).toBeVisible();
+    await expect(page.getByText("Net Cash Flow")).toBeVisible();
+    await expect(page.getByText("Invested")).toBeVisible();
+    await expect(page.getByText("CC Payments")).toBeVisible();
   });
 
   test("net cash flow uses correct color", async ({ page }) => {
-    const netRow = page.locator("tr").filter({ hasText: "Net Cash Flow" });
-    const valueCell = netRow.locator("td").nth(1);
-    const className = await valueCell.getAttribute("class");
+    const card = page.locator("text=Net Cash Flow").locator("..");
+    const valueEl = card.locator("p.font-bold");
+    const className = await valueEl.getAttribute("class");
     expect(className).toMatch(/text-(green-|emerald-|red-)/);
-
   });
 
   test("shows investment activity with period", async ({ page }) => {
