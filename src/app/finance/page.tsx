@@ -201,7 +201,7 @@ export default function FinancePage() {
       {/* ── 6. Holdings ──────────────────────────────────────────────────── */}
       {(r.holdingsDetail || r.equityCategories.length > 0) && (
         <section id="holdings">
-          <SectionHeader>Holdings Detail</SectionHeader>
+          <SectionHeader>Holdings</SectionHeader>
           <SectionBody>
             {r.holdingsDetail && (
               <>

@@ -27,7 +27,7 @@ test.describe("Finance Report", () => {
   });
 
   test("shows all category groups", async ({ page }) => {
-    await expect(page.getByText("Category Summary")).toBeVisible();
+    await expect(page.locator("#allocation")).toBeAttached();
     await expect(page.getByRole("cell", { name: "US Equity", exact: true })).toBeVisible();
     await expect(page.getByRole("cell", { name: "Non-US Equity" })).toBeVisible();
     await expect(page.getByRole("cell", { name: "Crypto" })).toBeVisible();
@@ -100,7 +100,7 @@ test.describe("Finance Report", () => {
   });
 
   test("shows investment activity with period", async ({ page }) => {
-    await expect(page.getByText("Fidelity Activity")).toBeVisible();
+    await expect(page.locator("#fidelity-activity")).toBeAttached();
     // Period dates
     await expect(page.getByText(/\d{2}\/\d{2}\/\d{4}/)).toBeVisible();
   });
@@ -142,15 +142,15 @@ test.describe("Finance Report", () => {
   });
 
   test("page renders all major sections in order", async ({ page }) => {
-    await expect(page.getByText("Category Summary")).toBeVisible();
+    await expect(page.locator("#allocation")).toBeAttached();
     await expect(page.getByText(/Cash Flow —/)).toBeVisible();
-    await expect(page.getByText("Fidelity Activity")).toBeVisible();
+    await expect(page.locator("#fidelity-activity")).toBeAttached();
   });
 
   // ── Charts ─────────────────────────────────────────────────────────────
 
   test("renders allocation donut chart", async ({ page }) => {
-    // Donut is inside Category Summary section
+    // Donut is inside Allocation section
     const donut = page.locator(".recharts-pie");
     await expect(donut).toBeVisible();
     // Legend labels
@@ -170,17 +170,17 @@ test.describe("Finance Report", () => {
     await expect(chartSection.getByText("Expenses").first()).toBeVisible();
   });
 
-  // ── Market Context ─────────────────────────────────────────────────────
+  // ── Market ─────────────────────────────────────────────────────
 
   test("shows market context with index returns", async ({ page }) => {
-    await expect(page.getByText("Market Context")).toBeVisible();
+    await expect(page.locator("#market")).toBeAttached();
     await expect(page.getByText("Index Returns")).toBeVisible();
     // At least one index
     await expect(page.getByText("SPY").or(page.getByText("S&P 500")).first()).toBeVisible();
   });
 
   test("market section renders without macro when FRED unavailable", async ({ page }) => {
-    await expect(page.getByText("Market Context")).toBeVisible();
+    await expect(page.locator("#market")).toBeAttached();
     await expect(page.getByText("Index Returns")).toBeVisible();
   });
 

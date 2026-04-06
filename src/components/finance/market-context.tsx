@@ -42,7 +42,7 @@ export function MarketContext({ data: m }: { data: MarketData }) {
 
   return (
     <section>
-      <SectionHeader>Market Context</SectionHeader>
+      <SectionHeader>Market</SectionHeader>
       <SectionBody>
         {/* Index Returns */}
         {m.indices.length > 0 && (
