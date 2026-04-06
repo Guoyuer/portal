@@ -50,8 +50,8 @@ export function AllocationDonut({
               innerRadius={65}
               outerRadius={105}
               dataKey="value"
-              stroke="#fff"
-              strokeWidth={2}
+              stroke="rgba(255,255,255,0.3)"
+              strokeWidth={1}
             >
               {data.map((_, i) => (
                 <Cell key={i} fill={COLORS[i % COLORS.length]} />
