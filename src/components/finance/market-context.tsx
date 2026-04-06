@@ -30,13 +30,13 @@ export function MarketContext({ data: m }: { data: MarketData }) {
   if (m.goldReturn != null)
     indicators.push({
       label: "Gold",
-      value: fmtPct(m.goldReturn),
+      value: fmtPct(m.goldReturn, true),
       color: valueColor(m.goldReturn),
     });
   if (m.btcReturn != null)
     indicators.push({
       label: "Bitcoin",
-      value: fmtPct(m.btcReturn),
+      value: fmtPct(m.btcReturn, true),
       color: valueColor(m.btcReturn),
     });
 
@@ -72,12 +72,12 @@ export function MarketContext({ data: m }: { data: MarketData }) {
                     <TableCell
                       className={`text-right ${valueColor(idx.monthReturn)}`}
                     >
-                      {fmtPct(idx.monthReturn)}
+                      {fmtPct(idx.monthReturn, true)}
                     </TableCell>
                     <TableCell
                       className={`text-right ${valueColor(idx.ytdReturn)}`}
                     >
-                      {fmtPct(idx.ytdReturn)}
+                      {fmtPct(idx.ytdReturn, true)}
                     </TableCell>
                   </TableRow>
                 ))}
