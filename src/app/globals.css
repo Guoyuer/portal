@@ -179,32 +179,27 @@
   animation: lg-blob-b 25s ease-in-out infinite alternate;
 }
 
-/* Blob C — rose, center-left (intersects with cards for depth) */
-.lg-blob-c {
+/* Blobs C & D — shared base */
+.lg-blob-c,
+.lg-blob-d {
   position: fixed;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.30;
+}
+.lg-blob-c {
   width: 480px; height: 480px;
   top: 25%; left: 25%;
   border-radius: 45% 55% 60% 40% / 50% 45% 55% 50%;
   filter: blur(75px);
-  opacity: 0.30;
-  z-index: 0;
-  pointer-events: none;
-
   background: radial-gradient(circle, rgba(244,114,182,0.5), rgba(251,146,60,0.2), transparent 65%);
   animation: lg-blob-c 22s ease-in-out infinite alternate;
 }
-
-/* Blob D — deep purple, bottom-center */
 .lg-blob-d {
-  position: fixed;
   width: 500px; height: 500px;
   bottom: -5%; left: 35%;
   border-radius: 50% 40% 55% 45% / 40% 55% 50% 50%;
   filter: blur(80px);
-  opacity: 0.30;
-  z-index: 0;
-  pointer-events: none;
-
   background: radial-gradient(circle, rgba(99,102,241,0.45), rgba(168,85,247,0.2), transparent 65%);
   animation: lg-blob-d 28s ease-in-out infinite alternate;
 }
