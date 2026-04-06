@@ -31,47 +31,47 @@ function HoldingsList({ holdings }: { holdings: HoldingData[] }) {
   );
 }
 
-function SubtypeTooltip({ holdings, children }: { holdings: HoldingData[]; children: React.ReactNode }) {
+function GlassTooltip({ content, children }: { content: React.ReactNode; children: React.ReactNode }) {
   const [show, setShow] = useState(false);
   const isDark = useIsDark();
-  if (holdings.length === 0) return <>{children}</>;
 
   return (
-    <span className="relative" onMouseEnter={() => setShow(true)} onMouseLeave={() => setShow(false)}>
+    <span
+      className="relative"
+      onMouseEnter={() => setShow(true)}
+      onMouseLeave={() => setShow(false)}
+      onFocus={() => setShow(true)}
+      onBlur={() => setShow(false)}
+      tabIndex={0}
+    >
       {children}
       {show && (
-        <div className="absolute left-0 top-full z-50 mt-1 w-max max-w-xs text-xs" style={tooltipStyle(isDark)}>
-          <HoldingsList holdings={holdings} />
+        <div
+          className="absolute left-0 top-full z-50 mt-1 w-max max-w-sm text-xs pointer-events-none"
+          role="tooltip"
+          style={tooltipStyle(isDark)}
+        >
+          {content}
         </div>
       )}
     </span>
   );
 }
 
-function HoldingsTooltip({ cat, children }: { cat: CategoryData; children: React.ReactNode }) {
-  const [show, setShow] = useState(false);
-  const isDark = useIsDark();
+function CategoryTooltip({ cat, children }: { cat: CategoryData; children: React.ReactNode }) {
   const hasHoldings = cat.holdings.length > 0 || cat.subtypes.some((s) => s.holdings.length > 0);
   if (!hasHoldings) return <>{children}</>;
 
-  return (
-    <div className="relative" onMouseEnter={() => setShow(true)} onMouseLeave={() => setShow(false)}>
-      {children}
-      {show && (
-        <div className="absolute left-0 top-full z-50 mt-1 w-max max-w-sm text-xs" style={tooltipStyle(isDark)}>
-          {cat.subtypes.length > 0
-            ? cat.subtypes.map((st) => (
-                <div key={st.name} className="mb-1.5 last:mb-0">
-                  <p className="font-semibold text-foreground/70 mb-0.5">{st.name}</p>
-                  <HoldingsList holdings={st.holdings} />
-                </div>
-              ))
-            : <HoldingsList holdings={cat.holdings} />
-          }
+  const content = cat.subtypes.length > 0
+    ? cat.subtypes.map((st) => (
+        <div key={st.name} className="mb-1.5 last:mb-0">
+          <p className="font-semibold text-foreground/70 mb-0.5">{st.name}</p>
+          <HoldingsList holdings={st.holdings} />
         </div>
-      )}
-    </div>
-  );
+      ))
+    : <HoldingsList holdings={cat.holdings} />;
+
+  return <GlassTooltip content={content}>{children}</GlassTooltip>;
 }
 
 export function CategorySummary({ report: r, title }: { report: ReportData; title: string }) {
@@ -103,7 +103,7 @@ export function CategorySummary({ report: r, title }: { report: ReportData; titl
               <Fragment key={cat.name}>
                 <TableRow className="hover:bg-white/10 dark:hover:bg-white/5 transition-colors">
                   <TableCell className="font-medium">
-                    <HoldingsTooltip cat={cat}>{cat.name}</HoldingsTooltip>
+                    <CategoryTooltip cat={cat}>{cat.name}</CategoryTooltip>
                   </TableCell>
                   <TableCell className="text-right hidden sm:table-cell">
                     {fmtCurrency(cat.value)}
@@ -122,9 +122,9 @@ export function CategorySummary({ report: r, title }: { report: ReportData; titl
                     className="hover:bg-white/10 dark:hover:bg-white/5 transition-colors"
                   >
                     <TableCell className="text-muted-foreground pl-6">
-                      <SubtypeTooltip holdings={sub.holdings}>
+                      <GlassTooltip content={<HoldingsList holdings={sub.holdings} />}>
                         <em>{sub.name}</em>
-                      </SubtypeTooltip>
+                      </GlassTooltip>
                     </TableCell>
                     <TableCell className="text-right text-muted-foreground hidden sm:table-cell">
                       {fmtCurrency(sub.value)}
@@ -151,7 +151,7 @@ export function CategorySummary({ report: r, title }: { report: ReportData; titl
             {r.nonEquityCategories.map((cat) => (
               <TableRow key={cat.name} className="hover:bg-white/10 dark:hover:bg-white/5 transition-colors">
                 <TableCell className="text-muted-foreground pl-6">
-                  <HoldingsTooltip cat={cat}><em>{cat.name}</em></HoldingsTooltip>
+                  <CategoryTooltip cat={cat}><em>{cat.name}</em></CategoryTooltip>
                 </TableCell>
                 <TableCell className="text-right hidden sm:table-cell">
                   {fmtCurrency(cat.value)}
