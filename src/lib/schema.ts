@@ -55,19 +55,9 @@ const ActivityDataSchema = z.object({
 
 // ── Balance Sheet ────────────────────────────────────────────────────────
 
-const AccountBalanceSchema = z.object({
-  name: z.string(),
-  balance: z.number(),
-  currency: z.string(),
-});
-
 const BalanceSheetDataSchema = z.object({
-  investmentTotal: z.number(),
-  accounts: z.array(AccountBalanceSchema),
-  accountsTotal: z.number(),
-  creditCards: z.array(AccountBalanceSchema),
-  totalLiabilities: z.number(),
   totalAssets: z.number(),
+  totalLiabilities: z.number(),
   netWorth: z.number(),
 });
 
@@ -135,7 +125,6 @@ const HoldingsDetailDataSchema = z.object({
   topPerformers: z.array(StockDetailSchema),
   bottomPerformers: z.array(StockDetailSchema),
   upcomingEarnings: z.array(StockDetailSchema),
-  allStocks: z.array(StockDetailSchema).default([]),
 });
 
 // ── Annual Summary ───────────────────────────────────────────────────────
@@ -247,7 +236,6 @@ export type HoldingData = z.infer<typeof HoldingDataSchema>;
 export type SubtypeGroup = z.infer<typeof SubtypeGroupSchema>;
 export type CategoryData = z.infer<typeof CategoryDataSchema>;
 export type ActivityData = z.infer<typeof ActivityDataSchema>;
-export type AccountBalance = z.infer<typeof AccountBalanceSchema>;
 export type BalanceSheetData = z.infer<typeof BalanceSheetDataSchema>;
 export type CashFlowItem = z.infer<typeof CashFlowItemSchema>;
 export type CashFlowData = z.infer<typeof CashFlowDataSchema>;

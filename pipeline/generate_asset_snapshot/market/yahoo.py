@@ -195,5 +195,4 @@ def build_holdings_detail(portfolio: Portfolio) -> HoldingsDetailData | None:
         top_performers=top,
         bottom_performers=bottom,
         upcoming_earnings=upcoming,
-        all_stocks=sorted_by_return,
     )

@@ -1,5 +1,7 @@
-import { Fragment } from "react";
-import type { ReportData, CategoryData } from "@/lib/types";
+"use client";
+
+import { Fragment, useState } from "react";
+import type { ReportData, CategoryData, HoldingData } from "@/lib/types";
 import { fmtCurrency, fmtCurrencyShort, fmtPct } from "@/lib/format";
 import {
   Table,
@@ -11,26 +13,68 @@ import {
 } from "@/components/ui/table";
 import { DeviationCell, SectionHeader, SectionBody, TOTAL_ROW_CLASS } from "@/components/finance/shared";
 import { AllocationDonut } from "@/components/finance/charts";
+import { tooltipStyle } from "@/lib/chart-styles";
+import { useIsDark } from "@/lib/hooks";
 
-function categoryTooltip(cat: CategoryData): string {
-  if (cat.subtypes.length > 0) {
-    return cat.subtypes
-      .map((st) => {
-        const items = st.holdings
-          .sort((a, b) => b.value - a.value)
-          .map((h) => `${h.ticker} (${fmtCurrencyShort(h.value)})`)
-          .join(", ");
-        return `${st.name}: ${items}`;
-      })
-      .join("\n");
-  }
-  return cat.holdings
-    .sort((a, b) => b.value - a.value)
-    .map((h) => `${h.ticker} (${fmtCurrencyShort(h.value)})`)
-    .join(", ");
+function HoldingsList({ holdings }: { holdings: HoldingData[] }) {
+  return (
+    <div className="grid grid-cols-[auto_auto] gap-x-3 gap-y-0">
+      {holdings
+        .sort((a, b) => b.value - a.value)
+        .map((h) => (
+          <Fragment key={h.ticker}>
+            <span className="font-mono">{h.ticker}</span>
+            <span className="text-right text-muted-foreground">{fmtCurrencyShort(h.value)}</span>
+          </Fragment>
+        ))}
+    </div>
+  );
 }
 
-export function CategorySummary({ report: r }: { report: ReportData }) {
+function SubtypeTooltip({ holdings, children }: { holdings: HoldingData[]; children: React.ReactNode }) {
+  const [show, setShow] = useState(false);
+  const isDark = useIsDark();
+  if (holdings.length === 0) return <>{children}</>;
+
+  return (
+    <span className="relative" onMouseEnter={() => setShow(true)} onMouseLeave={() => setShow(false)}>
+      {children}
+      {show && (
+        <div className="absolute left-0 top-full z-50 mt-1 w-max max-w-xs text-xs" style={tooltipStyle(isDark)}>
+          <HoldingsList holdings={holdings} />
+        </div>
+      )}
+    </span>
+  );
+}
+
+function HoldingsTooltip({ cat, children }: { cat: CategoryData; children: React.ReactNode }) {
+  const [show, setShow] = useState(false);
+  const isDark = useIsDark();
+  const hasHoldings = cat.holdings.length > 0 || cat.subtypes.some((s) => s.holdings.length > 0);
+  if (!hasHoldings) return <>{children}</>;
+
+  return (
+    <div className="relative" onMouseEnter={() => setShow(true)} onMouseLeave={() => setShow(false)}>
+      {children}
+      {show && (
+        <div className="absolute left-0 top-full z-50 mt-1 w-max max-w-sm text-xs" style={tooltipStyle(isDark)}>
+          {cat.subtypes.length > 0
+            ? cat.subtypes.map((st) => (
+                <div key={st.name} className="mb-1.5 last:mb-0">
+                  <p className="font-semibold text-foreground/70 mb-0.5">{st.name}</p>
+                  <HoldingsList holdings={st.holdings} />
+                </div>
+              ))
+            : <HoldingsList holdings={cat.holdings} />
+          }
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function CategorySummary({ report: r, title }: { report: ReportData; title: string }) {
   const allCategories = [...r.equityCategories, ...r.nonEquityCategories];
   const totalValue = allCategories.reduce((s, c) => s + c.value, 0);
   const totalPct = allCategories.reduce((s, c) => s + c.pct, 0);
@@ -39,10 +83,10 @@ export function CategorySummary({ report: r }: { report: ReportData }) {
 
   return (
     <section>
-      <SectionHeader>Category Summary</SectionHeader>
+      <SectionHeader>{title}</SectionHeader>
       <SectionBody>
         <div className="flex flex-col lg:flex-row gap-6">
-        <div className="flex-1 min-w-0 overflow-x-auto">
+        <div className="flex-1 min-w-0 overflow-x-auto scrollbar-none">
         <Table>
           <TableHeader>
             <TableRow>
@@ -57,8 +101,10 @@ export function CategorySummary({ report: r }: { report: ReportData }) {
             {/* Equity categories */}
             {r.equityCategories.map((cat) => (
               <Fragment key={cat.name}>
-                <TableRow className="hover:bg-white/10 dark:hover:bg-white/5 transition-colors" title={categoryTooltip(cat)}>
-                  <TableCell className="font-medium">{cat.name}</TableCell>
+                <TableRow className="hover:bg-white/10 dark:hover:bg-white/5 transition-colors">
+                  <TableCell className="font-medium">
+                    <HoldingsTooltip cat={cat}>{cat.name}</HoldingsTooltip>
+                  </TableCell>
                   <TableCell className="text-right hidden sm:table-cell">
                     {fmtCurrency(cat.value)}
                   </TableCell>
@@ -75,9 +121,10 @@ export function CategorySummary({ report: r }: { report: ReportData }) {
                     key={`${cat.name}-${sub.name}`}
                     className="hover:bg-white/10 dark:hover:bg-white/5 transition-colors"
                   >
-                    <TableCell className="text-muted-foreground">
-                      &nbsp;&nbsp;
-                      <em>{sub.name}</em>
+                    <TableCell className="text-muted-foreground pl-6">
+                      <SubtypeTooltip holdings={sub.holdings}>
+                        <em>{sub.name}</em>
+                      </SubtypeTooltip>
                     </TableCell>
                     <TableCell className="text-right text-muted-foreground hidden sm:table-cell">
                       {fmtCurrency(sub.value)}
@@ -102,8 +149,10 @@ export function CategorySummary({ report: r }: { report: ReportData }) {
               </TableCell>
             </TableRow>
             {r.nonEquityCategories.map((cat) => (
-              <TableRow key={cat.name} className="hover:bg-white/10 dark:hover:bg-white/5 transition-colors" title={categoryTooltip(cat)}>
-                <TableCell className="font-medium">{cat.name}</TableCell>
+              <TableRow key={cat.name} className="hover:bg-white/10 dark:hover:bg-white/5 transition-colors">
+                <TableCell className="text-muted-foreground pl-6">
+                  <HoldingsTooltip cat={cat}><em>{cat.name}</em></HoldingsTooltip>
+                </TableCell>
                 <TableCell className="text-right hidden sm:table-cell">
                   {fmtCurrency(cat.value)}
                 </TableCell>

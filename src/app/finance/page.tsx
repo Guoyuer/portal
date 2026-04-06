@@ -17,12 +17,28 @@ import { MetricCards } from "@/components/finance/metric-cards";
 import { CategorySummary } from "@/components/finance/category-summary";
 import { CashFlow } from "@/components/finance/cash-flow";
 import { PortfolioActivity } from "@/components/finance/portfolio-activity";
-import { BalanceSheet } from "@/components/finance/balance-sheet";
 import { MarketContext } from "@/components/finance/market-context";
 import { GainLoss } from "@/components/finance/gain-loss";
 import { AnnualSummary } from "@/components/finance/annual-summary";
 import { NetWorthGrowth } from "@/components/finance/net-worth-growth";
 import { BackToTop } from "@/components/layout/back-to-top";
+
+// ── Sections ─────────────────────────────────────────────────────────
+
+const SECTIONS = [
+  { id: "net-worth", label: "Net Worth" },
+  { id: "allocation", label: "Allocation" },
+  { id: "cashflow", label: "Cash Flow" },
+  { id: "fidelity-activity", label: "Fidelity Activity" },
+  { id: "holdings", label: "Holdings" },
+  { id: "market", label: "Market" },
+] as const;
+
+type SectionId = (typeof SECTIONS)[number]["id"];
+
+function sectionLabel(id: SectionId): string {
+  return SECTIONS.find((s) => s.id === id)!.label;
+}
 
 // ── Performers Table ──────────────────────────────────────────────────
 
@@ -94,8 +110,7 @@ export default function FinancePage() {
     });
   }, [r]);
 
-  const NAV_IDS = useMemo(() => ["net-worth", "allocation", "cashflow", "portfolio-activity", "balance-sheet", "holdings", "market"], []);
-  const { active, scrollTo } = useActiveSection(NAV_IDS, !!r);
+  const { active, scrollTo } = useActiveSection(SECTIONS.map((s) => s.id), !!r);
 
   if (loading) {
     return (
@@ -129,16 +144,8 @@ export default function FinancePage() {
       )}
 
       {/* Section nav */}
-      <nav className="sticky top-0 z-30 -mx-6 px-6 py-2 bg-background/80 backdrop-blur-xl backdrop-saturate-150 border-b border-white/20 dark:border-white/8 !rounded-none overflow-x-auto scrollbar-none flex gap-3 text-sm">
-        {[
-          ["net-worth", "Net Worth"],
-          ["allocation", "Allocation"],
-          ["cashflow", "Cash Flow"],
-          ["portfolio-activity", "Activity"],
-          ["balance-sheet", "Balance Sheet"],
-          ["holdings", "Holdings"],
-          ["market", "Market"],
-        ].map(([id, label]) => (
+      <nav className="sticky top-0 z-30 -mx-6 pl-14 md:pl-6 pr-6 py-2 bg-background/80 backdrop-blur-xl backdrop-saturate-150 border-b border-white/20 dark:border-white/8 !rounded-none overflow-x-auto scrollbar-none flex gap-3 text-sm">
+        {SECTIONS.map(({ id, label }) => (
           <button
             key={id}
             onClick={() => scrollTo(id)}
@@ -163,13 +170,13 @@ export default function FinancePage() {
 
       {/* ── 3. Allocation ───────────────────────────────────────────────── */}
       <div id="allocation">
-        <CategorySummary report={r} />
+        <CategorySummary report={r} title={sectionLabel("allocation")} />
       </div>
 
       {/* ── 4. Cash Flow ────────────────────────────────────────────────── */}
       {r.cashflow && (
         <section id="cashflow">
-          <SectionHeader>Cash Flow &mdash; {r.cashflow.period}</SectionHeader>
+          <SectionHeader>{sectionLabel("cashflow")} &mdash; {r.cashflow.period}</SectionHeader>
           <SectionBody>
             <CashFlow data={r.cashflow} />
             {r.chartData?.monthlyFlows && r.chartData.monthlyFlows.length > 0 && (
@@ -192,21 +199,18 @@ export default function FinancePage() {
 
       {/* ── 5. Portfolio Activity ───────────────────────────────────────── */}
       {r.activity && (
-        <section id="portfolio-activity">
-          <SectionHeader>Portfolio Activity</SectionHeader>
+        <section id="fidelity-activity">
+          <SectionHeader>{sectionLabel("fidelity-activity")}</SectionHeader>
           <SectionBody>
             <PortfolioActivity activity={r.activity} reconciliation={r.reconciliation} />
           </SectionBody>
         </section>
       )}
 
-      {/* ── 6. Balance Sheet ────────────────────────────────────────────── */}
-      {r.balanceSheet && <div id="balance-sheet"><BalanceSheet data={r.balanceSheet} /></div>}
-
-      {/* ── 7. Holdings ─────────────────────────────────────────────────── */}
+      {/* ── 6. Holdings ──────────────────────────────────────────────────── */}
       {(r.holdingsDetail || r.equityCategories.length > 0) && (
         <section id="holdings">
-          <SectionHeader>Holdings Detail</SectionHeader>
+          <SectionHeader>{sectionLabel("holdings")}</SectionHeader>
           <SectionBody>
             {r.holdingsDetail && (
               <>
@@ -233,7 +237,7 @@ export default function FinancePage() {
       )}
 
       {/* ── Market Context ──────────────────────────────────────────────── */}
-      {r.market && <div id="market"><MarketContext data={r.market} /></div>}
+      {r.market && <div id="market"><MarketContext data={r.market} title={sectionLabel("market")} /></div>}
 
       <BackToTop />
     </div>

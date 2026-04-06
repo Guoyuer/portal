@@ -12,13 +12,11 @@ from datetime import datetime
 from typing import Any
 
 from .analysis import (
-    aggregate_by_symbol,
     cat_value,
     get_tickers,
     group_by_subtype,
     pct,
 )
-from .config import classify_account
 from .core.reconcile import CrossReconciliationData, cross_reconcile
 from .types import (
     ACT_BUY,
@@ -37,10 +35,6 @@ from .types import (
     QJ_REPAYMENT,
     QJ_TRANSFER,
     SUBTYPE_ORDER,
-    TIER_CNY,
-    TIER_CREDIT,
-    TIER_FIDELITY,
-    AccountBalance,
     ActivityData,
     AnnualCategoryTotal,
     AnnualSummary,
@@ -164,15 +158,17 @@ def _build_activity(transactions: list[FidelityTransaction], report_month: str) 
     If report_month is set (e.g., '2026-03'), only include transactions
     from that month. Otherwise include all.
     """
-    deposits: list[FidelityTransaction] = []
-    withdrawals: list[FidelityTransaction] = []
-    buys: list[FidelityTransaction] = []
-    sells: list[FidelityTransaction] = []
-    dividends: list[FidelityTransaction] = []
+    deposit_total = 0.0
+    withdrawal_total = 0.0
+    buy_total = 0.0
+    sell_total = 0.0
+    dividend_total = 0.0
     reinvestments_total = 0.0
     interest_total = 0.0
     foreign_tax_total = 0.0
 
+    buys_agg: dict[str, list[float]] = defaultdict(list)
+    divs_agg: dict[str, list[float]] = defaultdict(list)
     dates: list[str] = []
 
     for txn in transactions:
@@ -180,15 +176,18 @@ def _build_activity(transactions: list[FidelityTransaction], report_month: str) 
             continue
         action = txn["action_type"]
         dates.append(txn["date"])
+        sym = (txn.get("symbol") or "").strip() or "Cash"
 
         if action == ACT_DEPOSIT:
-            deposits.append(txn)
+            deposit_total += txn["amount"]
         elif action == ACT_BUY:
-            buys.append(txn)
+            buy_total += abs(txn["amount"])
+            buys_agg[sym].append(abs(txn["amount"]))
         elif action == ACT_SELL:
-            sells.append(txn)
+            sell_total += txn["amount"]
         elif action == ACT_DIVIDEND:
-            dividends.append(txn)
+            dividend_total += txn["amount"]
+            divs_agg[sym].append(abs(txn["amount"]))
         elif action == ACT_REINVESTMENT:
             reinvestments_total += txn["amount"]
         elif action == ACT_INTEREST:
@@ -196,35 +195,27 @@ def _build_activity(transactions: list[FidelityTransaction], report_month: str) 
         elif action == ACT_FOREIGN_TAX:
             foreign_tax_total += txn["amount"]
         elif action == ACT_WITHDRAWAL:
-            withdrawals.append(txn)
+            withdrawal_total += txn["amount"]
 
     sorted_dates = sorted(d for d in dates if d)
     period_start = sorted_dates[0] if sorted_dates else ""
     period_end = sorted_dates[-1] if sorted_dates else ""
 
-    deposit_total = sum(t["amount"] for t in deposits)
-    withdrawal_total = sum(t["amount"] for t in withdrawals)
-    buy_total = sum(abs(t["amount"]) for t in buys)
-    sell_total = sum(t["amount"] for t in sells)
-    dividend_total = sum(t["amount"] for t in dividends)
+    def _agg_to_list(agg: dict[str, list[float]]) -> list[tuple[str, int, float]]:
+        return sorted([(sym, len(amts), sum(amts)) for sym, amts in agg.items()], key=lambda x: x[2], reverse=True)
 
     log.info("Activity %s\u2013%s: deposits=$%s buys=$%s sells=$%s dividends=$%s", period_start, period_end, f"{deposit_total:,.0f}", f"{buy_total:,.0f}", f"{sell_total:,.0f}", f"{dividend_total:,.0f}")
     return ActivityData(
         period_start=period_start,
         period_end=period_end,
-        deposits=deposits,
-        withdrawals=withdrawals,
-        buys=buys,
-        sells=sells,
-        dividends=dividends,
         reinvestments_total=reinvestments_total,
         interest_total=interest_total,
         foreign_tax_total=foreign_tax_total,
         net_cash_in=deposit_total - withdrawal_total,
         net_deployed=buy_total - sell_total,
         net_passive=dividend_total + interest_total - abs(foreign_tax_total),
-        buys_by_symbol=aggregate_by_symbol(buys),
-        dividends_by_symbol=aggregate_by_symbol(dividends),
+        buys_by_symbol=_agg_to_list(buys_agg),
+        dividends_by_symbol=_agg_to_list(divs_agg),
     )
 
 
@@ -247,48 +238,20 @@ def _build_balance_sheet_from_snapshot(
     - Qianji snapshot + flows: authoritative for bank, cash, CNY, credit cards
     - No double-counting: Fidelity accounts in Qianji are skipped
     """
-    # Classify all accounts once, filter out Fidelity-tracked and zero balances
-    cny_rate = snapshot["cny_rate"]
-    account_tiers = {acct: classify_account(acct, config) for acct in snapshot.get("balances", {})}
+    # Sum credit card liabilities from Qianji balances
+    total_liabilities = 0.0
+    credit_accounts = set(config["qianji_accounts"].get("credit", []))
+    for acct, bal in snapshot.get("balances", {}).items():
+        if acct in credit_accounts and bal < 0:
+            total_liabilities += abs(bal)
 
-    # Fidelity total = positions CSV total minus manual entries (those come from Qianji)
-    ticker_map = config["qianji_accounts"].get("ticker_map", {})
-    manual_tickers = set(ticker_map.values()) | {"CNY Assets"}
-    fidelity_total = sum(v for t, v in portfolio["totals"].items() if t not in manual_tickers)
-
-    # Group non-Fidelity accounts by tier
-    cny_assets: list[AccountBalance] = []
-    credit_cards: list[AccountBalance] = []
-    cash_assets: list[AccountBalance] = []
-
-    ticker_map_accounts = set(config["qianji_accounts"].get("ticker_map", {}).keys())
-    for acct, bal in sorted(snapshot.get("balances", {}).items()):
-        tier = account_tiers[acct]
-        if tier == TIER_FIDELITY or acct in ticker_map_accounts or abs(bal) < 0.01:
-            continue
-        entry = AccountBalance(name=acct, balance=bal, currency="CNY" if tier == TIER_CNY else "USD")
-        if tier == TIER_CNY:
-            cny_assets.append(entry)
-        elif tier == TIER_CREDIT:
-            credit_cards.append(entry)
-        else:
-            cash_assets.append(entry)
-
-    cny_total_usd = sum(a.balance for a in cny_assets) / cny_rate if cny_assets else 0
-    cash_total = sum(a.balance for a in cash_assets)
-    total_liabilities = abs(sum(a.balance for a in credit_cards if a.balance < 0))
-    # Portfolio total already includes all assets (Fidelity + manual entries)
     total_assets = portfolio["total"]
     net_worth = total_assets - total_liabilities
 
-    log.info("Balance sheet: assets=$%s (portfolio=$%s), liabilities=$%s, net_worth=$%s", f"{total_assets:,.0f}", f"{portfolio['total']:,.0f}", f"{total_liabilities:,.0f}", f"{net_worth:,.0f}")
+    log.info("Balance sheet: assets=$%s, liabilities=$%s, net_worth=$%s", f"{total_assets:,.0f}", f"{total_liabilities:,.0f}", f"{net_worth:,.0f}")
     return BalanceSheetData(
-        investment_total=fidelity_total,
-        accounts=cash_assets + cny_assets,
-        accounts_total=cash_total + cny_total_usd,
-        credit_cards=credit_cards,
-        total_liabilities=total_liabilities,
         total_assets=total_assets,
+        total_liabilities=total_liabilities,
         net_worth=net_worth,
     )
 

@@ -37,13 +37,6 @@ def render(report: ReportData, *, metadata: dict[str, str] | None = None) -> str
     Optional metadata (e.g., file timestamps) is included at top level.
     """
     data = asdict(report)
-    # Strip raw transaction lists — portal uses pre-computed aggregations
-    if data.get("activity"):
-        for key in ("deposits", "withdrawals", "buys", "sells", "dividends"):
-            data["activity"].pop(key, None)
-    # Strip allStocks from holdings detail — frontend only uses top/bottom/upcoming
-    if data.get("holdings_detail"):
-        data["holdings_detail"].pop("all_stocks", None)
     if metadata:
         data["metadata"] = metadata
     result = json.dumps(_camel_keys(data), indent=2, default=str)

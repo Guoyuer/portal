@@ -4,7 +4,6 @@ import json
 
 from generate_asset_snapshot.renderers.json_renderer import render
 from generate_asset_snapshot.types import (
-    AccountBalance,
     ActivityData,
     BalanceSheetData,
     CashFlowData,
@@ -80,65 +79,38 @@ class TestJsonOutput:
         assert "alerts" not in parsed
 
 
-class TestActivityStripping:
+class TestActivityRendering:
     def _report_with_activity(self) -> ReportData:
-        txn = {"date": "2026-03-15", "account": "Taxable", "action_type": "buy",
-               "symbol": "VOO", "description": "VANGUARD", "quantity": 1.0,
-               "price": 500.0, "amount": -500.0, "raw_action": "YOU BOUGHT",
-               "dedup_key": ("2026-03-15", "VOO", -500.0)}
         return _minimal_report(activity=ActivityData(
             period_start="2026-03-01", period_end="2026-03-31",
-            deposits=[], withdrawals=[], buys=[txn], sells=[], dividends=[],
             reinvestments_total=0, interest_total=0, foreign_tax_total=0,
             net_cash_in=0, net_deployed=500, net_passive=0,
             buys_by_symbol=[("VOO", 1, 500.0)], dividends_by_symbol=[],
         ))
 
-    def test_raw_transactions_stripped(self):
-        parsed = json.loads(render(self._report_with_activity()))
-        act = parsed["activity"]
-        assert "deposits" not in act
-        assert "buys" not in act
-        assert "sells" not in act
-        assert "dividends" not in act
-        assert "withdrawals" not in act
-
-    def test_aggregations_preserved(self):
+    def test_aggregations_rendered(self):
         parsed = json.loads(render(self._report_with_activity()))
         act = parsed["activity"]
         assert act["buysBySymbol"] == [["VOO", 1, 500.0]]
         assert act["netDeployed"] == 500
+        assert act["periodStart"] == "2026-03-01"
         assert act["periodStart"] == "2026-03-01"
 
 
 class TestBalanceSheet:
     def _report_with_bs(self) -> ReportData:
         return _minimal_report(balance_sheet=BalanceSheetData(
-            investment_total=80000,
-            accounts=[
-                AccountBalance(name="Chase", balance=5000, currency="USD"),
-                AccountBalance(name="建行卡", balance=70000, currency="CNY"),
-            ],
-            accounts_total=14629,
-            credit_cards=[AccountBalance(name="Amex", balance=100, currency="USD")],
-            total_liabilities=100,
             total_assets=94629,
+            total_liabilities=100,
             net_worth=94529,
         ))
 
     def test_structure(self):
         parsed = json.loads(render(self._report_with_bs()))
         bs = parsed["balanceSheet"]
-        assert bs["investmentTotal"] == 80000
+        assert bs["totalAssets"] == 94629
+        assert bs["totalLiabilities"] == 100
         assert bs["netWorth"] == 94529
-        assert len(bs["accounts"]) == 2
-        assert len(bs["creditCards"]) == 1
-
-    def test_cny_account(self):
-        parsed = json.loads(render(self._report_with_bs()))
-        cny = parsed["balanceSheet"]["accounts"][1]
-        assert cny["name"] == "建行卡"
-        assert cny["currency"] == "CNY"
 
 
 class TestChartData:

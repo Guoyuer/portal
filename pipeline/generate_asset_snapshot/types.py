@@ -179,40 +179,22 @@ class ActivityData:
 
     period_start: str  # "2026-03-12"
     period_end: str  # "2026-04-02"
-    deposits: list[FidelityTransaction]
-    withdrawals: list[FidelityTransaction]
-    buys: list[FidelityTransaction]
-    sells: list[FidelityTransaction]
-    dividends: list[FidelityTransaction]
     reinvestments_total: float
     interest_total: float
     foreign_tax_total: float
     net_cash_in: float  # deposits - withdrawals
     net_deployed: float  # buys - sells
     net_passive: float  # dividends + interest - foreign_tax
-    buys_by_symbol: list[tuple[str, int, float]] = field(default_factory=list)
-    dividends_by_symbol: list[tuple[str, int, float]] = field(default_factory=list)
-
-
-@dataclass
-class AccountBalance:
-    """Single account in the balance sheet."""
-
-    name: str  # "Chase Debit", "Amex Gold"
-    balance: float
-    currency: str  # "USD" or "CNY"
+    buys_by_symbol: list[tuple[str, int, float]]
+    dividends_by_symbol: list[tuple[str, int, float]]
 
 
 @dataclass
 class BalanceSheetData:
     """Personal balance sheet from Qianji + Fidelity."""
 
-    investment_total: float  # from Fidelity positions
-    accounts: list[AccountBalance]  # non-Fidelity: cash, I bonds, CNY, etc.
-    accounts_total: float  # USD value of all non-Fidelity accounts
-    credit_cards: list[AccountBalance]  # credit card balances (negative)
-    total_liabilities: float
     total_assets: float
+    total_liabilities: float
     net_worth: float
 
 
@@ -292,7 +274,6 @@ class HoldingsDetailData:
     top_performers: list[StockDetail]  # sorted by month_return desc, top 5
     bottom_performers: list[StockDetail]  # sorted by month_return asc, top 5
     upcoming_earnings: list[StockDetail]  # stocks with earnings in next 30 days
-    all_stocks: list[StockDetail]  # all individual stocks with data
 
 
 @dataclass
