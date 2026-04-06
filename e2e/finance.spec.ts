@@ -21,7 +21,7 @@ test.describe("Finance Report", () => {
     // Net Worth
     await expect(cards.getByText("Net Worth")).toBeVisible();
     // Savings Rate
-    await expect(cards.getByText("Monthly Savings Rate")).toBeVisible();
+    await expect(cards.getByText("Savings Rate")).toBeVisible();
     // Goal
     await expect(cards.getByText("Goal")).toBeVisible();
   });
@@ -216,8 +216,8 @@ test.describe("Finance Report", () => {
   });
 
   test("savings rate has conditional color", async ({ page }) => {
-    const card = page.locator("[data-slot='card']").filter({ hasText: "Monthly Savings Rate" });
-    const rate = card.locator("p.text-2xl").first();
+    const card = page.locator("[data-slot='card']").filter({ hasText: "Savings Rate" });
+    const rate = card.locator("p[class*='font-bold']").first();
     const className = await rate.getAttribute("class");
     // Should have one of the conditional colors
     expect(className).toMatch(/text-(green-|emerald-|yellow-|red-)/);
@@ -242,7 +242,7 @@ test.describe("Finance Report", () => {
   // ── Savings Rate Card ──────────────────────────────────────────────────
 
   test("savings rate card shows gross and take-home", async ({ page }) => {
-    const card = page.locator("[data-slot='card']").filter({ hasText: "Monthly Savings Rate" });
+    const card = page.locator("[data-slot='card']").filter({ hasText: "Savings Rate" });
     // Gross rate (large)
     await expect(card.getByText(/\d+%/).first()).toBeVisible();
     // Take-home (smaller text)
