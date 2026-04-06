@@ -42,14 +42,7 @@ def _build_report(data_dir: Path):  # noqa: ANN202
     config = load_config(config_path)
     _log(f"Config: {config_path} ({len(config['assets'])} assets, goal=${config['goal']:,.0f})")
 
-    # ── Positions ────────────────────────────────────────────────────────
-    positions_csv = data_dir / "positions.csv"
-    if not positions_csv.exists():
-        raise SystemExit("No positions.csv found in data dir")
-    portfolio = load_portfolio(positions_csv, config)
-    _log(f"Portfolio: ${portfolio['total']:,.2f} ({len(portfolio['totals'])} tickers, {sum(portfolio['counts'].values())} lots)")
-
-    # ── Qianji ───────────────────────────────────────────────────────────
+    # ── Qianji (must run before portfolio so manual values are available) ─
     cashflow = None
     balance_snapshot = None
     db_path = data_dir / "qianjiapp.db"
@@ -58,11 +51,18 @@ def _build_report(data_dir: Path):  # noqa: ANN202
         if cashflow and balance_snapshot:
             config["manual"] = manual_values_from_snapshot(balance_snapshot, config)
             n_accounts = len(balance_snapshot.get("balances", {}))
-            _log(f"Qianji: {len(cashflow)} records, {n_accounts} accounts, snapshot date={balance_snapshot.get('date', '?')}")
+            _log(f"Qianji: {len(cashflow)} records, {n_accounts} accounts, manual={len(config['manual'])} tickers, snapshot date={balance_snapshot.get('date', '?')}")
         else:
             _log("Qianji: DB exists but no data loaded")
     else:
         _log("Qianji: no DB found")
+
+    # ── Positions (after Qianji so manual values are included) ───────────
+    positions_csv = data_dir / "positions.csv"
+    if not positions_csv.exists():
+        raise SystemExit("No positions.csv found in data dir")
+    portfolio = load_portfolio(positions_csv, config)
+    _log(f"Portfolio: ${portfolio['total']:,.2f} ({len(portfolio['totals'])} tickers, {sum(portfolio['counts'].values())} lots)")
 
     # ── Transactions ─────────────────────────────────────────────────────
     transactions = None

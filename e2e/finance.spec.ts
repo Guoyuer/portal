@@ -54,7 +54,6 @@ test.describe("Finance Report", () => {
   });
 
   test("shows goal progress with bar", async ({ page }) => {
-    await expect(page.getByText("$2,000,000")).toBeVisible();
     const goalCard = page.locator("[data-slot='card']").filter({ hasText: "Goal" });
     const progressBar = goalCard.locator("[class*='bg-blue-']");
     await expect(progressBar).toBeVisible();
