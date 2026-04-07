@@ -80,25 +80,61 @@ def fetch_cny_rate() -> float:
 
 
 def build_market_data(cny_rate: float) -> MarketData | None:
-    """Fetch index returns and build MarketData. Returns None on failure."""
-    tickers = ["SPY", "QQQ", "VT"]
-    idx_month = fetch_index_returns(tickers, period="1mo")
-    idx_ytd = fetch_index_returns(tickers, period="ytd")
-    if not idx_month:
+    """Fetch index data and build MarketData.
+
+    A single 1-year download provides everything: month return, YTD return,
+    52-week high/low, and sparkline.  Returns None on failure.
+    """
+    from datetime import timedelta
+
+    tickers = ["^GSPC", "^NDX", "VXUS", "000300.SS"]
+    names = {"^GSPC": "S&P 500", "^NDX": "NASDAQ 100", "VXUS": "VXUS", "000300.SS": "CSI 300"}
+
+    t0 = time.time()
+    try:
+        raw = yf.download(tickers, period="1y", progress=False)
+    except Exception:  # noqa: BLE001
+        log.warning("Market download failed", exc_info=True)
+        return None
+    if raw.empty:
         return None
 
-    names = {"SPY": "S&P 500", "QQQ": "NASDAQ 100", "VT": "Total World"}
-    indices = [
-        IndexReturn(
-            ticker=t,
-            name=names.get(t, t),
-            month_return=idx_month[t]["return_pct"],
-            ytd_return=idx_ytd.get(t, {}).get("return_pct", 0),
-            current=idx_month[t]["current"],
-        )
-        for t in idx_month
-    ]
-    return MarketData(indices=indices, usd_cny=cny_rate)
+    indices: list[IndexReturn] = []
+    for t in tickers:
+        try:
+            closes = (raw["Close"] if len(tickers) == 1 else raw["Close"][t]).dropna()
+            if len(closes) < 2:
+                continue
+
+            current = float(closes.iloc[-1].item())
+            last_date = closes.index[-1]
+
+            # Month return — closest trading day ≥ 30 days ago
+            month_cutoff = last_date - timedelta(days=30)
+            month_start = float(closes[closes.index <= month_cutoff].iloc[-1].item())
+            month_return = (current - month_start) / month_start * 100
+
+            # YTD return — first trading day of current year
+            ytd_closes = closes[closes.index.year == last_date.year]
+            ytd_start = float(ytd_closes.iloc[0].item()) if len(ytd_closes) > 0 else current
+            ytd_return = (current - ytd_start) / ytd_start * 100
+
+            indices.append(IndexReturn(
+                ticker=t,
+                name=names.get(t, t),
+                month_return=round(month_return, 4),
+                ytd_return=round(ytd_return, 4),
+                current=current,
+                sparkline=[round(float(v.item()), 2) for v in closes],
+                high_52w=float(closes.max()),
+                low_52w=float(closes.min()),
+            ))
+        except Exception:  # noqa: BLE001
+            log.warning("Failed to process %s", t, exc_info=True)
+            continue
+
+    log.info("Market data: %d indices in %.1fs", len(indices), time.time() - t0)
+    return MarketData(indices=indices, usd_cny=cny_rate) if indices else None
 
 
 def _is_ticker(symbol: str) -> bool:

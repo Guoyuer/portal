@@ -232,6 +232,9 @@ class IndexReturn:
     month_return: float
     ytd_return: float
     current: float
+    sparkline: list[float] | None = None  # daily closes for sparkline chart
+    high_52w: float | None = None
+    low_52w: float | None = None
 
 
 @dataclass

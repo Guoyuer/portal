@@ -144,30 +144,116 @@ export function CashFlow({ data }: { data: CashFlowData }) {
         </div>
       </div>
 
-      {/* Cash Flow Summary — bento cards */}
-      <div className="mt-6 pt-6 border-t border-border">
-        <p className="text-xs text-muted-foreground mb-3">Transfers excluded from income/expenses above</p>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div className="rounded-xl bg-emerald-500/10 dark:bg-emerald-500/15 p-3">
-            <p className="text-xs text-muted-foreground">Net Cash Flow</p>
-            <p className={`text-lg font-bold tabular-nums mt-1 ${valueColor(data.netCashflow)}`}>
+    </>
+  );
+}
+
+// ── Micro visuals ───────────────────────────────────────────────────────
+
+function MiniProgress({ pct, color, target }: { pct: number; color: string; target?: number }) {
+  return (
+    <div className="relative h-[3px] w-14 rounded-full bg-foreground/8 overflow-visible">
+      <div className="h-full rounded-full" style={{ width: `${Math.min(pct, 100)}%`, background: color }} />
+      {target != null && (
+        <div className="absolute top-[-1px] bottom-[-1px] w-[1px] bg-foreground/30" style={{ left: `${target}%` }} />
+      )}
+    </div>
+  );
+}
+
+function MiniDonut({ pct, color }: { pct: number; color: string }) {
+  const r = 6;
+  const circ = 2 * Math.PI * r;
+  const filled = (Math.min(pct, 100) / 100) * circ;
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" className="shrink-0">
+      <circle cx="8" cy="8" r={r} fill="none" stroke="currentColor" strokeWidth="2" className="text-foreground/8" />
+      <circle
+        cx="8" cy="8" r={r} fill="none" stroke={color} strokeWidth="2"
+        strokeDasharray={`${filled} ${circ}`}
+        strokeLinecap="round"
+        transform="rotate(-90 8 8)"
+      />
+    </svg>
+  );
+}
+
+// ── Glow line helper ────────────────────────────────────────────────────
+
+function GlowEdge({ color }: { color: string }) {
+  const grad = `linear-gradient(90deg, transparent, ${color} 30%, ${color} 70%, transparent)`;
+  return (
+    <>
+      <div className="absolute bottom-0 left-2 right-2 h-px" style={{ background: grad, opacity: 0.5 }} />
+      <div className="absolute -bottom-px left-2 right-2 h-1 blur-[4px]" style={{ background: grad, opacity: 0.15 }} />
+    </>
+  );
+}
+
+// ── Integrated stat bar (rendered as chart header in page.tsx) ───────────
+
+export function CashFlowStatBar({ data, period }: { data: CashFlowData; period?: string }) {
+  const savingsRate = Math.round(data.savingsRate);
+  const investRatio = data.netCashflow > 0 ? data.invested / data.netCashflow : 0;
+  const ccPct = data.totalExpenses > 0 ? Math.round(data.creditCardPayments / data.totalExpenses * 100) : 0;
+
+  return (
+    <div className="relative">
+      {/* Period label */}
+      {period && (
+        <p className="px-4 pt-2.5 pb-0 text-[9px] text-foreground/30 uppercase tracking-widest">
+          {period} Summary
+        </p>
+      )}
+      <div className="flex flex-col sm:flex-row">
+        {/* Net Savings — color-synced with chart Savings bars (cyan) */}
+        <div className="relative flex-1 px-4 py-2.5">
+          <p className="text-[9px] text-foreground/40 uppercase tracking-widest">Net Savings</p>
+          <div className="flex items-center gap-1.5 mt-0.5">
+            <span className="text-sm font-bold tabular-nums text-cyan-600 dark:text-cyan-400">
               {fmtCurrency(data.netCashflow)}
-            </p>
+            </span>
+            <span className="text-foreground/15">&mdash;</span>
+            <MiniProgress pct={savingsRate} color="#22d3ee" target={80} />
+            <span className="text-[10px] tabular-nums" style={{ color: "rgba(34, 211, 238, 0.55)" }}>{savingsRate}%</span>
           </div>
-          <div className="rounded-xl bg-blue-500/10 dark:bg-blue-500/15 p-3">
-            <p className="text-xs text-muted-foreground">Invested</p>
-            <p className="text-lg font-bold tabular-nums mt-1 text-blue-600 dark:text-blue-400">
+          <GlowEdge color="#22d3ee" />
+        </div>
+
+        <div className="h-px sm:h-auto sm:w-px bg-gradient-to-r sm:bg-gradient-to-b from-transparent via-foreground/8 to-transparent" />
+
+        {/* Invested */}
+        <div className="relative flex-1 px-4 py-2.5">
+          <p className="text-[9px] text-foreground/40 uppercase tracking-widest">Invested</p>
+          <div className="flex items-center gap-1.5 mt-0.5">
+            <span className="text-sm font-bold tabular-nums text-blue-600 dark:text-blue-400">
               {fmtCurrency(data.invested)}
-            </p>
+            </span>
+            <span className="text-foreground/15">&mdash;</span>
+            <MiniProgress pct={Math.min(investRatio, 3) / 3 * 100} color="#3b82f6" />
+            <span className="text-[10px] tabular-nums" style={{ color: "rgba(59, 130, 246, 0.55)" }}>
+              {investRatio > 0 ? `${investRatio.toFixed(1)}x` : "—"}
+            </span>
           </div>
-          <div className="rounded-xl bg-foreground/5 dark:bg-white/5 p-3">
-            <p className="text-xs text-muted-foreground">CC Payments</p>
-            <p className="text-lg font-bold tabular-nums mt-1">
+          <GlowEdge color="#3b82f6" />
+        </div>
+
+        <div className="h-px sm:h-auto sm:w-px bg-gradient-to-r sm:bg-gradient-to-b from-transparent via-foreground/8 to-transparent" />
+
+        {/* CC Payments — color-synced with chart Expenses bars (pink/red) */}
+        <div className="relative flex-1 px-4 py-2.5">
+          <p className="text-[9px] text-foreground/40 uppercase tracking-widest">CC Payments</p>
+          <div className="flex items-center gap-1.5 mt-0.5">
+            <span className="text-sm font-bold tabular-nums text-rose-500 dark:text-rose-400">
               {fmtCurrency(data.creditCardPayments)}
-            </p>
+            </span>
+            <span className="text-foreground/15">&mdash;</span>
+            <MiniDonut pct={ccPct} color="#fb7185" />
+            <span className="text-[10px] tabular-nums" style={{ color: "rgba(251, 113, 133, 0.55)" }}>{ccPct}%</span>
           </div>
+          <GlowEdge color="#fb7185" />
         </div>
       </div>
-    </>
+    </div>
   );
 }
