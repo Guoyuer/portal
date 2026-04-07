@@ -1,15 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { REPORT_URL } from "@/lib/config";
 import { ReportDataSchema, type ReportData } from "@/lib/schema";
-import { fmtCurrency, fmtPct } from "@/lib/format";
 import { useActiveSection } from "@/lib/hooks";
-import { valueColor } from "@/lib/style-helpers";
-import type { StockDetail } from "@/lib/types";
-import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { SectionHeader, SectionBody } from "@/components/finance/shared";
 import { IncomeExpensesChart } from "@/components/finance/charts";
@@ -18,7 +12,6 @@ import { CategorySummary } from "@/components/finance/category-summary";
 import { CashFlow } from "@/components/finance/cash-flow";
 import { PortfolioActivity } from "@/components/finance/portfolio-activity";
 import { MarketContext } from "@/components/finance/market-context";
-import { GainLoss } from "@/components/finance/gain-loss";
 import { AnnualSummary } from "@/components/finance/annual-summary";
 import { NetWorthGrowth } from "@/components/finance/net-worth-growth";
 import { BackToTop } from "@/components/layout/back-to-top";
@@ -30,42 +23,12 @@ const SECTION_LABELS = {
   "allocation": "Allocation",
   "cashflow": "Cash Flow",
   "fidelity-activity": "Fidelity Activity",
-  "holdings": "Holdings",
   "market": "Market",
 } as const;
 
 type SectionId = keyof typeof SECTION_LABELS;
 
 const SECTION_IDS = Object.keys(SECTION_LABELS) as SectionId[];
-
-// ── Performers Table ──────────────────────────────────────────────────
-
-function PerformersTable({ title, data }: { title: string; data: StockDetail[] }) {
-  if (data.length === 0) return null;
-  return (
-    <div className="mb-6 overflow-x-auto">
-      <h3 className="font-semibold mb-2">{title}</h3>
-      <Table>
-        <TableHeader><TableRow>
-          <TableHead>Ticker</TableHead>
-          <TableHead className="text-right">Month Return</TableHead>
-          <TableHead className="text-right">Value</TableHead>
-          <TableHead className="text-right">vs 52W High</TableHead>
-        </TableRow></TableHeader>
-        <TableBody>
-          {data.map((s) => (
-            <TableRow key={s.ticker} className="even:bg-muted/50">
-              <TableCell className="font-mono">{s.ticker}</TableCell>
-              <TableCell className={`text-right ${valueColor(s.monthReturn)}`}>{fmtPct(s.monthReturn, true)}</TableCell>
-              <TableCell className="text-right">{fmtCurrency(s.endValue)}</TableCell>
-              <TableCell className={`text-right ${valueColor(s.vsHigh ?? -1)}`}>{s.vsHigh != null ? fmtPct(s.vsHigh, true) : "N/A"}</TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
-  );
-}
 
 // ── Finance Page ──────────────────────────────────────────────────────
 
@@ -95,18 +58,6 @@ export default function FinancePage() {
   }, []);
 
   useEffect(() => { fetchReport(); }, [fetchReport]);
-
-  // Filter upcoming earnings to 30 days
-  const upcomingEarnings = useMemo(() => {
-    if (!r?.holdingsDetail) return [];
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() + 30);
-    return r.holdingsDetail.upcomingEarnings.filter((s) => {
-      if (!s.nextEarnings) return false;
-      const d = new Date(s.nextEarnings);
-      return d >= new Date() && d <= cutoff;
-    });
-  }, [r]);
 
   const { active, scrollTo } = useActiveSection(SECTION_IDS, !!r);
 
@@ -201,35 +152,6 @@ export default function FinancePage() {
           <SectionHeader>{SECTION_LABELS["fidelity-activity"]}</SectionHeader>
           <SectionBody>
             <PortfolioActivity activity={r.activity} reconciliation={r.reconciliation} />
-          </SectionBody>
-        </section>
-      )}
-
-      {/* ── 6. Holdings ──────────────────────────────────────────────────── */}
-      {(r.holdingsDetail || r.equityCategories.length > 0) && (
-        <section id="holdings">
-          <SectionHeader>{SECTION_LABELS["holdings"]}</SectionHeader>
-          <SectionBody>
-            {r.holdingsDetail && (
-              <>
-                <PerformersTable title="Top Performers" data={r.holdingsDetail.topPerformers} />
-                <PerformersTable title="Bottom Performers" data={r.holdingsDetail.bottomPerformers} />
-                {upcomingEarnings.length > 0 && (
-                  <div>
-                    <h3 className="font-semibold mb-2">Upcoming Earnings</h3>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 text-sm">
-                      {upcomingEarnings.map((s) => (
-                        <div key={s.ticker}>
-                          <span className="font-mono font-medium">{s.ticker}</span>
-                          <span className="text-muted-foreground"> &mdash; {s.nextEarnings}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-            <GainLoss report={r} />
           </SectionBody>
         </section>
       )}
