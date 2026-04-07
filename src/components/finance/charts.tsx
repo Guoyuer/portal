@@ -28,7 +28,7 @@ import { fmtCurrencyShort, fmtMonth, fmtMonthYear } from "@/lib/format";
 import { useIsDark, useIsMobile } from "@/lib/hooks";
 import { tooltipStyle, gridStroke } from "@/lib/chart-styles";
 
-const COLORS = ["#2563eb", "#7c3aed", "#f59e0b", "#10b981", "#ef4444"];
+const COLORS = ["#06b6d4", "#8b5cf6", "#f59e0b", "#10b981", "#f87171"];
 
 // ── Donut: Category Allocation ─────────────────────────────────────────────
 
@@ -99,7 +99,7 @@ function SavingsLabel(props: any) {
       y={y - 6}
       textAnchor="middle"
       fontSize={9}
-      fill={value > 0 ? "#2563eb" : "#ef4444"}
+      fill={value > 0 ? "#22d3ee" : "#f87171"}
       fontWeight={500}
     >
       {Math.round(value)}%
@@ -125,7 +125,7 @@ function FlowTooltip({ active, payload, label }: FlowTooltipProps) {
         </p>
       ))}
       {row && row.savingsRate !== 0 && (
-        <p style={{ color: row.savingsRate > 0 ? "#2563eb" : "#ef4444", margin: 0 }}>
+        <p style={{ color: row.savingsRate > 0 ? "#22d3ee" : "#f87171", margin: 0 }}>
           Savings Rate : {Math.round(row.savingsRate)}%
         </p>
       )}
@@ -173,16 +173,16 @@ export function IncomeExpensesChart({
         {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
         <Tooltip cursor={false} content={FlowTooltip as any} />
         <Legend verticalAlign="top" height={28} />
-        <Bar dataKey="expenses" name="Expenses" stackId="income" fill={isDark ? "#f87171" : "#e94560"} opacity={0.85} />
-        <Bar dataKey="savings" name="Savings" stackId="income" fill={isDark ? "#4ade80" : "#27ae60"} opacity={0.85} radius={[2, 2, 0, 0]}>
+        <Bar dataKey="expenses" name="Expenses" stackId="income" fill={isDark ? "#fb7185" : "#e94560"} opacity={0.85} />
+        <Bar dataKey="savings" name="Savings" stackId="income" fill={isDark ? "#22d3ee" : "#0891b2"} opacity={0.85} radius={[2, 2, 0, 0]}>
           <LabelList dataKey="savingsRate" content={SavingsLabel} />
         </Bar>
         {stacked.length > 12 && (
           <Brush
             dataKey="month"
             height={24}
-            stroke={isDark ? "#4ade80" : "#27ae60"}
-            fill={isDark ? "rgba(30,95,58,0.3)" : "rgba(220,252,231,0.5)"}
+            stroke={isDark ? "#22d3ee" : "#0891b2"}
+            fill={isDark ? "rgba(8,145,178,0.2)" : "rgba(207,250,254,0.5)"}
             tickFormatter={fmtMonth}
           />
         )}
@@ -218,15 +218,15 @@ export function NetWorthTrendChart({
   const [yMin, yMax] = niceYDomain(data);
   const nwEndIdx = data.length - 1;
   const nwStartIdx = Math.max(0, nwEndIdx - 11);
-  const brushColor = isDark ? "#60a5fa" : "#2563eb";
+  const brushColor = isDark ? "#22d3ee" : "#0891b2";
 
   return (
     <ResponsiveContainer width="100%" height={isMobile ? 260 : 300}>
       <AreaChart data={data} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
         <defs>
           <linearGradient id="nwGradient" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={isDark ? "#60a5fa" : "#2563eb"} stopOpacity={0.35} />
-            <stop offset="100%" stopColor={isDark ? "#60a5fa" : "#2563eb"} stopOpacity={0.02} />
+            <stop offset="0%" stopColor={isDark ? "#22d3ee" : "#0891b2"} stopOpacity={0.35} />
+            <stop offset="100%" stopColor={isDark ? "#22d3ee" : "#0891b2"} stopOpacity={0.02} />
           </linearGradient>
         </defs>
         <CartesianGrid strokeDasharray="3 3" stroke={gridStroke(isDark)} />
@@ -258,7 +258,7 @@ export function NetWorthTrendChart({
         <Area
           type="monotone"
           dataKey="total"
-          stroke={isDark ? "#60a5fa" : "#2563eb"}
+          stroke={isDark ? "#22d3ee" : "#0891b2"}
           fill="url(#nwGradient)"
           strokeWidth={2}
         />
@@ -268,7 +268,7 @@ export function NetWorthTrendChart({
             dataKey="date"
             height={28}
             stroke={brushColor}
-            fill={isDark ? "rgba(30,58,95,0.3)" : "rgba(219,234,254,0.5)"}
+            fill={isDark ? "rgba(8,145,178,0.2)" : "rgba(207,250,254,0.5)"}
             startIndex={nwStartIdx}
             endIndex={nwEndIdx}
             tickFormatter={(d: string) => {

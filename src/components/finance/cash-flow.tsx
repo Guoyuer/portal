@@ -148,7 +148,7 @@ export function CashFlow({ data }: { data: CashFlowData }) {
       <div className="mt-6 pt-6 border-t border-border">
         <p className="text-xs text-muted-foreground mb-3">Transfers excluded from income/expenses above</p>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div className="rounded-xl bg-emerald-500/10 dark:bg-emerald-500/15 p-3">
+          <div className="rounded-xl bg-emerald-500/10 dark:bg-cyan-500/15 p-3">
             <p className="text-xs text-muted-foreground">Net Cash Flow</p>
             <p className={`text-lg font-bold tabular-nums mt-1 ${valueColor(data.netCashflow)}`}>
               {fmtCurrency(data.netCashflow)}

@@ -83,36 +83,36 @@
 }
 
 .dark {
-  --background: oklch(0.08 0.02 260);
-  --foreground: oklch(0.95 0.005 260);
-  --card: oklch(1 0 0 / 4%);
-  --card-foreground: oklch(0.95 0.005 260);
-  --popover: oklch(0.18 0.02 260 / 70%);
+  --background: oklch(0.07 0.025 245);
+  --foreground: oklch(0.93 0.008 220);
+  --card: oklch(0.55 0.08 220 / 5%);
+  --card-foreground: oklch(0.93 0.008 220);
+  --popover: oklch(0.14 0.03 245 / 75%);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.70 0.15 260);
+  --primary: oklch(0.75 0.14 195);
   --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.22 0.02 260);
+  --secondary: oklch(0.20 0.025 245);
   --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.20 0.02 260 / 40%);
-  --muted-foreground: oklch(0.65 0.02 260);
-  --accent: oklch(0.22 0.02 260);
+  --muted: oklch(0.18 0.025 245 / 40%);
+  --muted-foreground: oklch(0.62 0.025 230);
+  --accent: oklch(0.20 0.025 245);
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 8%);
-  --input: oklch(1 0 0 / 12%);
+  --border: oklch(0.55 0.06 220 / 10%);
+  --input: oklch(0.55 0.06 220 / 14%);
   --ring: oklch(0.556 0 0);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
+  --sidebar: oklch(0.12 0.025 245);
   --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary: oklch(0.75 0.14 195);
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent: oklch(0.18 0.03 245);
   --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-border: oklch(0.55 0.06 220 / 12%);
   --sidebar-ring: oklch(0.556 0 0);
 }
 
@@ -207,22 +207,22 @@
   animation: lg-blob-d 28s ease-in-out infinite alternate;
 }
 
-/* Dark mode: extra vivid — glass dilutes color heavily */
+/* Dark mode: fintech palette — deep blues, cyan/teal accents */
 .dark .lg-mesh::before {
-  opacity: 0.70;
-  background: radial-gradient(circle, rgba(99,102,241,0.85), rgba(168,85,247,0.45), transparent 65%);
+  opacity: 0.65;
+  background: radial-gradient(circle, rgba(30,64,175,0.80), rgba(59,130,246,0.35), transparent 65%);
 }
 .dark .lg-mesh::after {
-  opacity: 0.65;
-  background: radial-gradient(circle, rgba(6,182,212,0.75), rgba(56,189,248,0.4), transparent 65%);
+  opacity: 0.60;
+  background: radial-gradient(circle, rgba(6,182,212,0.70), rgba(20,184,166,0.35), transparent 65%);
 }
 .dark .lg-blob-c {
-  opacity: 0.50;
-  background: radial-gradient(circle, rgba(244,114,182,0.6), rgba(251,146,60,0.3), transparent 65%);
+  opacity: 0.35;
+  background: radial-gradient(circle, rgba(56,189,248,0.5), rgba(6,182,212,0.25), transparent 65%);
 }
 .dark .lg-blob-d {
-  opacity: 0.45;
-  background: radial-gradient(circle, rgba(99,102,241,0.55), rgba(168,85,247,0.3), transparent 65%);
+  opacity: 0.40;
+  background: radial-gradient(circle, rgba(30,58,138,0.55), rgba(59,130,246,0.25), transparent 65%);
 }
 
 @keyframes lg-blob-a {
