@@ -51,6 +51,7 @@ export default function FinancePage() {
   const [r, setReport] = useState<ReportData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [allocOpen, setAllocOpen] = useState(false);
 
   const fetchReport = useCallback(async () => {
     setLoading(true);
@@ -125,16 +126,26 @@ export default function FinancePage() {
       </nav>
 
       {/* ── 1. Overview ─────────────────────────────────────────────────── */}
-      <MetricCards report={r} />
+      <MetricCards
+        report={r}
+        allocationOpen={allocOpen}
+        onAllocationToggle={() => setAllocOpen((v) => !v)}
+      />
+
+      {/* ── Allocation (expand/collapse under Net Worth tile) ────────── */}
+      <div
+        id="allocation"
+        className="grid transition-[grid-template-rows] duration-300 ease-in-out"
+        style={{ gridTemplateRows: allocOpen ? "1fr" : "0fr" }}
+      >
+        <div className="overflow-hidden">
+          <CategorySummary report={r} title={SECTION_LABELS["allocation"]} />
+        </div>
+      </div>
 
       {/* ── 2. Net Worth ────────────────────────────────────────────────── */}
       <div id="net-worth">
         <NetWorthGrowth data={r.chartData?.netWorthTrend ?? []} />
-      </div>
-
-      {/* ── 3. Allocation ───────────────────────────────────────────────── */}
-      <div id="allocation">
-        <CategorySummary report={r} title={SECTION_LABELS["allocation"]} />
       </div>
 
       {/* ── 4. Cash Flow ────────────────────────────────────────────────── */}
