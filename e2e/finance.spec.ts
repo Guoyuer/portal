@@ -27,7 +27,6 @@ test.describe("Finance Report", () => {
   test("shows all category groups", async ({ page }) => {
     // Click Net Worth tile to expand allocation
     await page.getByRole("button", { name: /Net Worth/ }).click();
-    await page.waitForTimeout(600);
     await expect(page.getByRole("cell", { name: "US Equity", exact: true })).toBeVisible();
     await expect(page.getByRole("cell", { name: "Non-US Equity" })).toBeVisible();
     await expect(page.getByRole("cell", { name: "Crypto" })).toBeVisible();
@@ -36,14 +35,12 @@ test.describe("Finance Report", () => {
 
   test("shows subtypes under equity categories", async ({ page }) => {
     await page.getByRole("button", { name: /Net Worth/ }).click();
-    await page.waitForTimeout(600);
     await expect(page.getByText("broad").first()).toBeVisible();
     await expect(page.getByText("growth").first()).toBeVisible();
   });
 
   test("shows target and deviation columns", async ({ page }) => {
     await page.getByRole("button", { name: /Net Worth/ }).click();
-    await page.waitForTimeout(600);
     await expect(page.getByRole("columnheader", { name: "Target" })).toBeVisible();
     await expect(page.getByRole("columnheader", { name: "Deviation" })).toBeVisible();
   });
@@ -51,7 +48,6 @@ test.describe("Finance Report", () => {
   test("shows category deviations with correct colors", async ({ page }) => {
     // Click Net Worth tile to expand allocation
     await page.getByRole("button", { name: /Net Worth/ }).click();
-    await page.waitForTimeout(600);
     // Deviation cells should have red or green colors
     const deviationCells = page.locator("td[class*='text-red-'], td[class*='text-green-'], td[class*='text-emerald-']");
     await expect(deviationCells.first()).toBeVisible();
@@ -160,7 +156,6 @@ test.describe("Finance Report", () => {
   test("renders allocation donut chart", async ({ page }) => {
     // Click Net Worth tile to expand allocation
     await page.getByRole("button", { name: /Net Worth/ }).click();
-    await page.waitForTimeout(600);
     const donut = page.locator(".recharts-pie");
     await expect(donut).toBeVisible();
     // Legend labels
@@ -276,9 +271,9 @@ test.describe("Finance Report", () => {
     await traveller.focus();
     for (let i = 0; i < 6; i++) {
       await page.keyboard.press("ArrowRight");
-      await page.waitForTimeout(100);
     }
-    await page.waitForTimeout(500);
+    // Wait for chart to re-render after brush movement
+    await expect(section.locator(".recharts-label-list")).toBeVisible();
 
     // Any remaining labels must have valid percentages (not stale data)
     const allTextAfter = await section.locator("svg text").allTextContents();
@@ -293,11 +288,8 @@ test.describe("Finance Report", () => {
   });
 
   test("income vs expenses chart renders bars", async ({ page }) => {
-    // Scroll to chart area
-    await page.locator("#cashflow").scrollIntoViewIfNeeded();
-    await page.waitForTimeout(500);
-    const bars = page.locator("#cashflow .recharts-bar-rectangle");
-    expect(await bars.count()).toBeGreaterThan(0);
+    const bars = page.locator("#cashflow .recharts-bar-rectangle").first();
+    await expect(bars).toBeVisible();
   });
 
   test("stat bar metrics have color-coded values", async ({ page }) => {
