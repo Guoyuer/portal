@@ -171,16 +171,15 @@ test.describe("Finance Report", () => {
 
   // ── Market ─────────────────────────────────────────────────────
 
-  test("shows market context with index returns", async ({ page }) => {
+  test("shows market context with index cards", async ({ page }) => {
     await expect(page.locator("#market")).toBeAttached();
-    await expect(page.getByText("Index Returns")).toBeVisible();
-    // At least one index
-    await expect(page.getByText("SPY").or(page.getByText("S&P 500")).first()).toBeVisible();
+    // At least one index card with its display name
+    await expect(page.getByText("S&P 500").first()).toBeVisible();
   });
 
   test("market section renders without macro when FRED unavailable", async ({ page }) => {
     await expect(page.locator("#market")).toBeAttached();
-    await expect(page.getByText("Index Returns")).toBeVisible();
+    await expect(page.getByText("S&P 500").first()).toBeVisible();
   });
 
   // ── UI Polish ────────────────────────────────────────────────────────
