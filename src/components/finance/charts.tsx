@@ -238,14 +238,20 @@ export function NetWorthTrendChart({
 
   if (data.length === 0) return null;
 
+  // Convert dates to timestamps for uniform time-axis spacing
+  const chartData = data.map((d) => ({ ...d, ts: new Date(d.date).getTime() }));
+
   const [yMin, yMax] = niceYDomain(data);
-  const nwEndIdx = data.length - 1;
+  const nwEndIdx = chartData.length - 1;
   const nwStartIdx = Math.max(0, nwEndIdx - 11);
   const brushColor = isDark ? "#22d3ee" : "#0891b2";
 
+  const fmtTick = (ts: number) =>
+    new Date(ts).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+
   return (
     <ResponsiveContainer width="100%" height={isMobile ? 260 : 300}>
-      <AreaChart data={data} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
+      <AreaChart data={chartData} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
         <defs>
           <linearGradient id="nwGradient" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={isDark ? "#22d3ee" : "#0891b2"} stopOpacity={0.35} />
@@ -254,11 +260,11 @@ export function NetWorthTrendChart({
         </defs>
         <CartesianGrid strokeDasharray="3 3" stroke={gridStroke(isDark)} />
         <XAxis
-          dataKey="date"
-          tickFormatter={(d: string) => {
-            const dt = new Date(d);
-            return dt.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
-          }}
+          dataKey="ts"
+          type="number"
+          scale="time"
+          domain={["dataMin", "dataMax"]}
+          tickFormatter={fmtTick}
           fontSize={11}
           tick={{ fill: isDark ? "#9ca3af" : "#6b7280" }}
           axisLine={{ stroke: gridStroke(isDark) }}
@@ -276,7 +282,7 @@ export function NetWorthTrendChart({
         <Tooltip
           contentStyle={tooltipStyle(isDark)}
           formatter={(value) => `$${Number(value).toLocaleString("en-US", { maximumFractionDigits: 0 })}`}
-          labelFormatter={(label) => new Date(String(label)).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+          labelFormatter={(ts) => new Date(Number(ts)).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
         />
         <Area
           type="monotone"
@@ -285,19 +291,16 @@ export function NetWorthTrendChart({
           fill="url(#nwGradient)"
           strokeWidth={2}
         />
-        {data.length > 12 && (
+        {chartData.length > 12 && (
           <Brush
-            key={`nw-brush-${data.length}`}
-            dataKey="date"
+            key={`nw-brush-${chartData.length}`}
+            dataKey="ts"
             height={28}
             stroke={brushColor}
             fill={isDark ? "rgba(8,145,178,0.2)" : "rgba(207,250,254,0.5)"}
             startIndex={nwStartIdx}
             endIndex={nwEndIdx}
-            tickFormatter={(d: string) => {
-              const dt = new Date(d);
-              return dt.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
-            }}
+            tickFormatter={fmtTick}
           />
         )}
       </AreaChart>

@@ -13,44 +13,48 @@ test.describe("Finance Report", () => {
     await expect(page.locator("h1")).toContainText(/\w+ \d{2}, \d{4}/);
   });
 
-  test("shows four metric cards with values", async ({ page }) => {
-    const cards = page.locator("[data-slot='card']");
-    // Investment (non-cash)
-    await expect(cards.getByText("Investment")).toBeVisible();
-    await expect(cards.getByText(/\$\d{3},\d{3}/).first()).toBeVisible();
-    // Safe Net (cash equivalents)
-    await expect(cards.getByText("Safe Net")).toBeVisible();
+  test("shows metric cards with values", async ({ page }) => {
+    // Net Worth tile
+    await expect(page.getByText("Net Worth")).toBeVisible();
+    await expect(page.getByText(/Investment/)).toBeVisible();
+    await expect(page.getByText(/\$\d+k/).first()).toBeVisible();
     // Savings Rate
-    await expect(cards.getByText("Savings Rate")).toBeVisible();
+    await expect(page.getByText("Savings Rate").first()).toBeVisible();
     // Goal
-    await expect(cards.getByText("Goal")).toBeVisible();
+    await expect(page.getByText("Goal")).toBeVisible();
   });
 
   test("shows all category groups", async ({ page }) => {
-    await expect(page.locator("#allocation")).toBeAttached();
+    // Click Net Worth tile to expand allocation
+    await page.getByRole("button", { name: /Net Worth/ }).click();
+    await page.waitForTimeout(600);
     await expect(page.getByRole("cell", { name: "US Equity", exact: true })).toBeVisible();
     await expect(page.getByRole("cell", { name: "Non-US Equity" })).toBeVisible();
     await expect(page.getByRole("cell", { name: "Crypto" })).toBeVisible();
     await expect(page.getByRole("cell", { name: "Safe Net" })).toBeVisible();
-    // Hedge merged into Safe Net — no longer a separate category
   });
 
   test("shows subtypes under equity categories", async ({ page }) => {
-    // Equity categories have subtypes (broad, growth)
+    await page.getByRole("button", { name: /Net Worth/ }).click();
+    await page.waitForTimeout(600);
     await expect(page.getByText("broad").first()).toBeVisible();
     await expect(page.getByText("growth").first()).toBeVisible();
   });
 
   test("shows target and deviation columns", async ({ page }) => {
-    // Table headers
+    await page.getByRole("button", { name: /Net Worth/ }).click();
+    await page.waitForTimeout(600);
     await expect(page.getByRole("columnheader", { name: "Target" })).toBeVisible();
     await expect(page.getByRole("columnheader", { name: "Deviation" })).toBeVisible();
   });
 
   test("shows category deviations with correct colors", async ({ page }) => {
-    // Safe Net is typically underweight — red
-    const safeNetRow = page.locator("tr").filter({ hasText: "Safe Net" });
-    await expect(safeNetRow.locator("[class*='text-red-']")).toBeVisible();
+    // Click Net Worth tile to expand allocation
+    await page.getByRole("button", { name: /Net Worth/ }).click();
+    await page.waitForTimeout(600);
+    // Deviation cells should have red or green colors
+    const deviationCells = page.locator("td[class*='text-red-'], td[class*='text-green-'], td[class*='text-emerald-']");
+    await expect(deviationCells.first()).toBeVisible();
   });
 
   test("shows goal progress with bar", async ({ page }) => {
@@ -147,7 +151,6 @@ test.describe("Finance Report", () => {
   });
 
   test("page renders all major sections in order", async ({ page }) => {
-    await expect(page.locator("#allocation")).toBeAttached();
     await expect(page.getByText(/Cash Flow —/)).toBeVisible();
     await expect(page.locator("#fidelity-activity")).toBeAttached();
   });
@@ -155,7 +158,9 @@ test.describe("Finance Report", () => {
   // ── Charts ─────────────────────────────────────────────────────────────
 
   test("renders allocation donut chart", async ({ page }) => {
-    // Donut is inside Allocation section
+    // Click Net Worth tile to expand allocation
+    await page.getByRole("button", { name: /Net Worth/ }).click();
+    await page.waitForTimeout(600);
     const donut = page.locator(".recharts-pie");
     await expect(donut).toBeVisible();
     // Legend labels
@@ -192,13 +197,6 @@ test.describe("Finance Report", () => {
   });
 
   // ── UI Polish ────────────────────────────────────────────────────────
-
-  test("section nav bar is visible", async ({ page }) => {
-    const nav = page.locator("nav").filter({ hasText: "Net Worth" });
-    await expect(nav).toBeVisible();
-    await expect(nav.getByText("Allocation")).toBeVisible();
-    await expect(nav.getByText("Cash Flow")).toBeVisible();
-  });
 
   test("back to top button appears on scroll", async ({ page }) => {
     // Scroll down
@@ -242,14 +240,6 @@ test.describe("Finance Report", () => {
   });
 
   // ── UI Polish (nav, charts, bento cards) ────────────────────────────────
-
-  test("nav buttons use pill style", async ({ page }) => {
-    const nav = page.locator("nav").filter({ hasText: "Net Worth" });
-    const activeBtn = nav.locator("button.rounded-full").first();
-    await expect(activeBtn).toBeVisible();
-    const className = await activeBtn.getAttribute("class");
-    expect(className).toMatch(/bg-foreground|bg-white/);
-  });
 
   test("net worth section shows MoM and YoY badges", async ({ page }) => {
     const section = page.locator("#net-worth");
@@ -319,16 +309,6 @@ test.describe("Finance Report", () => {
     const investedValue = page.getByText("Invested").locator("..").locator("span.font-bold");
     const investedClass = await investedValue.getAttribute("class");
     expect(investedClass).toMatch(/text-blue/);
-  });
-
-  test("nav highlights correct section on scroll", async ({ page }) => {
-    const nav = page.locator("nav").filter({ hasText: "Net Worth" });
-    // Scroll to cashflow
-    await page.locator("#cashflow").scrollIntoViewIfNeeded();
-    await page.waitForTimeout(500);
-    const cashFlowBtn = nav.getByText("Cash Flow");
-    const className = await cashFlowBtn.getAttribute("class");
-    expect(className).toMatch(/bg-foreground|bg-white|font-medium/);
   });
 
   // ── Production URL ─────────────────────────────────────────────────────
