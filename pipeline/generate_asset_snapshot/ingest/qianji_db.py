@@ -34,6 +34,11 @@ DEFAULT_DB_PATH = _WIN_DB_PATH if sys.platform == "win32" else _MAC_DB_PATH
 # Qianji type codes → internal type names
 _TYPE_MAP = {0: QJ_EXPENSE, 1: QJ_INCOME, 2: QJ_TRANSFER, 3: QJ_REPAYMENT}
 
+_BASE_CURRENCY = "USD"
+# Minimum difference between base-currency and source-currency amounts to consider
+# a real conversion (filters out unconverted records where bv == sv).
+_CONVERSION_TOLERANCE = 0.01
+
 _BILL_QUERY = "SELECT id, type, money, fromact, targetact, remark, time, cateid, extra FROM user_bill WHERE status = 1 ORDER BY time"
 
 
@@ -49,7 +54,7 @@ def _parse_amount(money: float, extra_str: str | None) -> float:
     if not isinstance(curr, dict):
         return float(money)
     ss, bs, bv, sv = curr.get("ss"), curr.get("bs"), curr.get("bv"), curr.get("sv")
-    if ss and bs and ss != bs and bv is not None and sv is not None and abs(bv - sv) > 0.01:
+    if ss and bs and ss != bs and bv is not None and sv is not None and abs(bv - sv) > _CONVERSION_TOLERANCE:
         return float(bv)
     return float(money)
 
@@ -91,7 +96,7 @@ def _load_records(conn: sqlite3.Connection) -> list[QianjiRecord]:
 def _load_balances(conn: sqlite3.Connection) -> dict[str, tuple[float, str]]:
     """Load account balances and currencies from an open DB connection."""
     balances = {
-        name: (float(money), currency or "USD")
+        name: (float(money), currency or _BASE_CURRENCY)
         for name, money, currency in conn.execute("SELECT name, money, currency FROM user_asset WHERE status = 0")
     }
     log.info("Qianji balances: %d accounts", len(balances))

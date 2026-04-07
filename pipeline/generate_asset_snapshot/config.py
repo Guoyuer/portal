@@ -138,7 +138,7 @@ def manual_values_from_snapshot(
 
     def _is_cny(acct: str) -> bool:
         if currencies:
-            return currencies.get(acct, "USD") == "CNY"
+            return currencies.get(acct) == "CNY"
         return acct in cny_fallback
 
     result: dict[str, float] = {}

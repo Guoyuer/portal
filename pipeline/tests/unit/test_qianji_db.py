@@ -61,6 +61,30 @@ class TestParseAmount:
         extra = json.dumps({"curr": {"ss": "CNY", "sv": 100.0, "bs": "USD", "bv": None}})
         assert _parse_amount(100.0, extra) == 100.0
 
+    def test_curr_not_dict_returns_money(self):
+        """curr present but not a dict (e.g. int, list)."""
+        assert _parse_amount(50.0, json.dumps({"curr": 123})) == 50.0
+        assert _parse_amount(50.0, json.dumps({"curr": ["CNY"]})) == 50.0
+
+    def test_curr_missing_fields_returns_money(self):
+        """curr dict but missing required fields."""
+        assert _parse_amount(50.0, json.dumps({"curr": {"ss": "CNY"}})) == 50.0
+        assert _parse_amount(50.0, json.dumps({"curr": {"ss": "CNY", "bs": "USD"}})) == 50.0
+        assert _parse_amount(50.0, json.dumps({"curr": {"ss": "CNY", "bs": "USD", "bv": 7.0}})) == 50.0
+
+    def test_ss_equals_bs_returns_money(self):
+        """Same source and base currency — no conversion needed."""
+        extra = _extra("USD", 100.0, None, 0.0, "USD", 100.0)
+        assert _parse_amount(100.0, extra) == 100.0
+
+    def test_bv_sv_within_tolerance_returns_money(self):
+        """bv and sv differ by less than tolerance — treat as unconverted."""
+        extra = _extra("CNY", 100.0, None, 0.0, "USD", 100.005)
+        assert _parse_amount(100.0, extra) == 100.0
+
+    def test_empty_string_returns_money(self):
+        assert _parse_amount(50.0, "") == 50.0
+
 
 # ── _load_records ─────────────────────────────────────────────────────────────
 
@@ -143,6 +167,17 @@ class TestLoadRecords:
         _make_db(conn, [(1, 0, 1000.0, "Alipay", None, None, ts, None, extra, 1)])
         records = _load_records(conn)
         assert records[0]["amount"] == 139.0
+
+    def test_inactive_bills_excluded(self):
+        conn = sqlite3.connect(":memory:")
+        ts = int(datetime(2025, 1, 1, tzinfo=UTC).timestamp())
+        _make_db(conn, [
+            (1, 0, 10.0, "A", None, "active", ts, None, "null", 1),
+            (2, 0, 20.0, "A", None, "deleted", ts, None, "null", 0),
+        ])
+        records = _load_records(conn)
+        assert len(records) == 1
+        assert records[0]["note"] == "active"
 
 
 # ── _load_balances ────────────────────────────────────────────────────────────
