@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import csv
+import re
 import sqlite3
 from pathlib import Path
 
@@ -102,3 +104,104 @@ def get_connection(path: Path) -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     return conn
+
+
+# ── Fidelity CSV ingestion ──────────────────────────────────────────────────
+
+_DATE_RE = re.compile(r"^\d{2}/\d{2}/\d{4}$")
+
+
+def _parse_float(value: str) -> float:
+    """Parse a dollar/numeric string: strip $, commas; treat empty as 0."""
+    cleaned = value.strip().replace("$", "").replace(",", "")
+    if not cleaned:
+        return 0.0
+    return float(cleaned)
+
+
+def _mmddyyyy_to_sort(date_str: str) -> str:
+    """Convert MM/DD/YYYY to YYYYMMDD for date range comparison."""
+    parts = date_str.strip().split("/")
+    return f"{parts[2]}{parts[0]}{parts[1]}"
+
+
+def ingest_fidelity_csv(db_path: Path, csv_path: Path) -> int:
+    """Ingest a Fidelity CSV into the database, replacing overlapping date ranges.
+
+    Returns the total row count in fidelity_transactions after ingestion.
+    """
+    # Read CSV, handling BOM and leading blank lines
+    text = csv_path.read_text(encoding="utf-8-sig")
+    lines = text.splitlines()
+
+    # Find the header line (starts with "Run Date")
+    header_idx = -1
+    for i, line in enumerate(lines):
+        if line.strip().startswith("Run Date"):
+            header_idx = i
+            break
+    if header_idx == -1:
+        msg = f"No header row found in {csv_path}"
+        raise ValueError(msg)
+
+    # Parse with csv.DictReader from the header line onward
+    reader = csv.DictReader(lines[header_idx:])
+    rows: list[tuple[str, str, str, str, str, str, str, float, float, float, str]] = []
+    dates: list[str] = []
+
+    for record in reader:
+        run_date = record.get("Run Date", "").strip()
+        if not _DATE_RE.match(run_date):
+            continue
+
+        rows.append((
+            run_date,
+            record.get("Account", "").strip().strip('"'),
+            record.get("Account Number", "").strip().strip('"'),
+            record.get("Action", "").strip().strip('"'),
+            record.get("Symbol", "").strip(),
+            record.get("Description", "").strip().strip('"'),
+            record.get("Type", "").strip(),
+            _parse_float(record.get("Quantity", "")),
+            _parse_float(record.get("Price", "")),
+            _parse_float(record.get("Amount", "")),
+            record.get("Settlement Date", "").strip(),
+        ))
+        dates.append(run_date)
+
+    if not rows:
+        conn = get_connection(db_path)
+        count: int = conn.execute("SELECT COUNT(*) FROM fidelity_transactions").fetchone()[0]
+        conn.close()
+        return count
+
+    # Date range for overlap deletion (YYYYMMDD format for comparison)
+    sort_dates = [_mmddyyyy_to_sort(d) for d in dates]
+    min_date = min(sort_dates)
+    max_date = max(sort_dates)
+
+    conn = get_connection(db_path)
+    try:
+        # Delete existing rows in the date range of this file
+        conn.execute(
+            """DELETE FROM fidelity_transactions
+               WHERE substr(run_date,7,4) || substr(run_date,1,2) || substr(run_date,4,2)
+                     BETWEEN ? AND ?""",
+            (min_date, max_date),
+        )
+
+        # Insert all new rows
+        conn.executemany(
+            """INSERT INTO fidelity_transactions
+               (run_date, account, account_number, action, symbol,
+                description, lot_type, quantity, price, amount, settlement_date)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            rows,
+        )
+        conn.commit()
+
+        count = conn.execute("SELECT COUNT(*) FROM fidelity_transactions").fetchone()[0]
+    finally:
+        conn.close()
+
+    return count

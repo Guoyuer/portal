@@ -5,7 +5,9 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from generate_asset_snapshot.db import get_connection, init_db
+import pytest
+
+from generate_asset_snapshot.db import get_connection, ingest_fidelity_csv, init_db
 
 EXPECTED_TABLES = frozenset({
     "fidelity_transactions",
@@ -71,3 +73,27 @@ class TestGetConnection:
         fk = conn.execute("PRAGMA foreign_keys").fetchone()[0]
         assert fk == 1
         conn.close()
+
+
+class TestIngestFidelity:
+    @pytest.fixture()
+    def db_path(self, tmp_path: Path) -> Path:
+        p = tmp_path / "test.db"
+        init_db(p)
+        return p
+
+    def test_ingest_sample_csv(self, db_path: Path, history_sample_csv: Path) -> None:
+        count = ingest_fidelity_csv(db_path, history_sample_csv)
+        assert count > 0
+        conn = sqlite3.connect(str(db_path))
+        rows = conn.execute("SELECT COUNT(*) FROM fidelity_transactions").fetchone()[0]
+        conn.close()
+        assert rows == count
+
+    def test_overlap_replaces(self, db_path: Path, history_sample_csv: Path) -> None:
+        ingest_fidelity_csv(db_path, history_sample_csv)
+        count2 = ingest_fidelity_csv(db_path, history_sample_csv)
+        conn = sqlite3.connect(str(db_path))
+        rows = conn.execute("SELECT COUNT(*) FROM fidelity_transactions").fetchone()[0]
+        conn.close()
+        assert rows == count2  # replaced, not doubled
