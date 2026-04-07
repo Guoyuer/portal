@@ -139,32 +139,48 @@ export function CategorySummary({ report: r, title }: { report: ReportData; titl
               </Fragment>
             ))}
 
-            {/* Non-Equity group header */}
-            <TableRow className="bg-white/5 dark:bg-white/3">
-              <TableCell
-                colSpan={5}
-                className="font-semibold text-muted-foreground"
-              >
-                Non-Equity
-              </TableCell>
-            </TableRow>
-            {r.nonEquityCategories.map((cat) => (
-              <TableRow key={cat.name} className="hover:bg-white/10 dark:hover:bg-white/5 transition-colors">
-                <TableCell className="text-muted-foreground pl-6">
-                  <CategoryTooltip cat={cat}><em>{cat.name}</em></CategoryTooltip>
-                </TableCell>
-                <TableCell className="text-right hidden sm:table-cell">
-                  {fmtCurrency(cat.value)}
-                </TableCell>
-                <TableCell className="text-right">
-                  {fmtPct(cat.pct, false)}
-                </TableCell>
-                <TableCell className="text-right">
-                  {fmtPct(cat.target, false)}
-                </TableCell>
-                <DeviationCell value={cat.deviation} />
-              </TableRow>
-            ))}
+            {/* Non-Equity group — parent row with aggregated values */}
+            {(() => {
+              const neValue = r.nonEquityCategories.reduce((s, c) => s + c.value, 0);
+              const nePct = r.nonEquityCategories.reduce((s, c) => s + c.pct, 0);
+              const neTarget = r.nonEquityCategories.reduce((s, c) => s + c.target, 0);
+              const neDeviation = nePct - neTarget;
+              return (
+                <Fragment>
+                  <TableRow className="hover:bg-white/10 dark:hover:bg-white/5 transition-colors">
+                    <TableCell className="font-medium">Non-Equity</TableCell>
+                    <TableCell className="text-right hidden sm:table-cell">
+                      {fmtCurrency(neValue)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {fmtPct(nePct, false)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {fmtPct(neTarget, false)}
+                    </TableCell>
+                    <DeviationCell value={neDeviation} />
+                  </TableRow>
+                  {r.nonEquityCategories.map((cat) => (
+                    <TableRow
+                      key={cat.name}
+                      className="hover:bg-white/10 dark:hover:bg-white/5 transition-colors"
+                    >
+                      <TableCell className="text-muted-foreground pl-6">
+                        <CategoryTooltip cat={cat}><em>{cat.name}</em></CategoryTooltip>
+                      </TableCell>
+                      <TableCell className="text-right text-muted-foreground hidden sm:table-cell">
+                        {fmtCurrency(cat.value)}
+                      </TableCell>
+                      <TableCell className="text-right text-muted-foreground">
+                        {fmtPct(cat.pct, false)}
+                      </TableCell>
+                      <TableCell />
+                      <TableCell />
+                    </TableRow>
+                  ))}
+                </Fragment>
+              );
+            })()}
 
             {/* Total row */}
             <TableRow className={TOTAL_ROW_CLASS}>
