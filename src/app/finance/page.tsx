@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { REPORT_URL } from "@/lib/config";
 import { ReportDataSchema, type ReportData } from "@/lib/schema";
-import { useActiveSection } from "@/lib/hooks";
 import { Button } from "@/components/ui/button";
 import { SectionHeader, SectionBody } from "@/components/finance/shared";
 import { IncomeExpensesChart } from "@/components/finance/charts";
@@ -34,16 +33,11 @@ function periodToMonthKey(period: string): string | undefined {
 // ── Sections ─────────────────────────────────────────────────────────
 
 const SECTION_LABELS = {
-  "net-worth": "Net Worth",
   "allocation": "Allocation",
   "cashflow": "Cash Flow",
   "fidelity-activity": "Fidelity Activity",
   "market": "Market",
 } as const;
-
-type SectionId = keyof typeof SECTION_LABELS;
-
-const SECTION_IDS = Object.keys(SECTION_LABELS) as SectionId[];
 
 // ── Finance Page ──────────────────────────────────────────────────────
 
@@ -74,8 +68,6 @@ export default function FinancePage() {
   }, []);
 
   useEffect(() => { fetchReport(); }, [fetchReport]);
-
-  const { active, scrollTo } = useActiveSection(SECTION_IDS, !!r);
 
   if (loading) {
     return (
@@ -108,22 +100,6 @@ export default function FinancePage() {
         </p>
       )}
 
-      {/* Section nav */}
-      <nav className="sticky top-0 z-30 -mx-6 pl-14 md:pl-6 pr-6 py-2 bg-background/80 backdrop-blur-xl backdrop-saturate-150 border-b border-white/20 dark:border-white/8 !rounded-none overflow-x-auto scrollbar-none flex gap-2 text-sm">
-        {SECTION_IDS.map((id) => (
-          <button
-            key={id}
-            onClick={() => scrollTo(id)}
-            className={`whitespace-nowrap px-3 py-1 rounded-full transition-all ${
-              active === id
-                ? "bg-foreground/10 dark:bg-white/12 text-foreground font-medium"
-                : "text-muted-foreground hover:text-foreground hover:bg-foreground/5"
-            }`}
-          >
-            {SECTION_LABELS[id]}
-          </button>
-        ))}
-      </nav>
 
       {/* ── 1. Overview ─────────────────────────────────────────────────── */}
       <MetricCards

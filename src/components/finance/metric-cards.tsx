@@ -12,7 +12,7 @@ export function MetricCards({
   onAllocationToggle: () => void;
 }) {
   const allCats = [...r.equityCategories, ...r.nonEquityCategories];
-  const cashCategories = new Set(["Safe Net", "Hedge"]);
+  const cashCategories = new Set(["Safe Net"]);
   const safeNetValue = allCats.filter((c) => cashCategories.has(c.name)).reduce((s, c) => s + c.value, 0);
   const investmentValue = allCats.reduce((s, c) => s + c.value, 0) - safeNetValue;
   const netWorth = r.balanceSheet?.netWorth ?? r.total;
