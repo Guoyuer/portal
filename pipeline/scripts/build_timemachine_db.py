@@ -22,7 +22,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from generate_asset_snapshot.db import get_connection, ingest_empower_qfx, ingest_fidelity_csv, init_db
-from generate_asset_snapshot.empower_401k import PROXY_TICKERS, Contribution, daily_401k_values, load_all_qfx
+from generate_asset_snapshot.empower_401k import (
+    PROXY_TICKERS,
+    Contribution,
+    daily_401k_values,
+    load_all_contributions,
+    load_all_qfx,
+)
 from generate_asset_snapshot.ingest.fidelity_history import load_transactions
 from generate_asset_snapshot.ingest.qianji_db import load_all_from_db
 from generate_asset_snapshot.precompute import build_daily_flows, compute_prefix_sums
@@ -49,19 +55,33 @@ DOWNLOADS = Path("C:/Users/guoyu/Downloads")
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-def _load_401k_contributions() -> list[Contribution]:
-    """Load 401k contributions from Qianji database."""
-    if not DEFAULT_QJ_DB.exists():
-        print("  Qianji DB not found — skipping 401k contributions")
-        return []
-    conn = sqlite3.connect(f"file:{DEFAULT_QJ_DB}?mode=ro", uri=True)
-    contribs: list[Contribution] = []
-    for money, ts in conn.execute(
-        "SELECT money, time FROM user_bill WHERE status = 1 AND type = 1 AND fromact = '401k' ORDER BY time"
-    ):
-        d = datetime.fromtimestamp(ts, tz=UTC).date()
-        contribs.append(Contribution(date=d, amount=float(money)))
-    conn.close()
+def _load_401k_contributions(
+    qfx_contribs: list[Contribution],
+    last_qfx_date: date | None,
+) -> list[Contribution]:
+    """Merge 401k contributions: QFX BUYMF (primary) + Qianji (fallback after last QFX).
+
+    QFX has per-fund CUSIP → ticker, so each contribution knows its exact fund.
+    Qianji only has total amount — used for periods without QFX data (e.g. Q1 2026).
+    For Qianji fallback, split 50/50 sp500/ex-us (current allocation).
+    """
+    contribs = list(qfx_contribs)
+
+    # Add Qianji contributions AFTER the last QFX coverage
+    if last_qfx_date and DEFAULT_QJ_DB.exists():
+        conn = sqlite3.connect(f"file:{DEFAULT_QJ_DB}?mode=ro", uri=True)
+        for money, ts in conn.execute(
+            "SELECT money, time FROM user_bill WHERE status = 1 AND type = 1 AND fromact = '401k' ORDER BY time"
+        ):
+            d = datetime.fromtimestamp(ts, tz=UTC).date()
+            if d > last_qfx_date:
+                # Split 50/50 sp500/ex-us (Qianji doesn't have per-fund breakdown)
+                amt = float(money)
+                contribs.append(Contribution(date=d, amount=amt * 0.5, ticker="401k sp500"))
+                contribs.append(Contribution(date=d, amount=amt * 0.5, ticker="401k ex-us"))
+        conn.close()
+
+    contribs.sort(key=lambda c: c.date)
     return contribs
 
 
@@ -136,20 +156,26 @@ def main() -> None:
     else:
         print("  No 401k QFX snapshots found")
 
-    # Ensure proxy tickers get prices fetched
+    # Ensure proxy tickers cover full 401k range (earliest QFX → today)
+    proxy_start = qfx_snaps[0].date if qfx_snaps else start
     for proxy in PROXY_TICKERS.values():
-        if proxy not in periods:
-            periods[proxy] = (start, None)
+        existing = periods.get(proxy)
+        if existing is None or existing[0] > proxy_start:
+            periods[proxy] = (proxy_start, None)
 
     # Fetch historical prices + CNY rates
     prices = fetch_prices(periods, end)
     cny_rates = fetch_cny_rates(start, end)
 
-    # 401k daily values via proxy interpolation
+    # 401k contributions: QFX BUYMF (primary) + Qianji fallback
     proxy_prices = _build_proxy_prices()
-    k401_contribs = _load_401k_contributions()
+    qfx_contribs = load_all_contributions(DOWNLOADS)
+    last_qfx_date = qfx_snaps[-1].date if qfx_snaps else None
+    k401_contribs = _load_401k_contributions(qfx_contribs, last_qfx_date)
+    qfx_only = sum(1 for c in k401_contribs if c.date <= (last_qfx_date or date.min))
+    qj_only = len(k401_contribs) - qfx_only
     if k401_contribs:
-        print(f"  {len(k401_contribs)} 401k contributions from Qianji")
+        print(f"  {len(k401_contribs)} 401k contributions ({qfx_only} from QFX, {qj_only} from Qianji fallback)")
     k401_daily = daily_401k_values(qfx_snaps, proxy_prices, start, end, contributions=k401_contribs)
     print(f"  401k daily values: {len(k401_daily)} days")
 
@@ -163,20 +189,21 @@ def main() -> None:
     conn = get_connection(DB_PATH)
     try:
         conn.execute("DELETE FROM computed_daily")
-        conn.executemany(
-            "INSERT INTO computed_daily (date, total, us_equity, non_us_equity, crypto, safe_net) VALUES (?, ?, ?, ?, ?, ?)",
-            [
-                (
-                    r["date"],
-                    r["total"],
-                    round(r["total"] * r["us_equity_pct"] / 100, 2) if r["total"] else 0,
-                    round(r["total"] * r["non_us_equity_pct"] / 100, 2) if r["total"] else 0,
-                    round(r["total"] * r["crypto_pct"] / 100, 2) if r["total"] else 0,
-                    r["safe_net"],
-                )
-                for r in alloc
-            ],
-        )
+        for r in alloc:
+            total = r["total"]
+            safe = r["safe_net"]
+            if total > 0:
+                us = round(total * r["us_equity_pct"] / 100, 2)
+                nonus = round(total * r["non_us_equity_pct"] / 100, 2)
+                crypto = round(total * r["crypto_pct"] / 100, 2)
+                # Absorb rounding error into the largest category so sum == total
+                us = round(total - safe - nonus - crypto, 2)
+            else:
+                us = nonus = crypto = 0.0
+            conn.execute(
+                "INSERT INTO computed_daily (date, total, us_equity, non_us_equity, crypto, safe_net) VALUES (?, ?, ?, ?, ?, ?)",
+                (r["date"], total, us, nonus, crypto, safe),
+            )
         conn.commit()
         row_count: int = conn.execute("SELECT COUNT(*) FROM computed_daily").fetchone()[0]
     finally:
@@ -192,6 +219,19 @@ def main() -> None:
     )
     prefix_rows = compute_prefix_sums(daily_flows)
     print(f"  {len(daily_flows)} days with transactions → {len(prefix_rows)} prefix rows")
+
+    # Forward-fill prefix to match all daily dates (prefix only has transaction
+    # dates; daily has all trading days). Frontend needs both arrays aligned.
+    daily_dates = sorted(r["date"] for r in alloc)
+    prefix_by_date = {r["date"]: r for r in prefix_rows}
+    prefix_fields = ["income", "expenses", "buys", "sells", "dividends", "netCashIn", "ccPayments"]
+    last_prefix = {f: 0.0 for f in prefix_fields}
+    aligned_prefix = []
+    for d in daily_dates:
+        if d in prefix_by_date:
+            last_prefix = {f: prefix_by_date[d].get(f, 0) for f in prefix_fields}
+        aligned_prefix.append({"date": d, **last_prefix})
+    print(f"  Forward-filled to {len(aligned_prefix)} rows (aligned with daily)")
 
     conn = get_connection(DB_PATH)
     try:
@@ -210,7 +250,7 @@ def main() -> None:
                     r.get("netCashIn", 0),
                     r.get("ccPayments", 0),
                 )
-                for r in prefix_rows
+                for r in aligned_prefix
             ],
         )
         conn.commit()

@@ -7,7 +7,7 @@ import re
 import sqlite3
 from pathlib import Path
 
-from .empower_401k import parse_qfx
+from .empower_401k import Contribution, parse_qfx
 
 # ── Schema DDL ───────────────────────────────────────────────────────────────
 
@@ -80,6 +80,15 @@ CREATE TABLE IF NOT EXISTS computed_prefix (
     dividends   REAL NOT NULL DEFAULT 0,
     net_cash_in REAL NOT NULL DEFAULT 0,
     cc_payments REAL NOT NULL DEFAULT 0
+);
+
+-- Empower 401k contributions (BUYMF transactions from QFX)
+CREATE TABLE IF NOT EXISTS empower_contributions (
+    date   TEXT NOT NULL,
+    amount REAL NOT NULL,
+    ticker TEXT NOT NULL,
+    cusip  TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (date, amount, ticker, cusip)
 );
 """
 
@@ -239,6 +248,38 @@ def ingest_empower_qfx(db_path: Path, qfx_path: Path) -> int:
         conn.close()
 
     return len(snap.funds)
+
+
+# ── Price ingestion ────────────────────────────────────────────────────────
+
+
+# ── Empower contributions ingestion ─────────────────────────────────────────
+
+
+def ingest_empower_contributions(db_path: Path, contributions: list[Contribution]) -> int:
+    """Upsert 401k contributions (BUYMF) into the database.
+
+    Deduplicates on (date, amount, ticker, cusip).
+    Returns number of rows after ingestion.
+    """
+    if not contributions:
+        return 0
+
+    conn = get_connection(db_path)
+    try:
+        conn.executemany(
+            "INSERT OR REPLACE INTO empower_contributions (date, amount, ticker, cusip)"
+            " VALUES (?, ?, ?, ?)",
+            [
+                (c.date.isoformat(), c.amount, c.ticker, getattr(c, "cusip", ""))
+                for c in contributions
+            ],
+        )
+        conn.commit()
+        count: int = conn.execute("SELECT COUNT(*) FROM empower_contributions").fetchone()[0]
+    finally:
+        conn.close()
+    return count
 
 
 # ── Price ingestion ────────────────────────────────────────────────────────

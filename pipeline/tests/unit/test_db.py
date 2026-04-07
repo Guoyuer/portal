@@ -3,17 +3,27 @@
 from __future__ import annotations
 
 import sqlite3
+from datetime import date
 from pathlib import Path
 
 import pytest
 
-from generate_asset_snapshot.db import get_connection, ingest_empower_qfx, ingest_fidelity_csv, ingest_prices, init_db
+from generate_asset_snapshot.db import (
+    get_connection,
+    ingest_empower_contributions,
+    ingest_empower_qfx,
+    ingest_fidelity_csv,
+    ingest_prices,
+    init_db,
+)
+from generate_asset_snapshot.empower_401k import Contribution
 
 EXPECTED_TABLES = frozenset({
     "fidelity_transactions",
     "daily_close",
     "empower_snapshots",
     "empower_funds",
+    "empower_contributions",
     "qianji_balances",
     "computed_daily",
     "computed_prefix",
@@ -125,6 +135,31 @@ class TestIngestEmpower:
         conn.close()
         assert snaps == 1
         assert funds == 2
+
+
+class TestIngestEmpowerContributions:
+    @pytest.fixture()
+    def db_path(self, tmp_path: Path) -> Path:
+        p = tmp_path / "test.db"
+        init_db(p)
+        return p
+
+    def test_ingest_contributions(self, db_path: Path) -> None:
+        contribs = [
+            Contribution(date=date(2025, 1, 15), amount=500.0, ticker="401k sp500"),
+            Contribution(date=date(2025, 1, 15), amount=300.0, ticker="401k ex-us"),
+        ]
+        count = ingest_empower_contributions(db_path, contribs)
+        assert count == 2
+
+    def test_dedup_contributions(self, db_path: Path) -> None:
+        contribs = [Contribution(date=date(2025, 1, 15), amount=500.0, ticker="401k sp500")]
+        ingest_empower_contributions(db_path, contribs)
+        count = ingest_empower_contributions(db_path, contribs)  # same again
+        assert count == 1  # not doubled
+
+    def test_empty_contributions(self, db_path: Path) -> None:
+        assert ingest_empower_contributions(db_path, []) == 0
 
 
 class TestIngestPrices:
