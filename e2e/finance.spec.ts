@@ -262,6 +262,39 @@ test.describe("Finance Report", () => {
     await expect(brush).toBeVisible();
   });
 
+  test("savings labels stay correct after brush move", async ({ page }) => {
+    const section = page.locator("section").filter({ hasText: "Income vs Expenses" });
+    await section.scrollIntoViewIfNeeded();
+    // Wait for chart labels to render
+    await expect(section.locator(".recharts-label-list")).toBeVisible({ timeout: 5000 });
+
+    // Collect savings labels before brush movement
+    const allTextBefore = await section.locator("svg text").allTextContents();
+    const labelsBefore = allTextBefore.filter((t) => /^\d+%$/.test(t));
+    expect(labelsBefore.length).toBeGreaterThan(0);
+
+    // Focus left brush traveller and press ArrowRight to narrow range
+    const traveller = section.locator(".recharts-brush-traveller").first();
+    await traveller.focus();
+    for (let i = 0; i < 6; i++) {
+      await page.keyboard.press("ArrowRight");
+      await page.waitForTimeout(100);
+    }
+    await page.waitForTimeout(500);
+
+    // Labels should still exist with valid percentages
+    const allTextAfter = await section.locator("svg text").allTextContents();
+    const labelsAfter = allTextAfter.filter((t) => /^\d+%$/.test(t));
+    expect(labelsAfter.length).toBeGreaterThan(0);
+    for (const label of labelsAfter) {
+      const pct = parseInt(label);
+      expect(pct).toBeGreaterThan(0);
+      expect(pct).toBeLessThanOrEqual(100);
+    }
+    // Brush should have narrowed the visible range
+    expect(labelsAfter.length).toBeLessThan(labelsBefore.length);
+  });
+
   test("income vs expenses chart renders bars", async ({ page }) => {
     // Scroll to chart area
     await page.locator("#cashflow").scrollIntoViewIfNeeded();

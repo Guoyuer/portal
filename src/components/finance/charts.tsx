@@ -8,6 +8,7 @@ import {
   Brush,
   CartesianGrid,
   Cell,
+  LabelList,
   Legend,
   Pie,
   PieChart,
@@ -16,6 +17,8 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type FlowTooltipProps = { active?: boolean; payload?: any[]; label?: string };
 import type {
   CategoryData,
   MonthlyFlowPoint,
@@ -83,24 +86,49 @@ export function AllocationDonut({
 
 // ── Custom bar label: savings rate % above income bar ─────────────────────
 
-function SavingsLabel(props: Record<string, unknown>) {
-  const { x, y, width, index, data } = props as {
-    x: number; y: number; width: number; index: number;
-    data: MonthlyFlowPoint[];
-  };
-  const point = data[index];
-  if (!point || point.savingsRate <= 0) return null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function SavingsLabel(props: any) {
+  const x = Number(props.x ?? 0);
+  const y = Number(props.y ?? 0);
+  const width = Number(props.width ?? 0);
+  const value = Number(props.value ?? 0);
+  if (!value) return null;
   return (
     <text
       x={x + width / 2}
       y={y - 6}
       textAnchor="middle"
       fontSize={9}
-      fill="#2563eb"
+      fill={value > 0 ? "#2563eb" : "#ef4444"}
       fontWeight={500}
     >
-      {Math.round(point.savingsRate)}%
+      {Math.round(value)}%
     </text>
+  );
+}
+
+// ── Custom tooltip: Income vs Expenses with savings rate ─────────────────
+
+function FlowTooltip({ active, payload, label }: FlowTooltipProps) {
+  if (!active || !payload?.length) return null;
+  const isDark = typeof document !== "undefined" && document.documentElement.classList.contains("dark");
+  const style = tooltipStyle(isDark);
+  const row = payload[0]?.payload as MonthlyFlowPoint | undefined;
+  const fmt = (v: number) => `$${v.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+  return (
+    <div style={style}>
+      <p style={{ fontWeight: 600, marginBottom: 4 }}>{fmtMonthYear(String(label))}</p>
+      {payload.map((entry) => (
+        <p key={entry.dataKey as string} style={{ color: entry.color, margin: 0 }}>
+          {entry.name} : {fmt(Number(entry.value))}
+        </p>
+      ))}
+      {row && row.savingsRate !== 0 && (
+        <p style={{ color: row.savingsRate > 0 ? "#2563eb" : "#ef4444", margin: 0 }}>
+          Savings Rate : {Math.round(row.savingsRate)}%
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -140,15 +168,12 @@ export function IncomeExpensesChart({
           axisLine={false}
           tickLine={false}
         />
-        <Tooltip
-          contentStyle={tooltipStyle(isDark)}
-          formatter={(value) => `$${Number(value).toLocaleString("en-US", { maximumFractionDigits: 0 })}`}
-          labelFormatter={(label) => fmtMonthYear(String(label))}
-        />
+        {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+        <Tooltip cursor={false} content={FlowTooltip as any} />
         <Legend verticalAlign="top" height={28} />
-        <Bar dataKey="income" name="Income" fill={isDark ? "#4ade80" : "#27ae60"} opacity={0.85} radius={[2, 2, 0, 0]}
-          label={<SavingsLabel data={filtered} />}
-        />
+        <Bar dataKey="income" name="Income" fill={isDark ? "#4ade80" : "#27ae60"} opacity={0.85} radius={[2, 2, 0, 0]}>
+          <LabelList dataKey="savingsRate" content={SavingsLabel} />
+        </Bar>
         <Bar dataKey="expenses" name="Expenses" fill={isDark ? "#f87171" : "#e94560"} opacity={0.85} radius={[2, 2, 0, 0]} />
         {filtered.length > 12 && (
           <Brush

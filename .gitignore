@@ -53,4 +53,17 @@ pipeline/config.json
 pipeline/data/
 .wrangler/
 screenshots/
+screenshots-before/
 .worktrees/
+
+# Dev screenshots & temp files
+*.png
+*.txt
+!README*.txt
+data/
+*.coverage
+pipeline/.coverage
+docs/superpowers/
+latest_report.json
+tmp_report.json
+net_worth_history_*.json
