@@ -165,8 +165,8 @@ test.describe("Finance Report", () => {
 
   test("income vs expenses chart has legend", async ({ page }) => {
     const chartSection = page.locator("section").filter({ hasText: "Income vs Expenses" });
-    await expect(chartSection.getByText("Income").first()).toBeVisible();
     await expect(chartSection.getByText("Expenses").first()).toBeVisible();
+    await expect(chartSection.getByText("Savings").first()).toBeVisible();
   });
 
   // ── Market ─────────────────────────────────────────────────────

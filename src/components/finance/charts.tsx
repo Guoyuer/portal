@@ -113,11 +113,12 @@ function FlowTooltip({ active, payload, label }: FlowTooltipProps) {
   if (!active || !payload?.length) return null;
   const isDark = typeof document !== "undefined" && document.documentElement.classList.contains("dark");
   const style = tooltipStyle(isDark);
-  const row = payload[0]?.payload as MonthlyFlowPoint | undefined;
+  const row = payload[0]?.payload as (MonthlyFlowPoint & { savings?: number }) | undefined;
   const fmt = (v: number) => `$${v.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
   return (
     <div style={style}>
       <p style={{ fontWeight: 600, marginBottom: 4 }}>{fmtMonthYear(String(label))}</p>
+      {row && <p style={{ color: isDark ? "#e5e7eb" : "#374151", margin: 0 }}>Income : {fmt(row.income)}</p>}
       {payload.map((entry) => (
         <p key={entry.dataKey as string} style={{ color: entry.color, margin: 0 }}>
           {entry.name} : {fmt(Number(entry.value))}
@@ -132,7 +133,7 @@ function FlowTooltip({ active, payload, label }: FlowTooltipProps) {
   );
 }
 
-// ── Grouped Bars: Income vs Expenses ──────────────────────────────────────
+// ── Stacked Bars: Expenses vs Savings ────────────────────────────────────
 
 export function IncomeExpensesChart({
   data,
@@ -141,13 +142,14 @@ export function IncomeExpensesChart({
 }) {
   const isMobile = useIsMobile();
   const isDark = useIsDark();
-  const filtered = data.filter((d) => d.income > 0);
+  const stacked = data
+    .filter((d) => d.income > 0)
+    .map((d) => ({ ...d, savings: Math.max(0, d.income - d.expenses) }));
 
   return (
     <ResponsiveContainer width="100%" height={isMobile ? 280 : 360}>
       <BarChart
-        data={filtered}
-        barGap={2}
+        data={stacked}
         barCategoryGap="20%"
         margin={{ top: 20, right: 10, left: isMobile ? -5 : 10, bottom: 0 }}
       >
@@ -171,11 +173,11 @@ export function IncomeExpensesChart({
         {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
         <Tooltip cursor={false} content={FlowTooltip as any} />
         <Legend verticalAlign="top" height={28} />
-        <Bar dataKey="income" name="Income" fill={isDark ? "#4ade80" : "#27ae60"} opacity={0.85} radius={[2, 2, 0, 0]}>
+        <Bar dataKey="expenses" name="Expenses" stackId="income" fill={isDark ? "#f87171" : "#e94560"} opacity={0.85} />
+        <Bar dataKey="savings" name="Savings" stackId="income" fill={isDark ? "#4ade80" : "#27ae60"} opacity={0.85} radius={[2, 2, 0, 0]}>
           <LabelList dataKey="savingsRate" content={SavingsLabel} />
         </Bar>
-        <Bar dataKey="expenses" name="Expenses" fill={isDark ? "#f87171" : "#e94560"} opacity={0.85} radius={[2, 2, 0, 0]} />
-        {filtered.length > 12 && (
+        {stacked.length > 12 && (
           <Brush
             dataKey="month"
             height={24}
