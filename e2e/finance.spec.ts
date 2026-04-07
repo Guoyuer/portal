@@ -86,16 +86,17 @@ test.describe("Finance Report", () => {
   });
 
   test("shows cash flow summary metrics", async ({ page }) => {
-    await expect(page.getByText("Net Cash Flow")).toBeVisible();
+    await expect(page.getByText("Net Savings")).toBeVisible();
     await expect(page.getByText("Invested")).toBeVisible();
     await expect(page.getByText("CC Payments")).toBeVisible();
   });
 
-  test("net cash flow uses correct color", async ({ page }) => {
-    const card = page.locator("text=Net Cash Flow").locator("..");
-    const valueEl = card.locator("p.font-bold");
+  test("net savings uses correct color", async ({ page }) => {
+    const label = page.getByText("Net Savings");
+    const container = label.locator("..");
+    const valueEl = container.locator("span.font-bold");
     const className = await valueEl.getAttribute("class");
-    expect(className).toMatch(/text-(green-|emerald-|red-)/);
+    expect(className).toMatch(/text-cyan/);
   });
 
   test("shows investment activity with period", async ({ page }) => {
@@ -157,16 +158,15 @@ test.describe("Finance Report", () => {
   });
 
   test("renders income vs expenses bar chart", async ({ page }) => {
-    await expect(page.getByText("Income vs Expenses")).toBeVisible();
-    // Recharts renders bars as <rect> inside .recharts-bar
-    const bars = page.locator(".recharts-bar-rectangle");
+    const section = page.locator("#cashflow");
+    const bars = section.locator(".recharts-bar-rectangle");
     expect(await bars.count()).toBeGreaterThan(0);
   });
 
   test("income vs expenses chart has legend", async ({ page }) => {
-    const chartSection = page.locator("section").filter({ hasText: "Income vs Expenses" });
-    await expect(chartSection.getByText("Expenses").first()).toBeVisible();
-    await expect(chartSection.getByText("Savings").first()).toBeVisible();
+    const section = page.locator("#cashflow");
+    await expect(section.getByText("Expenses").first()).toBeVisible();
+    await expect(section.getByText("Savings").first()).toBeVisible();
   });
 
   // ── Market ─────────────────────────────────────────────────────
@@ -256,13 +256,13 @@ test.describe("Finance Report", () => {
   });
 
   test("income vs expenses chart has brush slider", async ({ page }) => {
-    const section = page.locator("section").filter({ hasText: "Income vs Expenses" });
+    const section = page.locator("#cashflow");
     const brush = section.locator(".recharts-brush");
     await expect(brush).toBeVisible();
   });
 
   test("savings labels stay correct after brush move", async ({ page }) => {
-    const section = page.locator("section").filter({ hasText: "Income vs Expenses" });
+    const section = page.locator("#cashflow");
     await section.scrollIntoViewIfNeeded();
     // Wait for chart labels to render
     await expect(section.locator(".recharts-label-list")).toBeVisible({ timeout: 5000 });
@@ -302,15 +302,15 @@ test.describe("Finance Report", () => {
     expect(await bars.count()).toBeGreaterThan(0);
   });
 
-  test("cash flow bento cards have semantic colors", async ({ page }) => {
-    // Net Cash Flow — green background
-    const cashFlowCard = page.locator("text=Net Cash Flow").locator("..");
-    const cashFlowClass = await cashFlowCard.getAttribute("class");
-    expect(cashFlowClass).toMatch(/bg-emerald/);
-    // Invested — blue background
-    const investedCard = page.locator("text=Invested").locator("..");
-    const investedClass = await investedCard.getAttribute("class");
-    expect(investedClass).toMatch(/bg-blue/);
+  test("stat bar metrics have color-coded values", async ({ page }) => {
+    // Net Savings — cyan color
+    const savingsValue = page.getByText("Net Savings").locator("..").locator("span.font-bold");
+    const savingsClass = await savingsValue.getAttribute("class");
+    expect(savingsClass).toMatch(/text-cyan/);
+    // Invested — blue color
+    const investedValue = page.getByText("Invested").locator("..").locator("span.font-bold");
+    const investedClass = await investedValue.getAttribute("class");
+    expect(investedClass).toMatch(/text-blue/);
   });
 
   test("nav highlights correct section on scroll", async ({ page }) => {
