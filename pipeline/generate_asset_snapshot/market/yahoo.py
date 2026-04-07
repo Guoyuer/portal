@@ -125,7 +125,7 @@ def build_market_data(cny_rate: float) -> MarketData | None:
                 month_return=round(month_return, 4),
                 ytd_return=round(ytd_return, 4),
                 current=current,
-                sparkline=[round(float(v.item()), 2) for v in closes],
+                sparkline=[round(float(v), 2) for v in closes],
                 high_52w=float(closes.max()),
                 low_52w=float(closes.min()),
             ))
