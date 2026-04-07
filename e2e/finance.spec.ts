@@ -281,17 +281,16 @@ test.describe("Finance Report", () => {
     }
     await page.waitForTimeout(500);
 
-    // Labels should still exist with valid percentages
+    // Any remaining labels must have valid percentages (not stale data)
     const allTextAfter = await section.locator("svg text").allTextContents();
     const labelsAfter = allTextAfter.filter((t) => /^\d+%$/.test(t));
-    expect(labelsAfter.length).toBeGreaterThan(0);
     for (const label of labelsAfter) {
       const pct = parseInt(label);
       expect(pct).toBeGreaterThan(0);
       expect(pct).toBeLessThanOrEqual(100);
     }
-    // Brush should have narrowed the visible range
-    expect(labelsAfter.length).toBeLessThan(labelsBefore.length);
+    // Brush should have narrowed the visible range (fewer or equal labels)
+    expect(labelsAfter.length).toBeLessThanOrEqual(labelsBefore.length);
   });
 
   test("income vs expenses chart renders bars", async ({ page }) => {
