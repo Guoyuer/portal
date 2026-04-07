@@ -9,12 +9,27 @@ import { SectionHeader, SectionBody } from "@/components/finance/shared";
 import { IncomeExpensesChart } from "@/components/finance/charts";
 import { MetricCards } from "@/components/finance/metric-cards";
 import { CategorySummary } from "@/components/finance/category-summary";
-import { CashFlow } from "@/components/finance/cash-flow";
+import { CashFlow, CashFlowStatBar } from "@/components/finance/cash-flow";
 import { PortfolioActivity } from "@/components/finance/portfolio-activity";
 import { MarketContext } from "@/components/finance/market-context";
 import { AnnualSummary } from "@/components/finance/annual-summary";
 import { NetWorthGrowth } from "@/components/finance/net-worth-growth";
 import { BackToTop } from "@/components/layout/back-to-top";
+
+// ── Helpers ──────────────────────────────────────────────────────────
+
+const MONTH_MAP: Record<string, string> = {
+  January: "01", February: "02", March: "03", April: "04",
+  May: "05", June: "06", July: "07", August: "08",
+  September: "09", October: "10", November: "11", December: "12",
+};
+
+/** "March 2026" → "2026-03" */
+function periodToMonthKey(period: string): string | undefined {
+  const [name, year] = period.split(" ");
+  const m = MONTH_MAP[name];
+  return m && year ? `${year}-${m}` : undefined;
+}
 
 // ── Sections ─────────────────────────────────────────────────────────
 
@@ -123,41 +138,67 @@ export default function FinancePage() {
       </div>
 
       {/* ── 4. Cash Flow ────────────────────────────────────────────────── */}
-      {r.cashflow && (
-        <section id="cashflow">
-          <SectionHeader>{SECTION_LABELS["cashflow"]} &mdash; {r.cashflow.period}</SectionHeader>
-          <SectionBody>
-            <CashFlow data={r.cashflow} />
-            {r.chartData?.monthlyFlows && r.chartData.monthlyFlows.length > 0 && (
-              <div className="mt-6 pt-6 border-t border-border">
-                <h3 className="font-semibold mb-2">Income vs Expenses Trend</h3>
-                <IncomeExpensesChart data={r.chartData.monthlyFlows} />
-              </div>
-            )}
+      <section id="cashflow">
+        <SectionHeader>{SECTION_LABELS["cashflow"]}{r.cashflow ? ` — ${r.cashflow.period}` : ""}</SectionHeader>
+        {r.cashflow ? (
+          <>
+            <SectionBody>
+              <CashFlow data={r.cashflow} />
+            </SectionBody>
+
+            {/* Stat bar + chart — single glass container, no internal borders */}
+            <div className="liquid-glass mt-4 overflow-hidden">
+              <CashFlowStatBar data={r.cashflow} period={r.cashflow.period} />
+              <div className="mx-3 sm:mx-5 h-px bg-gradient-to-r from-transparent via-foreground/8 to-transparent" />
+              {r.chartData?.monthlyFlows && r.chartData.monthlyFlows.length > 0 ? (
+                <div className="px-3 sm:px-5 pb-3 sm:pb-5 pt-3">
+                  <IncomeExpensesChart
+                    data={r.chartData.monthlyFlows}
+                    activeMonth={periodToMonthKey(r.cashflow.period)}
+                  />
+                </div>
+              ) : (
+                <p className="text-sm text-red-400 px-4 pb-4">Monthly flow data unavailable</p>
+              )}
+            </div>
+
             {r.annualSummary && (
-              <details className="mt-6 pt-6 border-t border-border">
+              <details className="liquid-glass mt-4 p-3 sm:p-5">
                 <summary className="font-semibold cursor-pointer hover:text-foreground">
                   {r.annualSummary.year} Year-to-Date
                 </summary>
                 <div className="mt-4"><AnnualSummary data={r.annualSummary} /></div>
               </details>
             )}
-          </SectionBody>
-        </section>
-      )}
+          </>
+        ) : (
+          <SectionBody><p className="text-sm text-red-400">Cash flow data unavailable</p></SectionBody>
+        )}
+      </section>
 
       {/* ── 5. Portfolio Activity ───────────────────────────────────────── */}
-      {r.activity && (
-        <section id="fidelity-activity">
-          <SectionHeader>{SECTION_LABELS["fidelity-activity"]}</SectionHeader>
+      <section id="fidelity-activity">
+        <SectionHeader>{SECTION_LABELS["fidelity-activity"]}</SectionHeader>
+        {r.activity ? (
           <SectionBody>
             <PortfolioActivity activity={r.activity} reconciliation={r.reconciliation} />
           </SectionBody>
-        </section>
-      )}
+        ) : (
+          <SectionBody><p className="text-sm text-red-400">Activity data unavailable</p></SectionBody>
+        )}
+      </section>
 
       {/* ── Market Context ──────────────────────────────────────────────── */}
-      {r.market && <div id="market"><MarketContext data={r.market} title={SECTION_LABELS["market"]} /></div>}
+      <div id="market">
+        {r.market ? (
+          <MarketContext data={r.market} title={SECTION_LABELS["market"]} />
+        ) : (
+          <>
+            <SectionHeader>{SECTION_LABELS["market"]}</SectionHeader>
+            <p className="text-sm text-red-400">Market data unavailable</p>
+          </>
+        )}
+      </div>
 
       <BackToTop />
     </div>

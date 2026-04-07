@@ -18,12 +18,12 @@ export function MetricCards({ report: r }: { report: ReportData }) {
           <p className="text-2xl font-bold tabular-nums">{fmtCurrency(netWorth)}</p>
         </div>
         <div className="mt-2 flex h-2 w-full rounded-full overflow-hidden">
-          <div className="h-2 bg-emerald-400 dark:bg-emerald-500 transition-all" style={{ width: `${100 - invPct}%` }} />
+          <div className="h-2 bg-cyan-400 dark:bg-cyan-400 transition-all" style={{ width: `${100 - invPct}%` }} />
           <div className="h-2 bg-blue-500 flex-1" />
         </div>
         <div className="mt-2 flex justify-between text-xs">
           <div>
-            <span className="inline-block w-2 h-2 rounded-sm bg-emerald-400 dark:bg-emerald-500 mr-1.5 align-middle" />
+            <span className="inline-block w-2 h-2 rounded-sm bg-cyan-400 dark:bg-cyan-400 mr-1.5 align-middle" />
             <span className="text-muted-foreground">Safe Net {Math.round(100 - invPct)}%</span>
             <p className="text-base font-semibold tabular-nums mt-0.5">{fmtCurrencyShort(safeNetValue)}</p>
           </div>
