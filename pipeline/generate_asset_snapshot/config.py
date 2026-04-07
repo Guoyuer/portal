@@ -122,6 +122,8 @@ def manual_values_from_snapshot(
     """Derive manual asset values (Debit Cash, I Bonds, CNY Assets) from Qianji balances.
 
     Maps Qianji account names to config tickers via qianji_accounts.ticker_map.
+    Uses DB currency field (snapshot["currencies"]) to determine CNY accounts,
+    falling back to config["qianji_accounts"]["cny"] for backwards compatibility.
     """
     balances = {
         acct: bal
@@ -130,19 +132,24 @@ def manual_values_from_snapshot(
     }
 
     cny_rate = snapshot["cny_rate"]
-    qa = config["qianji_accounts"]
-    ticker_map: dict[str, str] = qa.get("ticker_map", {})
-    cny_accounts: list[str] = qa.get("cny", [])
+    currencies: dict[str, str] = snapshot.get("currencies", {})
+    cny_fallback: list[str] = config["qianji_accounts"].get("cny", [])
+    ticker_map: dict[str, str] = config["qianji_accounts"].get("ticker_map", {})
+
+    def _is_cny(acct: str) -> bool:
+        if currencies:
+            return currencies.get(acct, "USD") == "CNY"
+        return acct in cny_fallback
 
     result: dict[str, float] = {}
     for qj_account, ticker in ticker_map.items():
         if qj_account in balances:
             val = balances[qj_account]
-            if qj_account in cny_accounts:
+            if _is_cny(qj_account):
                 val = val / cny_rate
             result[ticker] = val
 
-    cny_total = sum(balances.get(acct, 0) for acct in cny_accounts if acct not in ticker_map)
+    cny_total = sum(bal for acct, bal in balances.items() if _is_cny(acct) and acct not in ticker_map)
     if cny_total > 0:
         result["CNY Assets"] = cny_total / cny_rate
 

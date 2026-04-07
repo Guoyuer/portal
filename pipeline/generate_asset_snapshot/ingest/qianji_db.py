@@ -34,21 +34,23 @@ DEFAULT_DB_PATH = _WIN_DB_PATH if sys.platform == "win32" else _MAC_DB_PATH
 # Qianji type codes → internal type names
 _TYPE_MAP = {0: QJ_EXPENSE, 1: QJ_INCOME, 2: QJ_TRANSFER, 3: QJ_REPAYMENT}
 
-_BILL_QUERY = "SELECT id, type, money, fromact, targetact, remark, time, cateid, extra FROM user_bill ORDER BY time"
+_BILL_QUERY = "SELECT id, type, money, fromact, targetact, remark, time, cateid, extra FROM user_bill WHERE status = 1 ORDER BY time"
 
 
 def _parse_amount(money: float, extra_str: str | None) -> float:
-    """Return USD amount, using currency conversion from extra if available."""
-    if extra_str:
-        try:
-            extra = json.loads(extra_str)
-            curr = extra.get("curr") if isinstance(extra, dict) else None
-            if isinstance(curr, dict) and curr.get("ss") == "CNY":
-                bv = curr.get("bv")
-                if bv is not None:
-                    return float(bv)
-        except (json.JSONDecodeError, TypeError):
-            pass
+    """Return base-currency amount, using currency conversion from extra if available."""
+    if not extra_str or extra_str == "null":
+        return float(money)
+    try:
+        extra = json.loads(extra_str)
+    except (json.JSONDecodeError, TypeError):
+        return float(money)
+    curr = extra.get("curr") if isinstance(extra, dict) else None
+    if not isinstance(curr, dict):
+        return float(money)
+    ss, bs, bv, sv = curr.get("ss"), curr.get("bs"), curr.get("bv"), curr.get("sv")
+    if ss and bs and ss != bs and bv is not None and sv is not None and abs(bv - sv) > 0.01:
+        return float(bv)
     return float(money)
 
 
@@ -86,11 +88,11 @@ def _load_records(conn: sqlite3.Connection) -> list[QianjiRecord]:
     return records
 
 
-def _load_balances(conn: sqlite3.Connection) -> dict[str, float]:
-    """Load account balances from an open DB connection."""
+def _load_balances(conn: sqlite3.Connection) -> dict[str, tuple[float, str]]:
+    """Load account balances and currencies from an open DB connection."""
     balances = {
-        name: float(money)
-        for name, money, _currency in conn.execute("SELECT name, money, currency FROM user_asset WHERE status = 0")
+        name: (float(money), currency or "USD")
+        for name, money, currency in conn.execute("SELECT name, money, currency FROM user_asset WHERE status = 0")
     }
     log.info("Qianji balances: %d accounts", len(balances))
     return balances
@@ -105,13 +107,14 @@ def _fetch_live_cny_rate() -> float:
     return rate
 
 
-def _build_snapshot(db_path: Path, balances: dict[str, float]) -> dict[str, Any]:
+def _build_snapshot(db_path: Path, balances: dict[str, tuple[float, str]]) -> dict[str, Any]:
     """Build a snapshot dict from balances and DB file modification time."""
     mtime = os.path.getmtime(db_path)
     return {
         "date": datetime.fromtimestamp(mtime, tz=UTC).strftime("%Y-%m-%d"),
         "cny_rate": _fetch_live_cny_rate(),
-        "balances": balances,
+        "balances": {name: bal for name, (bal, _) in balances.items()},
+        "currencies": {name: curr for name, (_, curr) in balances.items()},
     }
 
 
