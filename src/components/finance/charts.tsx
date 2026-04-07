@@ -8,14 +8,18 @@ import {
   Brush,
   CartesianGrid,
   Cell,
+  LabelList,
   Legend,
   Pie,
   PieChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type FlowTooltipProps = { active?: boolean; payload?: any[]; label?: string };
 import type {
   CategoryData,
   MonthlyFlowPoint,
@@ -25,7 +29,7 @@ import { fmtCurrencyShort, fmtMonth, fmtMonthYear } from "@/lib/format";
 import { useIsDark, useIsMobile } from "@/lib/hooks";
 import { tooltipStyle, gridStroke } from "@/lib/chart-styles";
 
-const COLORS = ["#2563eb", "#7c3aed", "#f59e0b", "#10b981", "#ef4444"];
+const COLORS = ["#06b6d4", "#8b5cf6", "#f59e0b", "#10b981", "#f87171"];
 
 // ── Donut: Category Allocation ─────────────────────────────────────────────
 
@@ -83,43 +87,76 @@ export function AllocationDonut({
 
 // ── Custom bar label: savings rate % above income bar ─────────────────────
 
-function SavingsLabel(props: Record<string, unknown>) {
-  const { x, y, width, index, data } = props as {
-    x: number; y: number; width: number; index: number;
-    data: MonthlyFlowPoint[];
-  };
-  const point = data[index];
-  if (!point || point.savingsRate <= 0) return null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function SavingsLabel(props: any) {
+  const x = Number(props.x ?? 0);
+  const y = Number(props.y ?? 0);
+  const width = Number(props.width ?? 0);
+  const value = Number(props.value ?? 0);
+  if (!value) return null;
   return (
     <text
       x={x + width / 2}
       y={y - 6}
       textAnchor="middle"
       fontSize={9}
-      fill="#2563eb"
+      fill={value > 0 ? "#22d3ee" : "#f87171"}
       fontWeight={500}
     >
-      {Math.round(point.savingsRate)}%
+      {Math.round(value)}%
     </text>
   );
 }
 
-// ── Grouped Bars: Income vs Expenses ──────────────────────────────────────
+// ── Custom tooltip: Income vs Expenses with savings rate ─────────────────
+
+function FlowTooltip({ active, payload, label }: FlowTooltipProps) {
+  if (!active || !payload?.length) return null;
+  const isDark = typeof document !== "undefined" && document.documentElement.classList.contains("dark");
+  const style = tooltipStyle(isDark);
+  const row = payload[0]?.payload as (MonthlyFlowPoint & { savings?: number }) | undefined;
+  const fmt = (v: number) => `$${v.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+  return (
+    <div style={style}>
+      <p style={{ fontWeight: 600, marginBottom: 4 }}>{fmtMonthYear(String(label))}</p>
+      {row && <p style={{ color: isDark ? "#e5e7eb" : "#374151", margin: 0 }}>Income : {fmt(row.income)}</p>}
+      {payload.map((entry) => (
+        <p key={entry.dataKey as string} style={{ color: entry.color, margin: 0 }}>
+          {entry.name} : {fmt(Number(entry.value))}
+        </p>
+      ))}
+      {row && row.savingsRate !== 0 && (
+        <p style={{ color: row.savingsRate > 0 ? "#22d3ee" : "#f87171", margin: 0 }}>
+          Savings Rate : {Math.round(row.savingsRate)}%
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ── Stacked Bars: Expenses vs Savings ────────────────────────────────────
 
 export function IncomeExpensesChart({
   data,
+  activeMonth,
 }: {
   data: MonthlyFlowPoint[];
+  activeMonth?: string; // e.g. "2026-03"
 }) {
   const isMobile = useIsMobile();
   const isDark = useIsDark();
-  const filtered = data.filter((d) => d.income > 0);
+  const stacked = data
+    .filter((d) => d.income > 0)
+    .map((d) => ({ ...d, savings: Math.max(0, d.income - d.expenses) }));
+
+  const activeIdx = activeMonth ? stacked.findIndex((d) => d.month === activeMonth) : -1;
+  const expenseColor = isDark ? "#fb7185" : "#e94560";
+  const savingsColor = isDark ? "#22d3ee" : "#0891b2";
 
   return (
     <ResponsiveContainer width="100%" height={isMobile ? 280 : 360}>
       <BarChart
-        data={filtered}
-        barGap={2}
+        data={stacked}
         barCategoryGap="20%"
         margin={{ top: 20, right: 10, left: isMobile ? -5 : 10, bottom: 0 }}
       >
@@ -140,22 +177,35 @@ export function IncomeExpensesChart({
           axisLine={false}
           tickLine={false}
         />
-        <Tooltip
-          contentStyle={tooltipStyle(isDark)}
-          formatter={(value) => `$${Number(value).toLocaleString("en-US", { maximumFractionDigits: 0 })}`}
-          labelFormatter={(label) => fmtMonthYear(String(label))}
-        />
+        {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+        <Tooltip cursor={false} content={FlowTooltip as any} />
         <Legend verticalAlign="top" height={28} />
-        <Bar dataKey="income" name="Income" fill={isDark ? "#4ade80" : "#27ae60"} opacity={0.85} radius={[2, 2, 0, 0]}
-          label={<SavingsLabel data={filtered} />}
-        />
-        <Bar dataKey="expenses" name="Expenses" fill={isDark ? "#f87171" : "#e94560"} opacity={0.85} radius={[2, 2, 0, 0]} />
-        {filtered.length > 12 && (
+        {/* Leader line from active bar to stat bar above */}
+        {activeIdx >= 0 && (
+          <ReferenceLine
+            x={stacked[activeIdx].month}
+            stroke={isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)"}
+            strokeDasharray="2 3"
+            strokeWidth={1}
+          />
+        )}
+        <Bar dataKey="expenses" name="Expenses" stackId="income">
+          {stacked.map((_, i) => (
+            <Cell key={i} fill={expenseColor} opacity={activeIdx >= 0 && i !== activeIdx ? 0.35 : 0.9} />
+          ))}
+        </Bar>
+        <Bar dataKey="savings" name="Savings" stackId="income" radius={[2, 2, 0, 0]}>
+          {stacked.map((_, i) => (
+            <Cell key={i} fill={savingsColor} opacity={activeIdx >= 0 && i !== activeIdx ? 0.35 : 0.9} />
+          ))}
+          <LabelList dataKey="savingsRate" content={SavingsLabel} />
+        </Bar>
+        {stacked.length > 12 && (
           <Brush
             dataKey="month"
             height={24}
-            stroke={isDark ? "#4ade80" : "#27ae60"}
-            fill={isDark ? "rgba(30,95,58,0.3)" : "rgba(220,252,231,0.5)"}
+            stroke={isDark ? "#22d3ee" : "#0891b2"}
+            fill={isDark ? "rgba(8,145,178,0.2)" : "rgba(207,250,254,0.5)"}
             tickFormatter={fmtMonth}
           />
         )}
@@ -191,15 +241,15 @@ export function NetWorthTrendChart({
   const [yMin, yMax] = niceYDomain(data);
   const nwEndIdx = data.length - 1;
   const nwStartIdx = Math.max(0, nwEndIdx - 11);
-  const brushColor = isDark ? "#60a5fa" : "#2563eb";
+  const brushColor = isDark ? "#22d3ee" : "#0891b2";
 
   return (
     <ResponsiveContainer width="100%" height={isMobile ? 260 : 300}>
       <AreaChart data={data} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
         <defs>
           <linearGradient id="nwGradient" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={isDark ? "#60a5fa" : "#2563eb"} stopOpacity={0.35} />
-            <stop offset="100%" stopColor={isDark ? "#60a5fa" : "#2563eb"} stopOpacity={0.02} />
+            <stop offset="0%" stopColor={isDark ? "#22d3ee" : "#0891b2"} stopOpacity={0.35} />
+            <stop offset="100%" stopColor={isDark ? "#22d3ee" : "#0891b2"} stopOpacity={0.02} />
           </linearGradient>
         </defs>
         <CartesianGrid strokeDasharray="3 3" stroke={gridStroke(isDark)} />
@@ -231,7 +281,7 @@ export function NetWorthTrendChart({
         <Area
           type="monotone"
           dataKey="total"
-          stroke={isDark ? "#60a5fa" : "#2563eb"}
+          stroke={isDark ? "#22d3ee" : "#0891b2"}
           fill="url(#nwGradient)"
           strokeWidth={2}
         />
@@ -241,7 +291,7 @@ export function NetWorthTrendChart({
             dataKey="date"
             height={28}
             stroke={brushColor}
-            fill={isDark ? "rgba(30,58,95,0.3)" : "rgba(219,234,254,0.5)"}
+            fill={isDark ? "rgba(8,145,178,0.2)" : "rgba(207,250,254,0.5)"}
             startIndex={nwStartIdx}
             endIndex={nwEndIdx}
             tickFormatter={(d: string) => {

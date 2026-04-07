@@ -1,16 +1,126 @@
-import type { MarketData } from "@/lib/types";
-import { fmtCurrency, fmtPct } from "@/lib/format";
+"use client";
+
+import { Area, AreaChart, ResponsiveContainer } from "recharts";
+import type { MarketData, IndexReturn } from "@/lib/types";
+import { fmtPct } from "@/lib/format";
 import { valueColor } from "@/lib/style-helpers";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { SectionHeader, SectionBody } from "@/components/finance/shared";
 
+// ── Display name mapping ────────────────────────────────────────────────
+const INDEX_NAMES: Record<string, string> = {
+  "^GSPC": "S&P 500",
+  "^NDX": "NASDAQ 100",
+};
+
+// ── Palette ─────────────────────────────────────────────────────────────
+const GAIN = "#81b29a";
+const LOSS = "#cd6155";
+
+function returnColor(v: number) { return v >= 0 ? GAIN : LOSS; }
+function returnBg(v: number) { return v >= 0 ? "bg-[#81b29a]/15" : "bg-[#cd6155]/15"; }
+
+// ── Badge ───────────────────────────────────────────────────────────────
+function ReturnBadge({ label, value }: { label: string; value: number }) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold tabular-nums ${returnBg(value)}`}
+      style={{ color: returnColor(value) }}
+    >
+      <span className="text-[9px] opacity-60 font-normal">{label}</span>
+      {fmtPct(value, true)}
+    </span>
+  );
+}
+
+// ── Sparkline ───────────────────────────────────────────────────────────
+function Sparkline({ idx }: { idx: IndexReturn }) {
+  const data = idx.sparkline
+    ? idx.sparkline.map((v) => ({ v }))
+    : [
+        { v: idx.current / (1 + idx.ytdReturn / 100) },
+        { v: idx.current / (1 + idx.monthReturn / 100) },
+        { v: idx.current },
+      ];
+  const color = idx.ytdReturn >= 0 ? GAIN : LOSS;
+
+  return (
+    <ResponsiveContainer width="100%" height={28}>
+      <AreaChart data={data} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
+        <defs>
+          <linearGradient id={`spark-${idx.ticker}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity={0.3} />
+            <stop offset="100%" stopColor={color} stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <Area
+          type="monotone"
+          dataKey="v"
+          stroke={color}
+          strokeWidth={1.5}
+          fill={`url(#spark-${idx.ticker})`}
+          dot={false}
+          isAnimationActive={false}
+        />
+      </AreaChart>
+    </ResponsiveContainer>
+  );
+}
+
+// ── 52-Week Range Bar ───────────────────────────────────────────────────
+function RangeBar({ current, high, low }: { current: number; high: number; low: number }) {
+  const range = high - low;
+  const pct = range > 0 ? ((current - low) / range) * 100 : 50;
+
+  return (
+    <div className="mt-2">
+      <div className="flex justify-between text-[9px] tabular-nums text-muted-foreground mb-0.5">
+        <span>{low.toLocaleString("en-US", { maximumFractionDigits: 0 })}</span>
+        <span className="opacity-50">52W</span>
+        <span>{high.toLocaleString("en-US", { maximumFractionDigits: 0 })}</span>
+      </div>
+      <div className="relative h-1 rounded-full bg-foreground/10">
+        <div
+          className="absolute top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-foreground/70"
+          style={{ left: `calc(${Math.min(Math.max(pct, 0), 100)}% - 4px)` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ── Index Card ──────────────────────────────────────────────────────────
+function IndexCard({ idx }: { idx: IndexReturn }) {
+  const displayName = INDEX_NAMES[idx.ticker] ?? idx.name;
+  const pts = idx.current >= 1000
+    ? idx.current.toLocaleString("en-US", { maximumFractionDigits: 0 })
+    : idx.current.toFixed(2);
+
+  return (
+    <div
+      className="liquid-glass-thin p-3 flex flex-col justify-between min-h-[120px]"
+      style={{ borderColor: "rgba(255,255,255,0.15)" }}
+    >
+      <p className="text-xs font-semibold text-foreground/60 tracking-wide uppercase">
+        {displayName}
+      </p>
+      <p className="text-xl font-bold tabular-nums text-foreground mt-1">
+        {pts}
+      </p>
+      <div className="flex gap-1.5 mt-1.5">
+        <ReturnBadge label="M" value={idx.monthReturn} />
+        <ReturnBadge label="YTD" value={idx.ytdReturn} />
+      </div>
+      <div className="mt-2 -mx-1">
+        <Sparkline idx={idx} />
+      </div>
+      {idx.high52w != null && idx.low52w != null && (
+        <RangeBar current={idx.current} high={idx.high52w} low={idx.low52w} />
+      )}
+    </div>
+  );
+}
+
+// ── MarketContext ────────────────────────────────────────────────────────
 export function MarketContext({ data: m, title }: { data: MarketData; title: string }) {
   const indicators: { label: string; value: string; color?: string }[] = [];
   if (m.fedRate != null)
@@ -43,69 +153,41 @@ export function MarketContext({ data: m, title }: { data: MarketData; title: str
   return (
     <section>
       <SectionHeader>{title}</SectionHeader>
-      <SectionBody>
-        {/* Index Returns */}
-        {m.indices.length > 0 && (
-          <div>
-            <h3 className="font-semibold mb-2">Index Returns</h3>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Index</TableHead>
-                  <TableHead className="text-right">Current</TableHead>
-                  <TableHead className="text-right">Month</TableHead>
-                  <TableHead className="text-right">YTD</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {m.indices.map((idx) => (
-                  <TableRow key={idx.ticker} className="even:bg-muted/50">
-                    <TableCell className="font-medium">
-                      {idx.name}{" "}
-                      <span className="text-muted-foreground font-mono text-xs">
-                        {idx.ticker}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {fmtCurrency(idx.current)}
-                    </TableCell>
-                    <TableCell
-                      className={`text-right ${valueColor(idx.monthReturn)}`}
-                    >
-                      {fmtPct(idx.monthReturn, true)}
-                    </TableCell>
-                    <TableCell
-                      className={`text-right ${valueColor(idx.ytdReturn)}`}
-                    >
-                      {fmtPct(idx.ytdReturn, true)}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        )}
 
-        {/* Macro Indicators */}
-        {indicators.length > 1 && (
-          <div className="mt-6">
-            <h3 className="font-semibold mb-2">Macro Indicators</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2">
-              {indicators.map((ind) => (
-                <div
-                  key={ind.label}
-                  className="flex justify-between py-1.5 border-b border-border"
-                >
-                  <span className="text-muted-foreground">{ind.label}</span>
-                  <span className={`font-medium ${ind.color ?? ""}`}>
-                    {ind.value}
-                  </span>
-                </div>
-              ))}
-            </div>
+      {/* Index Cards — directly on page background, no outer glass wrapper */}
+      {m.indices.length > 0 ? (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {m.indices.map((idx) => (
+            <IndexCard key={idx.ticker} idx={idx} />
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-red-400">Index data unavailable</p>
+      )}
+
+      {/* Macro Indicators */}
+      {indicators.length > 0 ? (
+        <div className="liquid-glass p-3 sm:p-5 mt-4">
+          <h3 className="text-xs font-semibold text-foreground/50 uppercase tracking-wider mb-2">
+            Macro
+          </h3>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-1.5 text-sm">
+            {indicators.map((ind) => (
+              <div
+                key={ind.label}
+                className="flex justify-between py-1 border-b border-foreground/5"
+              >
+                <span className="text-muted-foreground text-xs">{ind.label}</span>
+                <span className={`font-medium text-xs tabular-nums ${ind.color ?? ""}`}>
+                  {ind.value}
+                </span>
+              </div>
+            ))}
           </div>
-        )}
-      </SectionBody>
+        </div>
+      ) : (
+        <p className="text-sm text-red-400 mt-4">Macro data unavailable</p>
+      )}
     </section>
   );
 }

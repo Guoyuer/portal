@@ -90,6 +90,9 @@ const IndexReturnSchema = z.object({
   monthReturn: z.number(),
   ytdReturn: z.number(),
   current: z.number(),
+  sparkline: z.array(z.number()).nullable().default(null),
+  high52w: z.number().nullable().default(null),
+  low52w: z.number().nullable().default(null),
 });
 
 const MarketDataSchema = z.object({
