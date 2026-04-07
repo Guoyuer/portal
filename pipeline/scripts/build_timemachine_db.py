@@ -23,6 +23,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from generate_asset_snapshot.db import get_connection, ingest_empower_qfx, ingest_fidelity_csv, init_db
 from generate_asset_snapshot.empower_401k import PROXY_TICKERS, Contribution, daily_401k_values, load_all_qfx
+from generate_asset_snapshot.ingest.fidelity_history import load_transactions
+from generate_asset_snapshot.ingest.qianji_db import load_all_from_db
+from generate_asset_snapshot.precompute import build_daily_flows, compute_prefix_sums
 from generate_asset_snapshot.timemachine import DEFAULT_QJ_DB, _load_raw_rows, _parse_date
 from scripts.safe_net_history import (
     PRICE_DB,
@@ -85,13 +88,13 @@ def main() -> None:
     print("=" * 60)
 
     # ── Step 1: Initialise database ──────────────────────────────────────────
-    print("\n[1/5] Initialising database...")
+    print("\n[1/6] Initialising database...")
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     init_db(DB_PATH)
     print(f"  Database ready: {DB_PATH}")
 
     # ── Step 2: Ingest Fidelity transactions ─────────────────────────────────
-    print("\n[2/5] Ingesting Fidelity transactions...")
+    print("\n[2/6] Ingesting Fidelity transactions...")
     if not FIDELITY_CSV.exists():
         print(f"  ERROR: CSV not found at {FIDELITY_CSV}")
         sys.exit(1)
@@ -99,7 +102,7 @@ def main() -> None:
     print(f"  {count} rows in fidelity_transactions table")
 
     # ── Step 3: Ingest Empower QFX files ─────────────────────────────────────
-    print("\n[3/5] Ingesting Empower 401k QFX files...")
+    print("\n[3/6] Ingesting Empower 401k QFX files...")
     qfx_files = sorted(DOWNLOADS.glob("Bloomberg.Download*.qfx"))
     if not qfx_files:
         print("  WARNING: No QFX files found in Downloads")
@@ -111,7 +114,7 @@ def main() -> None:
         print(f"  Ingested {len(qfx_files)} QFX files ({total_funds} fund positions)")
 
     # ── Step 4: Fetch prices + compute allocation ────────────────────────────
-    print("\n[4/5] Running allocation pipeline...")
+    print("\n[4/6] Running allocation pipeline...")
 
     config = load_config(CONFIG_PATH)
     print("  Config loaded")
@@ -156,7 +159,7 @@ def main() -> None:
     print(f"  {len(alloc)} daily records computed")
 
     # ── Step 5: Store in computed_daily table ────────────────────────────────
-    print("\n[5/5] Writing computed_daily table...")
+    print("\n[5/6] Writing computed_daily table...")
     conn = get_connection(DB_PATH)
     try:
         conn.execute("DELETE FROM computed_daily")
@@ -179,6 +182,42 @@ def main() -> None:
     finally:
         conn.close()
     print(f"  {row_count} rows in computed_daily table")
+
+    # ── Step 6: Compute prefix sums from transactions ───────────────────────
+    print("\n[6/6] Computing prefix sums from transactions...")
+    fidelity_txns = load_transactions(FIDELITY_CSV)
+    qianji_records, _ = load_all_from_db(DEFAULT_QJ_DB)
+    daily_flows = build_daily_flows(
+        fidelity_txns, qianji_records, start.isoformat(), end.isoformat(),  # type: ignore[arg-type]
+    )
+    prefix_rows = compute_prefix_sums(daily_flows)
+    print(f"  {len(daily_flows)} days with transactions → {len(prefix_rows)} prefix rows")
+
+    conn = get_connection(DB_PATH)
+    try:
+        conn.execute("DELETE FROM computed_prefix")
+        conn.executemany(
+            "INSERT INTO computed_prefix (date, income, expenses, buys, sells, dividends, net_cash_in, cc_payments)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    r["date"],
+                    r.get("income", 0),
+                    r.get("expenses", 0),
+                    r.get("buys", 0),
+                    r.get("sells", 0),
+                    r.get("dividends", 0),
+                    r.get("netCashIn", 0),
+                    r.get("ccPayments", 0),
+                )
+                for r in prefix_rows
+            ],
+        )
+        conn.commit()
+        prefix_count: int = conn.execute("SELECT COUNT(*) FROM computed_prefix").fetchone()[0]
+    finally:
+        conn.close()
+    print(f"  {prefix_count} rows in computed_prefix table")
 
     # ── Summary ──────────────────────────────────────────────────────────────
     if alloc:
