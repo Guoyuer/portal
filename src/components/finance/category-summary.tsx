@@ -74,19 +74,16 @@ function CategoryTooltip({ cat, children }: { cat: CategoryData; children: React
   return <GlassTooltip content={content}>{children}</GlassTooltip>;
 }
 
-export function CategorySummary({ report: r, title }: { report: ReportData; title: string }) {
+export function CategorySummary({ report: r, title, embedded }: { report: ReportData; title: string; embedded?: boolean }) {
   const allCategories = [...r.equityCategories, ...r.nonEquityCategories];
   const totalValue = allCategories.reduce((s, c) => s + c.value, 0);
   const totalPct = allCategories.reduce((s, c) => s + c.pct, 0);
   const totalTarget = allCategories.reduce((s, c) => s + c.target, 0);
   const totalDeviation = totalPct - totalTarget;
 
-  return (
-    <section>
-      <SectionHeader>{title}</SectionHeader>
-      <SectionBody>
-        <div className="flex flex-col lg:flex-row gap-6">
-        <div className="flex-1 min-w-0 overflow-x-auto scrollbar-none">
+  const inner = (
+    <div className="flex flex-col lg:flex-row gap-6">
+      <div className="flex-1 min-w-0 overflow-x-auto scrollbar-none">
         <Table>
           <TableHeader>
             <TableRow>
@@ -198,12 +195,19 @@ export function CategorySummary({ report: r, title }: { report: ReportData; titl
             </TableRow>
           </TableBody>
         </Table>
-        </div>
-        <div className="lg:w-80 flex-shrink-0">
-          <AllocationDonut categories={allCategories} total={totalValue} />
-        </div>
-        </div>
-      </SectionBody>
+      </div>
+      <div className="lg:w-80 flex-shrink-0">
+        <AllocationDonut categories={allCategories} total={totalValue} />
+      </div>
+    </div>
+  );
+
+  if (embedded) return inner;
+
+  return (
+    <section>
+      <SectionHeader>{title}</SectionHeader>
+      <SectionBody>{inner}</SectionBody>
     </section>
   );
 }

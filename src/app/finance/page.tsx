@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { SectionHeader, SectionBody } from "@/components/finance/shared";
 import { IncomeExpensesChart } from "@/components/finance/charts";
 import { MetricCards } from "@/components/finance/metric-cards";
-import { CategorySummary } from "@/components/finance/category-summary";
 import { CashFlow, CashFlowStatBar } from "@/components/finance/cash-flow";
 import { PortfolioActivity } from "@/components/finance/portfolio-activity";
 import { MarketContext } from "@/components/finance/market-context";
@@ -33,7 +32,6 @@ function periodToMonthKey(period: string): string | undefined {
 // ── Sections ─────────────────────────────────────────────────────────
 
 const SECTION_LABELS = {
-  "allocation": "Allocation",
   "cashflow": "Cash Flow",
   "fidelity-activity": "Fidelity Activity",
   "market": "Market",
@@ -107,17 +105,6 @@ export default function FinancePage() {
         allocationOpen={allocOpen}
         onAllocationToggle={() => setAllocOpen((v) => !v)}
       />
-
-      {/* ── Allocation (expand/collapse under Net Worth tile) ────────── */}
-      <div
-        id="allocation"
-        className="grid transition-[grid-template-rows] duration-300 ease-in-out"
-        style={{ gridTemplateRows: allocOpen ? "1fr" : "0fr" }}
-      >
-        <div className="overflow-hidden">
-          <CategorySummary report={r} title={SECTION_LABELS["allocation"]} />
-        </div>
-      </div>
 
       {/* ── 2. Net Worth ────────────────────────────────────────────────── */}
       <div id="net-worth">

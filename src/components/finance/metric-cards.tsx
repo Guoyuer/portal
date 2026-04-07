@@ -1,6 +1,10 @@
+"use client";
+
+import { useRef, useState, useEffect } from "react";
 import type { ReportData } from "@/lib/types";
 import { fmtCurrency, fmtCurrencyShort } from "@/lib/format";
 import { savingsRateColor } from "@/lib/style-helpers";
+import { CategorySummary } from "@/components/finance/category-summary";
 
 export function MetricCards({
   report: r,
@@ -18,49 +22,80 @@ export function MetricCards({
   const netWorth = r.balanceSheet?.netWorth ?? r.total;
   const invPct = netWorth > 0 ? (investmentValue / netWorth) * 100 : 0;
 
+  // Measure content height for smooth transition
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [contentH, setContentH] = useState(0);
+
+  useEffect(() => {
+    if (!contentRef.current) return;
+    const ro = new ResizeObserver(([entry]) => setContentH(entry.contentRect.height));
+    ro.observe(contentRef.current);
+    return () => ro.disconnect();
+  }, []);
+
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-      <button
-        type="button"
-        data-slot="card"
-        className="liquid-glass p-4 col-span-2 text-left cursor-pointer hover:ring-1 hover:ring-foreground/10 transition-shadow"
-        onClick={onAllocationToggle}
-      >
-        <div className="flex items-baseline justify-between">
-          <p className="text-sm text-muted-foreground">Net Worth</p>
-          <p className="text-2xl font-bold tabular-nums">{fmtCurrency(netWorth)}</p>
-        </div>
-        <div className="mt-2 flex h-2 w-full rounded-full overflow-hidden">
-          <div className="h-2 bg-cyan-400 dark:bg-cyan-400 transition-all" style={{ width: `${100 - invPct}%` }} />
-          <div className="h-2 bg-blue-500 flex-1" />
-        </div>
-        <div className="mt-2 flex justify-between text-xs">
-          <div>
-            <span className="inline-block w-2 h-2 rounded-sm bg-cyan-400 dark:bg-cyan-400 mr-1.5 align-middle" />
-            <span className="text-muted-foreground">Safe Net {Math.round(100 - invPct)}%</span>
-            <p className="text-base font-semibold tabular-nums mt-0.5">{fmtCurrencyShort(safeNetValue)}</p>
+    <div className="space-y-4">
+      {/* Net Worth tile — expands to show allocation */}
+      <div data-slot="card" className="liquid-glass overflow-hidden">
+        <button
+          type="button"
+          className="w-full p-4 text-left cursor-pointer"
+          onClick={onAllocationToggle}
+        >
+          <div className="flex items-baseline justify-between">
+            <p className="text-sm text-muted-foreground">Net Worth</p>
+            <p className="text-2xl font-bold tabular-nums">{fmtCurrency(netWorth)}</p>
           </div>
-          <div className="text-right">
-            <span className="text-muted-foreground">{Math.round(invPct)}% Investment</span>
-            <span className="inline-block w-2 h-2 rounded-sm bg-blue-500 ml-1.5 align-middle" />
-            <p className="text-base font-semibold tabular-nums mt-0.5">{fmtCurrencyShort(investmentValue)}</p>
+          <div className="mt-2 flex h-2 w-full rounded-full overflow-hidden">
+            <div className="h-2 bg-cyan-400 transition-all" style={{ width: `${100 - invPct}%` }} />
+            <div className="h-2 bg-blue-500 flex-1" />
+          </div>
+          <div className="mt-2 flex justify-between text-xs">
+            <div>
+              <span className="inline-block w-2 h-2 rounded-sm bg-cyan-400 mr-1.5 align-middle" />
+              <span className="text-muted-foreground">Safe Net {Math.round(100 - invPct)}%</span>
+              <p className="text-base font-semibold tabular-nums mt-0.5">{fmtCurrencyShort(safeNetValue)}</p>
+            </div>
+            <div className="text-right">
+              <span className="text-muted-foreground">{Math.round(invPct)}% Investment</span>
+              <span className="inline-block w-2 h-2 rounded-sm bg-blue-500 ml-1.5 align-middle" />
+              <p className="text-base font-semibold tabular-nums mt-0.5">{fmtCurrencyShort(investmentValue)}</p>
+            </div>
+          </div>
+          <div className="mt-2 flex justify-center">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className={`h-4 w-4 text-muted-foreground transition-transform duration-300 ${allocationOpen ? "rotate-180" : ""}`}
+            >
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </div>
+        </button>
+
+        {/* Expandable allocation content — inside the same glass card */}
+        <div
+          className="transition-[height,opacity] duration-500 ease-[cubic-bezier(0.33,1,0.68,1)]"
+          style={{
+            height: allocationOpen ? contentH : 0,
+            opacity: allocationOpen ? 1 : 0,
+          }}
+        >
+          <div ref={contentRef}>
+            <div className="mx-4 h-px bg-gradient-to-r from-transparent via-foreground/10 to-transparent" />
+            <div className="p-4 pt-3">
+              <CategorySummary report={r} title="Allocation" embedded />
+            </div>
           </div>
         </div>
-        <div className="mt-2 flex justify-center">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className={`h-4 w-4 text-muted-foreground transition-transform duration-300 ${allocationOpen ? "rotate-180" : ""}`}
-          >
-            <path d="m6 9 6 6 6-6" />
-          </svg>
-        </div>
-      </button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
       <div data-slot="card" className="liquid-glass p-4">
         <p className="text-xs sm:text-sm text-muted-foreground">Savings Rate</p>
         {r.cashflow ? (
@@ -85,6 +120,7 @@ export function MetricCards({
             style={{ width: `${Math.min(r.goalPct, 100)}%` }}
           />
         </div>
+      </div>
       </div>
     </div>
   );
