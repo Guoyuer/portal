@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from generate_asset_snapshot.db import get_connection, ingest_fidelity_csv, init_db
+from generate_asset_snapshot.db import get_connection, ingest_empower_qfx, ingest_fidelity_csv, ingest_prices, init_db
 
 EXPECTED_TABLES = frozenset({
     "fidelity_transactions",
@@ -97,3 +97,54 @@ class TestIngestFidelity:
         rows = conn.execute("SELECT COUNT(*) FROM fidelity_transactions").fetchone()[0]
         conn.close()
         assert rows == count2  # replaced, not doubled
+
+
+class TestIngestEmpower:
+    @pytest.fixture()
+    def db_path(self, tmp_path: Path) -> Path:
+        p = tmp_path / "test.db"
+        init_db(p)
+        return p
+
+    def test_ingest_qfx(self, db_path: Path, fixtures_dir: Path) -> None:
+        count = ingest_empower_qfx(db_path, fixtures_dir / "qfx_sample.qfx")
+        assert count == 2  # two funds in fixture
+        conn = sqlite3.connect(str(db_path))
+        snaps = conn.execute("SELECT COUNT(*) FROM empower_snapshots").fetchone()[0]
+        funds = conn.execute("SELECT COUNT(*) FROM empower_funds").fetchone()[0]
+        conn.close()
+        assert snaps == 1
+        assert funds == 2
+
+    def test_idempotent_qfx(self, db_path: Path, fixtures_dir: Path) -> None:
+        ingest_empower_qfx(db_path, fixtures_dir / "qfx_sample.qfx")
+        ingest_empower_qfx(db_path, fixtures_dir / "qfx_sample.qfx")
+        conn = sqlite3.connect(str(db_path))
+        snaps = conn.execute("SELECT COUNT(*) FROM empower_snapshots").fetchone()[0]
+        funds = conn.execute("SELECT COUNT(*) FROM empower_funds").fetchone()[0]
+        conn.close()
+        assert snaps == 1
+        assert funds == 2
+
+
+class TestIngestPrices:
+    @pytest.fixture()
+    def db_path(self, tmp_path: Path) -> Path:
+        p = tmp_path / "test.db"
+        init_db(p)
+        return p
+
+    def test_ingest_prices(self, db_path: Path) -> None:
+        ingest_prices(db_path, {"VOO": {"2025-01-02": 500.0, "2025-01-03": 502.0}})
+        conn = sqlite3.connect(str(db_path))
+        rows = conn.execute("SELECT COUNT(*) FROM daily_close").fetchone()[0]
+        conn.close()
+        assert rows == 2
+
+    def test_upsert_prices(self, db_path: Path) -> None:
+        ingest_prices(db_path, {"VOO": {"2025-01-02": 500.0}})
+        ingest_prices(db_path, {"VOO": {"2025-01-02": 501.0}})
+        conn = sqlite3.connect(str(db_path))
+        val = conn.execute("SELECT close FROM daily_close WHERE symbol='VOO'").fetchone()[0]
+        conn.close()
+        assert val == 501.0

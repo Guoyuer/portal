@@ -7,6 +7,8 @@ import re
 import sqlite3
 from pathlib import Path
 
+from .empower_401k import parse_qfx
+
 # ── Schema DDL ───────────────────────────────────────────────────────────────
 
 _TABLES = """
@@ -205,3 +207,64 @@ def ingest_fidelity_csv(db_path: Path, csv_path: Path) -> int:
         conn.close()
 
     return count
+
+
+# ── Empower QFX ingestion ─────────────────────────────────────────────────
+
+
+def ingest_empower_qfx(db_path: Path, qfx_path: Path) -> int:
+    """Ingest an Empower 401k QFX file into the database.
+
+    Upserts the snapshot by date; replaces all fund positions for that snapshot.
+    Returns the number of funds inserted.
+    """
+    snap = parse_qfx(qfx_path)
+    if not snap.funds:
+        return 0
+
+    conn = get_connection(db_path)
+    try:
+        snap_date = snap.date.isoformat()
+        conn.execute("INSERT OR IGNORE INTO empower_snapshots (snapshot_date) VALUES (?)", (snap_date,))
+        row = conn.execute("SELECT id FROM empower_snapshots WHERE snapshot_date = ?", (snap_date,)).fetchone()
+        snapshot_id: int = row[0]
+
+        conn.execute("DELETE FROM empower_funds WHERE snapshot_id = ?", (snapshot_id,))
+        conn.executemany(
+            "INSERT INTO empower_funds (snapshot_id, cusip, ticker, shares, price, mktval) VALUES (?, ?, ?, ?, ?, ?)",
+            [(snapshot_id, f.cusip, f.ticker, f.shares, f.price, f.mktval) for f in snap.funds],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    return len(snap.funds)
+
+
+# ── Price ingestion ────────────────────────────────────────────────────────
+
+
+def ingest_prices(db_path: Path, prices: dict[str, dict[str, float]]) -> None:
+    """Ingest daily close prices into the database.
+
+    Args:
+        db_path: Path to the SQLite database.
+        prices: ``{"VOO": {"2025-01-02": 500.0, ...}, ...}``
+    """
+    rows: list[tuple[str, str, float]] = []
+    for symbol, date_prices in prices.items():
+        for dt, close in date_prices.items():
+            rows.append((symbol, dt, close))
+
+    if not rows:
+        return
+
+    conn = get_connection(db_path)
+    try:
+        conn.executemany(
+            "INSERT OR REPLACE INTO daily_close (symbol, date, close) VALUES (?, ?, ?)",
+            rows,
+        )
+        conn.commit()
+    finally:
+        conn.close()
