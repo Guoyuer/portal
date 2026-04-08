@@ -19,7 +19,7 @@ cd pipeline && .venv/bin/pytest -q                  # 140+ unit tests
 cd pipeline && .venv/bin/mypy generate_asset_snapshot/ --ignore-missing-imports
 cd pipeline && .venv/bin/ruff check .
 
-# E2E
+# E2E (local only — skipped in CI)
 npx next build && npx playwright test               # 28 Playwright tests
 ```
 
@@ -35,6 +35,8 @@ Python `types.py` (snake_case) is source of truth → JSON (camelCase) → TypeS
 
 ## Architecture
 
-Next.js static shell on Cloudflare Pages. FastAPI backend (`pipeline/generate_asset_snapshot/server.py`) serves data from SQLite (`pipeline/data/timemachine.db`) on port 8000. Endpoints: `/timeline`, `/allocation`, `/activity`, `/cashflow`, `/market`, `/holdings-detail`.
+Next.js static shell on Cloudflare Pages. FastAPI backend (`pipeline/generate_asset_snapshot/server.py`) serves data from SQLite (`pipeline/data/timemachine.db`) on port 8000.
 
-R2 (`latest.json`) is legacy and being phased out — new features should use the FastAPI backend.
+Frontend fetches all data in a single `GET /timeline` call, then computes allocation, cashflow, activity, and reconciliation locally in `use-bundle.ts`. Brush drag is zero-latency (no network). Other endpoints (`/allocation`, `/activity`, `/cashflow`, `/market`, `/holdings-detail`) still exist but are unused by the frontend.
+
+R2 (`latest.json`) is legacy and being phased out.
