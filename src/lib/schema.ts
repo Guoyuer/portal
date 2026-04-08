@@ -95,7 +95,7 @@ const IndexReturnSchema = z.object({
   low52w: z.number().nullable().default(null),
 });
 
-const MarketDataSchema = z.object({
+export const MarketDataSchema = z.object({
   indices: z.array(IndexReturnSchema),
   fedRate: z.number().nullable().default(null),
   treasury10y: z.number().nullable().default(null),
@@ -234,6 +234,63 @@ export const TimelineDataSchema = z.object({
 export type DailyPoint = z.infer<typeof DailyPointSchema>;
 export type PrefixPoint = z.infer<typeof PrefixPointSchema>;
 export type TimelineData = z.infer<typeof TimelineDataSchema>;
+
+// ── API Response Schemas ──────────────────────────────────────────────────
+
+export const ApiTickerSchema = z.object({
+  ticker: z.string(),
+  value: z.number(),
+  category: z.string(),
+  subtype: z.string(),
+  costBasis: z.number(),
+  gainLoss: z.number(),
+  gainLossPct: z.number(),
+});
+
+export const ApiCategorySchema = z.object({
+  name: z.string(),
+  value: z.number(),
+  pct: z.number(),
+  target: z.number(),
+  deviation: z.number(),
+});
+
+export const AllocationResponseSchema = z.object({
+  total: z.number(),
+  netWorth: z.number(),
+  liabilities: z.number(),
+  categories: z.array(ApiCategorySchema),
+  tickers: z.array(ApiTickerSchema),
+});
+
+export const CashflowResponseSchema = z.object({
+  incomeItems: z.array(CashFlowItemSchema),
+  expenseItems: z.array(CashFlowItemSchema),
+  totalIncome: z.number(),
+  totalExpenses: z.number(),
+  netCashflow: z.number(),
+  ccPayments: z.number(),
+  savingsRate: z.number(),
+});
+
+export const ActivitySymbolSchema = z.object({
+  symbol: z.string(),
+  count: z.number(),
+  total: z.number(),
+});
+
+export const ActivityResponseSchema = z.object({
+  buysBySymbol: z.array(ActivitySymbolSchema),
+  sellsBySymbol: z.array(ActivitySymbolSchema),
+  dividendsBySymbol: z.array(ActivitySymbolSchema),
+});
+
+export type ApiTicker = z.infer<typeof ApiTickerSchema>;
+export type ApiCategory = z.infer<typeof ApiCategorySchema>;
+export type AllocationResponse = z.infer<typeof AllocationResponseSchema>;
+export type CashflowResponse = z.infer<typeof CashflowResponseSchema>;
+export type ActivitySymbol = z.infer<typeof ActivitySymbolSchema>;
+export type ActivityResponse = z.infer<typeof ActivityResponseSchema>;
 
 // ── Full ReportData (root) ───────────────────────────────────────────────
 

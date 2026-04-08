@@ -44,6 +44,7 @@ function downsample(daily: DailyPoint[]): { sampled: DailyPoint[]; toFull: numbe
 
 export interface TimelineState {
   chartDaily: DailyPoint[];
+  prefix: PrefixPoint[];
   defaultStartIndex: number;
   defaultEndIndex: number;
   snapshot: DailyPoint | null;
@@ -124,5 +125,7 @@ export function useTimeline(): TimelineState {
   const range = useMemo(() => data ? prefixRange(data.prefix, fullRange.start, fullRange.end) : null, [data, fullRange.start, fullRange.end]);
   const startDate = data?.daily[fullRange.start]?.date ?? null;
 
-  return { chartDaily, defaultStartIndex, defaultEndIndex, snapshot, range, startDate, onBrushChange, loading, error };
+  const prefix = data?.prefix ?? [];
+
+  return { chartDaily, prefix, defaultStartIndex, defaultEndIndex, snapshot, range, startDate, onBrushChange, loading, error };
 }

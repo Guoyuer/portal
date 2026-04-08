@@ -1,7 +1,29 @@
 import type { CashFlowData } from "@/lib/types";
+import type { CashflowResponse } from "@/lib/types";
 import { fmtCurrency } from "@/lib/format";
 import { valueColor, MAJOR_EXPENSE_THRESHOLD } from "@/lib/style-helpers";
 import { TOTAL_ROW_CLASS } from "@/components/finance/shared";
+
+// ── Adapt API response to legacy CashFlowData shape ────────────────────
+
+export function adaptCashflow(
+  api: CashflowResponse,
+  period: string,
+  invested: number,
+): CashFlowData {
+  return {
+    period,
+    incomeItems: api.incomeItems,
+    totalIncome: api.totalIncome,
+    expenseItems: api.expenseItems,
+    totalExpenses: api.totalExpenses,
+    netCashflow: api.netCashflow,
+    invested,
+    creditCardPayments: api.ccPayments,
+    savingsRate: api.savingsRate,
+    takehomeSavingsRate: api.savingsRate, // backend does not distinguish; use same
+  };
+}
 import {
   Table,
   TableBody,
