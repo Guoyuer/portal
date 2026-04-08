@@ -110,17 +110,17 @@ export default function FinancePage() {
       />
 
       {/* ── 2. Timemachine ─────────────────────────────────────────────── */}
-      {!timeline.loading && !timeline.error && timeline.daily.length > 0 ? (
+      {!timeline.loading && !timeline.error && timeline.chartDaily.length > 0 ? (
         <section id="timemachine">
           <div className="liquid-glass p-4 sm:p-5">
             <TimemachineSummary
               snapshot={timeline.snapshot}
               range={timeline.range}
-              startDate={timeline.daily[timeline.startIndex]?.date}
+              startDate={timeline.startDate ?? undefined}
             />
             <div className="mt-4">
               <TimemachineChart
-                daily={timeline.daily}
+                daily={timeline.chartDaily}
                 startIndex={timeline.startIndex}
                 endIndex={timeline.endIndex}
                 onBrushChange={timeline.onBrushChange}
