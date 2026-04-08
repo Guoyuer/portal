@@ -6,6 +6,7 @@ import csv
 import re
 import sqlite3
 from pathlib import Path
+from typing import Any
 
 from .empower_401k import Contribution, parse_qfx
 
@@ -60,6 +61,16 @@ CREATE TABLE IF NOT EXISTS qianji_balances (
     currency TEXT NOT NULL DEFAULT 'USD'
 );
 
+-- Qianji transaction rows (from Qianji app DB)
+CREATE TABLE IF NOT EXISTS qianji_transactions (
+    date     TEXT NOT NULL,
+    type     TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT '',
+    amount   REAL NOT NULL,
+    account  TEXT NOT NULL DEFAULT '',
+    note     TEXT NOT NULL DEFAULT ''
+);
+
 -- Pre-computed daily point-in-time values
 CREATE TABLE IF NOT EXISTS computed_daily (
     date          TEXT PRIMARY KEY,
@@ -111,6 +122,7 @@ CREATE INDEX IF NOT EXISTS idx_fidelity_date     ON fidelity_transactions(run_da
 CREATE INDEX IF NOT EXISTS idx_fidelity_acct_sym ON fidelity_transactions(account_number, symbol);
 CREATE INDEX IF NOT EXISTS idx_daily_close_date  ON daily_close(date);
 CREATE INDEX IF NOT EXISTS idx_daily_tickers_date ON computed_daily_tickers(date);
+CREATE INDEX IF NOT EXISTS idx_qianji_txn_date ON qianji_transactions(date);
 """
 
 # ── Public API ───────────────────────────────────────────────────────────────
@@ -230,6 +242,40 @@ def ingest_fidelity_csv(db_path: Path, csv_path: Path) -> int:
     finally:
         conn.close()
 
+    return count
+
+
+# ── Qianji transaction ingestion ──────────────────────────────────────────
+
+
+def ingest_qianji_transactions(db_path: Path, records: list[dict[str, Any]]) -> int:
+    """Ingest Qianji transaction records into the database.
+
+    Clears and replaces all rows. Returns row count.
+    """
+    conn = get_connection(db_path)
+    try:
+        conn.execute("DELETE FROM qianji_transactions")
+        if records:
+            conn.executemany(
+                "INSERT INTO qianji_transactions (date, type, category, amount, account, note)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                [
+                    (
+                        r["date"][:10],  # truncate datetime to date
+                        r["type"],
+                        r.get("category", ""),
+                        r["amount"],
+                        r.get("account_from", ""),
+                        r.get("note", ""),
+                    )
+                    for r in records
+                ],
+            )
+        conn.commit()
+        count: int = conn.execute("SELECT COUNT(*) FROM qianji_transactions").fetchone()[0]
+    finally:
+        conn.close()
     return count
 
 

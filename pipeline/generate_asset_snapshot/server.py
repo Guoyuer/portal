@@ -1,15 +1,19 @@
 """FastAPI server for the timemachine API."""
 from __future__ import annotations
 
+import logging
+import os
 from collections import defaultdict
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import uvicorn
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from .db import get_connection
+
+log = logging.getLogger(__name__)
 
 # ── Target allocation weights ──────────────────────────────────────────────
 
@@ -185,6 +189,223 @@ def create_app(db_path: Path) -> FastAPI:
             "sellsBySymbol": _to_list(sells),
             "dividendsBySymbol": _to_list(dividends),
         }
+
+    # ── GET /cashflow ──────────────────────────────────────────────────
+
+    @app.get("/cashflow")
+    def cashflow(start: str = Query(...), end: str = Query(...)) -> dict[str, Any]:
+        conn = get_connection(db_path)
+        try:
+            rows = conn.execute(
+                "SELECT type, category, amount FROM qianji_transactions WHERE date BETWEEN ? AND ?",
+                (start, end),
+            ).fetchall()
+        finally:
+            conn.close()
+
+        income_map: dict[str, dict[str, float]] = defaultdict(lambda: {"amount": 0.0, "count": 0})
+        expense_map: dict[str, dict[str, float]] = defaultdict(lambda: {"amount": 0.0, "count": 0})
+        cc_payments = 0.0
+
+        for txn_type, category, amount in rows:
+            if txn_type == "income":
+                income_map[category]["amount"] += amount
+                income_map[category]["count"] += 1
+            elif txn_type == "expense":
+                expense_map[category]["amount"] += amount
+                expense_map[category]["count"] += 1
+            elif txn_type == "repayment":
+                cc_payments += amount
+
+        income_items: list[dict[str, Any]] = sorted(
+            [{"category": cat, "amount": round(v["amount"], 2), "count": int(v["count"])} for cat, v in income_map.items()],
+            key=lambda x: float(x["amount"]),
+            reverse=True,
+        )
+        expense_items: list[dict[str, Any]] = sorted(
+            [{"category": cat, "amount": round(v["amount"], 2), "count": int(v["count"])} for cat, v in expense_map.items()],
+            key=lambda x: float(x["amount"]),
+            reverse=True,
+        )
+
+        total_income = round(sum(float(i["amount"]) for i in income_items), 2)
+        total_expenses = round(sum(float(e["amount"]) for e in expense_items), 2)
+        net_cashflow = round(total_income - total_expenses, 2)
+        savings_rate = round((total_income - total_expenses) / total_income * 100, 2) if total_income else 0.0
+
+        return {
+            "start": start,
+            "end": end,
+            "incomeItems": income_items,
+            "expenseItems": expense_items,
+            "totalIncome": total_income,
+            "totalExpenses": total_expenses,
+            "netCashflow": net_cashflow,
+            "ccPayments": round(cc_payments, 2),
+            "savingsRate": savings_rate,
+        }
+
+    # ── GET /market ──────────────────────────────────────────────────
+
+    index_names: dict[str, str] = {
+        "^GSPC": "S&P 500",
+        "^NDX": "NASDAQ 100",
+        "VXUS": "VXUS",
+        "000300.SS": "CSI 300",
+    }
+
+    @app.get("/market")
+    def market() -> dict[str, Any]:
+        """Return market data from DB (indices, CNY) + optional live FRED."""
+        conn = get_connection(db_path)
+        try:
+            # Latest CNY rate
+            cny_row = conn.execute(
+                "SELECT close FROM daily_close WHERE symbol='CNY=X' ORDER BY date DESC LIMIT 1"
+            ).fetchone()
+            usd_cny = cny_row[0] if cny_row else None
+
+            # Index data from daily_close
+            indices: list[dict[str, Any]] = []
+            for ticker, name in index_names.items():
+                rows = conn.execute(
+                    "SELECT date, close FROM daily_close WHERE symbol = ? ORDER BY date",
+                    (ticker,),
+                ).fetchall()
+                if len(rows) < 2:
+                    continue
+                closes = [r[1] for r in rows]
+                dates = [r[0] for r in rows]
+                current = closes[-1]
+
+                # Month return (~22 trading days back)
+                month_idx = max(0, len(closes) - 23)
+                month_return = round((current / closes[month_idx] - 1) * 100, 2)
+
+                # YTD return (first trading day of current year)
+                current_year = dates[-1][:4]
+                ytd_start = next((c for d, c in zip(dates, closes, strict=False) if d.startswith(current_year)), closes[0])
+                ytd_return = round((current / ytd_start - 1) * 100, 2)
+
+                # 52w high/low (~252 trading days)
+                year_closes = closes[-252:]
+                high_52w = max(year_closes)
+                low_52w = min(year_closes)
+
+                # Sparkline: last 252 days
+                indices.append({
+                    "ticker": ticker,
+                    "name": name,
+                    "monthReturn": month_return,
+                    "ytdReturn": ytd_return,
+                    "current": current,
+                    "sparkline": year_closes,
+                    "high52w": high_52w,
+                    "low52w": low_52w,
+                })
+        finally:
+            conn.close()
+
+        result: dict[str, Any] = {
+            "indices": indices,
+            "fedRate": None,
+            "treasury10y": None,
+            "cpi": None,
+            "unemployment": None,
+            "vix": None,
+            "dxy": None,
+            "usdCny": usd_cny,
+            "goldReturn": None,
+            "btcReturn": None,
+            "portfolioMonthReturn": None,
+        }
+
+        # Optionally fetch FRED data (only external call)
+        fred_key = os.environ.get("FRED_API_KEY", "")
+        if fred_key:
+            try:
+                from .market.fred import fetch_fred_data
+
+                fred = fetch_fred_data(fred_key)
+                if fred and "snapshot" in fred:
+                    snap = cast(dict[str, Any], fred["snapshot"])
+                    for src, dst in [
+                        ("fedFundsRate", "fedRate"), ("treasury10y", "treasury10y"),
+                        ("cpiYoy", "cpi"), ("unemployment", "unemployment"), ("vix", "vix"),
+                    ]:
+                        if src in snap:
+                            result[dst] = snap[src]
+                    result["fred"] = fred
+            except Exception:  # noqa: BLE001
+                log.warning("Failed to fetch FRED data", exc_info=True)
+
+        return result
+
+    # ── GET /holdings-detail ───────────────────────────────────────────
+
+    @app.get("/holdings-detail")
+    def holdings_detail() -> dict[str, Any]:
+        """Return per-ticker detail from DB prices (month return, 52w high/low)."""
+        empty: dict[str, Any] = {"topPerformers": [], "bottomPerformers": [], "upcomingEarnings": []}
+
+        conn = get_connection(db_path)
+        try:
+            # Latest date in computed_daily_tickers
+            row = conn.execute("SELECT date FROM computed_daily_tickers ORDER BY date DESC LIMIT 1").fetchone()
+            if row is None:
+                return empty
+            latest_date = row[0]
+            ticker_rows = conn.execute(
+                "SELECT ticker, value FROM computed_daily_tickers WHERE date = ? AND value > 0",
+                (latest_date,),
+            ).fetchall()
+
+            # Filter to real tickers (skip "401k sp500", "CNY Assets", etc.)
+            real_tickers = {t: v for t, v in ticker_rows if t.isascii() and " " not in t and len(t) <= 5}
+            if not real_tickers:
+                return empty
+
+            stocks: list[dict[str, Any]] = []
+            for ticker, value in real_tickers.items():
+                closes = conn.execute(
+                    "SELECT close FROM daily_close WHERE symbol = ? ORDER BY date",
+                    (ticker,),
+                ).fetchall()
+                if len(closes) < 2:
+                    continue
+                prices = [r[0] for r in closes]
+                current = prices[-1]
+
+                # Month return (~22 trading days)
+                month_idx = max(0, len(prices) - 23)
+                month_ret = round((current / prices[month_idx] - 1) * 100, 2)
+                start_value = round(value / (1 + month_ret / 100), 2) if month_ret != -100 else 0.0
+
+                # 52w high/low
+                year_prices = prices[-252:]
+                high = max(year_prices)
+                low = min(year_prices)
+                vs_high = round((current / high - 1) * 100, 2)
+
+                stocks.append({
+                    "ticker": ticker,
+                    "monthReturn": month_ret,
+                    "startValue": start_value,
+                    "endValue": round(value, 2),
+                    "peRatio": None,
+                    "marketCap": None,
+                    "high52w": high,
+                    "low52w": low,
+                    "vsHigh": vs_high,
+                    "nextEarnings": None,
+                })
+        finally:
+            conn.close()
+
+        sorted_by_return = sorted(stocks, key=lambda s: float(s["monthReturn"]), reverse=True)
+        top = sorted_by_return[:5]
+        bottom = sorted_by_return[-5:][::-1] if len(sorted_by_return) > 5 else []
+        return {"topPerformers": top, "bottomPerformers": bottom, "upcomingEarnings": []}
 
     return app
 

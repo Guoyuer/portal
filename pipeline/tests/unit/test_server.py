@@ -47,6 +47,19 @@ def db_path(tmp_path: Path) -> Path:
             ("02/01/2025", "Taxable", "Z29133576", "YOU SOLD INVESCO QQQ TRUST", "QQQM", "", "Cash", -2, 210.0, 420.0),
         ],
     )
+    # Qianji transactions for cashflow endpoint
+    conn.executemany(
+        "INSERT INTO qianji_transactions (date, type, category, amount, account, note) VALUES (?, ?, ?, ?, ?, ?)",
+        [
+            ("2025-03-01", "income", "Salary", 5000.0, "Checking", ""),
+            ("2025-03-02", "income", "Interest", 50.0, "Savings", ""),
+            ("2025-03-05", "expense", "Rent", 1500.0, "Checking", ""),
+            ("2025-03-10", "expense", "Meals", 200.0, "Credit Card", ""),
+            ("2025-03-12", "expense", "Meals", 80.0, "Credit Card", ""),
+            ("2025-03-15", "repayment", "Credit Card", 300.0, "Checking", "CC payment"),
+            ("2025-04-01", "income", "Salary", 5000.0, "Checking", "April pay"),
+        ],
+    )
     conn.commit()
     conn.close()
     return p
@@ -181,3 +194,166 @@ class TestActivity:
         buys = resp.json()["buysBySymbol"]
         totals = [b["total"] for b in buys]
         assert totals == sorted(totals, reverse=True)
+
+
+# ── Cashflow tests ─────────────────────────────────────────────────────────
+
+
+class TestCashflow:
+    def test_income_grouped_by_category(self, client: TestClient) -> None:
+        resp = client.get("/cashflow", params={"start": "2025-03-01", "end": "2025-03-31"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["totalIncome"] == 5050.0  # 5000 + 50
+        salary = next(i for i in data["incomeItems"] if i["category"] == "Salary")
+        assert salary["amount"] == 5000.0
+        assert salary["count"] == 1
+        interest = next(i for i in data["incomeItems"] if i["category"] == "Interest")
+        assert interest["amount"] == 50.0
+
+    def test_expense_grouped_by_category(self, client: TestClient) -> None:
+        resp = client.get("/cashflow", params={"start": "2025-03-01", "end": "2025-03-31"})
+        data = resp.json()
+        assert data["totalExpenses"] == 1780.0  # 1500 + 200 + 80
+        meals = next(e for e in data["expenseItems"] if e["category"] == "Meals")
+        assert meals["amount"] == 280.0
+        assert meals["count"] == 2
+        rent = next(e for e in data["expenseItems"] if e["category"] == "Rent")
+        assert rent["amount"] == 1500.0
+
+    def test_savings_rate(self, client: TestClient) -> None:
+        resp = client.get("/cashflow", params={"start": "2025-03-01", "end": "2025-03-31"})
+        data = resp.json()
+        expected = round((5050.0 - 1780.0) / 5050.0 * 100, 2)
+        assert data["savingsRate"] == expected
+
+    def test_cc_payments(self, client: TestClient) -> None:
+        resp = client.get("/cashflow", params={"start": "2025-03-01", "end": "2025-03-31"})
+        data = resp.json()
+        assert data["ccPayments"] == 300.0
+
+    def test_date_filtering(self, client: TestClient) -> None:
+        # April only — should see only the April salary
+        resp = client.get("/cashflow", params={"start": "2025-04-01", "end": "2025-04-30"})
+        data = resp.json()
+        assert data["totalIncome"] == 5000.0
+        assert data["totalExpenses"] == 0
+        assert len(data["expenseItems"]) == 0
+
+    def test_empty_range(self, client: TestClient) -> None:
+        resp = client.get("/cashflow", params={"start": "2020-01-01", "end": "2020-01-31"})
+        data = resp.json()
+        assert data["totalIncome"] == 0
+        assert data["totalExpenses"] == 0
+        assert data["incomeItems"] == []
+        assert data["expenseItems"] == []
+        assert data["savingsRate"] == 0.0
+
+    def test_net_cashflow(self, client: TestClient) -> None:
+        resp = client.get("/cashflow", params={"start": "2025-03-01", "end": "2025-03-31"})
+        data = resp.json()
+        assert data["netCashflow"] == data["totalIncome"] - data["totalExpenses"]
+
+    def test_expense_items_sorted_by_amount_desc(self, client: TestClient) -> None:
+        resp = client.get("/cashflow", params={"start": "2025-03-01", "end": "2025-03-31"})
+        expenses = resp.json()["expenseItems"]
+        amounts = [e["amount"] for e in expenses]
+        assert amounts == sorted(amounts, reverse=True)
+
+    def test_income_items_sorted_by_amount_desc(self, client: TestClient) -> None:
+        resp = client.get("/cashflow", params={"start": "2025-03-01", "end": "2025-03-31"})
+        incomes = resp.json()["incomeItems"]
+        amounts = [i["amount"] for i in incomes]
+        assert amounts == sorted(amounts, reverse=True)
+
+
+# ── Market tests (DB-based) ────────────────────────────────────────────────
+
+
+@pytest.fixture()
+def market_db(tmp_path: Path) -> Path:
+    """DB with index prices + CNY rates for /market and /holdings-detail tests."""
+    p = tmp_path / "market.db"
+    init_db(p)
+    conn = get_connection(p)
+    # S&P 500 prices: 30 trading days, starting at 5000 ending at 5100
+    for i in range(30):
+        d = f"2025-01-{2 + i:02d}" if i < 29 else "2025-02-01"
+        conn.execute("INSERT INTO daily_close (symbol, date, close) VALUES (?, ?, ?)",
+                     ("^GSPC", d, 5000 + i * 100.0 / 29))
+    # CNY rate
+    conn.execute("INSERT INTO daily_close (symbol, date, close) VALUES ('CNY=X', '2025-02-01', 7.25)")
+    # Ticker-level data + prices for holdings-detail
+    conn.execute(
+        "INSERT INTO computed_daily_tickers (date, ticker, value, category, subtype) VALUES (?, ?, ?, ?, ?)",
+        ("2025-02-01", "VOO", 40000, "US Equity", "broad"),
+    )
+    for i in range(30):
+        d = f"2025-01-{2 + i:02d}" if i < 29 else "2025-02-01"
+        conn.execute("INSERT OR IGNORE INTO daily_close (symbol, date, close) VALUES (?, ?, ?)",
+                     ("VOO", d, 500 + i * 20.0 / 29))
+    conn.commit()
+    conn.close()
+    return p
+
+
+@pytest.fixture()
+def market_client(market_db: Path) -> TestClient:
+    from generate_asset_snapshot.server import create_app
+    return TestClient(create_app(market_db))
+
+
+class TestMarket:
+    def test_returns_index_data(self, market_client: TestClient) -> None:
+        resp = market_client.get("/market")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["indices"]) >= 1
+        gspc = next(i for i in data["indices"] if i["ticker"] == "^GSPC")
+        assert gspc["name"] == "S&P 500"
+        assert gspc["current"] > 0
+        assert isinstance(gspc["sparkline"], list)
+        assert len(gspc["sparkline"]) > 0
+
+    def test_returns_cny_rate(self, market_client: TestClient) -> None:
+        data = market_client.get("/market").json()
+        assert data["usdCny"] == 7.25
+
+    def test_empty_db_returns_structure(self, tmp_path: Path) -> None:
+        p = tmp_path / "empty.db"
+        init_db(p)
+        from generate_asset_snapshot.server import create_app
+        c = TestClient(create_app(p))
+        data = c.get("/market").json()
+        assert data["indices"] == []
+        assert data["usdCny"] is None
+
+
+class TestHoldingsDetail:
+    def test_returns_holdings_from_db(self, market_client: TestClient) -> None:
+        resp = market_client.get("/holdings-detail")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "topPerformers" in data
+        assert len(data["topPerformers"]) >= 1
+        top = data["topPerformers"][0]
+        assert top["ticker"] == "VOO"
+        assert top["endValue"] == 40000
+        assert top["high52w"] > 0
+        assert top["low52w"] > 0
+        assert top["vsHigh"] is not None
+
+    def test_no_tickers_returns_empty(self, tmp_path: Path) -> None:
+        p = tmp_path / "empty.db"
+        init_db(p)
+        from generate_asset_snapshot.server import create_app
+        c = TestClient(create_app(p))
+        data = c.get("/holdings-detail").json()
+        assert data["topPerformers"] == []
+        assert data["bottomPerformers"] == []
+
+    def test_month_return_calculated(self, market_client: TestClient) -> None:
+        data = market_client.get("/holdings-detail").json()
+        voo = data["topPerformers"][0]
+        assert "monthReturn" in voo
+        assert isinstance(voo["monthReturn"], float)

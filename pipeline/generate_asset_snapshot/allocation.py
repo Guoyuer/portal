@@ -47,6 +47,8 @@ def compute_daily_allocation(
     k401_daily: dict[date, dict[str, float]],
     start: date,
     end: date,
+    *,
+    robinhood_csv: Path | None = None,
 ) -> list[dict[str, object]]:
     """Compute daily allocation from start to end.
 
@@ -81,6 +83,12 @@ def compute_daily_allocation(
     ticker_map.setdefault("401k", "401k sp500")
     currencies = replay_qianji_currencies(qj_db)
 
+    # ── Robinhood replay (optional) ──
+    rh_replay_fn = None
+    if robinhood_csv and robinhood_csv.exists():
+        from .ingest.robinhood_history import replay_robinhood
+        rh_replay_fn = replay_robinhood
+
     # ── Account exclusion sets ──
     fidelity_replay_accounts = {
         "Fidelity taxable",
@@ -88,6 +96,8 @@ def compute_daily_allocation(
         "Fidelity Cash Management",
     }
     skip_qj_accounts = fidelity_replay_accounts | {"401k"}
+    if rh_replay_fn:
+        skip_qj_accounts.add("Robinhood")  # Don't double-count
 
     # ── Pre-compute transaction dates for caching ──
     all_rows = _load_raw_rows(store_path)
@@ -175,15 +185,28 @@ def compute_daily_allocation(
             for ticker, val in k401_daily[current].items():
                 ticker_values[ticker] = ticker_values.get(ticker, 0) + val
 
+        # Robinhood positions x price (replaces Qianji "Robinhood" book value)
+        rh_cost_basis: dict[str, float] = {}
+        if rh_replay_fn and robinhood_csv:
+            rh_result = rh_replay_fn(robinhood_csv, as_of=current)
+            for sym, qty in rh_result["positions"].items():
+                if sym in prices.columns and price_date in prices.index:
+                    price = prices.loc[price_date, sym]
+                    if pd.notna(price):
+                        ticker_values[sym] = ticker_values.get(sym, 0) + qty * float(price)
+            rh_cost_basis = rh_result.get("cost_basis", {})
+
         # ── Categorize + build ticker detail ──
         category_totals: dict[str, float] = {}
         total = 0.0
         liabilities = 0.0
         ticker_detail: list[dict[str, object]] = []
 
-        # Aggregate cost basis by ticker from Fidelity replay
+        # Aggregate cost basis by ticker from Fidelity + Robinhood replay
         cost_basis_by_ticker: dict[str, float] = {}
         for (_, sym), cb in (result.get("cost_basis") or {}).items():
+            cost_basis_by_ticker[sym] = cost_basis_by_ticker.get(sym, 0) + cb
+        for sym, cb in rh_cost_basis.items():
             cost_basis_by_ticker[sym] = cost_basis_by_ticker.get(sym, 0) + cb
 
         for ticker, value in ticker_values.items():
