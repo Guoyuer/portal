@@ -288,10 +288,10 @@ def main() -> None:
         print("  Build complete!")
         print(f"  Earliest: {earliest['date']}  total=${_f(earliest['total']):,.0f}")
         print(f"  Latest:   {latest['date']}  total=${_f(latest['total']):,.0f}")
-        print(
-            f"  Safe Net %: {min(_f(r['safe_net_pct']) for r in alloc):.1f}%"
-            f" -- {max(_f(r['safe_net_pct']) for r in alloc):.1f}%"
-        )
+        def _safe_pct(r: dict[str, object]) -> float:
+            total = _f(r["total"])
+            return round(_f(r["safe_net"]) / total * 100, 1) if total > 0 else 0
+        print(f"  Safe Net %: {min(_safe_pct(r) for r in alloc):.1f}% -- {max(_safe_pct(r) for r in alloc):.1f}%")
         print("=" * 60)
 
     print("\nTo start the server:")
