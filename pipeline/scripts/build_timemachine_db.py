@@ -9,15 +9,20 @@ Integration script that:
   6. Computes prefix sums
   7. Stores results
 
+Modes:
+  (default)       Full rebuild — recompute everything, overwrite DB
+  --incremental   Only compute dates after last persisted date
+  --verify        Full recompute + diff against persisted data (no writes)
+
 Usage:
-  /c/Python314/python scripts/build_timemachine_db.py
+  /c/Python314/python scripts/build_timemachine_db.py [--incremental | --verify]
 """
 from __future__ import annotations
 
 import json
 import sqlite3
 import sys
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 # Ensure the pipeline package is importable
@@ -38,6 +43,7 @@ from generate_asset_snapshot.empower_401k import (
     load_all_contributions,
     load_all_qfx,
 )
+from generate_asset_snapshot.incremental import append_daily, get_last_computed_date, verify_daily
 from generate_asset_snapshot.ingest.fidelity_history import load_transactions
 from generate_asset_snapshot.ingest.qianji_db import load_all_from_db
 from generate_asset_snapshot.precompute import build_daily_flows, compute_prefix_sums
@@ -104,109 +110,113 @@ def _load_401k_contributions(
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 
-def main() -> None:
-    print("=" * 60)
-    print("  Timemachine DB Builder")
-    print("=" * 60)
-
-    # ── Step 1: Initialise database ──────────────────────────────────────────
-    print("\n[1/7] Initialising database...")
+def _ingest_and_fetch(config, start, end):
+    """Steps 1-4: init DB, ingest sources, fetch prices. Returns (k401_daily, start, end)."""
+    # ── Step 1: Initialise database ──
+    print("\n[1] Initialising database...")
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     init_db(DB_PATH)
-    print(f"  Database ready: {DB_PATH}")
 
-    # ── Step 2: Ingest Fidelity transactions ─────────────────────────────────
-    print("\n[2/7] Ingesting Fidelity transactions...")
+    # ── Step 2: Ingest Fidelity ──
+    print("[2] Ingesting Fidelity transactions...")
     if not FIDELITY_CSV.exists():
         print(f"  ERROR: CSV not found at {FIDELITY_CSV}")
         sys.exit(1)
     count = ingest_fidelity_csv(DB_PATH, FIDELITY_CSV)
-    print(f"  {count} rows in fidelity_transactions table")
+    print(f"  {count} rows")
 
-    # ── Step 3: Ingest Empower QFX files + contributions ─────────────────────
-    print("\n[3/7] Ingesting Empower 401k QFX files...")
+    # ── Step 3: Ingest Empower QFX ──
+    print("[3] Ingesting Empower 401k...")
     qfx_files = sorted(DOWNLOADS.glob("Bloomberg.Download*.qfx"))
-    if not qfx_files:
-        print("  WARNING: No QFX files found in Downloads")
-    else:
-        total_funds = 0
-        for qfx_path in qfx_files:
-            n = ingest_empower_qfx(DB_PATH, qfx_path)
-            total_funds += n
-        print(f"  Ingested {len(qfx_files)} QFX files ({total_funds} fund positions)")
-
-    # Ingest QFX contributions into DB
+    for qfx_path in qfx_files:
+        ingest_empower_qfx(DB_PATH, qfx_path)
     qfx_contribs = load_all_contributions(DOWNLOADS)
     if qfx_contribs:
-        contrib_count = ingest_empower_contributions(DB_PATH, qfx_contribs)
-        print(f"  {contrib_count} QFX contributions in empower_contributions table")
+        ingest_empower_contributions(DB_PATH, qfx_contribs)
 
-    # ── Step 4: Fetch & store prices + CNY rates ─────────────────────────────
-    print("\n[4/7] Fetching prices...")
-
-    config = _load_config(CONFIG_PATH)
-    print("  Config loaded")
-
-    # Determine date range from Fidelity transactions
-    rows = _load_raw_rows(FIDELITY_CSV)
-    start = min(_parse_date(r["Run Date"]) for r in rows)
-    end = date.today()
-    print(f"  Date range: {start} -> {end}")
-
-    # Symbol holding periods
+    # ── Step 4: Fetch prices ──
+    print("[4] Fetching prices...")
     periods = symbol_holding_periods(FIDELITY_CSV)
-    print(f"  {len(periods)} symbols with holding periods")
-
-    # 401k snapshots + proxy tickers
     qfx_snaps = load_all_qfx(DOWNLOADS)
-    if qfx_snaps:
-        print(f"  {len(qfx_snaps)} 401k quarterly snapshots ({qfx_snaps[0].date} -> {qfx_snaps[-1].date})")
-    else:
-        print("  No 401k QFX snapshots found")
-
-    # Ensure proxy tickers cover full 401k range (earliest QFX -> today)
     proxy_start = qfx_snaps[0].date if qfx_snaps else start
     for proxy in PROXY_TICKERS.values():
         existing = periods.get(proxy)
         if existing is None or existing[0] > proxy_start:
             periods[proxy] = (proxy_start, None)
-
-    # Fetch and store in timemachine.db (NOT prices.db)
     fetch_and_store_prices(DB_PATH, periods, end)
     fetch_and_store_cny_rates(DB_PATH, start, end)
 
-    # ── Step 5: Compute allocation (reads prices from DB) ────────────────────
-    print("\n[5/7] Computing allocation...")
-
-    # 401k contributions: QFX BUYMF (primary) + Qianji fallback
+    # ── Prepare 401k daily values ──
     proxy_prices = load_proxy_prices(DB_PATH, PROXY_TICKERS)
     last_qfx_date = qfx_snaps[-1].date if qfx_snaps else None
     k401_contribs = _load_401k_contributions(qfx_contribs, last_qfx_date)
-    qfx_only = sum(1 for c in k401_contribs if c.date <= (last_qfx_date or date.min))
-    qj_only = len(k401_contribs) - qfx_only
-    if k401_contribs:
-        print(f"  {len(k401_contribs)} 401k contributions ({qfx_only} from QFX, {qj_only} from Qianji fallback)")
     k401_daily = daily_401k_values(qfx_snaps, proxy_prices, start, end, contributions=k401_contribs)
-    print(f"  401k daily values: {len(k401_daily)} days")
 
-    # Compute daily allocation (reads prices + CNY from DB internally)
-    print("  Computing daily allocation (this may take a minute)...")
+    return k401_daily
+
+
+def _compute_and_store_prefix(alloc, start, end):
+    """Compute prefix sums from transactions and store (full rewrite)."""
+    print("[P] Computing prefix sums...")
+    fidelity_txns = load_transactions(FIDELITY_CSV)
+    qianji_records, _ = load_all_from_db(DEFAULT_QJ_DB)
+    daily_flows = build_daily_flows(
+        fidelity_txns, qianji_records, start.isoformat(), end.isoformat(),
+    )
+    prefix_rows = compute_prefix_sums(daily_flows)
+
+    daily_dates = sorted(str(r["date"]) for r in alloc)
+    prefix_by_date: dict[str, dict[str, object]] = {str(r["date"]): r for r in prefix_rows}
+    prefix_fields = ["income", "expenses", "buys", "sells", "dividends", "netCashIn", "ccPayments"]
+    last_prefix: dict[str, float] = {f: 0.0 for f in prefix_fields}
+    aligned: list[dict[str, object]] = []
+    for d in daily_dates:
+        if d in prefix_by_date:
+            last_prefix = {f: _f(prefix_by_date[d].get(f, 0)) for f in prefix_fields}
+        aligned.append({"date": d, **last_prefix})
+
+    conn = get_connection(DB_PATH)
+    try:
+        conn.execute("DELETE FROM computed_prefix")
+        conn.executemany(
+            "INSERT INTO computed_prefix (date, income, expenses, buys, sells, dividends, net_cash_in, cc_payments)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [(r["date"], r.get("income", 0), r.get("expenses", 0), r.get("buys", 0),
+              r.get("sells", 0), r.get("dividends", 0), r.get("netCashIn", 0), r.get("ccPayments", 0))
+             for r in aligned],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    print(f"  {len(aligned)} prefix rows written")
+
+
+def _print_summary(alloc):
+    if not alloc:
+        return
+    earliest, latest = alloc[0], alloc[-1]
+    print(f"\n  Earliest: {earliest['date']}  ${_f(earliest['total']):,.0f}")
+    print(f"  Latest:   {latest['date']}  ${_f(latest['total']):,.0f}")
+
+
+# ── Full rebuild ────────────────────────────────────────────────────────────
+
+
+def _full_build(config, start, end, k401_daily):
+    print("\n[5] Computing full allocation...")
     alloc = compute_daily_allocation(DB_PATH, DEFAULT_QJ_DB, config, k401_daily, start, end)
-    print(f"  {len(alloc)} daily records computed")
+    print(f"  {len(alloc)} daily records")
 
-    # ── Step 6: Store in computed_daily + computed_daily_tickers ──────────────
-    print("\n[6/7] Writing computed_daily + computed_daily_tickers tables...")
+    print("[6] Writing computed_daily...")
     conn = get_connection(DB_PATH)
     try:
         conn.execute("DELETE FROM computed_daily")
         conn.execute("DELETE FROM computed_daily_tickers")
-        ticker_count = 0
         for r in alloc:
-            total = _f(r["total"])
             conn.execute(
                 "INSERT INTO computed_daily (date, total, us_equity, non_us_equity, crypto, safe_net, liabilities)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (r["date"], total, _f(r["us_equity"]), _f(r["non_us_equity"]),
+                (r["date"], _f(r["total"]), _f(r["us_equity"]), _f(r["non_us_equity"]),
                  _f(r["crypto"]), _f(r["safe_net"]), _f(r.get("liabilities", 0))),
             )
             for t in r.get("tickers", []):
@@ -217,85 +227,105 @@ def main() -> None:
                     (r["date"], t["ticker"], t["value"], t["category"], t["subtype"],
                      t["cost_basis"], t["gain_loss"], t["gain_loss_pct"]),
                 )
-                ticker_count += 1
         conn.commit()
-        row_count: int = conn.execute("SELECT COUNT(*) FROM computed_daily").fetchone()[0]
     finally:
         conn.close()
-    print(f"  {row_count} rows in computed_daily, {ticker_count} rows in computed_daily_tickers")
 
-    # ── Step 7: Compute prefix sums from transactions ───────────────────────
-    print("\n[7/7] Computing prefix sums from transactions...")
-    fidelity_txns = load_transactions(FIDELITY_CSV)
-    qianji_records, _ = load_all_from_db(DEFAULT_QJ_DB)
-    daily_flows = build_daily_flows(
-        fidelity_txns, qianji_records, start.isoformat(), end.isoformat(),  # type: ignore[arg-type]
-    )
-    prefix_rows = compute_prefix_sums(daily_flows)
-    print(f"  {len(daily_flows)} days with transactions -> {len(prefix_rows)} prefix rows")
+    _compute_and_store_prefix(alloc, start, end)
+    _print_summary(alloc)
+    return alloc
 
-    # Forward-fill prefix to match all daily dates
-    daily_dates = sorted(str(r["date"]) for r in alloc)
-    prefix_by_date: dict[str, dict[str, object]] = {str(r["date"]): r for r in prefix_rows}
-    prefix_fields = ["income", "expenses", "buys", "sells", "dividends", "netCashIn", "ccPayments"]
-    last_prefix: dict[str, float] = {f: 0.0 for f in prefix_fields}
-    aligned_prefix: list[dict[str, object]] = []
-    for d in daily_dates:
-        if d in prefix_by_date:
-            last_prefix = {f: _f(prefix_by_date[d].get(f, 0)) for f in prefix_fields}
-        aligned_prefix.append({"date": d, **last_prefix})
-    print(f"  Forward-filled to {len(aligned_prefix)} rows (aligned with daily)")
 
-    conn = get_connection(DB_PATH)
-    try:
-        conn.execute("DELETE FROM computed_prefix")
-        conn.executemany(
-            "INSERT INTO computed_prefix (date, income, expenses, buys, sells, dividends, net_cash_in, cc_payments)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            [
-                (
-                    r["date"],
-                    r.get("income", 0),
-                    r.get("expenses", 0),
-                    r.get("buys", 0),
-                    r.get("sells", 0),
-                    r.get("dividends", 0),
-                    r.get("netCashIn", 0),
-                    r.get("ccPayments", 0),
-                )
-                for r in aligned_prefix
-            ],
-        )
-        conn.commit()
-        prefix_count: int = conn.execute("SELECT COUNT(*) FROM computed_prefix").fetchone()[0]
-    finally:
-        conn.close()
-    print(f"  {prefix_count} rows in computed_prefix table")
+# ── Incremental ─────────────────────────────────────────────────────────────
 
-    # ── Verify daily_close populated ─────────────────────────────────────────
-    conn = get_connection(DB_PATH)
-    try:
-        price_count: int = conn.execute("SELECT COUNT(*) FROM daily_close").fetchone()[0]
-    finally:
-        conn.close()
-    print(f"\n  daily_close: {price_count} rows (prices + CNY rates)")
 
-    # ── Summary ──────────────────────────────────────────────────────────────
+def _incremental_build(config, start, end, k401_daily):
+    last = get_last_computed_date(DB_PATH)
+    if last is None:
+        print("  No existing data — falling back to full build")
+        return _full_build(config, start, end, k401_daily)
+
+    inc_start = last + timedelta(days=1)
+    if inc_start > end:
+        print(f"  Already up to date (last: {last})")
+        return []
+
+    print(f"\n[5] Computing allocation {inc_start} -> {end} (incremental)...")
+    alloc = compute_daily_allocation(DB_PATH, DEFAULT_QJ_DB, config, k401_daily, inc_start, end)
+    print(f"  {len(alloc)} new daily records")
+
     if alloc:
-        latest = alloc[-1]
-        earliest = alloc[0]
-        print("\n" + "=" * 60)
-        print("  Build complete!")
-        print(f"  Earliest: {earliest['date']}  total=${_f(earliest['total']):,.0f}")
-        print(f"  Latest:   {latest['date']}  total=${_f(latest['total']):,.0f}")
-        def _safe_pct(r: dict[str, object]) -> float:
-            total = _f(r["total"])
-            return round(_f(r["safe_net"]) / total * 100, 1) if total > 0 else 0
-        print(f"  Safe Net %: {min(_safe_pct(r) for r in alloc):.1f}% -- {max(_safe_pct(r) for r in alloc):.1f}%")
-        print("=" * 60)
+        print("[6] Appending to computed_daily...")
+        added = append_daily(DB_PATH, alloc)
+        print(f"  {added} rows appended")
 
-    print("\nTo start the server:")
-    print("  python -m generate_asset_snapshot.server")
+        # Prefix sums must be recomputed fully (cumulative)
+        # Merge existing + new alloc dates for alignment
+        conn = get_connection(DB_PATH)
+        try:
+            all_alloc = [
+                {"date": r[0], "total": r[1]} for r in
+                conn.execute("SELECT date, total FROM computed_daily ORDER BY date")
+            ]
+        finally:
+            conn.close()
+        _compute_and_store_prefix(all_alloc, start, end)
+
+    _print_summary(alloc)
+    return alloc
+
+
+# ── Verify ──────────────────────────────────────────────────────────────────
+
+
+def _verify_build(config, start, end, k401_daily):
+    print("\n[5] Computing full allocation for verification...")
+    alloc = compute_daily_allocation(DB_PATH, DEFAULT_QJ_DB, config, k401_daily, start, end)
+    print(f"  {len(alloc)} daily records recomputed")
+
+    print("[V] Cross-checking against persisted data...")
+    drifts = verify_daily(DB_PATH, alloc)
+    if not drifts:
+        print("  ✓ No drift detected")
+    else:
+        print(f"  ✗ {len(drifts)} drifts found:")
+        for d in drifts[:20]:
+            print(f"    {d.date} {d.field}: persisted={d.persisted:,.2f} recomputed={d.recomputed:,.2f} Δ={d.delta:+,.2f}")
+        if len(drifts) > 20:
+            print(f"    ... and {len(drifts) - 20} more")
+    return alloc, drifts
+
+
+# ── Main ─────────────────────────────────────────────────────────────────────
+
+
+def main() -> None:
+    mode = "full"
+    if "--incremental" in sys.argv:
+        mode = "incremental"
+    elif "--verify" in sys.argv:
+        mode = "verify"
+
+    print("=" * 60)
+    print(f"  Timemachine DB Builder  [{mode}]")
+    print("=" * 60)
+
+    config = _load_config(CONFIG_PATH)
+    rows = _load_raw_rows(FIDELITY_CSV)
+    start = min(_parse_date(r["Run Date"]) for r in rows)
+    end = date.today()
+    print(f"  Range: {start} -> {end}")
+
+    k401_daily = _ingest_and_fetch(config, start, end)
+
+    if mode == "full":
+        _full_build(config, start, end, k401_daily)
+    elif mode == "incremental":
+        _incremental_build(config, start, end, k401_daily)
+    elif mode == "verify":
+        _verify_build(config, start, end, k401_daily)
+
+    print("\n" + "=" * 60)
 
 
 if __name__ == "__main__":
