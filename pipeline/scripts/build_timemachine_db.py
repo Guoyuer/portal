@@ -63,6 +63,7 @@ DB_PATH = DATA_DIR / "timemachine.db"
 FIDELITY_CSV = DATA_DIR / "fidelity_transactions.csv"
 CONFIG_PATH = Path("C:/Users/guoyu/Projects/portal/data/config.json")
 DOWNLOADS = Path("C:/Users/guoyu/Downloads")
+ROBINHOOD_CSV = DOWNLOADS / "Robinhood_history.csv"
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -111,7 +112,7 @@ def _load_401k_contributions(
 
 
 def _ingest_and_fetch(config, start, end):
-    """Steps 1-4: init DB, ingest sources, fetch prices. Returns (k401_daily, start, end)."""
+    """Steps 1-4: init DB, ingest sources, fetch prices. Returns k401_daily."""
     # ── Step 1: Initialise database ──
     print("\n[1] Initialising database...")
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -146,6 +147,13 @@ def _ingest_and_fetch(config, start, end):
     # Add market index tickers for /market endpoint
     for idx_ticker in ("^GSPC", "^NDX", "000300.SS"):
         periods[idx_ticker] = (start, None)
+
+    # Add Robinhood symbols that aren't in Fidelity
+    if ROBINHOOD_CSV.exists():
+        from generate_asset_snapshot.ingest.robinhood_history import load_robinhood_csv
+        rh_syms = {r["instrument"] for r in load_robinhood_csv(ROBINHOOD_CSV) if r["instrument"]}
+        for sym in rh_syms - set(periods.keys()):
+            periods[sym] = (start, None)
 
     fetch_and_store_prices(DB_PATH, periods, end)
     fetch_and_store_cny_rates(DB_PATH, start, end)
@@ -208,7 +216,7 @@ def _print_summary(alloc):
 
 def _full_build(config, start, end, k401_daily):
     print("\n[5] Computing full allocation...")
-    alloc = compute_daily_allocation(DB_PATH, DEFAULT_QJ_DB, config, k401_daily, start, end)
+    alloc = compute_daily_allocation(DB_PATH, DEFAULT_QJ_DB, config, k401_daily, start, end, robinhood_csv=ROBINHOOD_CSV)
     print(f"  {len(alloc)} daily records")
 
     print("[6] Writing computed_daily...")
@@ -263,7 +271,7 @@ def _incremental_build(config, start, end, k401_daily):
         return []
 
     print(f"\n[5] Computing allocation {inc_start} -> {end} (incremental)...")
-    alloc = compute_daily_allocation(DB_PATH, DEFAULT_QJ_DB, config, k401_daily, inc_start, end)
+    alloc = compute_daily_allocation(DB_PATH, DEFAULT_QJ_DB, config, k401_daily, inc_start, end, robinhood_csv=ROBINHOOD_CSV)
     print(f"  {len(alloc)} new daily records")
 
     if alloc:
@@ -292,7 +300,7 @@ def _incremental_build(config, start, end, k401_daily):
 
 def _verify_build(config, start, end, k401_daily):
     print("\n[5] Computing full allocation for verification...")
-    alloc = compute_daily_allocation(DB_PATH, DEFAULT_QJ_DB, config, k401_daily, start, end)
+    alloc = compute_daily_allocation(DB_PATH, DEFAULT_QJ_DB, config, k401_daily, start, end, robinhood_csv=ROBINHOOD_CSV)
     print(f"  {len(alloc)} daily records recomputed")
 
     print("[V] Cross-checking against persisted data...")
