@@ -21,26 +21,6 @@ function prefixRange(prefix: PrefixPoint[], left: number, right: number): Prefix
   };
 }
 
-// ── Hook ────────────────────────────────────────────────────────────────
-
-export interface TimelineState {
-  /** Downsampled data for the chart (~150 points, smooth brush) */
-  chartDaily: DailyPoint[];
-  /** Default brush indices (initial only, not controlled) */
-  defaultStartIndex: number;
-  defaultEndIndex: number;
-  /** Point-in-time snapshot at right edge (full daily precision) */
-  snapshot: DailyPoint | null;
-  /** Range aggregation over brush selection (O(1) prefix sum) */
-  range: PrefixPoint | null;
-  /** Start date of the brush selection */
-  startDate: string | null;
-  /** Brush change handler — updates summary without re-rendering chart */
-  onBrushChange: (state: { startIndex?: number; endIndex?: number }) => void;
-  loading: boolean;
-  error: string | null;
-}
-
 // ── Downsampling ────────────────────────────────────────────────────────
 
 const TARGET_CHART_POINTS = 150;
@@ -53,7 +33,6 @@ function downsample(daily: DailyPoint[]): { sampled: DailyPoint[]; toFull: numbe
     sampled.push(daily[i]);
     toFull.push(i);
   }
-  // Always include the last point
   if (toFull[toFull.length - 1] !== daily.length - 1) {
     sampled.push(daily[daily.length - 1]);
     toFull.push(daily.length - 1);
@@ -61,17 +40,29 @@ function downsample(daily: DailyPoint[]): { sampled: DailyPoint[]; toFull: numbe
   return { sampled, toFull };
 }
 
+// ── Hook ────────────────────────────────────────────────────────────────
+
+export interface TimelineState {
+  chartDaily: DailyPoint[];
+  defaultStartIndex: number;
+  defaultEndIndex: number;
+  snapshot: DailyPoint | null;
+  range: PrefixPoint | null;
+  startDate: string | null;
+  onBrushChange: (state: { startIndex?: number; endIndex?: number }) => void;
+  loading: boolean;
+  error: string | null;
+}
+
 export function useTimeline(): TimelineState {
   const [data, setData] = useState<TimelineData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [defaultStartIndex, setDefaultStartIndex] = useState(0);
-  const [defaultEndIndex, setDefaultEndIndex] = useState(0);
 
-  // Brush indices stored in ref to avoid re-rendering the chart during drag.
-  // A separate state counter triggers summary re-computation via useMemo.
-  const brushRef = useRef({ start: 0, end: 0 });
-  const [brushTick, setBrushTick] = useState(0);
+  // Full-resolution indices derived from brush position.
+  // Updated via rAF so the chart (memo'd) never re-renders during drag.
+  const [fullRange, setFullRange] = useState({ start: 0, end: 0 });
+  const brushRef = useRef({ start: 0, end: 0 }); // accumulates partial onChange calls
   const rafRef = useRef(0);
 
   useEffect(() => {
@@ -83,16 +74,7 @@ export function useTimeline(): TimelineState {
         const json = await res.json();
         const parsed = TimelineDataSchema.safeParse(json);
         if (!parsed.success) throw new Error("Invalid timeline data");
-        if (!cancelled) {
-          setData(parsed.data);
-          const { sampled } = downsample(parsed.data.daily);
-          const end = sampled.length - 1;
-          const start = Math.max(0, end - Math.floor(252 / Math.max(1, Math.floor(parsed.data.daily.length / TARGET_CHART_POINTS))));
-          setDefaultStartIndex(start);
-          setDefaultEndIndex(end);
-          brushRef.current = { start, end };
-          setBrushTick(1);
-        }
+        if (!cancelled) setData(parsed.data);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load timeline");
       } finally {
@@ -107,25 +89,40 @@ export function useTimeline(): TimelineState {
     [data],
   );
 
-  // Update ref immediately (no re-render), schedule state update via rAF
+  // Default brush window: last ~252 trading days (1 year)
+  const defaultEndIndex = chartDaily.length > 0 ? chartDaily.length - 1 : 0;
+  const defaultStartIndex = useMemo(() => {
+    if (!data || chartDaily.length === 0) return 0;
+    const step = Math.max(1, Math.floor(data.daily.length / TARGET_CHART_POINTS));
+    return Math.max(0, defaultEndIndex - Math.floor(252 / step));
+  }, [data, chartDaily.length, defaultEndIndex]);
+
+  // Seed fullRange once when data arrives
+  useEffect(() => {
+    if (data && toFull.length > 0) {
+      const s = toFull[defaultStartIndex] ?? 0;
+      const e = toFull[defaultEndIndex] ?? 0;
+      brushRef.current = { start: defaultStartIndex, end: defaultEndIndex };
+      setFullRange({ start: s, end: e });
+    }
+  }, [data, toFull, defaultStartIndex, defaultEndIndex]);
+
+  // Accumulate partial onChange, debounce via rAF, map to full indices
   const onBrushChange = useCallback((state: { startIndex?: number; endIndex?: number }) => {
     if (state.startIndex !== undefined) brushRef.current.start = state.startIndex;
     if (state.endIndex !== undefined) brushRef.current.end = state.endIndex;
     cancelAnimationFrame(rafRef.current);
     rafRef.current = requestAnimationFrame(() => {
-      setBrushTick((t) => t + 1);
+      setFullRange({
+        start: toFull[brushRef.current.start] ?? 0,
+        end: toFull[brushRef.current.end] ?? 0,
+      });
     });
-  }, []);
+  }, [toFull]);
 
-  // Map brush indices back to full daily array for precise lookups
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const _tick = brushTick; // subscribe to updates
-  const fullStart = toFull[brushRef.current.start] ?? 0;
-  const fullEnd = toFull[brushRef.current.end] ?? 0;
-
-  const snapshot = useMemo(() => data?.daily[fullEnd] ?? null, [data, fullEnd]);
-  const range = useMemo(() => data ? prefixRange(data.prefix, fullStart, fullEnd) : null, [data, fullStart, fullEnd]);
-  const startDate = data?.daily[fullStart]?.date ?? null;
+  const snapshot = useMemo(() => data?.daily[fullRange.end] ?? null, [data, fullRange.end]);
+  const range = useMemo(() => data ? prefixRange(data.prefix, fullRange.start, fullRange.end) : null, [data, fullRange.start, fullRange.end]);
+  const startDate = data?.daily[fullRange.start]?.date ?? null;
 
   return { chartDaily, defaultStartIndex, defaultEndIndex, snapshot, range, startDate, onBrushChange, loading, error };
 }
