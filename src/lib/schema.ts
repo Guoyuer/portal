@@ -204,6 +204,37 @@ const ReconciliationDataSchema = z.object({
   totalChange: z.number(),
 });
 
+// ── Timemachine ─────────────────────────────────────────────────────────
+
+export const DailyPointSchema = z.object({
+  date: z.string(),
+  total: z.number(),
+  usEquity: z.number(),
+  nonUsEquity: z.number(),
+  crypto: z.number(),
+  safeNet: z.number(),
+});
+
+export const PrefixPointSchema = z.object({
+  date: z.string(),
+  income: z.number(),
+  expenses: z.number(),
+  buys: z.number(),
+  sells: z.number(),
+  dividends: z.number(),
+  netCashIn: z.number(),
+  ccPayments: z.number(),
+});
+
+export const TimelineDataSchema = z.object({
+  daily: z.array(DailyPointSchema),
+  prefix: z.array(PrefixPointSchema),
+});
+
+export type DailyPoint = z.infer<typeof DailyPointSchema>;
+export type PrefixPoint = z.infer<typeof PrefixPointSchema>;
+export type TimelineData = z.infer<typeof TimelineDataSchema>;
+
 // ── Full ReportData (root) ───────────────────────────────────────────────
 
 export const ReportDataSchema = z.object({
