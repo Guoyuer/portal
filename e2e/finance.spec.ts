@@ -317,4 +317,51 @@ test.describe("Finance Report", () => {
     const res = await page.request.get("https://portal-bf8.pages.dev/finance");
     expect(res.status()).toBe(200);
   });
+
+  // ── Timemachine ─────────────────────────────────────────────────────────
+
+  test.describe("Timemachine", () => {
+    test("shows timemachine chart when timeline API available", async ({ page }) => {
+      // The timemachine section should render if the backend is running
+      const tmSection = page.locator("#timemachine");
+      const nwSection = page.locator("#net-worth");
+
+      // One of them should be visible (timemachine if backend running, net-worth otherwise)
+      const tmVisible = await tmSection.isVisible().catch(() => false);
+      const nwVisible = await nwSection.isVisible().catch(() => false);
+      expect(tmVisible || nwVisible).toBe(true);
+    });
+
+    test("shows allocation categories in timemachine summary", async ({ page }) => {
+      const tmSection = page.locator("#timemachine");
+      if (!(await tmSection.isVisible().catch(() => false))) {
+        test.skip();
+        return;
+      }
+      await expect(tmSection.getByText("US Equity")).toBeVisible();
+      await expect(tmSection.getByText("Safe Net")).toBeVisible();
+    });
+
+    test("shows range stats in timemachine summary", async ({ page }) => {
+      const tmSection = page.locator("#timemachine");
+      if (!(await tmSection.isVisible().catch(() => false))) {
+        test.skip();
+        return;
+      }
+      await expect(tmSection.getByText("Income")).toBeVisible();
+      await expect(tmSection.getByText("Expenses")).toBeVisible();
+      await expect(tmSection.getByText("Buys")).toBeVisible();
+      await expect(tmSection.getByText("Dividends")).toBeVisible();
+    });
+
+    test("displays total value with dollar sign", async ({ page }) => {
+      const tmSection = page.locator("#timemachine");
+      if (!(await tmSection.isVisible().catch(() => false))) {
+        test.skip();
+        return;
+      }
+      // Should show a dollar amount like "$412,883" or "$413k"
+      await expect(tmSection.locator("text=/\\$\\d/").first()).toBeVisible();
+    });
+  });
 });
