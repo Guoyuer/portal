@@ -187,12 +187,12 @@ export function IncomeExpensesChart({
             strokeWidth={1}
           />
         )}
-        <Bar dataKey="expenses" name="Expenses" stackId="income">
+        <Bar dataKey="expenses" name="Expenses" stackId="income" isAnimationActive={false}>
           {stacked.map((_, i) => (
             <Cell key={i} fill={expenseColor} opacity={activeIdx >= 0 && i !== activeIdx ? 0.35 : 0.9} />
           ))}
         </Bar>
-        <Bar dataKey="savings" name="Savings" stackId="income" radius={[2, 2, 0, 0]}>
+        <Bar dataKey="savings" name="Savings" stackId="income" radius={[2, 2, 0, 0]} isAnimationActive={false}>
           {stacked.map((_, i) => (
             <Cell key={i} fill={savingsColor} opacity={activeIdx >= 0 && i !== activeIdx ? 0.35 : 0.9} />
           ))}
