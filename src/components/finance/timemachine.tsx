@@ -129,8 +129,6 @@ export const TimemachineChart = memo(function TimemachineChart({
   );
 });
 
-// ── TimemachineSummary ────────────────────────────────────────────────────
-
 // ── Date formatting helpers ──────────────────────────────────────────────
 
 function fmtDate(iso: string): string {
@@ -246,14 +244,12 @@ export function TimemachineSummary({
 // ── TimemachineSection ──────────────────────────────────────────────────
 
 export function TimemachineSection({
-  timeline,
+  timeline: tl,
   fallback,
 }: {
   timeline: TimelineState;
   fallback: ReactNode;
 }) {
-  const tl = timeline;
-
   if (tl.loading || tl.error || tl.chartDaily.length === 0) {
     return <div id="net-worth">{fallback}</div>;
   }

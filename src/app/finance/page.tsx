@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 import { GOAL } from "@/lib/config";
 import { useTimeline } from "@/lib/use-timeline";
 import { useAllocation, useCashflow, useActivity, useMarket } from "@/lib/use-api";
-import { adaptCashflow } from "@/components/finance/cash-flow";
 import type { MonthlyFlowPoint, PrefixPoint } from "@/lib/schema";
 import { SectionHeader, SectionBody } from "@/components/finance/shared";
 import { IncomeExpensesChart } from "@/components/finance/charts";
@@ -25,16 +24,9 @@ function dateToPeriod(dateStr: string): string {
   return dt.toLocaleDateString("en-US", { month: "long", year: "numeric" });
 }
 
-/** "March 2026" -> "2026-03" */
-function periodToMonthKey(period: string): string | undefined {
-  const MONTH_MAP: Record<string, string> = {
-    January: "01", February: "02", March: "03", April: "04",
-    May: "05", June: "06", July: "07", August: "08",
-    September: "09", October: "10", November: "11", December: "12",
-  };
-  const [name, year] = period.split(" ");
-  const mm = MONTH_MAP[name];
-  return mm && year ? `${year}-${mm}` : undefined;
+/** "2026-03-15" -> "2026-03" */
+function dateToMonthKey(dateStr: string): string {
+  return dateStr.slice(0, 7);
 }
 
 // ── Compute monthly flows from timeline prefix sums ───────────────────
@@ -94,14 +86,8 @@ export default function FinancePage() {
 
   // ── Derived values ────────────────────────────────────────────────
   const goalPct = alloc.data ? (alloc.data.total / GOAL) * 100 : 0;
-
   const period = snapshotDate ? dateToPeriod(snapshotDate) : "";
-
-  const cashflowData = useMemo(() => {
-    if (!cf.data) return null;
-    const invested = tl.range?.buys ?? 0;
-    return adaptCashflow(cf.data, period, invested);
-  }, [cf.data, period, tl.range?.buys]);
+  const invested = tl.range?.buys ?? 0;
 
   const monthlyFlows = useMemo(
     () => computeMonthlyFlows(tl.prefix),
@@ -137,7 +123,6 @@ export default function FinancePage() {
           categories={alloc.data.categories}
           tickers={alloc.data.tickers}
           savingsRate={cf.data?.savingsRate ?? null}
-          takehomeSavingsRate={cf.data?.savingsRate ?? null}
           goal={GOAL}
           goalPct={goalPct}
           allocationOpen={allocOpen}
@@ -154,22 +139,22 @@ export default function FinancePage() {
 
       {/* ── 4. Cash Flow ────────────────────────────────────────────────── */}
       <section id="cashflow">
-        <SectionHeader>{SECTION_LABELS["cashflow"]}{cashflowData ? ` \u2014 ${cashflowData.period}` : ""}</SectionHeader>
-        {cashflowData ? (
+        <SectionHeader>{SECTION_LABELS["cashflow"]}{cf.data ? ` \u2014 ${period}` : ""}</SectionHeader>
+        {cf.data ? (
           <>
             <SectionBody>
-              <CashFlow data={cashflowData} />
+              <CashFlow data={cf.data} />
             </SectionBody>
 
-            {/* Stat bar + chart — single glass container, no internal borders */}
+            {/* Stat bar + chart -- single glass container, no internal borders */}
             <div className="liquid-glass mt-4 overflow-hidden">
-              <CashFlowStatBar data={cashflowData} period={cashflowData.period} />
+              <CashFlowStatBar data={cf.data} invested={invested} period={period} />
               <div className="mx-3 sm:mx-5 h-px bg-gradient-to-r from-transparent via-foreground/8 to-transparent" />
               {monthlyFlows.length > 0 ? (
                 <div className="px-3 sm:px-5 pb-3 sm:pb-5 pt-3">
                   <IncomeExpensesChart
                     data={monthlyFlows}
-                    activeMonth={periodToMonthKey(cashflowData.period)}
+                    activeMonth={snapshotDate ? dateToMonthKey(snapshotDate) : undefined}
                   />
                 </div>
               ) : (

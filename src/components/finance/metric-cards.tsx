@@ -12,7 +12,6 @@ export function MetricCards({
   categories,
   tickers,
   savingsRate,
-  takehomeSavingsRate,
   goal,
   goalPct,
   allocationOpen,
@@ -23,7 +22,6 @@ export function MetricCards({
   categories: ApiCategory[];
   tickers: ApiTicker[];
   savingsRate: number | null;
-  takehomeSavingsRate: number | null;
   goal: number;
   goalPct: number;
   allocationOpen: boolean;
@@ -110,16 +108,9 @@ export function MetricCards({
       <div data-slot="card" className="liquid-glass p-4">
         <p className="text-xs sm:text-sm text-muted-foreground">Savings Rate</p>
         {savingsRate != null ? (
-          <div className="mt-1">
-            <p className={`text-xl sm:text-2xl font-bold ${savingsRateColor(savingsRate)}`}>
-              {Math.round(savingsRate)}%
-            </p>
-            {takehomeSavingsRate != null && (
-              <p className="text-xs text-muted-foreground">
-                {Math.round(takehomeSavingsRate)}% take-home
-              </p>
-            )}
-          </div>
+          <p className={`text-xl sm:text-2xl font-bold mt-1 ${savingsRateColor(savingsRate)}`}>
+            {Math.round(savingsRate)}%
+          </p>
         ) : (
           <p className="text-xl sm:text-2xl font-bold mt-1">N/A</p>
         )}
