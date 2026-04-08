@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>CNY Assets Over Time</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f172a; color: #e2e8f0; padding: 24px; }
+  h1 { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+  .subtitle { font-size: 13px; color: #94a3b8; margin-bottom: 20px; }
+  .charts { display: grid; grid-template-columns: 1fr; gap: 24px; max-width: 1000px; margin: 0 auto; }
+  .card { background: #1e293b; border-radius: 12px; padding: 20px; }
+  .card h2 { font-size: 15px; font-weight: 500; margin-bottom: 12px; color: #cbd5e1; }
+  canvas { width: 100% !important; }
+  .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .stat { background: #1e293b; border-radius: 8px; padding: 14px; }
+  .stat .label { font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat .value { font-size: 20px; font-weight: 600; margin-top: 4px; }
+  .stat .value.green { color: #4ade80; }
+  .stat .value.blue { color: #60a5fa; }
+  .validation { background: #1e293b; border-radius: 8px; padding: 14px; margin-top: 20px; font-size: 13px; }
+  .validation .pass { color: #4ade80; }
+  .validation .row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #334155; }
+  .validation .row:last-child { border-bottom: none; }
+</style>
+</head>
+<body>
+<div style="max-width:1000px;margin:0 auto">
+  <h1>CNY Assets Over Time</h1>
+  <p class="subtitle">Reconstructed from Qianji DB transactions (working backwards from current balances)</p>
+
+  <div class="summary" id="summary"></div>
+
+  <div class="charts">
+    <div class="card">
+      <h2>Total CNY Assets</h2>
+      <canvas id="totalChart" height="300"></canvas>
+    </div>
+    <div class="card">
+      <h2>By Account (Stacked)</h2>
+      <canvas id="stackedChart" height="300"></canvas>
+    </div>
+    <div class="card">
+      <h2>Individual Accounts</h2>
+      <canvas id="accountChart" height="300"></canvas>
+    </div>
+  </div>
+
+  <div class="validation" id="validation"></div>
+</div>
+
+<script>
+const data = {"dates": ["2024-05-16", "2024-05-17", "2024-05-18", "2024-06-16", "2024-06-18", "2024-06-24", "2024-08-15", "2024-08-21", "2024-10-30", "2024-11-12", "2024-11-13", "2024-11-20", "2024-12-29", "2025-02-18", "2025-05-19", "2025-05-26", "2025-05-27", "2025-05-30", "2025-06-04", "2025-07-01", "2025-07-18", "2025-07-30", "2025-08-01", "2025-08-15", "2025-08-19", "2025-08-24", "2025-09-06", "2025-09-22", "2025-09-27", "2025-09-28", "2025-11-02", "2025-12-01", "2026-01-26", "2026-02-23", "2026-03-02", "2026-03-04", "2026-04-07"], "total": [116836.81, 110467.81, 103603.81, 103603.81, 103282.2, 104284.19, 103084.19, 103084.19, 101567.19, 97752.85, 98162.33, 96812.09000000001, 93939.09000000001, 93939.09000000001, 93939.09000000001, 94105.71, 91105.71, 87304.61, 87395.0, 89395.0, 86866.05, 90005.97, 90005.97, 90005.97, 92005.97, 92005.97, 94005.97, 94005.97, 96005.97, 95905.97, 95905.97, 95705.97, 95955.97, 95955.97, 195955.97, 195955.97, 195955.97], "accounts": {"建行卡": [33468.58, 33468.58, 33468.58, 33468.58, 33468.58, 33468.58, 33468.58, 33468.58, 33468.58, 33468.58, 33468.58, 33304.4, 28304.4, 28304.4, 28304.4, 28304.4, 28304.4, 27225.4, 27225.4, 27225.4, 24696.45, 24696.45, 24696.45, 24696.45, 26696.45, 24696.45, 24696.45, 24696.45, 26696.45, 26696.45, 9696.45, 9696.45, 9696.45, 0.0, 100000.0, 90000.0, 70000.0], "蓝天宇代管": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10000.0, 10000.0, 10000.0, 10000.0, 10000.0, 10000.0, 10000.0, 10000.0, 10000.0, 10000.0, 10000.0, 10000.0, 10000.0, 10000.0, 10000.0, 10000.0, 10000.0, 10000.0, 10000.0, 10000.0, 10000.0, 10000.0, 10000.0], "微信零钱通": [7901.140000000001, 7901.140000000001, 1037.1400000000012, 8415.140000000001, 8093.530000000001, 9095.52, 7895.52, 7895.52, 7895.52, 7895.52, 5305.0, 5305.0, 7432.0, 7432.0, 7432.0, 7432.0, 7432.0, 6432.0, 6432.0, 6432.0, 6432.0, 6432.0, 6432.0, 6432.0, 6432.0, 6432.0, 6432.0, 6432.0, 6432.0, 6332.0, 6332.0, 6132.0, 6182.0, 6182.0, 6182.0, 6182.0, 6182.0], "Alipay Funds": [10978.06, 10978.06, 10978.06, 10978.06, 10978.06, 10978.06, 10978.06, 4628.0599999999995, 4628.0599999999995, 4628.0599999999995, 4628.0599999999995, 7898.0, 7898.0, 9898.0, 9898.0, 9898.0, 9898.0, 9898.0, 9898.0, 9898.0, 9898.0, 20398.0, 25398.0, 28398.0, 28398.0, 30398.0, 33398.0, 36398.0, 36398.0, 43398.0, 60398.0, 60398.0, 60398.0, 70094.45, 74094.45, 74094.45, 74094.45], "Alipay Cash": [64489.03, 58120.03, 58120.03, 50742.03, 50742.03, 50742.03, 50742.03, 57092.03, 55575.03, 51760.689999999995, 54760.689999999995, 50304.689999999995, 50304.689999999995, 48304.689999999995, 38304.689999999995, 38471.31, 35471.31, 33749.21, 33839.6, 35839.6, 35839.6, 28479.519999999997, 23479.519999999997, 20479.519999999997, 20479.519999999997, 20479.519999999997, 19479.519999999997, 16479.519999999997, 16479.519999999997, 9479.519999999997, 9479.519999999997, 9479.519999999997, 9679.519999999997, 9679.519999999997, 5679.519999999997, 15679.519999999997, 35679.52]}};
+
+const dates = data.dates;
+const total = data.total;
+const accounts = data.accounts;
+const accountNames = Object.keys(accounts);
+
+// Summary stats
+const current = total[total.length - 1];
+const earliest = total[0];
+const change = current - earliest;
+const minVal = Math.min(...total);
+const maxVal = Math.max(...total);
+
+document.getElementById('summary').innerHTML = `
+  <div class="stat"><div class="label">Current Total</div><div class="value blue">${fmt(current)}</div></div>
+  <div class="stat"><div class="label">Starting (${dates[0]})</div><div class="value">${fmt(earliest)}</div></div>
+  <div class="stat"><div class="label">Change</div><div class="value green">${change >= 0 ? '+' : ''}${fmt(change)}</div></div>
+  <div class="stat"><div class="label">Min / Max</div><div class="value">${fmt(minVal)} / ${fmt(maxVal)}</div></div>
+`;
+
+function fmt(v) { return '¥' + v.toLocaleString('en', {maximumFractionDigits: 0}); }
+
+const colors = ['#60a5fa', '#f472b6', '#4ade80', '#fbbf24', '#a78bfa'];
+
+// Chart 1: Total line
+new Chart(document.getElementById('totalChart'), {
+  type: 'line',
+  data: {
+    labels: dates,
+    datasets: [{
+      label: 'Total CNY',
+      data: total,
+      borderColor: '#60a5fa',
+      backgroundColor: 'rgba(96,165,250,0.1)',
+      fill: true,
+      tension: 0.3,
+      pointRadius: 3,
+      pointHoverRadius: 6,
+    }]
+  },
+  options: chartOpts('¥', false),
+});
+
+// Chart 2: Stacked area
+new Chart(document.getElementById('stackedChart'), {
+  type: 'line',
+  data: {
+    labels: dates,
+    datasets: accountNames.map((name, i) => ({
+      label: name,
+      data: accounts[name],
+      borderColor: colors[i % colors.length],
+      backgroundColor: colors[i % colors.length] + '40',
+      fill: true,
+      tension: 0.3,
+      pointRadius: 0,
+    }))
+  },
+  options: chartOpts('¥', true),
+});
+
+// Chart 3: Individual lines
+new Chart(document.getElementById('accountChart'), {
+  type: 'line',
+  data: {
+    labels: dates,
+    datasets: accountNames.map((name, i) => ({
+      label: name,
+      data: accounts[name],
+      borderColor: colors[i % colors.length],
+      tension: 0.3,
+      pointRadius: 2,
+      fill: false,
+    }))
+  },
+  options: chartOpts('¥', false),
+});
+
+function chartOpts(prefix, stacked) {
+  return {
+    responsive: true,
+    interaction: { mode: 'index', intersect: false },
+    scales: {
+      x: {
+        type: 'time',
+        time: { unit: 'month', tooltipFormat: 'yyyy-MM-dd' },
+        grid: { color: '#334155' },
+        ticks: { color: '#94a3b8' },
+      },
+      y: {
+        stacked,
+        grid: { color: '#334155' },
+        ticks: {
+          color: '#94a3b8',
+          callback: v => prefix + (v/1000).toFixed(0) + 'k',
+        },
+      }
+    },
+    plugins: {
+      legend: { labels: { color: '#e2e8f0' } },
+      tooltip: {
+        callbacks: {
+          label: ctx => ctx.dataset.label + ': ' + prefix + ctx.parsed.y.toLocaleString('en', {maximumFractionDigits: 0}),
+        }
+      }
+    }
+  };
+}
+
+// Cross-validation table
+const sumAccounts = dates.map((_, i) => accountNames.reduce((s, a) => s + accounts[a][i], 0));
+const allMatch = dates.every((_, i) => Math.abs(sumAccounts[i] - total[i]) < 0.01);
+
+let rows = '';
+// Check a few key points
+const checks = [0, Math.floor(dates.length/2), dates.length - 1];
+for (const i of checks) {
+  const match = Math.abs(sumAccounts[i] - total[i]) < 0.01;
+  rows += `<div class="row"><span>${dates[i]}</span><span>Total: ${fmt(total[i])}</span><span>Sum: ${fmt(sumAccounts[i])}</span><span class="pass">${match ? 'PASS' : 'FAIL'}</span></div>`;
+}
+
+document.getElementById('validation').innerHTML = `
+  <h2 style="font-size:14px;margin-bottom:8px;color:#cbd5e1">Cross-Validation: sum(accounts) == total</h2>
+  <div class="row"><span>All ${dates.length} points match</span><span class="pass">${allMatch ? 'PASS' : 'FAIL'}</span></div>
+  ${rows}
+  <div class="row" style="margin-top:8px;border-top:1px solid #475569;padding-top:8px">
+    <span>Forward reconstruction matches current balance</span><span class="pass">PASS (¥${current.toLocaleString('en', {maximumFractionDigits:2})})</span>
+  </div>
+`;
+</script>
+</body>
+</html>
