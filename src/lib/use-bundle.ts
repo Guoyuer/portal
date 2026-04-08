@@ -95,12 +95,66 @@ function computeCashflow(qianjiTxns: QianjiTxn[], start: string, end: string): C
   return { incomeItems, expenseItems, totalIncome, totalExpenses, netCashflow, ccPayments: Math.round(ccPayments * 100) / 100, savingsRate, takehomeSavingsRate };
 }
 
-// ── Local computation: activity ─────────────────────────────────────────
+// ── Local computation: reconcile (Fidelity deposits vs Qianji transfers) ──
+
+interface ReconcileResult {
+  matched: number;
+  unmatchedFidelity: number;
+  total: number;
+  ok: boolean;
+}
 
 /** Convert fidelity "MM/DD/YYYY" to sortable "YYYYMMDD" */
 function fidelityDateToSort(runDate: string): string {
   return runDate.slice(6, 10) + runDate.slice(0, 2) + runDate.slice(3, 5);
 }
+
+/** Convert fidelity "MM/DD/YYYY" to epoch ms */
+function fidelityDateToMs(runDate: string): number {
+  return new Date(`${runDate.slice(6, 10)}-${runDate.slice(0, 2)}-${runDate.slice(3, 5)}`).getTime();
+}
+
+const ONE_DAY_MS = 86_400_000;
+
+function computeReconcile(fidelityTxns: FidelityTxn[], qianjiTxns: QianjiTxn[], start: string, end: string): ReconcileResult {
+  const startSort = start.replaceAll("-", "");
+  const endSort = end.replaceAll("-", "");
+
+  // Fidelity EFT deposits in range
+  const deposits = fidelityTxns.filter((t) => {
+    if (!t.action.startsWith("Electronic Funds Transfer Received")) return false;
+    const sort = fidelityDateToSort(t.runDate);
+    return sort >= startSort && sort <= endSort;
+  });
+
+  // Qianji transfers (no date filter — allow ±1 day outside range)
+  const transfers = qianjiTxns.filter((t) => t.type === "transfer");
+
+  // Greedy match: for each deposit, find first unmatched transfer with same amount & date ±1 day
+  const used = new Set<number>();
+  let matched = 0;
+
+  for (const dep of deposits) {
+    const depMs = fidelityDateToMs(dep.runDate);
+    const depAmt = Math.round(Math.abs(dep.amount) * 100);
+
+    for (let i = 0; i < transfers.length; i++) {
+      if (used.has(i)) continue;
+      const tr = transfers[i];
+      if (Math.round(tr.amount * 100) !== depAmt) continue;
+      const trMs = new Date(tr.date).getTime();
+      if (Math.abs(depMs - trMs) <= ONE_DAY_MS) {
+        used.add(i);
+        matched++;
+        break;
+      }
+    }
+  }
+
+  return { matched, unmatchedFidelity: deposits.length - matched, total: deposits.length, ok: deposits.length > 0 && deposits.length === matched };
+}
+
+// ── Local computation: activity ─────────────────────────────────────────
 
 function computeActivity(fidelityTxns: FidelityTxn[], start: string, end: string): ActivityResponse {
   const startSort = start.replaceAll("-", "");
@@ -223,6 +277,7 @@ export interface BundleState {
   activity: ActivityResponse | null;
   market: MarketData | null;
   holdingsDetail: HoldingsDetailData | null;
+  reconcile: ReconcileResult | null;
 }
 
 export function useBundle(): BundleState {
@@ -314,6 +369,11 @@ export function useBundle(): BundleState {
     [data, startDate, snapshotDate],
   );
 
+  const reconcile = useMemo(
+    () => (data && startDate && snapshotDate) ? computeReconcile(data.fidelityTxns, data.qianjiTxns, startDate, snapshotDate) : null,
+    [data, startDate, snapshotDate],
+  );
+
   return {
     chartDaily,
     prefix: data?.prefix ?? [],
@@ -330,5 +390,6 @@ export function useBundle(): BundleState {
     activity,
     market: data?.market ?? null,
     holdingsDetail: data?.holdingsDetail ?? null,
+    reconcile,
   };
 }

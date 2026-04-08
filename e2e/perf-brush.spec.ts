@@ -1,8 +1,12 @@
 /**
  * Automated performance test — measures frame times during brush drag.
  * Uses rAF loop to capture per-frame durations + Long Task observer.
+ * Requires local dev server + backend — skipped in CI.
  */
-import { test, expect, Page } from "@playwright/test";
+import { test as base, expect, Page } from "@playwright/test";
+
+const test = base.extend({})
+test.skip(() => !!process.env.CI, "Requires local dev server + backend");
 
 const DEV_URL = "http://localhost:3000";
 const PROD_URL = "http://localhost:3100";

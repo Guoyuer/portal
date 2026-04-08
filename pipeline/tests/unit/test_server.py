@@ -98,7 +98,14 @@ class TestTimeline:
         c = TestClient(create_app(p))
         resp = c.get("/timeline")
         assert resp.status_code == 200
-        assert resp.json() == {"daily": [], "prefix": []}
+        data = resp.json()
+        assert data["daily"] == []
+        assert data["prefix"] == []
+        assert data["dailyTickers"] == []
+        assert data["fidelityTxns"] == []
+        assert data["qianjiTxns"] == []
+        assert "market" in data
+        assert "holdingsDetail" in data
 
 
 class TestAllocation:

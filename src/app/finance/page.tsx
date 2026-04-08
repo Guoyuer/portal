@@ -173,7 +173,19 @@ export default function FinancePage() {
 
       {/* ── 5. Portfolio Activity ───────────────────────────────────────── */}
       <section id="fidelity-activity">
-        <SectionHeader>{SECTION_LABELS["fidelity-activity"]}</SectionHeader>
+        <SectionHeader>
+          {SECTION_LABELS["fidelity-activity"]}
+          {tl.reconcile && (
+            <span
+              className={`ml-2 inline-flex items-center gap-1 text-xs font-normal ${tl.reconcile.ok ? "text-green-500" : "text-red-400"}`}
+              title={tl.reconcile.ok
+                ? `${tl.reconcile.matched}/${tl.reconcile.total} deposits matched with Qianji`
+                : `${tl.reconcile.unmatchedFidelity} of ${tl.reconcile.total} deposits not found in Qianji`}
+            >
+              {tl.reconcile.ok ? "\u2713" : "\u2717"}
+            </span>
+          )}
+        </SectionHeader>
         {act ? (
           <SectionBody>
             <PortfolioActivity activity={act} periodLabel={activityPeriodLabel} />
