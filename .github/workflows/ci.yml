@@ -49,8 +49,9 @@ jobs:
       - run: pip install -r pipeline/requirements.txt
       - name: Create test DB & start backend
         run: |
-          cd pipeline && python scripts/create_test_db.py
-          cd pipeline && python -m generate_asset_snapshot.server &
+          cd pipeline
+          python scripts/create_test_db.py
+          python -m generate_asset_snapshot.server &
           sleep 2
       - name: Install Playwright
         run: npx playwright install chromium --with-deps
