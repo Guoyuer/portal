@@ -1,25 +1,34 @@
 "use client";
 
 import { useRef, useState, useEffect } from "react";
-import type { ReportData } from "@/lib/types";
+import type { ApiCategory, ApiTicker } from "@/lib/types";
 import { fmtCurrency, fmtCurrencyShort } from "@/lib/format";
 import { savingsRateColor } from "@/lib/style-helpers";
 import { CategorySummary } from "@/components/finance/category-summary";
 
 export function MetricCards({
-  report: r,
+  total,
+  netWorth,
+  categories,
+  tickers,
+  savingsRate,
+  goal,
+  goalPct,
   allocationOpen,
   onAllocationToggle,
 }: {
-  report: ReportData;
+  total: number;
+  netWorth: number;
+  categories: ApiCategory[];
+  tickers: ApiTicker[];
+  savingsRate: number | null;
+  goal: number;
+  goalPct: number;
   allocationOpen: boolean;
   onAllocationToggle: () => void;
 }) {
-  const allCats = [...r.equityCategories, ...r.nonEquityCategories];
-  const cashCategories = new Set(["Safe Net"]);
-  const safeNetValue = allCats.filter((c) => cashCategories.has(c.name)).reduce((s, c) => s + c.value, 0);
-  const investmentValue = allCats.reduce((s, c) => s + c.value, 0) - safeNetValue;
-  const netWorth = r.balanceSheet?.netWorth ?? r.total;
+  const safeNetValue = categories.find((c) => c.name === "Safe Net")?.value ?? 0;
+  const investmentValue = total - safeNetValue;
   const invPct = netWorth > 0 ? (investmentValue / netWorth) * 100 : 0;
 
   // Measure content height for smooth transition
@@ -89,7 +98,7 @@ export function MetricCards({
           <div ref={contentRef}>
             <div className="mx-4 h-px bg-gradient-to-r from-transparent via-foreground/10 to-transparent" />
             <div className="p-4 pt-3">
-              <CategorySummary report={r} title="Allocation" embedded />
+              <CategorySummary categories={categories} tickers={tickers} total={total} title="Allocation" embedded />
             </div>
           </div>
         </div>
@@ -98,26 +107,21 @@ export function MetricCards({
       <div className="grid grid-cols-2 gap-4">
       <div data-slot="card" className="liquid-glass p-4">
         <p className="text-xs sm:text-sm text-muted-foreground">Savings Rate</p>
-        {r.cashflow ? (
-          <div className="mt-1">
-            <p className={`text-xl sm:text-2xl font-bold ${savingsRateColor(r.cashflow.savingsRate)}`}>
-              {Math.round(r.cashflow.savingsRate)}%
-            </p>
-            <p className="text-xs text-muted-foreground">
-              {Math.round(r.cashflow.takehomeSavingsRate)}% take-home
-            </p>
-          </div>
+        {savingsRate != null ? (
+          <p className={`text-xl sm:text-2xl font-bold mt-1 ${savingsRateColor(savingsRate)}`}>
+            {Math.round(savingsRate)}%
+          </p>
         ) : (
           <p className="text-xl sm:text-2xl font-bold mt-1">N/A</p>
         )}
       </div>
       <div data-slot="card" className="liquid-glass p-4">
         <p className="text-xs sm:text-sm text-muted-foreground">Goal</p>
-        <p className="text-xl sm:text-2xl font-bold mt-1">{Math.round(r.goalPct)}% <span className="text-xs font-normal text-muted-foreground">of ${Math.round(r.goal / 1_000_000)}M</span></p>
+        <p className="text-xl sm:text-2xl font-bold mt-1">{Math.round(goalPct)}% <span className="text-xs font-normal text-muted-foreground">of ${Math.round(goal / 1_000_000)}M</span></p>
         <div className="mt-2 h-2 w-full rounded-full bg-black/5 dark:bg-white/10">
           <div
             className="h-2 rounded-full bg-blue-500 transition-all"
-            style={{ width: `${Math.min(r.goalPct, 100)}%` }}
+            style={{ width: `${Math.min(goalPct, 100)}%` }}
           />
         </div>
       </div>

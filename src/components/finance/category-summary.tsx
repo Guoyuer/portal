@@ -1,7 +1,8 @@
 "use client";
 
-import { Fragment, useState } from "react";
-import type { ReportData, CategoryData, HoldingData } from "@/lib/types";
+import { Fragment, useMemo, useState } from "react";
+import type { ApiCategory, ApiTicker } from "@/lib/types";
+import type { CategoryData } from "@/lib/types";
 import { fmtCurrency, fmtCurrencyShort, fmtPct } from "@/lib/format";
 import {
   Table,
@@ -16,7 +17,55 @@ import { AllocationDonut } from "@/components/finance/charts";
 import { tooltipStyle } from "@/lib/chart-styles";
 import { useIsDark } from "@/lib/hooks";
 
-function HoldingsList({ holdings }: { holdings: HoldingData[] }) {
+// ── Equity categories for classification ──────────────────────────────────
+
+const EQUITY_CATEGORIES = new Set(["US Equity", "Non-US Equity", "Crypto"]);
+
+// ── Group tickers into category → subtype → tickers ──────────────────────
+
+interface GroupedCategory {
+  name: string;
+  value: number;
+  pct: number;
+  target: number;
+  deviation: number;
+  isEquity: boolean;
+  subtypes: { name: string; tickers: ApiTicker[]; value: number; pct: number }[];
+}
+
+function groupTickers(categories: ApiCategory[], tickers: ApiTicker[], total: number): GroupedCategory[] {
+  const tickersByCategory: Record<string, Record<string, ApiTicker[]>> = {};
+  for (const t of tickers) {
+    if (!tickersByCategory[t.category]) tickersByCategory[t.category] = {};
+    const sub = t.subtype || "(other)";
+    if (!tickersByCategory[t.category][sub]) tickersByCategory[t.category][sub] = [];
+    tickersByCategory[t.category][sub].push(t);
+  }
+
+  return categories.map((cat) => {
+    const subs = tickersByCategory[cat.name] ?? {};
+    const subtypes = Object.entries(subs).map(([name, ts]) => {
+      const subValue = ts.reduce((s, t) => s + t.value, 0);
+      return {
+        name,
+        tickers: ts,
+        value: subValue,
+        pct: total > 0 ? (subValue / total) * 100 : 0,
+      };
+    });
+    return {
+      name: cat.name,
+      value: cat.value,
+      pct: cat.pct,
+      target: cat.target,
+      deviation: cat.deviation,
+      isEquity: EQUITY_CATEGORIES.has(cat.name),
+      subtypes,
+    };
+  });
+}
+
+function HoldingsList({ holdings }: { holdings: ApiTicker[] }) {
   return (
     <div className="grid grid-cols-[auto_auto] gap-x-3 gap-y-0">
       {holdings
@@ -58,28 +107,53 @@ function GlassTooltip({ content, children }: { content: React.ReactNode; childre
   );
 }
 
-function CategoryTooltip({ cat, children }: { cat: CategoryData; children: React.ReactNode }) {
-  const hasHoldings = cat.holdings.length > 0 || cat.subtypes.some((s) => s.holdings.length > 0);
+function CategoryTooltip({ cat, children }: { cat: GroupedCategory; children: React.ReactNode }) {
+  const hasHoldings = cat.subtypes.some((s) => s.tickers.length > 0);
   if (!hasHoldings) return <>{children}</>;
 
-  const content = cat.subtypes.length > 0
-    ? cat.subtypes.map((st) => (
-        <div key={st.name} className="mb-1.5 last:mb-0">
-          <p className="font-semibold text-foreground/70 mb-0.5">{st.name}</p>
-          <HoldingsList holdings={st.holdings} />
-        </div>
-      ))
-    : <HoldingsList holdings={cat.holdings} />;
+  const content = cat.subtypes.map((st) => (
+    <div key={st.name} className="mb-1.5 last:mb-0">
+      <p className="font-semibold text-foreground/70 mb-0.5">{st.name}</p>
+      <HoldingsList holdings={st.tickers} />
+    </div>
+  ));
 
   return <GlassTooltip content={content}>{children}</GlassTooltip>;
 }
 
-export function CategorySummary({ report: r, title, embedded }: { report: ReportData; title: string; embedded?: boolean }) {
-  const allCategories = [...r.equityCategories, ...r.nonEquityCategories];
-  const totalValue = allCategories.reduce((s, c) => s + c.value, 0);
-  const totalPct = allCategories.reduce((s, c) => s + c.pct, 0);
-  const totalTarget = allCategories.reduce((s, c) => s + c.target, 0);
+export function CategorySummary({
+  categories,
+  tickers,
+  total: totalValue,
+  title,
+  embedded,
+}: {
+  categories: ApiCategory[];
+  tickers: ApiTicker[];
+  total: number;
+  title: string;
+  embedded?: boolean;
+}) {
+  const grouped = useMemo(() => groupTickers(categories, tickers, totalValue), [categories, tickers, totalValue]);
+  const equityCats = grouped.filter((c) => c.isEquity);
+  const nonEquityCats = grouped.filter((c) => !c.isEquity);
+
+  const totalPct = categories.reduce((s, c) => s + c.pct, 0);
+  const totalTarget = categories.reduce((s, c) => s + c.target, 0);
   const totalDeviation = totalPct - totalTarget;
+
+  // Build CategoryData-compatible array for the donut chart
+  const donutCategories: CategoryData[] = categories.map((c) => ({
+    name: c.name,
+    value: c.value,
+    pct: c.pct,
+    lots: 0,
+    target: c.target,
+    deviation: c.deviation,
+    isEquity: EQUITY_CATEGORIES.has(c.name),
+    subtypes: [],
+    holdings: [],
+  }));
 
   const inner = (
     <div className="flex flex-col lg:flex-row gap-6">
@@ -96,7 +170,7 @@ export function CategorySummary({ report: r, title, embedded }: { report: Report
           </TableHeader>
           <TableBody>
             {/* Equity categories */}
-            {r.equityCategories.map((cat) => (
+            {equityCats.map((cat) => (
               <Fragment key={cat.name}>
                 <TableRow className="hover:bg-white/10 dark:hover:bg-white/5 transition-colors">
                   <TableCell className="font-medium">
@@ -119,7 +193,7 @@ export function CategorySummary({ report: r, title, embedded }: { report: Report
                     className="hover:bg-white/10 dark:hover:bg-white/5 transition-colors"
                   >
                     <TableCell className="text-muted-foreground pl-6">
-                      <GlassTooltip content={<HoldingsList holdings={sub.holdings} />}>
+                      <GlassTooltip content={<HoldingsList holdings={sub.tickers} />}>
                         <em>{sub.name}</em>
                       </GlassTooltip>
                     </TableCell>
@@ -137,10 +211,10 @@ export function CategorySummary({ report: r, title, embedded }: { report: Report
             ))}
 
             {/* Non-Equity group — parent row with aggregated values */}
-            {(() => {
-              const neValue = r.nonEquityCategories.reduce((s, c) => s + c.value, 0);
-              const nePct = r.nonEquityCategories.reduce((s, c) => s + c.pct, 0);
-              const neTarget = r.nonEquityCategories.reduce((s, c) => s + c.target, 0);
+            {nonEquityCats.length > 0 && (() => {
+              const neValue = nonEquityCats.reduce((s, c) => s + c.value, 0);
+              const nePct = nonEquityCats.reduce((s, c) => s + c.pct, 0);
+              const neTarget = nonEquityCats.reduce((s, c) => s + c.target, 0);
               const neDeviation = nePct - neTarget;
               return (
                 <Fragment>
@@ -157,7 +231,7 @@ export function CategorySummary({ report: r, title, embedded }: { report: Report
                     </TableCell>
                     <DeviationCell value={neDeviation} />
                   </TableRow>
-                  {r.nonEquityCategories.map((cat) => (
+                  {nonEquityCats.map((cat) => (
                     <TableRow
                       key={cat.name}
                       className="hover:bg-white/10 dark:hover:bg-white/5 transition-colors"
@@ -197,7 +271,7 @@ export function CategorySummary({ report: r, title, embedded }: { report: Report
         </Table>
       </div>
       <div className="lg:w-80 flex-shrink-0">
-        <AllocationDonut categories={allCategories} total={totalValue} />
+        <AllocationDonut categories={donutCategories} total={totalValue} />
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
-import type { CashFlowData } from "@/lib/types";
+import type { CashflowResponse } from "@/lib/types";
 import { fmtCurrency } from "@/lib/format";
-import { valueColor, MAJOR_EXPENSE_THRESHOLD } from "@/lib/style-helpers";
+import { MAJOR_EXPENSE_THRESHOLD } from "@/lib/style-helpers";
 import { TOTAL_ROW_CLASS } from "@/components/finance/shared";
 import {
   Table,
@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/table";
 
 /** Merge income items below $10 into "Other" */
-function consolidateSmallItems(items: CashFlowData["incomeItems"], threshold = 10) {
+function consolidateSmallItems(items: CashflowResponse["incomeItems"], threshold = 10) {
   const big = items.filter((i) => i.amount >= threshold);
   const small = items.filter((i) => i.amount < threshold);
   if (small.length === 0) return big;
@@ -25,7 +25,7 @@ function consolidateSmallItems(items: CashFlowData["incomeItems"], threshold = 1
   return [...big, { category: "Other", amount: extraAmt, count: extraCnt }];
 }
 
-export function CashFlow({ data }: { data: CashFlowData }) {
+export function CashFlow({ data }: { data: CashflowResponse }) {
   const major = data.expenseItems.filter(
     (i) => i.amount >= MAJOR_EXPENSE_THRESHOLD
   );
@@ -192,10 +192,18 @@ function GlowEdge({ color }: { color: string }) {
 
 // ── Integrated stat bar (rendered as chart header in page.tsx) ───────────
 
-export function CashFlowStatBar({ data, period }: { data: CashFlowData; period?: string }) {
+export function CashFlowStatBar({
+  data,
+  invested,
+  period,
+}: {
+  data: CashflowResponse;
+  invested: number;
+  period?: string;
+}) {
   const savingsRate = Math.round(data.savingsRate);
-  const investRatio = data.netCashflow > 0 ? data.invested / data.netCashflow : 0;
-  const ccPct = data.totalExpenses > 0 ? Math.round(data.creditCardPayments / data.totalExpenses * 100) : 0;
+  const investRatio = data.netCashflow > 0 ? invested / data.netCashflow : 0;
+  const ccPct = data.totalExpenses > 0 ? Math.round(data.ccPayments / data.totalExpenses * 100) : 0;
 
   return (
     <div className="relative">
@@ -227,7 +235,7 @@ export function CashFlowStatBar({ data, period }: { data: CashFlowData; period?:
           <p className="text-[9px] text-foreground/40 uppercase tracking-widest">Invested</p>
           <div className="flex items-center gap-1.5 mt-0.5">
             <span className="text-sm font-bold tabular-nums text-blue-600 dark:text-blue-400">
-              {fmtCurrency(data.invested)}
+              {fmtCurrency(invested)}
             </span>
             <span className="text-foreground/15">&mdash;</span>
             <MiniProgress pct={Math.min(investRatio, 3) / 3 * 100} color="#3b82f6" />
@@ -245,7 +253,7 @@ export function CashFlowStatBar({ data, period }: { data: CashFlowData; period?:
           <p className="text-[9px] text-foreground/40 uppercase tracking-widest">CC Payments</p>
           <div className="flex items-center gap-1.5 mt-0.5">
             <span className="text-sm font-bold tabular-nums text-rose-500 dark:text-rose-400">
-              {fmtCurrency(data.creditCardPayments)}
+              {fmtCurrency(data.ccPayments)}
             </span>
             <span className="text-foreground/15">&mdash;</span>
             <MiniDonut pct={ccPct} color="#fb7185" />

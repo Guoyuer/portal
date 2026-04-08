@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, type ReactNode } from "react";
-import { useTimeline } from "@/lib/use-timeline";
+import type { TimelineState } from "@/lib/use-timeline";
 import {
   Area,
   AreaChart,
@@ -129,8 +129,6 @@ export const TimemachineChart = memo(function TimemachineChart({
   );
 });
 
-// ── TimemachineSummary ────────────────────────────────────────────────────
-
 // ── Date formatting helpers ──────────────────────────────────────────────
 
 function fmtDate(iso: string): string {
@@ -244,11 +242,14 @@ export function TimemachineSummary({
 }
 
 // ── TimemachineSection ──────────────────────────────────────────────────
-// Isolates useTimeline state so brush drags only re-render this subtree.
 
-export function TimemachineSection({ fallback }: { fallback: ReactNode }) {
-  const tl = useTimeline();
-
+export function TimemachineSection({
+  timeline: tl,
+  fallback,
+}: {
+  timeline: TimelineState;
+  fallback: ReactNode;
+}) {
   if (tl.loading || tl.error || tl.chartDaily.length === 0) {
     return <div id="net-worth">{fallback}</div>;
   }

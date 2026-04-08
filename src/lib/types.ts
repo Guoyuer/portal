@@ -22,4 +22,10 @@ export type {
   TierReconciliation,
   ReconciliationData,
   ReportData,
+  ApiTicker,
+  ApiCategory,
+  AllocationResponse,
+  CashflowResponse,
+  ActivitySymbol,
+  ActivityResponse,
 } from "./schema";
