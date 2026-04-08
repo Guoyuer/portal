@@ -154,13 +154,15 @@ def compute_daily_allocation(
         for _acct, bal in fidelity_cash.items():
             ticker_values["FZFXX"] = ticker_values.get("FZFXX", 0) + bal
 
-        # Qianji balances -> mapped tickers
+        # Qianji balances -> mapped tickers (including liabilities)
         for qj_acct, bal in qj_balances.items():
             if qj_acct in skip_qj_accounts or abs(bal) < 0.01:
                 continue
             curr = currencies.get(qj_acct, "USD")
             usd_val = bal / cny_rate if curr == "CNY" else bal
-            if usd_val <= 0:
+            if usd_val < 0:
+                # Liability (credit card) — use account name as ticker
+                ticker_values[qj_acct] = ticker_values.get(qj_acct, 0) + usd_val
                 continue
             ticker = ticker_map.get(qj_acct)
             if ticker and ticker in assets:
@@ -173,28 +175,53 @@ def compute_daily_allocation(
             for ticker, val in k401_daily[current].items():
                 ticker_values[ticker] = ticker_values.get(ticker, 0) + val
 
-        # ── Categorize ──
+        # ── Categorize + build ticker detail ──
         category_totals: dict[str, float] = {}
         total = 0.0
+        liabilities = 0.0
+        ticker_detail: list[dict[str, object]] = []
+
+        # Aggregate cost basis by ticker from Fidelity replay
+        cost_basis_by_ticker: dict[str, float] = {}
+        for (_, sym), cb in (result.get("cost_basis") or {}).items():
+            cost_basis_by_ticker[sym] = cost_basis_by_ticker.get(sym, 0) + cb
+
         for ticker, value in ticker_values.items():
+            if value < 0:
+                liabilities += value
+                ticker_detail.append({
+                    "ticker": ticker, "value": round(value, 2),
+                    "category": "Liability", "subtype": "",
+                    "cost_basis": 0, "gain_loss": 0, "gain_loss_pct": 0,
+                })
+                continue
             if value <= 0:
                 continue
             asset_entry = assets.get(ticker)
             cat = asset_entry.get("category", "Unknown") if isinstance(asset_entry, dict) else "Unknown"
+            sub = asset_entry.get("subtype", "") if isinstance(asset_entry, dict) else ""
             category_totals[cat] = category_totals.get(cat, 0) + value
             total += value
+            cb = cost_basis_by_ticker.get(ticker, 0)
+            gl = round(value - cb, 2) if cb > 0 else 0
+            gl_pct = round(gl / cb * 100, 2) if cb > 0 else 0
+            ticker_detail.append({
+                "ticker": ticker, "value": round(value, 2),
+                "category": cat, "subtype": sub,
+                "cost_basis": round(cb, 2), "gain_loss": gl, "gain_loss_pct": gl_pct,
+            })
 
         safe_net = category_totals.get("Safe Net", 0)
-        safe_net_pct = (safe_net / total * 100) if total > 0 else 0
 
         results.append({
             "date": current.isoformat(),
             "total": round(total, 2),
+            "us_equity": round(category_totals.get("US Equity", 0), 2),
+            "non_us_equity": round(category_totals.get("Non-US Equity", 0), 2),
+            "crypto": round(category_totals.get("Crypto", 0), 2),
             "safe_net": round(safe_net, 2),
-            "safe_net_pct": round(safe_net_pct, 2),
-            "us_equity_pct": round(category_totals.get("US Equity", 0) / total * 100, 2) if total else 0,
-            "non_us_equity_pct": round(category_totals.get("Non-US Equity", 0) / total * 100, 2) if total else 0,
-            "crypto_pct": round(category_totals.get("Crypto", 0) / total * 100, 2) if total else 0,
+            "liabilities": round(liabilities, 2),
+            "tickers": ticker_detail,
         })
 
         current += timedelta(days=1)

@@ -95,6 +95,7 @@ def replay(store_path: Path, as_of: date | None = None) -> dict[str, Any]:
     rows = _load_raw_rows(store_path)
 
     holdings: dict[tuple[str, str], float] = defaultdict(float)
+    cost_basis: dict[tuple[str, str], float] = defaultdict(float)
     cash_flow: dict[str, float] = defaultdict(float)
     mm_drip: dict[str, float] = defaultdict(float)
     count = 0
@@ -114,7 +115,14 @@ def replay(store_path: Path, as_of: date | None = None) -> dict[str, Any]:
 
         # ── Positions (exclude money market) ──
         if sym and sym not in MM_SYMBOLS and qty != 0 and any(action.startswith(p) for p in POSITION_PREFIXES):
-            holdings[(acct, sym)] += qty
+            key = (acct, sym)
+            # Cost basis: reduce proportionally on sell BEFORE updating holdings
+            if action.startswith("YOU SOLD") and holdings[key] > 0:
+                sold_fraction = min(abs(qty) / holdings[key], 1.0)
+                cost_basis[key] -= cost_basis[key] * sold_fraction
+            elif action.startswith(("YOU BOUGHT", "REINVESTMENT")):
+                cost_basis[key] += abs(amt)
+            holdings[key] += qty
 
         # ── Cash (exclude Type=Shares: stock distributions, lending, sweeps) ──
         if acct and lot_type != "Shares":
@@ -123,11 +131,12 @@ def replay(store_path: Path, as_of: date | None = None) -> dict[str, Any]:
                 mm_drip[acct] += qty
 
     positions = {k: round(v, 6) for k, v in holdings.items() if abs(v) > 0.001}
+    cb_out = {k: round(v, 2) for k, v in cost_basis.items() if abs(v) > 0.01}
     cash = {acct: round(cash_flow[acct] + mm_drip.get(acct, 0.0), 2)
             for acct in cash_flow
             if re.match(r"^[A-Z0-9]+$", acct)}
 
-    return {"positions": positions, "cash": cash, "as_of": as_of, "txn_count": count}
+    return {"positions": positions, "cost_basis": cb_out, "cash": cash, "as_of": as_of, "txn_count": count}
 
 
 # ── Qianji replay ─────────────────────────────────────────────────────────────

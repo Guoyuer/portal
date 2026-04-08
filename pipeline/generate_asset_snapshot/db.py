@@ -67,7 +67,21 @@ CREATE TABLE IF NOT EXISTS computed_daily (
     us_equity     REAL NOT NULL,
     non_us_equity REAL NOT NULL,
     crypto        REAL NOT NULL,
-    safe_net      REAL NOT NULL
+    safe_net      REAL NOT NULL,
+    liabilities   REAL NOT NULL DEFAULT 0
+);
+
+-- Pre-computed daily ticker-level values
+CREATE TABLE IF NOT EXISTS computed_daily_tickers (
+    date          TEXT NOT NULL,
+    ticker        TEXT NOT NULL,
+    value         REAL NOT NULL,
+    category      TEXT NOT NULL DEFAULT '',
+    subtype       TEXT NOT NULL DEFAULT '',
+    cost_basis    REAL NOT NULL DEFAULT 0,
+    gain_loss     REAL NOT NULL DEFAULT 0,
+    gain_loss_pct REAL NOT NULL DEFAULT 0,
+    PRIMARY KEY (date, ticker)
 );
 
 -- Pre-computed prefix sums
@@ -96,6 +110,7 @@ _INDEXES = """
 CREATE INDEX IF NOT EXISTS idx_fidelity_date     ON fidelity_transactions(run_date);
 CREATE INDEX IF NOT EXISTS idx_fidelity_acct_sym ON fidelity_transactions(account_number, symbol);
 CREATE INDEX IF NOT EXISTS idx_daily_close_date  ON daily_close(date);
+CREATE INDEX IF NOT EXISTS idx_daily_tickers_date ON computed_daily_tickers(date);
 """
 
 # ── Public API ───────────────────────────────────────────────────────────────
