@@ -154,6 +154,7 @@
   z-index: 0;
   overflow: hidden;
   pointer-events: none;
+  will-change: transform;
 }
 /* Blob A — indigo, overlaps top-center content area */
 .lg-mesh::before {
@@ -189,6 +190,7 @@
   z-index: 0;
   pointer-events: none;
   opacity: 0.30;
+  will-change: transform;
 }
 .lg-blob-c {
   width: 480px; height: 480px;

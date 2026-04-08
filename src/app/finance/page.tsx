@@ -13,8 +13,7 @@ import { MarketContext } from "@/components/finance/market-context";
 import { AnnualSummary } from "@/components/finance/annual-summary";
 import { NetWorthGrowth } from "@/components/finance/net-worth-growth";
 import { BackToTop } from "@/components/layout/back-to-top";
-import { useTimeline } from "@/lib/use-timeline";
-import { TimemachineChart, TimemachineSummary } from "@/components/finance/timemachine";
+import { TimemachineSection } from "@/components/finance/timemachine";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -46,8 +45,6 @@ export default function FinancePage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [allocOpen, setAllocOpen] = useState(false);
-  const timeline = useTimeline();
-
   const fetchReport = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -110,29 +107,7 @@ export default function FinancePage() {
       />
 
       {/* ── 2. Timemachine ─────────────────────────────────────────────── */}
-      {!timeline.loading && !timeline.error && timeline.chartDaily.length > 0 ? (
-        <section id="timemachine">
-          <div className="liquid-glass p-4 sm:p-5">
-            <TimemachineSummary
-              snapshot={timeline.snapshot}
-              range={timeline.range}
-              startDate={timeline.startDate ?? undefined}
-            />
-            <div className="mt-4">
-              <TimemachineChart
-                daily={timeline.chartDaily}
-                defaultStartIndex={timeline.defaultStartIndex}
-                defaultEndIndex={timeline.defaultEndIndex}
-                onBrushChange={timeline.onBrushChange}
-              />
-            </div>
-          </div>
-        </section>
-      ) : (
-        <div id="net-worth">
-          <NetWorthGrowth data={r.chartData?.netWorthTrend ?? []} />
-        </div>
-      )}
+      <TimemachineSection fallback={<NetWorthGrowth data={r.chartData?.netWorthTrend ?? []} />} />
 
       {/* ── 4. Cash Flow ────────────────────────────────────────────────── */}
       <section id="cashflow">
