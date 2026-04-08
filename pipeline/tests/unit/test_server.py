@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -268,125 +267,93 @@ class TestCashflow:
         assert amounts == sorted(amounts, reverse=True)
 
 
-# ── Market tests ───────────────────────────────────────────────────────────
+# ── Market tests (DB-based) ────────────────────────────────────────────────
 
 
-def _fake_market_data():
-    """Return a fake MarketData for mocking."""
-    from generate_asset_snapshot.types import IndexReturn, MarketData
-
-    return MarketData(
-        indices=[
-            IndexReturn(ticker="^GSPC", name="S&P 500", month_return=2.1, ytd_return=5.3, current=5100.0,
-                        sparkline=[5000.0, 5050.0, 5100.0], high_52w=5200.0, low_52w=4100.0),
-        ],
-        fed_rate=5.33,
-        treasury_10y=4.21,
-        cpi=3.2,
-        unemployment=3.8,
-        vix=15.2,
-        usd_cny=7.25,
+@pytest.fixture()
+def market_db(tmp_path: Path) -> Path:
+    """DB with index prices + CNY rates for /market and /holdings-detail tests."""
+    p = tmp_path / "market.db"
+    init_db(p)
+    conn = get_connection(p)
+    # S&P 500 prices: 30 trading days, starting at 5000 ending at 5100
+    for i in range(30):
+        d = f"2025-01-{2 + i:02d}" if i < 29 else "2025-02-01"
+        conn.execute("INSERT INTO daily_close (symbol, date, close) VALUES (?, ?, ?)",
+                     ("^GSPC", d, 5000 + i * 100.0 / 29))
+    # CNY rate
+    conn.execute("INSERT INTO daily_close (symbol, date, close) VALUES ('CNY=X', '2025-02-01', 7.25)")
+    # Ticker-level data + prices for holdings-detail
+    conn.execute(
+        "INSERT INTO computed_daily_tickers (date, ticker, value, category, subtype) VALUES (?, ?, ?, ?, ?)",
+        ("2025-02-01", "VOO", 40000, "US Equity", "broad"),
     )
+    for i in range(30):
+        d = f"2025-01-{2 + i:02d}" if i < 29 else "2025-02-01"
+        conn.execute("INSERT OR IGNORE INTO daily_close (symbol, date, close) VALUES (?, ?, ?)",
+                     ("VOO", d, 500 + i * 20.0 / 29))
+    conn.commit()
+    conn.close()
+    return p
+
+
+@pytest.fixture()
+def market_client(market_db: Path) -> TestClient:
+    from generate_asset_snapshot.server import create_app
+    return TestClient(create_app(market_db))
 
 
 class TestMarket:
-    def test_returns_market_data(self, client: TestClient) -> None:
-        with (
-            patch("generate_asset_snapshot.server.fetch_cny_rate", return_value=7.25),
-            patch("generate_asset_snapshot.server.build_market_data", return_value=_fake_market_data()),
-        ):
-            resp = client.get("/market")
+    def test_returns_index_data(self, market_client: TestClient) -> None:
+        resp = market_client.get("/market")
         assert resp.status_code == 200
         data = resp.json()
-        assert "indices" in data
-        assert len(data["indices"]) == 1
-        idx = data["indices"][0]
-        assert idx["ticker"] == "^GSPC"
-        assert idx["name"] == "S&P 500"
-        assert idx["monthReturn"] == 2.1
-        assert idx["ytdReturn"] == 5.3
-        assert idx["sparkline"] == [5000.0, 5050.0, 5100.0]
-        assert data["fedRate"] == 5.33
+        assert len(data["indices"]) >= 1
+        gspc = next(i for i in data["indices"] if i["ticker"] == "^GSPC")
+        assert gspc["name"] == "S&P 500"
+        assert gspc["current"] > 0
+        assert isinstance(gspc["sparkline"], list)
+        assert len(gspc["sparkline"]) > 0
+
+    def test_returns_cny_rate(self, market_client: TestClient) -> None:
+        data = market_client.get("/market").json()
         assert data["usdCny"] == 7.25
 
-    def test_market_data_none_returns_empty(self, client: TestClient) -> None:
-        with (
-            patch("generate_asset_snapshot.server.fetch_cny_rate", return_value=7.25),
-            patch("generate_asset_snapshot.server.build_market_data", return_value=None),
-        ):
-            resp = client.get("/market")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["indices"] == []
-        assert data["usdCny"] == 7.25
-
-    def test_market_exception_returns_error(self, client: TestClient) -> None:
-        with (
-            patch("generate_asset_snapshot.server.fetch_cny_rate", side_effect=RuntimeError("no data")),
-            patch("generate_asset_snapshot.server.build_market_data", return_value=None),
-        ):
-            resp = client.get("/market")
-        assert resp.status_code == 200
-        data = resp.json()
+    def test_empty_db_returns_structure(self, tmp_path: Path) -> None:
+        p = tmp_path / "empty.db"
+        init_db(p)
+        from generate_asset_snapshot.server import create_app
+        c = TestClient(create_app(p))
+        data = c.get("/market").json()
         assert data["indices"] == []
         assert data["usdCny"] is None
 
 
-# ── Holdings detail tests ──────────────────────────────────────────────────
-
-
 class TestHoldingsDetail:
-    def test_returns_holdings(self, client: TestClient) -> None:
-        fake_returns = {
-            "VOO": {"return_pct": 3.5, "current": 520.0, "previous": 502.0},
-            "QQQM": {"return_pct": -1.2, "current": 198.0, "previous": 200.0},
-            "VXUS": {"return_pct": 1.0, "current": 60.0, "previous": 59.4},
-        }
-        fake_info = {
-            "trailingPE": 22.5,
-            "marketCap": 500_000_000_000,
-            "fiftyTwoWeekHigh": 530.0,
-            "fiftyTwoWeekLow": 400.0,
-            "currentPrice": 520.0,
-        }
-        mock_ticker = type("MockTicker", (), {"info": fake_info, "calendar": None})()
-        with (
-            patch("generate_asset_snapshot.server.fetch_index_returns", return_value=fake_returns),
-            patch("generate_asset_snapshot.server.yf") as mock_yf,
-        ):
-            mock_yf.Ticker.return_value = mock_ticker
-            resp = client.get("/holdings-detail")
+    def test_returns_holdings_from_db(self, market_client: TestClient) -> None:
+        resp = market_client.get("/holdings-detail")
         assert resp.status_code == 200
         data = resp.json()
         assert "topPerformers" in data
-        assert "bottomPerformers" in data
-        assert "upcomingEarnings" in data
-        assert len(data["topPerformers"]) > 0
+        assert len(data["topPerformers"]) >= 1
         top = data["topPerformers"][0]
-        assert "ticker" in top
-        assert "monthReturn" in top
-        assert "peRatio" in top
+        assert top["ticker"] == "VOO"
+        assert top["endValue"] == 40000
+        assert top["high52w"] > 0
+        assert top["low52w"] > 0
+        assert top["vsHigh"] is not None
 
     def test_no_tickers_returns_empty(self, tmp_path: Path) -> None:
-        """DB with no ticker data should return empty lists."""
         p = tmp_path / "empty.db"
         init_db(p)
         from generate_asset_snapshot.server import create_app
-
         c = TestClient(create_app(p))
-        with (
-            patch("generate_asset_snapshot.server.fetch_index_returns", return_value={}),
-            patch("generate_asset_snapshot.server.yf"),
-        ):
-            resp = c.get("/holdings-detail")
-        assert resp.status_code == 200
-        data = resp.json()
+        data = c.get("/holdings-detail").json()
         assert data["topPerformers"] == []
         assert data["bottomPerformers"] == []
 
-    def test_yfinance_exception_returns_empty(self, client: TestClient) -> None:
-        with patch("generate_asset_snapshot.server.fetch_index_returns", side_effect=RuntimeError("network error")):
-            resp = client.get("/holdings-detail")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["topPerformers"] == []
+    def test_month_return_calculated(self, market_client: TestClient) -> None:
+        data = market_client.get("/holdings-detail").json()
+        voo = data["topPerformers"][0]
+        assert "monthReturn" in voo
+        assert isinstance(voo["monthReturn"], float)
