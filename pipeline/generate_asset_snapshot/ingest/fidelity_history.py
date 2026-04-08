@@ -15,16 +15,20 @@ from ..types import (
     ACT_BUY,
     ACT_COLLATERAL,
     ACT_DEPOSIT,
+    ACT_DISTRIBUTION,
     ACT_DIVIDEND,
+    ACT_EXCHANGE,
     ACT_FOREIGN_TAX,
     ACT_INTEREST,
     ACT_IRA_CONTRIBUTION,
     ACT_LENDING,
     ACT_OTHER,
+    ACT_REDEMPTION,
     ACT_REINVESTMENT,
     ACT_ROTH_CONVERSION,
     ACT_SELL,
     ACT_TRANSFER,
+    ACT_WITHDRAWAL,
     FidelityTransaction,
 )
 
@@ -39,18 +43,28 @@ _ACTION_RULES: list[tuple[str, str]] = [
     ("FOREIGN TAX", ACT_FOREIGN_TAX),
     ("REINVESTMENT", ACT_REINVESTMENT),
     ("DIVIDEND RECEIVED", ACT_DIVIDEND),
+    ("REDEMPTION PAYOUT", ACT_REDEMPTION),
     ("YOU BOUGHT", ACT_BUY),
     ("YOU SOLD", ACT_SELL),
+    ("DISTRIBUTION", ACT_DISTRIBUTION),
+    ("EXCHANGED TO", ACT_EXCHANGE),
     ("Electronic Funds Transfer", ACT_DEPOSIT),
+    ("DIRECT DEPOSIT", ACT_DEPOSIT),
     ("CASH CONTRIBUTION", ACT_IRA_CONTRIBUTION),
     ("CONV TO ROTH", ACT_ROTH_CONVERSION),
     ("ROTH CONVERSION", ACT_ROTH_CONVERSION),
+    ("EARLY DIST", ACT_TRANSFER),
+    ("PARTIAL CY RECHAR", ACT_TRANSFER),
+    ("ROLLOVER CASH", ACT_TRANSFER),
     ("TRANSFERRED", ACT_TRANSFER),
     ("INTEREST", ACT_INTEREST),
     ("YOU LOANED", ACT_LENDING),
     ("LOAN RETURNED", ACT_LENDING),
     ("INCREASE COLLATERAL", ACT_COLLATERAL),
     ("DECREASE COLLATERAL", ACT_COLLATERAL),
+    ("CASH ADVANCE", ACT_WITHDRAWAL),
+    ("DIRECT DEBIT", ACT_WITHDRAWAL),
+    ("DEBIT CARD", ACT_WITHDRAWAL),
 ]
 
 
@@ -112,6 +126,7 @@ def _parse_csv_text(text: str) -> list[FidelityTransaction]:
         symbol = (row.get("Symbol") or "").strip()
         description = (row.get("Description") or "").strip()
         account = (row.get("Account Number") or "").strip()
+        lot_type = (row.get("Type") or "").strip()
         quantity = _parse_float(row.get("Quantity", ""))
         price = _parse_float(row.get("Price", ""))
         amount = _parse_float(row.get("Amount", ""))
@@ -123,6 +138,7 @@ def _parse_csv_text(text: str) -> list[FidelityTransaction]:
             "action_type": action_type,
             "symbol": symbol,
             "description": description,
+            "lot_type": lot_type,
             "quantity": quantity,
             "price": price,
             "amount": amount,
