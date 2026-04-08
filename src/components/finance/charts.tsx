@@ -45,27 +45,25 @@ export function AllocationDonut({
   return (
     <div className="flex flex-col items-center">
       <div className="relative" style={{ width: 240, height: 240 }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <PieChart>
-            <Pie
-              data={data}
-              cx="50%"
-              cy="50%"
-              innerRadius={65}
-              outerRadius={105}
-              dataKey="value"
-              stroke="rgba(255,255,255,0.3)"
-              strokeWidth={1}
-            >
-              {data.map((_, i) => (
-                <Cell key={i} fill={COLORS[i % COLORS.length]} />
-              ))}
-            </Pie>
-            <Tooltip
-              formatter={(value) => `$${Number(value).toLocaleString("en-US", { maximumFractionDigits: 0 })}`}
-            />
-          </PieChart>
-        </ResponsiveContainer>
+        <PieChart width={240} height={240}>
+          <Pie
+            data={data}
+            cx="50%"
+            cy="50%"
+            innerRadius={65}
+            outerRadius={105}
+            dataKey="value"
+            stroke="rgba(255,255,255,0.3)"
+            strokeWidth={1}
+          >
+            {data.map((_, i) => (
+              <Cell key={i} fill={COLORS[i % COLORS.length]} />
+            ))}
+          </Pie>
+          <Tooltip
+            formatter={(value) => `$${Number(value).toLocaleString("en-US", { maximumFractionDigits: 0 })}`}
+          />
+        </PieChart>
         {/* Center label — positioned with CSS, not SVG <text> */}
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none drop-shadow-[0_1px_2px_rgba(0,0,0,0.3)]">
           <span className="text-xl font-bold text-foreground">{fmtCurrencyShort(total)}</span>

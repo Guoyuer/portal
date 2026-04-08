@@ -1,6 +1,6 @@
 "use client";
 
-import { useId } from "react";
+import { useId, useMemo } from "react";
 import {
   CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
@@ -42,6 +42,16 @@ export function TimeSeriesChart({ title, lines, data, height = 280 }: TimeSeries
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, values]) => ({ date, ...values }));
 
+  const legendStyle = useMemo(() => ({
+    paddingTop: "8px",
+    background: isDark ? "rgba(255,255,255,0.03)" : "rgba(255,255,255,0.4)",
+    backdropFilter: "blur(12px)",
+    WebkitBackdropFilter: "blur(12px)",
+    borderRadius: "10px",
+    padding: "4px 12px",
+    border: `1px solid ${isDark ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.3)"}`,
+  }), [isDark]);
+
   if (merged.length === 0) return null;
 
   return (
@@ -63,17 +73,7 @@ export function TimeSeriesChart({ title, lines, data, height = 280 }: TimeSeries
             }}
           />
           {lines.length > 1 && (
-            <Legend
-              wrapperStyle={{
-                paddingTop: "8px",
-                background: isDark ? "rgba(255,255,255,0.03)" : "rgba(255,255,255,0.4)",
-                backdropFilter: "blur(12px)",
-                WebkitBackdropFilter: "blur(12px)",
-                borderRadius: "10px",
-                padding: "4px 12px",
-                border: `1px solid ${isDark ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.3)"}`,
-              }}
-            />
+            <Legend wrapperStyle={legendStyle} />
           )}
           {lines.map((line) => (
             <Line key={line.dataKey} dataKey={line.dataKey} name={line.label} stroke={line.color} strokeWidth={2} dot={false} connectNulls filter={`url(#${filterId})`} />

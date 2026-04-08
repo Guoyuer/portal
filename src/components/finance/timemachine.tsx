@@ -1,6 +1,7 @@
 "use client";
 
-import { memo } from "react";
+import { memo, type ReactNode } from "react";
+import { useTimeline } from "@/lib/use-timeline";
 import {
   Area,
   AreaChart,
@@ -110,6 +111,7 @@ export const TimemachineChart = memo(function TimemachineChart({
             stroke="none"
             strokeWidth={0}
             fill={`url(#tm-${key})`}
+            isAnimationActive={false}
           />
         ))}
         <Brush
@@ -238,5 +240,36 @@ export function TimemachineSummary({
         </>
       )}
     </div>
+  );
+}
+
+// ── TimemachineSection ──────────────────────────────────────────────────
+// Isolates useTimeline state so brush drags only re-render this subtree.
+
+export function TimemachineSection({ fallback }: { fallback: ReactNode }) {
+  const tl = useTimeline();
+
+  if (tl.loading || tl.error || tl.chartDaily.length === 0) {
+    return <div id="net-worth">{fallback}</div>;
+  }
+
+  return (
+    <section id="timemachine">
+      <div className="liquid-glass p-4 sm:p-5">
+        <TimemachineSummary
+          snapshot={tl.snapshot}
+          range={tl.range}
+          startDate={tl.startDate ?? undefined}
+        />
+        <div className="mt-4">
+          <TimemachineChart
+            daily={tl.chartDaily}
+            defaultStartIndex={tl.defaultStartIndex}
+            defaultEndIndex={tl.defaultEndIndex}
+            onBrushChange={tl.onBrushChange}
+          />
+        </div>
+      </div>
+    </section>
   );
 }
