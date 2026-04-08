@@ -14,6 +14,7 @@ from generate_asset_snapshot.db import (
     ingest_empower_qfx,
     ingest_fidelity_csv,
     ingest_prices,
+    ingest_qianji_transactions,
     init_db,
 )
 from generate_asset_snapshot.empower_401k import Contribution
@@ -25,6 +26,7 @@ EXPECTED_TABLES = frozenset({
     "empower_funds",
     "empower_contributions",
     "qianji_balances",
+    "qianji_transactions",
     "computed_daily",
     "computed_daily_tickers",
     "computed_prefix",
@@ -66,6 +68,7 @@ class TestInitDb:
         assert "idx_fidelity_acct_sym" in indexes
         assert "idx_daily_close_date" in indexes
         assert "idx_daily_tickers_date" in indexes
+        assert "idx_qianji_txn_date" in indexes
         conn.close()
 
     def test_computed_daily_has_liabilities(self, tmp_path: Path) -> None:
@@ -209,3 +212,30 @@ class TestIngestPrices:
         val = conn.execute("SELECT close FROM daily_close WHERE symbol='VOO'").fetchone()[0]
         conn.close()
         assert val == 501.0
+
+
+class TestIngestQianjiTransactions:
+    @pytest.fixture()
+    def db_path(self, tmp_path: Path) -> Path:
+        p = tmp_path / "test.db"
+        init_db(p)
+        return p
+
+    def test_ingest_records(self, db_path: Path) -> None:
+        records = [
+            {"date": "2025-03-01", "type": "income", "category": "Salary", "amount": 5000.0, "account_from": "Checking", "note": ""},
+            {"date": "2025-03-05", "type": "expense", "category": "Rent", "amount": 1500.0, "account_from": "Checking", "note": ""},
+        ]
+        count = ingest_qianji_transactions(db_path, records)
+        assert count == 2
+
+    def test_clears_and_replaces(self, db_path: Path) -> None:
+        records = [{"date": "2025-03-01", "type": "income", "category": "Salary", "amount": 5000.0, "account_from": "Checking", "note": ""}]
+        ingest_qianji_transactions(db_path, records)
+        new_records = [{"date": "2025-04-01", "type": "expense", "category": "Food", "amount": 100.0, "account_from": "Checking", "note": ""}]
+        count = ingest_qianji_transactions(db_path, new_records)
+        assert count == 1  # old rows cleared
+
+    def test_empty_records(self, db_path: Path) -> None:
+        count = ingest_qianji_transactions(db_path, [])
+        assert count == 0

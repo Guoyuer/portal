@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -45,6 +46,19 @@ def db_path(tmp_path: Path) -> Path:
             ("01/02/2025", "Taxable", "Z29133576", "DIVIDEND RECEIVED", "QQQM", "", "Cash", 0, 0, 5.0),
             ("01/15/2025", "Taxable", "Z29133576", "YOU BOUGHT VANGUARD S&P 500 ETF", "VOO", "", "Cash", 3, 510.0, -1530.0),
             ("02/01/2025", "Taxable", "Z29133576", "YOU SOLD INVESCO QQQ TRUST", "QQQM", "", "Cash", -2, 210.0, 420.0),
+        ],
+    )
+    # Qianji transactions for cashflow endpoint
+    conn.executemany(
+        "INSERT INTO qianji_transactions (date, type, category, amount, account, note) VALUES (?, ?, ?, ?, ?, ?)",
+        [
+            ("2025-03-01", "income", "Salary", 5000.0, "Checking", ""),
+            ("2025-03-02", "income", "Interest", 50.0, "Savings", ""),
+            ("2025-03-05", "expense", "Rent", 1500.0, "Checking", ""),
+            ("2025-03-10", "expense", "Meals", 200.0, "Credit Card", ""),
+            ("2025-03-12", "expense", "Meals", 80.0, "Credit Card", ""),
+            ("2025-03-15", "repayment", "Credit Card", 300.0, "Checking", "CC payment"),
+            ("2025-04-01", "income", "Salary", 5000.0, "Checking", "April pay"),
         ],
     )
     conn.commit()
@@ -181,3 +195,198 @@ class TestActivity:
         buys = resp.json()["buysBySymbol"]
         totals = [b["total"] for b in buys]
         assert totals == sorted(totals, reverse=True)
+
+
+# ── Cashflow tests ─────────────────────────────────────────────────────────
+
+
+class TestCashflow:
+    def test_income_grouped_by_category(self, client: TestClient) -> None:
+        resp = client.get("/cashflow", params={"start": "2025-03-01", "end": "2025-03-31"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["totalIncome"] == 5050.0  # 5000 + 50
+        salary = next(i for i in data["incomeItems"] if i["category"] == "Salary")
+        assert salary["amount"] == 5000.0
+        assert salary["count"] == 1
+        interest = next(i for i in data["incomeItems"] if i["category"] == "Interest")
+        assert interest["amount"] == 50.0
+
+    def test_expense_grouped_by_category(self, client: TestClient) -> None:
+        resp = client.get("/cashflow", params={"start": "2025-03-01", "end": "2025-03-31"})
+        data = resp.json()
+        assert data["totalExpenses"] == 1780.0  # 1500 + 200 + 80
+        meals = next(e for e in data["expenseItems"] if e["category"] == "Meals")
+        assert meals["amount"] == 280.0
+        assert meals["count"] == 2
+        rent = next(e for e in data["expenseItems"] if e["category"] == "Rent")
+        assert rent["amount"] == 1500.0
+
+    def test_savings_rate(self, client: TestClient) -> None:
+        resp = client.get("/cashflow", params={"start": "2025-03-01", "end": "2025-03-31"})
+        data = resp.json()
+        expected = round((5050.0 - 1780.0) / 5050.0 * 100, 2)
+        assert data["savingsRate"] == expected
+
+    def test_cc_payments(self, client: TestClient) -> None:
+        resp = client.get("/cashflow", params={"start": "2025-03-01", "end": "2025-03-31"})
+        data = resp.json()
+        assert data["ccPayments"] == 300.0
+
+    def test_date_filtering(self, client: TestClient) -> None:
+        # April only — should see only the April salary
+        resp = client.get("/cashflow", params={"start": "2025-04-01", "end": "2025-04-30"})
+        data = resp.json()
+        assert data["totalIncome"] == 5000.0
+        assert data["totalExpenses"] == 0
+        assert len(data["expenseItems"]) == 0
+
+    def test_empty_range(self, client: TestClient) -> None:
+        resp = client.get("/cashflow", params={"start": "2020-01-01", "end": "2020-01-31"})
+        data = resp.json()
+        assert data["totalIncome"] == 0
+        assert data["totalExpenses"] == 0
+        assert data["incomeItems"] == []
+        assert data["expenseItems"] == []
+        assert data["savingsRate"] == 0.0
+
+    def test_net_cashflow(self, client: TestClient) -> None:
+        resp = client.get("/cashflow", params={"start": "2025-03-01", "end": "2025-03-31"})
+        data = resp.json()
+        assert data["netCashflow"] == data["totalIncome"] - data["totalExpenses"]
+
+    def test_expense_items_sorted_by_amount_desc(self, client: TestClient) -> None:
+        resp = client.get("/cashflow", params={"start": "2025-03-01", "end": "2025-03-31"})
+        expenses = resp.json()["expenseItems"]
+        amounts = [e["amount"] for e in expenses]
+        assert amounts == sorted(amounts, reverse=True)
+
+    def test_income_items_sorted_by_amount_desc(self, client: TestClient) -> None:
+        resp = client.get("/cashflow", params={"start": "2025-03-01", "end": "2025-03-31"})
+        incomes = resp.json()["incomeItems"]
+        amounts = [i["amount"] for i in incomes]
+        assert amounts == sorted(amounts, reverse=True)
+
+
+# ── Market tests ───────────────────────────────────────────────────────────
+
+
+def _fake_market_data():
+    """Return a fake MarketData for mocking."""
+    from generate_asset_snapshot.types import IndexReturn, MarketData
+
+    return MarketData(
+        indices=[
+            IndexReturn(ticker="^GSPC", name="S&P 500", month_return=2.1, ytd_return=5.3, current=5100.0,
+                        sparkline=[5000.0, 5050.0, 5100.0], high_52w=5200.0, low_52w=4100.0),
+        ],
+        fed_rate=5.33,
+        treasury_10y=4.21,
+        cpi=3.2,
+        unemployment=3.8,
+        vix=15.2,
+        usd_cny=7.25,
+    )
+
+
+class TestMarket:
+    def test_returns_market_data(self, client: TestClient) -> None:
+        with (
+            patch("generate_asset_snapshot.server.fetch_cny_rate", return_value=7.25),
+            patch("generate_asset_snapshot.server.build_market_data", return_value=_fake_market_data()),
+        ):
+            resp = client.get("/market")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "indices" in data
+        assert len(data["indices"]) == 1
+        idx = data["indices"][0]
+        assert idx["ticker"] == "^GSPC"
+        assert idx["name"] == "S&P 500"
+        assert idx["monthReturn"] == 2.1
+        assert idx["ytdReturn"] == 5.3
+        assert idx["sparkline"] == [5000.0, 5050.0, 5100.0]
+        assert data["fedRate"] == 5.33
+        assert data["usdCny"] == 7.25
+
+    def test_market_data_none_returns_empty(self, client: TestClient) -> None:
+        with (
+            patch("generate_asset_snapshot.server.fetch_cny_rate", return_value=7.25),
+            patch("generate_asset_snapshot.server.build_market_data", return_value=None),
+        ):
+            resp = client.get("/market")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["indices"] == []
+        assert data["usdCny"] == 7.25
+
+    def test_market_exception_returns_error(self, client: TestClient) -> None:
+        with (
+            patch("generate_asset_snapshot.server.fetch_cny_rate", side_effect=RuntimeError("no data")),
+            patch("generate_asset_snapshot.server.build_market_data", return_value=None),
+        ):
+            resp = client.get("/market")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["indices"] == []
+        assert data["usdCny"] is None
+
+
+# ── Holdings detail tests ──────────────────────────────────────────────────
+
+
+class TestHoldingsDetail:
+    def test_returns_holdings(self, client: TestClient) -> None:
+        fake_returns = {
+            "VOO": {"return_pct": 3.5, "current": 520.0, "previous": 502.0},
+            "QQQM": {"return_pct": -1.2, "current": 198.0, "previous": 200.0},
+            "VXUS": {"return_pct": 1.0, "current": 60.0, "previous": 59.4},
+        }
+        fake_info = {
+            "trailingPE": 22.5,
+            "marketCap": 500_000_000_000,
+            "fiftyTwoWeekHigh": 530.0,
+            "fiftyTwoWeekLow": 400.0,
+            "currentPrice": 520.0,
+        }
+        mock_ticker = type("MockTicker", (), {"info": fake_info, "calendar": None})()
+        with (
+            patch("generate_asset_snapshot.server.fetch_index_returns", return_value=fake_returns),
+            patch("generate_asset_snapshot.server.yf") as mock_yf,
+        ):
+            mock_yf.Ticker.return_value = mock_ticker
+            resp = client.get("/holdings-detail")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "topPerformers" in data
+        assert "bottomPerformers" in data
+        assert "upcomingEarnings" in data
+        assert len(data["topPerformers"]) > 0
+        top = data["topPerformers"][0]
+        assert "ticker" in top
+        assert "monthReturn" in top
+        assert "peRatio" in top
+
+    def test_no_tickers_returns_empty(self, tmp_path: Path) -> None:
+        """DB with no ticker data should return empty lists."""
+        p = tmp_path / "empty.db"
+        init_db(p)
+        from generate_asset_snapshot.server import create_app
+
+        c = TestClient(create_app(p))
+        with (
+            patch("generate_asset_snapshot.server.fetch_index_returns", return_value={}),
+            patch("generate_asset_snapshot.server.yf"),
+        ):
+            resp = c.get("/holdings-detail")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["topPerformers"] == []
+        assert data["bottomPerformers"] == []
+
+    def test_yfinance_exception_returns_empty(self, client: TestClient) -> None:
+        with patch("generate_asset_snapshot.server.fetch_index_returns", side_effect=RuntimeError("network error")):
+            resp = client.get("/holdings-detail")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["topPerformers"] == []

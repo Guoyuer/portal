@@ -1,15 +1,21 @@
 """FastAPI server for the timemachine API."""
 from __future__ import annotations
 
+import logging
+import os
 from collections import defaultdict
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import uvicorn
+import yfinance as yf
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from .db import get_connection
+from .market.yahoo import build_market_data, fetch_cny_rate, fetch_index_returns
+
+log = logging.getLogger(__name__)
 
 # ── Target allocation weights ──────────────────────────────────────────────
 
@@ -185,6 +191,235 @@ def create_app(db_path: Path) -> FastAPI:
             "sellsBySymbol": _to_list(sells),
             "dividendsBySymbol": _to_list(dividends),
         }
+
+    # ── GET /cashflow ──────────────────────────────────────────────────
+
+    @app.get("/cashflow")
+    def cashflow(start: str = Query(...), end: str = Query(...)) -> dict[str, Any]:
+        conn = get_connection(db_path)
+        try:
+            rows = conn.execute(
+                "SELECT type, category, amount FROM qianji_transactions WHERE date BETWEEN ? AND ?",
+                (start, end),
+            ).fetchall()
+        finally:
+            conn.close()
+
+        income_map: dict[str, dict[str, float]] = defaultdict(lambda: {"amount": 0.0, "count": 0})
+        expense_map: dict[str, dict[str, float]] = defaultdict(lambda: {"amount": 0.0, "count": 0})
+        cc_payments = 0.0
+
+        for txn_type, category, amount in rows:
+            if txn_type == "income":
+                income_map[category]["amount"] += amount
+                income_map[category]["count"] += 1
+            elif txn_type == "expense":
+                expense_map[category]["amount"] += amount
+                expense_map[category]["count"] += 1
+            elif txn_type == "repayment":
+                cc_payments += amount
+
+        income_items: list[dict[str, Any]] = sorted(
+            [{"category": cat, "amount": round(v["amount"], 2), "count": int(v["count"])} for cat, v in income_map.items()],
+            key=lambda x: float(x["amount"]),
+            reverse=True,
+        )
+        expense_items: list[dict[str, Any]] = sorted(
+            [{"category": cat, "amount": round(v["amount"], 2), "count": int(v["count"])} for cat, v in expense_map.items()],
+            key=lambda x: float(x["amount"]),
+            reverse=True,
+        )
+
+        total_income = round(sum(float(i["amount"]) for i in income_items), 2)
+        total_expenses = round(sum(float(e["amount"]) for e in expense_items), 2)
+        net_cashflow = round(total_income - total_expenses, 2)
+        savings_rate = round((total_income - total_expenses) / total_income * 100, 2) if total_income else 0.0
+
+        return {
+            "start": start,
+            "end": end,
+            "incomeItems": income_items,
+            "expenseItems": expense_items,
+            "totalIncome": total_income,
+            "totalExpenses": total_expenses,
+            "netCashflow": net_cashflow,
+            "ccPayments": round(cc_payments, 2),
+            "savingsRate": savings_rate,
+        }
+
+    # ── GET /market ──────────────────────────────────────────────────
+
+    @app.get("/market")
+    def market() -> dict[str, Any]:
+        """Return live market data from yfinance + FRED. May be slow."""
+        result: dict[str, Any] = {
+            "indices": [],
+            "fedRate": None,
+            "treasury10y": None,
+            "cpi": None,
+            "unemployment": None,
+            "vix": None,
+            "dxy": None,
+            "usdCny": None,
+            "goldReturn": None,
+            "btcReturn": None,
+            "portfolioMonthReturn": None,
+        }
+
+        try:
+            cny_rate = fetch_cny_rate()
+            result["usdCny"] = cny_rate
+        except Exception:  # noqa: BLE001
+            log.warning("Failed to fetch CNY rate", exc_info=True)
+            cny_rate = None
+
+        try:
+            md = build_market_data(cny_rate or 7.0)
+            if md is not None:
+                result["indices"] = [
+                    {
+                        "ticker": idx.ticker,
+                        "name": idx.name,
+                        "monthReturn": idx.month_return,
+                        "ytdReturn": idx.ytd_return,
+                        "current": idx.current,
+                        "sparkline": idx.sparkline,
+                        "high52w": idx.high_52w,
+                        "low52w": idx.low_52w,
+                    }
+                    for idx in md.indices
+                ]
+                if md.fed_rate is not None:
+                    result["fedRate"] = md.fed_rate
+                if md.treasury_10y is not None:
+                    result["treasury10y"] = md.treasury_10y
+                if md.cpi is not None:
+                    result["cpi"] = md.cpi
+                if md.unemployment is not None:
+                    result["unemployment"] = md.unemployment
+                if md.vix is not None:
+                    result["vix"] = md.vix
+                if md.dxy is not None:
+                    result["dxy"] = md.dxy
+                if md.gold_return is not None:
+                    result["goldReturn"] = md.gold_return
+                if md.btc_return is not None:
+                    result["btcReturn"] = md.btc_return
+        except Exception:  # noqa: BLE001
+            log.warning("Failed to build market data", exc_info=True)
+
+        # Optionally fetch FRED data
+        fred_key = os.environ.get("FRED_API_KEY", "")
+        if fred_key:
+            try:
+                from .market.fred import fetch_fred_data
+
+                fred = fetch_fred_data(fred_key)
+                if fred and "snapshot" in fred:
+                    snap = cast(dict[str, Any], fred["snapshot"])
+                    if result["fedRate"] is None and "fedFundsRate" in snap:
+                        result["fedRate"] = snap["fedFundsRate"]
+                    if result["treasury10y"] is None and "treasury10y" in snap:
+                        result["treasury10y"] = snap["treasury10y"]
+                    if result["cpi"] is None and "cpiYoy" in snap:
+                        result["cpi"] = snap["cpiYoy"]
+                    if result["unemployment"] is None and "unemployment" in snap:
+                        result["unemployment"] = snap["unemployment"]
+                    if result["vix"] is None and "vix" in snap:
+                        result["vix"] = snap["vix"]
+                    result["fred"] = fred
+            except Exception:  # noqa: BLE001
+                log.warning("Failed to fetch FRED data", exc_info=True)
+
+        return result
+
+    # ── GET /holdings-detail ───────────────────────────────────────────
+
+    @app.get("/holdings-detail")
+    def holdings_detail() -> dict[str, Any]:
+        """Return per-ticker detail for portfolio holdings."""
+        empty: dict[str, Any] = {"topPerformers": [], "bottomPerformers": [], "upcomingEarnings": []}
+
+        # Read tickers from the latest date in computed_daily_tickers
+        conn = get_connection(db_path)
+        try:
+            row = conn.execute("SELECT date FROM computed_daily_tickers ORDER BY date DESC LIMIT 1").fetchone()
+            if row is None:
+                return empty
+            latest_date = row[0]
+            ticker_rows = conn.execute(
+                "SELECT ticker, value FROM computed_daily_tickers WHERE date = ?",
+                (latest_date,),
+            ).fetchall()
+        finally:
+            conn.close()
+
+        # Filter to real tickers (skip "401k sp500", "CNY Assets", etc.)
+        tickers = {t: v for t, v in ticker_rows if t.isascii() and " " not in t and len(t) <= 5 and t}
+        if not tickers:
+            return empty
+
+        # Batch download 1-month returns
+        try:
+            returns = fetch_index_returns(list(tickers.keys()), period="1mo")
+        except Exception:  # noqa: BLE001
+            log.warning("Holdings: failed to fetch returns", exc_info=True)
+            return empty
+
+        if not returns:
+            return empty
+
+        stocks: list[dict[str, Any]] = []
+        for ticker, data in returns.items():
+            value = tickers.get(ticker, 0.0)
+            month_ret = data["return_pct"]
+            start_value = value / (1 + month_ret / 100) if month_ret != -100 else 0.0
+
+            detail: dict[str, Any] = {
+                "ticker": ticker,
+                "monthReturn": month_ret,
+                "startValue": round(start_value, 2),
+                "endValue": round(value, 2),
+                "peRatio": None,
+                "marketCap": None,
+                "high52w": None,
+                "low52w": None,
+                "vsHigh": None,
+                "nextEarnings": None,
+            }
+
+            try:
+                ticker_obj = yf.Ticker(ticker)
+                info = ticker_obj.info
+                if info:
+                    high = info.get("fiftyTwoWeekHigh")
+                    low = info.get("fiftyTwoWeekLow")
+                    price = info.get("currentPrice") or info.get("regularMarketPrice")
+                    detail["peRatio"] = info.get("trailingPE")
+                    detail["marketCap"] = info.get("marketCap")
+                    detail["high52w"] = high
+                    detail["low52w"] = low
+                    if high and price:
+                        detail["vsHigh"] = round((price / high - 1) * 100, 2)
+                    cal = ticker_obj.calendar
+                    if cal is not None and "Earnings Date" in cal:
+                        dates = cal["Earnings Date"]
+                        if dates:
+                            detail["nextEarnings"] = dates[0].strftime("%Y-%m-%d")
+            except Exception:  # noqa: BLE001
+                pass
+
+            stocks.append(detail)
+
+        sorted_by_return = sorted(stocks, key=lambda s: s["monthReturn"], reverse=True)
+        top = sorted_by_return[:5]
+        bottom = sorted(sorted_by_return[-5:][::-1], key=lambda s: s["monthReturn"]) if len(sorted_by_return) > 5 else []
+        upcoming = sorted(
+            [s for s in stocks if s["nextEarnings"]],
+            key=lambda s: s["nextEarnings"] or "",
+        )
+
+        return {"topPerformers": top, "bottomPerformers": bottom, "upcomingEarnings": upcoming}
 
     return app
 
