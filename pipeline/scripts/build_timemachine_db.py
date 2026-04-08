@@ -194,31 +194,35 @@ def main() -> None:
     alloc = compute_daily_allocation(DB_PATH, DEFAULT_QJ_DB, config, k401_daily, start, end)
     print(f"  {len(alloc)} daily records computed")
 
-    # ── Step 6: Store in computed_daily table ────────────────────────────────
-    print("\n[6/7] Writing computed_daily table...")
+    # ── Step 6: Store in computed_daily + computed_daily_tickers ──────────────
+    print("\n[6/7] Writing computed_daily + computed_daily_tickers tables...")
     conn = get_connection(DB_PATH)
     try:
         conn.execute("DELETE FROM computed_daily")
+        conn.execute("DELETE FROM computed_daily_tickers")
+        ticker_count = 0
         for r in alloc:
             total = _f(r["total"])
-            safe = _f(r["safe_net"])
-            if total > 0:
-                nonus = round(total * _f(r["non_us_equity_pct"]) / 100, 2)
-                crypto = round(total * _f(r["crypto_pct"]) / 100, 2)
-                # Absorb rounding error into US equity so sum == total
-                us = round(total - safe - nonus - crypto, 2)
-            else:
-                us = nonus = crypto = 0.0
             conn.execute(
-                "INSERT INTO computed_daily (date, total, us_equity, non_us_equity, crypto, safe_net)"
-                " VALUES (?, ?, ?, ?, ?, ?)",
-                (r["date"], total, us, nonus, crypto, safe),
+                "INSERT INTO computed_daily (date, total, us_equity, non_us_equity, crypto, safe_net, liabilities)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (r["date"], total, _f(r["us_equity"]), _f(r["non_us_equity"]),
+                 _f(r["crypto"]), _f(r["safe_net"]), _f(r.get("liabilities", 0))),
             )
+            for t in r.get("tickers", []):
+                conn.execute(
+                    "INSERT OR REPLACE INTO computed_daily_tickers"
+                    " (date, ticker, value, category, subtype, cost_basis, gain_loss, gain_loss_pct)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (r["date"], t["ticker"], t["value"], t["category"], t["subtype"],
+                     t["cost_basis"], t["gain_loss"], t["gain_loss_pct"]),
+                )
+                ticker_count += 1
         conn.commit()
         row_count: int = conn.execute("SELECT COUNT(*) FROM computed_daily").fetchone()[0]
     finally:
         conn.close()
-    print(f"  {row_count} rows in computed_daily table")
+    print(f"  {row_count} rows in computed_daily, {ticker_count} rows in computed_daily_tickers")
 
     # ── Step 7: Compute prefix sums from transactions ───────────────────────
     print("\n[7/7] Computing prefix sums from transactions...")
@@ -284,10 +288,10 @@ def main() -> None:
         print("  Build complete!")
         print(f"  Earliest: {earliest['date']}  total=${_f(earliest['total']):,.0f}")
         print(f"  Latest:   {latest['date']}  total=${_f(latest['total']):,.0f}")
-        print(
-            f"  Safe Net %: {min(_f(r['safe_net_pct']) for r in alloc):.1f}%"
-            f" -- {max(_f(r['safe_net_pct']) for r in alloc):.1f}%"
-        )
+        def _safe_pct(r: dict[str, object]) -> float:
+            total = _f(r["total"])
+            return round(_f(r["safe_net"]) / total * 100, 1) if total > 0 else 0
+        print(f"  Safe Net %: {min(_safe_pct(r) for r in alloc):.1f}% -- {max(_safe_pct(r) for r in alloc):.1f}%")
         print("=" * 60)
 
     print("\nTo start the server:")

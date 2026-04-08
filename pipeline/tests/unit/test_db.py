@@ -26,6 +26,7 @@ EXPECTED_TABLES = frozenset({
     "empower_contributions",
     "qianji_balances",
     "computed_daily",
+    "computed_daily_tickers",
     "computed_prefix",
 })
 
@@ -64,6 +65,31 @@ class TestInitDb:
         assert "idx_fidelity_date" in indexes
         assert "idx_fidelity_acct_sym" in indexes
         assert "idx_daily_close_date" in indexes
+        assert "idx_daily_tickers_date" in indexes
+        conn.close()
+
+    def test_computed_daily_has_liabilities(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        conn = get_connection(db_path)
+        conn.execute(
+            "INSERT INTO computed_daily (date, total, us_equity, non_us_equity, crypto, safe_net, liabilities)"
+            " VALUES ('2025-01-02', 100000, 55000, 15000, 3000, 27000, -500)"
+        )
+        row = conn.execute("SELECT liabilities FROM computed_daily WHERE date='2025-01-02'").fetchone()
+        assert row[0] == -500
+        conn.close()
+
+    def test_computed_daily_tickers_schema(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        conn = get_connection(db_path)
+        conn.execute(
+            "INSERT INTO computed_daily_tickers (date, ticker, value, category, subtype, cost_basis, gain_loss, gain_loss_pct)"
+            " VALUES ('2025-01-02', 'VOO', 50000, 'US Equity', 'broad', 40000, 10000, 25.0)"
+        )
+        row = conn.execute("SELECT * FROM computed_daily_tickers WHERE date='2025-01-02' AND ticker='VOO'").fetchone()
+        assert row == ('2025-01-02', 'VOO', 50000, 'US Equity', 'broad', 40000, 10000, 25.0)
         conn.close()
 
 
