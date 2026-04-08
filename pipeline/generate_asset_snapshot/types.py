@@ -33,6 +33,9 @@ ACT_FOREIGN_TAX = "foreign_tax"
 ACT_LENDING = "lending"
 ACT_COLLATERAL = "collateral"
 ACT_WITHDRAWAL = "withdrawal"
+ACT_REDEMPTION = "redemption"
+ACT_DISTRIBUTION = "distribution"
+ACT_EXCHANGE = "exchange"
 ACT_OTHER = "other"
 
 # Qianji record types
@@ -101,6 +104,7 @@ class FidelityTransaction(TypedDict):
     action_type: str  # ACT_DEPOSIT, ACT_BUY, etc.
     symbol: str
     description: str
+    lot_type: str  # "Cash", "Margin", "Shares", "Financing", or ""
     quantity: float
     price: float
     amount: float

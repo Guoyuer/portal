@@ -115,7 +115,7 @@ def create_app(db_path: Path) -> FastAPI:
 
 def main() -> None:
     """Run the timemachine server."""
-    db_path = Path("timemachine.db")
+    db_path = Path(__file__).resolve().parent.parent / "data" / "timemachine.db"
     app = create_app(db_path)
     uvicorn.run(app, host="127.0.0.1", port=8000)
 

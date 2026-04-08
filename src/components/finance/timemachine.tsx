@@ -128,12 +128,30 @@ export function TimemachineChart({
 
 // ── TimemachineSummary ────────────────────────────────────────────────────
 
+// ── Date formatting helpers ──────────────────────────────────────────────
+
+function fmtDate(iso: string): string {
+  const [y, m, d] = iso.split("-");
+  const dt = new Date(+y, +m - 1, +d);
+  return dt.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+}
+
+function fmtDateShort(iso: string): string {
+  const [y, m] = iso.split("-");
+  const dt = new Date(+y, +m - 1, 1);
+  return dt.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+}
+
+// ── TimemachineSummary ──────────────────────────────────────────────────
+
 export function TimemachineSummary({
   snapshot,
   range,
+  startDate,
 }: {
   snapshot: DailyPoint | null;
   range: PrefixPoint | null;
+  startDate?: string;
 }) {
   if (!snapshot) return null;
 
@@ -153,18 +171,18 @@ export function TimemachineSummary({
       ]
     : [];
 
-  const dateLabel = new Date(snapshot.date).toLocaleDateString("en-US", {
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  });
+  const rangeLabel = startDate
+    ? `${fmtDateShort(startDate)} — ${fmtDateShort(snapshot.date)}`
+    : "";
 
   return (
     <div className="space-y-3">
       {/* Date + total */}
       <div className="flex items-baseline justify-between">
-        <p className="text-sm text-muted-foreground">{dateLabel}</p>
-        <p className="text-xl font-bold tabular-nums">{fmtCurrency(total)}</p>
+        <p className="text-sm text-muted-foreground" data-testid="tm-date">{fmtDate(snapshot.date)}</p>
+        <p className="text-xl font-bold tabular-nums transition-all duration-150" data-testid="tm-total">
+          {fmtCurrency(total)}
+        </p>
       </div>
 
       {/* Allocation bar */}
@@ -172,7 +190,7 @@ export function TimemachineSummary({
         {catEntries.map(({ key, pct }) => (
           <div
             key={key}
-            className="h-2 transition-all"
+            className="h-2 transition-all duration-150"
             style={{ width: `${pct}%`, backgroundColor: CAT_COLORS[key] }}
           />
         ))}
@@ -187,9 +205,13 @@ export function TimemachineSummary({
                 className="inline-block w-2 h-2 rounded-full flex-shrink-0"
                 style={{ backgroundColor: CAT_COLORS[key] }}
               />
-              <span className="text-muted-foreground">{pct.toFixed(0)}%</span>
+              <span className="text-muted-foreground transition-all duration-150">
+                {pct.toFixed(0)}%
+              </span>
             </div>
-            <p className="font-semibold tabular-nums mt-0.5">{fmtCurrencyShort(value)}</p>
+            <p className="font-semibold tabular-nums mt-0.5 transition-all duration-150">
+              {fmtCurrencyShort(value)}
+            </p>
             <p className="text-muted-foreground">{CAT_LABELS[key]}</p>
           </div>
         ))}
@@ -199,11 +221,16 @@ export function TimemachineSummary({
       {rangeStats.length > 0 && (
         <>
           <div className="border-t border-border" />
+          <div className="flex items-center justify-between text-xs mb-1">
+            <p className="text-muted-foreground font-medium">{rangeLabel}</p>
+          </div>
           <div className="grid grid-cols-4 gap-2 text-xs">
             {rangeStats.map(({ label, value }) => (
               <div key={label}>
                 <p className="text-muted-foreground">{label}</p>
-                <p className="font-semibold tabular-nums mt-0.5">{fmtCurrencyShort(value)}</p>
+                <p className="font-semibold tabular-nums mt-0.5 transition-all duration-150">
+                  {fmtCurrencyShort(value)}
+                </p>
               </div>
             ))}
           </div>

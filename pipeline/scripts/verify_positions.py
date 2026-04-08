@@ -1,0 +1,107 @@
+"""Verify: replay transactions → compare computed share quantities vs positions snapshot."""
+from __future__ import annotations
+
+import csv
+import re
+from collections import defaultdict
+from pathlib import Path
+
+DATA = Path(__file__).resolve().parent.parent / "data"
+TRANSACTIONS = DATA / "fidelity_transactions.csv"
+POSITIONS = DATA / "Portfolio_Positions_Apr-07-2026.csv"
+
+# ── Parse positions snapshot ──────────────────────────────────────────────────
+def load_positions(path: Path) -> dict[tuple[str, str], float]:
+    """Return {(account, symbol): quantity} from positions CSV."""
+    positions: dict[tuple[str, str], float] = defaultdict(float)
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            sym = (row.get("Symbol") or "").strip()
+            acct = (row.get("Account Number") or "").strip()
+            qty_str = (row.get("Quantity") or "").strip()
+            if not sym or not qty_str or "**" in sym:
+                continue
+            # Skip non-Fidelity brokerage accounts (401k, crypto, etc.)
+            if not re.match(r"^[A-Z0-9]+$", acct):
+                continue
+            positions[(acct, sym)] += float(qty_str)
+    return dict(positions)
+
+
+# ── Replay transactions ──────────────────────────────────────────────────────
+def replay_transactions(path: Path) -> dict[tuple[str, str], float]:
+    """Replay all transactions, return {(account, symbol): quantity}."""
+    holdings: dict[tuple[str, str], float] = defaultdict(float)
+    # Action prefixes that affect share count (qty sign encodes direction)
+    position_prefixes = (
+        "YOU BOUGHT", "YOU SOLD", "REINVESTMENT", "REDEMPTION PAYOUT",
+        "TRANSFERRED FROM", "TRANSFERRED TO", "DISTRIBUTION",
+        "EXCHANGED TO",
+    )
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            action = row.get("Action") or ""
+            sym = (row.get("Symbol") or "").strip()
+            acct = (row.get("Account Number") or "").strip()
+            qty_str = (row.get("Quantity") or "").strip()
+
+            if not sym or not qty_str:
+                continue
+
+            qty = float(qty_str)
+            if qty == 0:
+                continue
+
+            action_upper = action.upper()
+
+            # Only process actions that change share count
+            if any(action_upper.startswith(p) for p in position_prefixes):
+                holdings[(acct, sym)] += qty
+
+    return {k: v for k, v in holdings.items() if abs(v) > 0.0001}
+
+
+# ── Compare ──────────────────────────────────────────────────────────────────
+def main() -> None:
+    expected = load_positions(POSITIONS)
+    computed = replay_transactions(TRANSACTIONS)
+
+    all_keys = sorted(set(expected) | set(computed))
+
+    print(f"{'Account':<15} {'Symbol':<8} {'Expected':>12} {'Computed':>12} {'Diff':>10} {'Status'}")
+    print("-" * 72)
+
+    match = 0
+    mismatch = 0
+    missing = 0
+
+    for key in all_keys:
+        acct, sym = key
+        exp = expected.get(key, 0)
+        comp = computed.get(key, 0)
+        diff = comp - exp
+
+        if abs(diff) < 0.01:
+            status = "OK"
+            match += 1
+        elif key not in expected:
+            status = "EXTRA"
+            mismatch += 1
+        elif key not in computed:
+            status = "MISSING"
+            missing += 1
+        else:
+            status = "MISMATCH"
+            mismatch += 1
+
+        if status != "OK":
+            print(f"{acct:<15} {sym:<8} {exp:>12.3f} {comp:>12.3f} {diff:>+10.3f} {status}")
+
+    print("-" * 72)
+    print(f"Match: {match}, Mismatch: {mismatch}, Missing: {missing}")
+
+
+if __name__ == "__main__":
+    main()
