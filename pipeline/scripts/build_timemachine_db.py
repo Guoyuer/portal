@@ -19,6 +19,7 @@ Usage:
 """
 from __future__ import annotations
 
+import csv
 import json
 import sqlite3
 import sys
@@ -79,6 +80,95 @@ def _f(val: object) -> float:
     return float(val)  # type: ignore[arg-type]
 
 
+def _merge_fidelity_csvs() -> Path:
+    """Merge all Fidelity CSVs from Downloads into a single file.
+
+    Scans ~/Downloads for Accounts_History*.csv, deduplicates rows,
+    and writes the merged result to pipeline/data/fidelity_transactions.csv.
+    If --csv <path> is given, uses that single file instead.
+    If no Downloads CSVs found, falls back to existing merged file.
+    """
+    # Check for --csv <path> argument
+    if "--csv" in sys.argv:
+        idx = sys.argv.index("--csv")
+        if idx + 1 < len(sys.argv):
+            p = Path(sys.argv[idx + 1])
+            if not p.exists():
+                print(f"  ERROR: --csv file not found: {p}")
+                sys.exit(1)
+            print(f"  Using single CSV: {p}")
+            return p
+
+    # Scan Downloads for Accounts_History*.csv
+    raw_csvs = sorted(DOWNLOADS.glob("Accounts_History*.csv"))
+    if not raw_csvs:
+        if FIDELITY_CSV.exists():
+            print(f"  No Accounts_History CSVs in Downloads, using existing {FIDELITY_CSV.name}")
+            return FIDELITY_CSV
+        print("  ERROR: No Fidelity CSVs found in Downloads or pipeline/data/")
+        sys.exit(1)
+
+    print(f"  Found {len(raw_csvs)} CSVs in Downloads, merging...")
+
+    # Canonical output columns (superset of all formats)
+    out_cols = [
+        "Run Date", "Account", "Account Number", "Action", "Symbol", "Description",
+        "Type", "Exchange Quantity", "Exchange Currency", "Quantity", "Currency",
+        "Price", "Exchange Rate", "Commission", "Fees", "Accrued Interest",
+        "Amount", "Settlement Date",
+    ]
+
+    # Read all CSVs with DictReader, normalise to canonical columns
+    seen: set[tuple[str, ...]] = set()
+    parsed: list[dict[str, str]] = []
+
+    for csv_path in raw_csvs:
+        text = csv_path.read_text(encoding="utf-8-sig")
+        lines = text.splitlines()
+        hdr_idx = -1
+        for i, line in enumerate(lines):
+            if line.strip().startswith("Run Date"):
+                hdr_idx = i
+                break
+        if hdr_idx == -1:
+            continue
+
+        reader = csv.DictReader(lines[hdr_idx:])
+        for record in reader:
+            run_date = (record.get("Run Date") or "").strip()
+            if not run_date or not run_date[0].isdigit():
+                continue
+            # Build canonical row dict
+            row = {col: (record.get(col) or "").strip().strip('"') for col in out_cols}
+            # Dedup key: all meaningful fields (avoid merging distinct transactions)
+            key = tuple(row[c] for c in out_cols)
+            if key in seen:
+                continue
+            seen.add(key)
+            parsed.append(row)
+
+    if not parsed:
+        print("  ERROR: No valid rows found in CSVs")
+        sys.exit(1)
+
+    # Sort by date descending (newest first, matching Fidelity export order)
+    def _sort_key(r: dict[str, str]) -> str:
+        d = r["Run Date"]
+        return d[6:10] + d[0:2] + d[3:5] if len(d) == 10 else d
+
+    parsed.sort(key=_sort_key, reverse=True)
+
+    # Write merged file
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    merged = FIDELITY_CSV
+    with merged.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=out_cols)
+        writer.writeheader()
+        writer.writerows(parsed)
+    print(f"  Merged {len(parsed)} unique rows -> {merged.name}")
+    return merged
+
+
 def _load_401k_contributions(
     qfx_contribs: list[Contribution],
     last_qfx_date: date | None,
@@ -111,7 +201,7 @@ def _load_401k_contributions(
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 
-def _ingest_and_fetch(config, start, end):
+def _ingest_and_fetch(config, start, end, csv_path: Path):
     """Steps 1-4: init DB, ingest sources, fetch prices. Returns k401_daily."""
     # ── Step 1: Initialise database ──
     print("\n[1] Initialising database...")
@@ -120,10 +210,7 @@ def _ingest_and_fetch(config, start, end):
 
     # ── Step 2: Ingest Fidelity ──
     print("[2] Ingesting Fidelity transactions...")
-    if not FIDELITY_CSV.exists():
-        print(f"  ERROR: CSV not found at {FIDELITY_CSV}")
-        sys.exit(1)
-    count = ingest_fidelity_csv(DB_PATH, FIDELITY_CSV)
+    count = ingest_fidelity_csv(DB_PATH, csv_path)
     print(f"  {count} rows")
 
     # ── Step 3: Ingest Empower QFX ──
@@ -137,7 +224,7 @@ def _ingest_and_fetch(config, start, end):
 
     # ── Step 4: Fetch prices ──
     print("[4] Fetching prices...")
-    periods = symbol_holding_periods(FIDELITY_CSV)
+    periods = symbol_holding_periods(csv_path)
     qfx_snaps = load_all_qfx(DOWNLOADS)
     proxy_start = qfx_snaps[0].date if qfx_snaps else start
     for proxy in PROXY_TICKERS.values():
@@ -167,10 +254,10 @@ def _ingest_and_fetch(config, start, end):
     return k401_daily
 
 
-def _compute_and_store_prefix(alloc, start, end):
+def _compute_and_store_prefix(alloc, start, end, csv_path: Path):
     """Compute prefix sums from transactions and store (full rewrite)."""
     print("[P] Computing prefix sums...")
-    fidelity_txns = load_transactions(FIDELITY_CSV)
+    fidelity_txns = load_transactions(csv_path)
     qianji_records, _ = load_all_from_db(DEFAULT_QJ_DB)
     daily_flows = build_daily_flows(
         fidelity_txns, qianji_records, start.isoformat(), end.isoformat(),
@@ -214,7 +301,7 @@ def _print_summary(alloc):
 # ── Full rebuild ────────────────────────────────────────────────────────────
 
 
-def _full_build(config, start, end, k401_daily):
+def _full_build(config, start, end, k401_daily, csv_path: Path):
     print("\n[5] Computing full allocation...")
     alloc = compute_daily_allocation(DB_PATH, DEFAULT_QJ_DB, config, k401_daily, start, end, robinhood_csv=ROBINHOOD_CSV)
     print(f"  {len(alloc)} daily records")
@@ -243,7 +330,7 @@ def _full_build(config, start, end, k401_daily):
     finally:
         conn.close()
 
-    _compute_and_store_prefix(alloc, start, end)
+    _compute_and_store_prefix(alloc, start, end, csv_path)
 
     # Ingest Qianji transactions for /cashflow endpoint
     from generate_asset_snapshot.db import ingest_qianji_transactions
@@ -259,11 +346,11 @@ def _full_build(config, start, end, k401_daily):
 # ── Incremental ─────────────────────────────────────────────────────────────
 
 
-def _incremental_build(config, start, end, k401_daily):
+def _incremental_build(config, start, end, k401_daily, csv_path: Path):
     last = get_last_computed_date(DB_PATH)
     if last is None:
         print("  No existing data — falling back to full build")
-        return _full_build(config, start, end, k401_daily)
+        return _full_build(config, start, end, k401_daily, csv_path)
 
     inc_start = last + timedelta(days=1)
     if inc_start > end:
@@ -289,7 +376,7 @@ def _incremental_build(config, start, end, k401_daily):
             ]
         finally:
             conn.close()
-        _compute_and_store_prefix(all_alloc, start, end)
+        _compute_and_store_prefix(all_alloc, start, end, csv_path)
 
     _print_summary(alloc)
     return alloc
@@ -298,7 +385,7 @@ def _incremental_build(config, start, end, k401_daily):
 # ── Verify ──────────────────────────────────────────────────────────────────
 
 
-def _verify_build(config, start, end, k401_daily):
+def _verify_build(config, start, end, k401_daily, csv_path: Path):
     print("\n[5] Computing full allocation for verification...")
     alloc = compute_daily_allocation(DB_PATH, DEFAULT_QJ_DB, config, k401_daily, start, end, robinhood_csv=ROBINHOOD_CSV)
     print(f"  {len(alloc)} daily records recomputed")
@@ -331,19 +418,23 @@ def main() -> None:
     print("=" * 60)
 
     config = _load_config(CONFIG_PATH)
-    rows = _load_raw_rows(FIDELITY_CSV)
+
+    # Resolve Fidelity CSV: --csv <path>, auto-merge from Downloads, or existing file
+    csv_path = _merge_fidelity_csvs()
+
+    rows = _load_raw_rows(csv_path)
     start = min(_parse_date(r["Run Date"]) for r in rows)
     end = date.today()
     print(f"  Range: {start} -> {end}")
 
-    k401_daily = _ingest_and_fetch(config, start, end)
+    k401_daily = _ingest_and_fetch(config, start, end, csv_path)
 
     if mode == "full":
-        _full_build(config, start, end, k401_daily)
+        _full_build(config, start, end, k401_daily, csv_path)
     elif mode == "incremental":
-        _incremental_build(config, start, end, k401_daily)
+        _incremental_build(config, start, end, k401_daily, csv_path)
     elif mode == "verify":
-        _verify_build(config, start, end, k401_daily)
+        _verify_build(config, start, end, k401_daily, csv_path)
 
     print("\n" + "=" * 60)
 
