@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TIMELINE_URL } from "@/lib/config";
 import { TimelineDataSchema, type DailyPoint, type PrefixPoint, type TimelineData } from "@/lib/schema";
 
@@ -26,16 +26,16 @@ function prefixRange(prefix: PrefixPoint[], left: number, right: number): Prefix
 export interface TimelineState {
   /** Downsampled data for the chart (~150 points, smooth brush) */
   chartDaily: DailyPoint[];
-  /** Brush indices into chartDaily */
-  startIndex: number;
-  endIndex: number;
+  /** Default brush indices (initial only, not controlled) */
+  defaultStartIndex: number;
+  defaultEndIndex: number;
   /** Point-in-time snapshot at right edge (full daily precision) */
   snapshot: DailyPoint | null;
   /** Range aggregation over brush selection (O(1) prefix sum) */
   range: PrefixPoint | null;
   /** Start date of the brush selection */
   startDate: string | null;
-  /** Brush change handler */
+  /** Brush change handler — updates summary without re-rendering chart */
   onBrushChange: (state: { startIndex?: number; endIndex?: number }) => void;
   loading: boolean;
   error: string | null;
@@ -65,8 +65,14 @@ export function useTimeline(): TimelineState {
   const [data, setData] = useState<TimelineData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [startIndex, setStartIndex] = useState(0);
-  const [endIndex, setEndIndex] = useState(0);
+  const [defaultStartIndex, setDefaultStartIndex] = useState(0);
+  const [defaultEndIndex, setDefaultEndIndex] = useState(0);
+
+  // Brush indices stored in ref to avoid re-rendering the chart during drag.
+  // A separate state counter triggers summary re-computation via useMemo.
+  const brushRef = useRef({ start: 0, end: 0 });
+  const [brushTick, setBrushTick] = useState(0);
+  const rafRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -82,8 +88,10 @@ export function useTimeline(): TimelineState {
           const { sampled } = downsample(parsed.data.daily);
           const end = sampled.length - 1;
           const start = Math.max(0, end - Math.floor(252 / Math.max(1, Math.floor(parsed.data.daily.length / TARGET_CHART_POINTS))));
-          setStartIndex(start);
-          setEndIndex(end);
+          setDefaultStartIndex(start);
+          setDefaultEndIndex(end);
+          brushRef.current = { start, end };
+          setBrushTick(1);
         }
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load timeline");
@@ -99,18 +107,25 @@ export function useTimeline(): TimelineState {
     [data],
   );
 
+  // Update ref immediately (no re-render), schedule state update via rAF
   const onBrushChange = useCallback((state: { startIndex?: number; endIndex?: number }) => {
-    if (state.startIndex !== undefined) setStartIndex(state.startIndex);
-    if (state.endIndex !== undefined) setEndIndex(state.endIndex);
+    if (state.startIndex !== undefined) brushRef.current.start = state.startIndex;
+    if (state.endIndex !== undefined) brushRef.current.end = state.endIndex;
+    cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(() => {
+      setBrushTick((t) => t + 1);
+    });
   }, []);
 
   // Map brush indices back to full daily array for precise lookups
-  const fullStart = toFull[startIndex] ?? 0;
-  const fullEnd = toFull[endIndex] ?? 0;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _tick = brushTick; // subscribe to updates
+  const fullStart = toFull[brushRef.current.start] ?? 0;
+  const fullEnd = toFull[brushRef.current.end] ?? 0;
 
   const snapshot = useMemo(() => data?.daily[fullEnd] ?? null, [data, fullEnd]);
   const range = useMemo(() => data ? prefixRange(data.prefix, fullStart, fullEnd) : null, [data, fullStart, fullEnd]);
   const startDate = data?.daily[fullStart]?.date ?? null;
 
-  return { chartDaily, startIndex, endIndex, snapshot, range, startDate, onBrushChange, loading, error };
+  return { chartDaily, defaultStartIndex, defaultEndIndex, snapshot, range, startDate, onBrushChange, loading, error };
 }

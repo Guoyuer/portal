@@ -37,13 +37,13 @@ const CAT_KEYS = ["safeNet", "crypto", "nonUsEquity", "usEquity"] as const;
 
 export function TimemachineChart({
   daily,
-  startIndex,
-  endIndex,
+  defaultStartIndex,
+  defaultEndIndex,
   onBrushChange,
 }: {
   daily: DailyPoint[];
-  startIndex: number;
-  endIndex: number;
+  defaultStartIndex: number;
+  defaultEndIndex: number;
   onBrushChange: (state: { startIndex?: number; endIndex?: number }) => void;
 }) {
   const isDark = useIsDark();
@@ -116,8 +116,8 @@ export function TimemachineChart({
           height={28}
           stroke={brushColor}
           fill={isDark ? "rgba(8,145,178,0.2)" : "rgba(207,250,254,0.5)"}
-          startIndex={startIndex}
-          endIndex={endIndex}
+          startIndex={defaultStartIndex}
+          endIndex={defaultEndIndex}
           onChange={onBrushChange}
           tickFormatter={fmtTick}
         />

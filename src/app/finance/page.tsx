@@ -121,8 +121,8 @@ export default function FinancePage() {
             <div className="mt-4">
               <TimemachineChart
                 daily={timeline.chartDaily}
-                startIndex={timeline.startIndex}
-                endIndex={timeline.endIndex}
+                defaultStartIndex={timeline.defaultStartIndex}
+                defaultEndIndex={timeline.defaultEndIndex}
                 onBrushChange={timeline.onBrushChange}
               />
             </div>
