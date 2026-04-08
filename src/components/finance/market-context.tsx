@@ -101,11 +101,11 @@ function IndexCard({ idx }: { idx: IndexReturn }) {
       className="liquid-glass-thin p-3 flex flex-col justify-between min-h-[160px]"
       style={{ borderColor: "rgba(255,255,255,0.15)" }}
     >
-      <div className="flex items-baseline justify-between">
+      <div className="flex items-start justify-between">
         <p className="text-xs font-semibold text-foreground/60 tracking-wide uppercase">
           {displayName}
         </p>
-        <div className="flex gap-1">
+        <div className="flex flex-col items-end gap-0.5">
           <ReturnBadge label="M" value={idx.monthReturn} />
           <ReturnBadge label="YTD" value={idx.ytdReturn} />
         </div>
