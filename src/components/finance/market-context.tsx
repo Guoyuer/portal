@@ -1,6 +1,6 @@
 "use client";
 
-import { Area, AreaChart, ResponsiveContainer } from "recharts";
+import { Area, AreaChart, ResponsiveContainer, YAxis } from "recharts";
 import type { MarketData, IndexReturn } from "@/lib/types";
 import { fmtPct } from "@/lib/format";
 import { valueColor } from "@/lib/style-helpers";
@@ -44,7 +44,7 @@ function Sparkline({ idx }: { idx: IndexReturn }) {
   const color = idx.ytdReturn >= 0 ? GAIN : LOSS;
 
   return (
-    <ResponsiveContainer width="100%" height={28}>
+    <ResponsiveContainer width="100%" height="100%">
       <AreaChart data={data} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
         <defs>
           <linearGradient id={`spark-${idx.ticker}`} x1="0" y1="0" x2="0" y2="1">
@@ -52,6 +52,7 @@ function Sparkline({ idx }: { idx: IndexReturn }) {
             <stop offset="100%" stopColor={color} stopOpacity={0} />
           </linearGradient>
         </defs>
+        <YAxis domain={["dataMin", "dataMax"]} hide />
         <Area
           type="monotone"
           dataKey="v"
@@ -97,20 +98,22 @@ function IndexCard({ idx }: { idx: IndexReturn }) {
 
   return (
     <div
-      className="liquid-glass-thin p-3 flex flex-col justify-between min-h-[120px]"
+      className="liquid-glass-thin p-3 flex flex-col justify-between min-h-[160px]"
       style={{ borderColor: "rgba(255,255,255,0.15)" }}
     >
-      <p className="text-xs font-semibold text-foreground/60 tracking-wide uppercase">
-        {displayName}
-      </p>
-      <p className="text-xl font-bold tabular-nums text-foreground mt-1">
+      <div className="flex items-baseline justify-between">
+        <p className="text-xs font-semibold text-foreground/60 tracking-wide uppercase">
+          {displayName}
+        </p>
+        <div className="flex gap-1">
+          <ReturnBadge label="M" value={idx.monthReturn} />
+          <ReturnBadge label="YTD" value={idx.ytdReturn} />
+        </div>
+      </div>
+      <p className="text-xl font-bold tabular-nums text-foreground mt-0.5">
         {pts}
       </p>
-      <div className="flex gap-1.5 mt-1.5">
-        <ReturnBadge label="M" value={idx.monthReturn} />
-        <ReturnBadge label="YTD" value={idx.ytdReturn} />
-      </div>
-      <div className="mt-2 -mx-1">
+      <div className="flex-1 -mx-1 mt-1.5 min-h-0">
         <Sparkline idx={idx} />
       </div>
       {idx.high52w != null && idx.low52w != null && (
