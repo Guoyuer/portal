@@ -150,7 +150,7 @@ export default function FinancePage() {
       )}
 
       {/* ── 2. Timemachine ─────────────────────────────────────────────── */}
-      <TimemachineSection fallback={<NetWorthGrowth data={[]} />} />
+      <TimemachineSection timeline={tl} fallback={<NetWorthGrowth data={[]} />} />
 
       {/* ── 4. Cash Flow ────────────────────────────────────────────────── */}
       <section id="cashflow">
