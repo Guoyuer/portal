@@ -88,7 +88,7 @@ export default function FinancePage() {
     <div className="max-w-5xl mx-auto space-y-10">
       {/* Header */}
       <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">
-        Portfolio Snapshot &mdash; {r.date}
+        Dashboard for Yuer
       </h1>
 
       {/* Data timestamps — compact */}

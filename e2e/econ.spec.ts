@@ -9,7 +9,7 @@ test.describe("Economy Dashboard", () => {
 
   test("sidebar economy link is enabled", async ({ page }) => {
     await page.goto("/finance");
-    await page.getByText("Portfolio Snapshot").waitFor({ timeout: 5000 });
+    await page.getByText("Dashboard for Yuer").waitFor({ timeout: 5000 });
     const sidebar = page.locator("aside").first();
     const econLink = sidebar.locator("a").filter({ hasText: "Economy" });
     await expect(econLink).toBeVisible();

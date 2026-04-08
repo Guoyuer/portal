@@ -4,13 +4,11 @@ test.describe("Finance Report", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/finance");
     // Wait for data to load from R2
-    await page.getByText("Portfolio Snapshot").waitFor({ timeout: 5000 });
+    await page.getByText("Dashboard for Yuer").waitFor({ timeout: 5000 });
   });
 
-  test("renders page title with date", async ({ page }) => {
-    await expect(page.locator("h1")).toContainText("Portfolio Snapshot");
-    // Date comes from live data — just verify it's present
-    await expect(page.locator("h1")).toContainText(/\w+ \d{2}, \d{4}/);
+  test("renders page title", async ({ page }) => {
+    await expect(page.locator("h1")).toContainText("Dashboard for Yuer");
   });
 
   test("shows metric cards with values", async ({ page }) => {
@@ -147,7 +145,7 @@ test.describe("Finance Report", () => {
   test("home page redirects to finance", async ({ page }) => {
     await page.goto("/");
     await expect(page).toHaveURL(/\/finance/);
-    await expect(page.locator("h1")).toContainText("Portfolio Snapshot");
+    await expect(page.locator("h1")).toContainText("Dashboard for Yuer");
   });
 
   test("page renders all major sections in order", async ({ page }) => {
