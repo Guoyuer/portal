@@ -368,8 +368,8 @@ test.describe("Finance Report", () => {
         test.skip();
         return;
       }
-      await expect(tmSection.getByText("US Equity")).toBeVisible();
-      await expect(tmSection.getByText("Safe Net")).toBeVisible();
+      await expect(tmSection.getByText("US Equity").first()).toBeVisible();
+      await expect(tmSection.getByText("Safe Net").first()).toBeVisible();
     });
 
     test("shows range stats in timemachine summary", async ({ page }) => {
