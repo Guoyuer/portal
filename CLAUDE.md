@@ -2,14 +2,17 @@
 
 # Portal
 
-Personal finance dashboard: Next.js 15 frontend + Python pipeline, deployed to Cloudflare Pages with data on R2.
+Personal finance dashboard: Next.js frontend + FastAPI backend (SQLite), deployed to Cloudflare Pages.
 
 ## Commands
 
 ```bash
 # Frontend
-npm run dev                                         # dev server
-npm run build                                       # static build → output/
+npm run dev                                         # dev server (port 3000)
+npm run build                                       # static build → out/
+
+# Backend
+cd pipeline && .venv/Scripts/python -m generate_asset_snapshot.server  # FastAPI (port 8000)
 
 # Python pipeline
 cd pipeline && .venv/bin/pytest -q                  # 140+ unit tests
@@ -32,4 +35,6 @@ Python `types.py` (snake_case) is source of truth → JSON (camelCase) → TypeS
 
 ## Architecture
 
-Static shell on Cloudflare Pages. Browser fetches `latest.json` from R2 on page load. No server-side data fetching — pipeline generates JSON offline (GitHub Actions weekly).
+Next.js static shell on Cloudflare Pages. FastAPI backend (`pipeline/generate_asset_snapshot/server.py`) serves data from SQLite (`pipeline/data/timemachine.db`) on port 8000. Endpoints: `/timeline`, `/allocation`, `/activity`, `/cashflow`, `/market`, `/holdings-detail`.
+
+R2 (`latest.json`) is legacy and being phased out — new features should use the FastAPI backend.

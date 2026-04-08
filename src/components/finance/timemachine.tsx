@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, type ReactNode } from "react";
-import type { TimelineState } from "@/lib/use-timeline";
+import type { BundleState } from "@/lib/use-bundle";
 import {
   Area,
   AreaChart,
@@ -145,7 +145,7 @@ function fmtDateShort(iso: string): string {
 
 // ── TimemachineSummary ──────────────────────────────────────────────────
 
-export function TimemachineSummary({
+export const TimemachineSummary = memo(function TimemachineSummary({
   snapshot,
   range,
   startDate,
@@ -181,7 +181,7 @@ export function TimemachineSummary({
       {/* Date + total */}
       <div className="flex items-baseline justify-between">
         <p className="text-sm text-muted-foreground" data-testid="tm-date">{fmtDate(snapshot.date)}</p>
-        <p className="text-xl font-bold tabular-nums transition-all duration-150" data-testid="tm-total">
+        <p className="text-xl font-bold tabular-nums" data-testid="tm-total">
           {fmtCurrency(total)}
         </p>
       </div>
@@ -191,7 +191,7 @@ export function TimemachineSummary({
         {catEntries.map(({ key, pct }) => (
           <div
             key={key}
-            className="h-2 transition-all duration-150"
+            className="h-2"
             style={{ width: `${pct}%`, backgroundColor: CAT_COLORS[key] }}
           />
         ))}
@@ -206,11 +206,11 @@ export function TimemachineSummary({
                 className="inline-block w-2 h-2 rounded-full flex-shrink-0"
                 style={{ backgroundColor: CAT_COLORS[key] }}
               />
-              <span className="text-muted-foreground transition-all duration-150">
+              <span className="text-muted-foreground">
                 {pct.toFixed(0)}%
               </span>
             </div>
-            <p className="font-semibold tabular-nums mt-0.5 transition-all duration-150">
+            <p className="font-semibold tabular-nums mt-0.5">
               {fmtCurrencyShort(value)}
             </p>
             <p className="text-muted-foreground">{CAT_LABELS[key]}</p>
@@ -229,7 +229,7 @@ export function TimemachineSummary({
             {rangeStats.map(({ label, value }) => (
               <div key={label}>
                 <p className="text-muted-foreground">{label}</p>
-                <p className="font-semibold tabular-nums mt-0.5 transition-all duration-150">
+                <p className="font-semibold tabular-nums mt-0.5">
                   {fmtCurrencyShort(value)}
                 </p>
               </div>
@@ -239,7 +239,7 @@ export function TimemachineSummary({
       )}
     </div>
   );
-}
+});
 
 // ── TimemachineSection ──────────────────────────────────────────────────
 
@@ -247,7 +247,7 @@ export function TimemachineSection({
   timeline: tl,
   fallback,
 }: {
-  timeline: TimelineState;
+  timeline: BundleState;
   fallback: ReactNode;
 }) {
   if (tl.loading || tl.error || tl.chartDaily.length === 0) {

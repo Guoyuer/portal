@@ -2,8 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { GOAL } from "@/lib/config";
-import { useTimeline } from "@/lib/use-timeline";
-import { useAllocation, useCashflow, useActivity, useMarket } from "@/lib/use-api";
+import { useBundle } from "@/lib/use-bundle";
 import type { MonthlyFlowPoint, PrefixPoint } from "@/lib/schema";
 import { SectionHeader, SectionBody } from "@/components/finance/shared";
 import { IncomeExpensesChart } from "@/components/finance/charts";
@@ -31,22 +30,30 @@ function dateToMonthKey(dateStr: string): string {
 
 // ── Compute monthly flows from timeline prefix sums ───────────────────
 
-function computeMonthlyFlows(prefix: PrefixPoint[]): MonthlyFlowPoint[] {
-  if (prefix.length === 0) return [];
+function computeMonthlyFlows(prefix: PrefixPoint[], start: string | null, end: string | null): MonthlyFlowPoint[] {
+  if (prefix.length === 0 || !start || !end) return [];
+
+  // Filter prefix to brush range
+  const filtered = prefix.filter((p) => p.date >= start && p.date <= end);
+  if (filtered.length === 0) return [];
 
   // Group by month, take last entry per month as cumulative value
   const monthEnds = new Map<string, PrefixPoint>();
-  for (const p of prefix) {
-    const monthKey = p.date.slice(0, 7); // "YYYY-MM"
-    monthEnds.set(monthKey, p);
+  for (const p of filtered) {
+    monthEnds.set(p.date.slice(0, 7), p);
   }
+
+  // We also need the prefix point just before the range to compute the first month's delta
+  const beforeRange = prefix.filter((p) => p.date < start);
+  const baseline = beforeRange.length > 0 ? beforeRange[beforeRange.length - 1] : null;
 
   const months = Array.from(monthEnds.entries()).sort(([a], [b]) => a.localeCompare(b));
   const result: MonthlyFlowPoint[] = [];
 
   for (let i = 0; i < months.length; i++) {
     const [month, curr] = months[i];
-    const prev = i > 0 ? months[i - 1][1] : null;
+    // For the first month, use the point before the range as baseline
+    const prev = i > 0 ? months[i - 1][1] : baseline;
 
     const income = curr.income - (prev?.income ?? 0);
     const expenses = curr.expenses - (prev?.expenses ?? 0);
@@ -71,27 +78,25 @@ const SECTION_LABELS = {
 export default function FinancePage() {
   const [allocOpen, setAllocOpen] = useState(false);
 
-  // ── Timeline (drives brush + date selection) ──────────────────────
-  const tl = useTimeline();
+  // ── Bundle (single fetch, local computation) ──────────────────────
+  const tl = useBundle();
 
   // ── Derived dates from timeline ───────────────────────────────────
   const snapshotDate = tl.snapshot?.date ?? null;
   const startDate = tl.startDate;
 
-  // ── API hooks ─────────────────────────────────────────────────────
-  const alloc = useAllocation(snapshotDate);
-  const cf = useCashflow(startDate, snapshotDate);
-  const act = useActivity(startDate, snapshotDate);
-  const mkt = useMarket();
-
   // ── Derived values ────────────────────────────────────────────────
-  const goalPct = alloc.data ? (alloc.data.total / GOAL) * 100 : 0;
+  const goalPct = tl.allocation ? (tl.allocation.total / GOAL) * 100 : 0;
   const period = snapshotDate ? dateToPeriod(snapshotDate) : "";
   const invested = tl.range?.buys ?? 0;
+  const alloc = tl.allocation;
+  const cf = tl.cashflow;
+  const act = tl.activity;
+  const mkt = tl.market;
 
   const monthlyFlows = useMemo(
-    () => computeMonthlyFlows(tl.prefix),
-    [tl.prefix],
+    () => computeMonthlyFlows(tl.prefix, startDate, snapshotDate),
+    [tl.prefix, startDate, snapshotDate],
   );
 
   // ── Loading state ─────────────────────────────────────────────────
@@ -116,20 +121,19 @@ export default function FinancePage() {
       </h1>
 
       {/* ── 1. Overview ─────────────────────────────────────────────────── */}
-      {alloc.data ? (
+      {alloc ? (
         <MetricCards
-          total={alloc.data.total}
-          netWorth={alloc.data.netWorth}
-          categories={alloc.data.categories}
-          tickers={alloc.data.tickers}
-          savingsRate={cf.data?.savingsRate ?? null}
+          total={alloc.total}
+          netWorth={alloc.netWorth}
+          categories={alloc.categories}
+          tickers={alloc.tickers}
+          savingsRate={cf?.savingsRate ?? null}
+          takehomeSavingsRate={cf?.takehomeSavingsRate ?? null}
           goal={GOAL}
           goalPct={goalPct}
           allocationOpen={allocOpen}
           onAllocationToggle={() => setAllocOpen((v) => !v)}
         />
-      ) : alloc.loading ? (
-        <div className="liquid-glass p-4 text-center text-muted-foreground">Loading allocation...</div>
       ) : (
         <div className="liquid-glass p-4 text-center text-sm text-red-400">Allocation data unavailable</div>
       )}
@@ -139,16 +143,16 @@ export default function FinancePage() {
 
       {/* ── 4. Cash Flow ────────────────────────────────────────────────── */}
       <section id="cashflow">
-        <SectionHeader>{SECTION_LABELS["cashflow"]}{cf.data ? ` \u2014 ${period}` : ""}</SectionHeader>
-        {cf.data ? (
+        <SectionHeader>{SECTION_LABELS["cashflow"]}{cf ? ` \u2014 ${period}` : ""}</SectionHeader>
+        {cf ? (
           <>
             <SectionBody>
-              <CashFlow data={cf.data} />
+              <CashFlow data={cf} />
             </SectionBody>
 
             {/* Stat bar + chart -- single glass container, no internal borders */}
             <div className="liquid-glass mt-4 overflow-hidden">
-              <CashFlowStatBar data={cf.data} invested={invested} period={period} />
+              <CashFlowStatBar data={cf} invested={invested} period={period} />
               <div className="mx-3 sm:mx-5 h-px bg-gradient-to-r from-transparent via-foreground/8 to-transparent" />
               {monthlyFlows.length > 0 ? (
                 <div className="px-3 sm:px-5 pb-3 sm:pb-5 pt-3">
@@ -162,8 +166,6 @@ export default function FinancePage() {
               )}
             </div>
           </>
-        ) : cf.loading ? (
-          <SectionBody><p className="text-sm text-muted-foreground">Loading cash flow...</p></SectionBody>
         ) : (
           <SectionBody><p className="text-sm text-red-400">Cash flow data unavailable</p></SectionBody>
         )}
@@ -172,12 +174,10 @@ export default function FinancePage() {
       {/* ── 5. Portfolio Activity ───────────────────────────────────────── */}
       <section id="fidelity-activity">
         <SectionHeader>{SECTION_LABELS["fidelity-activity"]}</SectionHeader>
-        {act.data ? (
+        {act ? (
           <SectionBody>
-            <PortfolioActivity activity={act.data} periodLabel={activityPeriodLabel} />
+            <PortfolioActivity activity={act} periodLabel={activityPeriodLabel} />
           </SectionBody>
-        ) : act.loading ? (
-          <SectionBody><p className="text-sm text-muted-foreground">Loading activity...</p></SectionBody>
         ) : (
           <SectionBody><p className="text-sm text-red-400">Activity data unavailable</p></SectionBody>
         )}
@@ -185,13 +185,8 @@ export default function FinancePage() {
 
       {/* ── Market Context ──────────────────────────────────────────────── */}
       <div id="market">
-        {mkt.data ? (
-          <MarketContext data={mkt.data} title={SECTION_LABELS["market"]} />
-        ) : mkt.loading ? (
-          <>
-            <SectionHeader>{SECTION_LABELS["market"]}</SectionHeader>
-            <p className="text-sm text-muted-foreground">Loading market data...</p>
-          </>
+        {mkt ? (
+          <MarketContext data={mkt} title={SECTION_LABELS["market"]} />
         ) : (
           <>
             <SectionHeader>{SECTION_LABELS["market"]}</SectionHeader>

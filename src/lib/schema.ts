@@ -213,6 +213,7 @@ export const DailyPointSchema = z.object({
   nonUsEquity: z.number(),
   crypto: z.number(),
   safeNet: z.number(),
+  liabilities: z.number().default(0),
 });
 
 export const PrefixPointSchema = z.object({
@@ -226,13 +227,48 @@ export const PrefixPointSchema = z.object({
   ccPayments: z.number(),
 });
 
+// ── Raw transaction schemas (bundled in /timeline) ──────────────────────
+
+export const DailyTickerSchema = z.object({
+  date: z.string(),
+  ticker: z.string(),
+  value: z.number(),
+  category: z.string(),
+  subtype: z.string(),
+  costBasis: z.number(),
+  gainLoss: z.number(),
+  gainLossPct: z.number(),
+});
+
+export const FidelityTxnSchema = z.object({
+  runDate: z.string(),
+  action: z.string(),
+  symbol: z.string(),
+  amount: z.number(),
+});
+
+export const QianjiTxnSchema = z.object({
+  date: z.string(),
+  type: z.string(),
+  category: z.string(),
+  amount: z.number(),
+});
+
 export const TimelineDataSchema = z.object({
   daily: z.array(DailyPointSchema),
   prefix: z.array(PrefixPointSchema),
+  dailyTickers: z.array(DailyTickerSchema).default([]),
+  fidelityTxns: z.array(FidelityTxnSchema).default([]),
+  qianjiTxns: z.array(QianjiTxnSchema).default([]),
+  market: MarketDataSchema.nullable().default(null),
+  holdingsDetail: HoldingsDetailDataSchema.nullable().default(null),
 });
 
 export type DailyPoint = z.infer<typeof DailyPointSchema>;
 export type PrefixPoint = z.infer<typeof PrefixPointSchema>;
+export type DailyTicker = z.infer<typeof DailyTickerSchema>;
+export type FidelityTxn = z.infer<typeof FidelityTxnSchema>;
+export type QianjiTxn = z.infer<typeof QianjiTxnSchema>;
 export type TimelineData = z.infer<typeof TimelineDataSchema>;
 
 // ── API Response Schemas ──────────────────────────────────────────────────
@@ -271,6 +307,7 @@ export const CashflowResponseSchema = z.object({
   netCashflow: z.number(),
   ccPayments: z.number(),
   savingsRate: z.number(),
+  takehomeSavingsRate: z.number(),
 });
 
 export const ActivitySymbolSchema = z.object({

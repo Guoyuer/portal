@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { ActivityResponse } from "@/lib/types";
 import { TickerTable } from "@/components/finance/shared";
 
@@ -7,7 +8,7 @@ function toTuples(items: { symbol: string; count: number; total: number }[]): [s
   return items.map((i) => [i.symbol, i.count, i.total]);
 }
 
-export function PortfolioActivity({
+export const PortfolioActivity = memo(function PortfolioActivity({
   activity,
   periodLabel,
 }: {
@@ -25,4 +26,4 @@ export function PortfolioActivity({
       </div>
     </>
   );
-}
+});
