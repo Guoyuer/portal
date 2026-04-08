@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import {
   Area,
   AreaChart,
@@ -35,7 +36,7 @@ const CAT_KEYS = ["safeNet", "crypto", "nonUsEquity", "usEquity"] as const;
 
 // ── TimemachineChart ──────────────────────────────────────────────────────
 
-export function TimemachineChart({
+export const TimemachineChart = memo(function TimemachineChart({
   daily,
   defaultStartIndex,
   defaultEndIndex,
@@ -124,7 +125,7 @@ export function TimemachineChart({
       </AreaChart>
     </ResponsiveContainer>
   );
-}
+});
 
 // ── TimemachineSummary ────────────────────────────────────────────────────
 
