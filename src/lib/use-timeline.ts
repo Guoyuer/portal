@@ -46,7 +46,7 @@ export function useTimeline(): TimelineState {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(TIMELINE_URL, { cache: "no-store" });
+        const res = await fetch(TIMELINE_URL, { cache: "no-store", signal: AbortSignal.timeout(3000) });
         if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
         const json = await res.json();
         const parsed = TimelineDataSchema.safeParse(json);
