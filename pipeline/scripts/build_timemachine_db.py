@@ -143,6 +143,10 @@ def _ingest_and_fetch(config, start, end):
         existing = periods.get(proxy)
         if existing is None or existing[0] > proxy_start:
             periods[proxy] = (proxy_start, None)
+    # Add market index tickers for /market endpoint
+    for idx_ticker in ("^GSPC", "^NDX", "000300.SS"):
+        periods[idx_ticker] = (start, None)
+
     fetch_and_store_prices(DB_PATH, periods, end)
     fetch_and_store_cny_rates(DB_PATH, start, end)
 
@@ -232,6 +236,14 @@ def _full_build(config, start, end, k401_daily):
         conn.close()
 
     _compute_and_store_prefix(alloc, start, end)
+
+    # Ingest Qianji transactions for /cashflow endpoint
+    from generate_asset_snapshot.db import ingest_qianji_transactions
+
+    qianji_records, _ = load_all_from_db(DEFAULT_QJ_DB)
+    qj_count = ingest_qianji_transactions(DB_PATH, qianji_records)
+    print(f"  {qj_count} Qianji transactions ingested")
+
     _print_summary(alloc)
     return alloc
 

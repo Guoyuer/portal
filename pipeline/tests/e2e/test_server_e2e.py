@@ -158,3 +158,52 @@ class TestActivityE2E:
     def test_sells_exist(self, client: TestClient) -> None:
         data = client.get("/activity", params={"start": "2023-01-01", "end": "2026-04-07"}).json()
         assert len(data["sellsBySymbol"]) > 0
+
+
+# ── /cashflow ──────────────────────────────────────────────────────────────
+
+
+class TestCashflowE2E:
+    def test_recent_month(self, client: TestClient) -> None:
+        resp = client.get("/cashflow", params={"start": "2026-03-01", "end": "2026-03-31"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["totalIncome"] > 0
+        assert data["totalExpenses"] > 0
+        assert len(data["incomeItems"]) >= 1
+        assert len(data["expenseItems"]) >= 1
+
+    def test_income_items_have_category(self, client: TestClient) -> None:
+        data = client.get("/cashflow", params={"start": "2026-03-01", "end": "2026-03-31"}).json()
+        for item in data["incomeItems"]:
+            assert "category" in item
+            assert "amount" in item
+            assert "count" in item
+            assert item["amount"] > 0
+
+    def test_savings_rate_plausible(self, client: TestClient) -> None:
+        data = client.get("/cashflow", params={"start": "2026-03-01", "end": "2026-03-31"}).json()
+        assert -100 <= data["savingsRate"] <= 100
+        expected = (data["totalIncome"] - data["totalExpenses"]) / data["totalIncome"] * 100 if data["totalIncome"] else 0
+        assert abs(data["savingsRate"] - expected) < 0.1
+
+    def test_net_cashflow_consistent(self, client: TestClient) -> None:
+        data = client.get("/cashflow", params={"start": "2026-03-01", "end": "2026-03-31"}).json()
+        expected_net = round(data["totalIncome"] - data["totalExpenses"], 2)
+        assert abs(data["netCashflow"] - expected_net) < 0.01
+
+    def test_full_year_has_more(self, client: TestClient) -> None:
+        month = client.get("/cashflow", params={"start": "2026-03-01", "end": "2026-03-31"}).json()
+        year = client.get("/cashflow", params={"start": "2025-01-01", "end": "2025-12-31"}).json()
+        assert year["totalIncome"] >= month["totalIncome"]
+
+    def test_empty_range(self, client: TestClient) -> None:
+        data = client.get("/cashflow", params={"start": "2020-01-01", "end": "2020-01-31"}).json()
+        assert data["totalIncome"] == 0
+        assert data["totalExpenses"] == 0
+        assert data["incomeItems"] == []
+
+    def test_income_sorted_by_amount_desc(self, client: TestClient) -> None:
+        data = client.get("/cashflow", params={"start": "2025-01-01", "end": "2025-12-31"}).json()
+        amounts = [i["amount"] for i in data["incomeItems"]]
+        assert amounts == sorted(amounts, reverse=True)
