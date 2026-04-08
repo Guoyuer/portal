@@ -42,10 +42,14 @@ def create_app(db_path: Path) -> FastAPI:
     # ── GET /timeline ───────────────────────────────────────────────────
 
     @app.get("/timeline")
-    def timeline() -> dict[str, list[dict[str, Any]]]:
+    def timeline() -> dict[str, Any]:
         conn = get_connection(db_path)
         try:
-            cur = conn.execute("SELECT date, total, us_equity, non_us_equity, crypto, safe_net FROM computed_daily ORDER BY date")
+            # ── Daily + prefix (existing) ──────────────────────────────
+            cur = conn.execute(
+                "SELECT date, total, us_equity, non_us_equity, crypto, safe_net, liabilities "
+                "FROM computed_daily ORDER BY date"
+            )
             daily = [
                 {
                     "date": row[0],
@@ -54,6 +58,7 @@ def create_app(db_path: Path) -> FastAPI:
                     "nonUsEquity": row[3],
                     "crypto": row[4],
                     "safeNet": row[5],
+                    "liabilities": row[6],
                 }
                 for row in cur.fetchall()
             ]
@@ -75,10 +80,68 @@ def create_app(db_path: Path) -> FastAPI:
                 }
                 for row in cur.fetchall()
             ]
+
+            # ── Daily tickers (for allocation) ────────────────────────
+            cur = conn.execute(
+                "SELECT date, ticker, value, category, subtype, cost_basis, gain_loss, gain_loss_pct "
+                "FROM computed_daily_tickers ORDER BY date, value DESC"
+            )
+            daily_tickers = [
+                {
+                    "date": row[0],
+                    "ticker": row[1],
+                    "value": row[2],
+                    "category": row[3],
+                    "subtype": row[4],
+                    "costBasis": row[5],
+                    "gainLoss": row[6],
+                    "gainLossPct": row[7],
+                }
+                for row in cur.fetchall()
+            ]
+
+            # ── Raw transactions (for cashflow + activity) ────────────
+            cur = conn.execute(
+                "SELECT run_date, action, symbol, amount FROM fidelity_transactions ORDER BY id"
+            )
+            fidelity_txns = [
+                {
+                    "runDate": row[0],
+                    "action": row[1],
+                    "symbol": row[2],
+                    "amount": row[3],
+                }
+                for row in cur.fetchall()
+            ]
+
+            cur = conn.execute(
+                "SELECT date, type, category, amount FROM qianji_transactions ORDER BY date"
+            )
+            qianji_txns = [
+                {
+                    "date": row[0],
+                    "type": row[1],
+                    "category": row[2],
+                    "amount": row[3],
+                }
+                for row in cur.fetchall()
+            ]
         finally:
             conn.close()
 
-        return {"daily": daily, "prefix": prefix}
+        # ── Market + holdings (reuse existing logic) ──────────────────
+        mkt = market()
+        hd = holdings_detail()
+
+        return {
+            "daily": daily,
+            "prefix": prefix,
+            "dailyTickers": daily_tickers,
+            "fidelityTxns": fidelity_txns,
+            "qianjiTxns": qianji_txns,
+            "market": mkt,
+            "holdingsDetail": hd,
+        }
 
     # ── GET /allocation ─────────────────────────────────────────────────
 

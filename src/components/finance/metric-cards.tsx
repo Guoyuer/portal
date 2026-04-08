@@ -1,17 +1,18 @@
 "use client";
 
-import { useRef, useState, useEffect } from "react";
+import { memo, useRef, useState, useEffect } from "react";
 import type { ApiCategory, ApiTicker } from "@/lib/types";
 import { fmtCurrency, fmtCurrencyShort } from "@/lib/format";
 import { savingsRateColor } from "@/lib/style-helpers";
 import { CategorySummary } from "@/components/finance/category-summary";
 
-export function MetricCards({
+export const MetricCards = memo(function MetricCards({
   total,
   netWorth,
   categories,
   tickers,
   savingsRate,
+  takehomeSavingsRate,
   goal,
   goalPct,
   allocationOpen,
@@ -22,6 +23,7 @@ export function MetricCards({
   categories: ApiCategory[];
   tickers: ApiTicker[];
   savingsRate: number | null;
+  takehomeSavingsRate: number | null;
   goal: number;
   goalPct: number;
   allocationOpen: boolean;
@@ -96,20 +98,34 @@ export function MetricCards({
           }}
         >
           <div ref={contentRef}>
-            <div className="mx-4 h-px bg-gradient-to-r from-transparent via-foreground/10 to-transparent" />
-            <div className="p-4 pt-3">
-              <CategorySummary categories={categories} tickers={tickers} total={total} title="Allocation" embedded />
-            </div>
+            {allocationOpen && (
+              <>
+                <div className="mx-4 h-px bg-gradient-to-r from-transparent via-foreground/10 to-transparent" />
+                <div className="p-4 pt-3">
+                  <CategorySummary categories={categories} tickers={tickers} total={total} title="Allocation" embedded />
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-3 gap-4">
       <div data-slot="card" className="liquid-glass p-4">
         <p className="text-xs sm:text-sm text-muted-foreground">Savings Rate</p>
         {savingsRate != null ? (
           <p className={`text-xl sm:text-2xl font-bold mt-1 ${savingsRateColor(savingsRate)}`}>
             {Math.round(savingsRate)}%
+          </p>
+        ) : (
+          <p className="text-xl sm:text-2xl font-bold mt-1">N/A</p>
+        )}
+      </div>
+      <div data-slot="card" className="liquid-glass p-4">
+        <p className="text-xs sm:text-sm text-muted-foreground">Take-home Rate</p>
+        {takehomeSavingsRate != null ? (
+          <p className={`text-xl sm:text-2xl font-bold mt-1 ${savingsRateColor(takehomeSavingsRate)}`}>
+            {Math.round(takehomeSavingsRate)}%
           </p>
         ) : (
           <p className="text-xl sm:text-2xl font-bold mt-1">N/A</p>
@@ -128,4 +144,4 @@ export function MetricCards({
       </div>
     </div>
   );
-}
+});

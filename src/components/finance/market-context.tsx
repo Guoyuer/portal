@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { Area, AreaChart, ResponsiveContainer, YAxis } from "recharts";
 import type { MarketData, IndexReturn } from "@/lib/types";
 import { fmtPct } from "@/lib/format";
@@ -124,7 +125,7 @@ function IndexCard({ idx }: { idx: IndexReturn }) {
 }
 
 // ── MarketContext ────────────────────────────────────────────────────────
-export function MarketContext({ data: m, title }: { data: MarketData; title: string }) {
+export const MarketContext = memo(function MarketContext({ data: m, title }: { data: MarketData; title: string }) {
   const indicators: { label: string; value: string; color?: string }[] = [];
   if (m.fedRate != null)
     indicators.push({ label: "Fed Rate", value: fmtPct(m.fedRate, false) });
@@ -193,4 +194,4 @@ export function MarketContext({ data: m, title }: { data: MarketData; title: str
       )}
     </section>
   );
-}
+});

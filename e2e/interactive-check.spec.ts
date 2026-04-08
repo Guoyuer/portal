@@ -4,12 +4,11 @@
  */
 import { test, expect, Page } from "@playwright/test";
 
-const BASE = "http://localhost:3001";
 const SCREENSHOT_DIR = "test-results/screenshots";
 
 async function waitForData(page: Page) {
   // Wait for the page to load data from the API
-  await page.goto(`${BASE}/finance`);
+  await page.goto("/finance");
   await page.waitForLoadState("networkidle");
   // Wait for metric cards to appear (sign that API data loaded)
   await page.getByText("Net Worth").first().waitFor({ timeout: 10000 });

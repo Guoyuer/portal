@@ -40,12 +40,25 @@ jobs:
       - run: npx next build
         env:
           NEXT_PUBLIC_R2_URL: ${{ secrets.NEXT_PUBLIC_R2_URL }}
+          NEXT_PUBLIC_TIMELINE_URL: http://localhost:8000/timeline
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pipeline/requirements.txt
+      - run: pip install -r pipeline/requirements.txt
+      - name: Create test DB & start backend
+        run: |
+          cd pipeline && python scripts/create_test_db.py
+          cd pipeline && python -m generate_asset_snapshot.server &
+          sleep 2
       - name: Install Playwright
         run: npx playwright install chromium --with-deps
       - name: Run e2e tests
         run: npx playwright test
         env:
           NEXT_PUBLIC_R2_URL: ${{ secrets.NEXT_PUBLIC_R2_URL }}
+          NEXT_PUBLIC_TIMELINE_URL: http://localhost:8000/timeline
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
