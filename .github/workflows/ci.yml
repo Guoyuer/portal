@@ -40,7 +40,7 @@ jobs:
       - run: npx next build
         env:
           NEXT_PUBLIC_R2_URL: ${{ secrets.NEXT_PUBLIC_R2_URL }}
-          NEXT_PUBLIC_TIMELINE_URL: http://localhost:8000/timeline
+          NEXT_PUBLIC_TIMELINE_URL: ${{ secrets.NEXT_PUBLIC_TIMELINE_URL }}
       # e2e skipped — Playwright install too slow in CI
       # Deploy only on main (not PRs)
       - name: Deploy to Cloudflare Pages
@@ -50,3 +50,9 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy out --project-name=portal --commit-dirty=true
+      - name: Deploy Worker
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: cd worker && npm ci && npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

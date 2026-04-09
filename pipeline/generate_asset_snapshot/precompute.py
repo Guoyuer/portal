@@ -1,8 +1,13 @@
 """Pre-compute daily[] and prefix[] arrays for frontend consumption."""
 from __future__ import annotations
 
+import json
+import logging
+import os
+import sqlite3
 from collections import defaultdict
 from datetime import date, datetime
+from pathlib import Path
 
 # ── Key mapping for snake_case → camelCase ───────────────────────────────────
 _FLOW_KEY_MAP: dict[str, str] = {
@@ -121,3 +126,197 @@ def compute_prefix_sums(
         result.append(entry)
 
     return result
+
+
+# ── Market index precomputation ─────────────────────────────────────────────
+
+log = logging.getLogger(__name__)
+
+_INDEX_NAMES: dict[str, str] = {
+    "^GSPC": "S&P 500",
+    "^NDX": "NASDAQ 100",
+    "VXUS": "VXUS",
+    "000300.SS": "CSI 300",
+}
+
+_FRED_SNAPSHOT_KEYS: dict[str, str] = {
+    "fedFundsRate": "__fedRate",
+    "treasury10y": "__treasury10y",
+    "cpiYoy": "__cpi",
+    "unemployment": "__unemployment",
+    "vix": "__vix",
+}
+
+
+def _compute_index_row(
+    conn: sqlite3.Connection, ticker: str, name: str,
+) -> tuple[str, str, float, float, float, float, float, str] | None:
+    """Compute market stats for a single index ticker from daily_close.
+
+    Returns a tuple ready for INSERT, or None if insufficient data.
+    """
+    rows = conn.execute(
+        "SELECT date, close FROM daily_close WHERE symbol = ? ORDER BY date",
+        (ticker,),
+    ).fetchall()
+    if len(rows) < 2:
+        return None
+
+    dates = [r[0] for r in rows]
+    closes = [r[1] for r in rows]
+    current = closes[-1]
+
+    # Month return (~22 trading days back)
+    month_idx = max(0, len(closes) - 23)
+    month_return = round((current / closes[month_idx] - 1) * 100, 2)
+
+    # YTD return (first trading day of current year)
+    current_year = dates[-1][:4]
+    ytd_start = next(
+        (c for d, c in zip(dates, closes, strict=False) if d.startswith(current_year)),
+        closes[0],
+    )
+    ytd_return = round((current / ytd_start - 1) * 100, 2)
+
+    # 52-week high/low (~252 trading days)
+    year_closes = closes[-252:]
+    high_52w = max(year_closes)
+    low_52w = min(year_closes)
+
+    # Sparkline: last 252 closes
+    sparkline = json.dumps(year_closes)
+
+    return (ticker, name, current, month_return, ytd_return, high_52w, low_52w, sparkline)
+
+
+def precompute_market(db_path: Path) -> None:
+    """Precompute market index data and macro scalars into computed_market.
+
+    Reads daily_close prices, computes returns/sparklines for each index,
+    and stores CNY rate + optional FRED data as ``__``-prefixed scalar rows.
+    Clears and rewrites computed_market each invocation.
+    """
+    from .db import get_connection
+
+    conn = get_connection(db_path)
+    try:
+        conn.execute("DELETE FROM computed_market")
+
+        # ── Index rows ──────────────────────────────────────────────────
+        for ticker, name in _INDEX_NAMES.items():
+            row = _compute_index_row(conn, ticker, name)
+            if row is not None:
+                conn.execute(
+                    "INSERT INTO computed_market"
+                    " (ticker, name, current, month_return, ytd_return, high_52w, low_52w, sparkline)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    row,
+                )
+
+        # ── CNY rate ────────────────────────────────────────────────────
+        cny_row = conn.execute(
+            "SELECT close FROM daily_close WHERE symbol='CNY=X' ORDER BY date DESC LIMIT 1"
+        ).fetchone()
+        if cny_row is not None:
+            conn.execute(
+                "INSERT INTO computed_market (ticker, name, current) VALUES (?, ?, ?)",
+                ("__usdCny", "USD/CNY", cny_row[0]),
+            )
+
+        # ── FRED macro data ─────────────────────────────────────────────
+        fred_key = os.environ.get("FRED_API_KEY", "")
+        if fred_key:
+            try:
+                from .market.fred import fetch_fred_data
+
+                fred = fetch_fred_data(fred_key)
+                if fred and "snapshot" in fred:
+                    snap: dict[str, object] = fred["snapshot"]  # type: ignore[assignment]
+                    for src, dst in _FRED_SNAPSHOT_KEYS.items():
+                        if src in snap:
+                            conn.execute(
+                                "INSERT INTO computed_market (ticker, name, current) VALUES (?, ?, ?)",
+                                (dst, src, float(snap[src])),  # type: ignore[arg-type]
+                            )
+            except Exception:  # noqa: BLE001
+                log.warning("Failed to fetch FRED data for precompute_market", exc_info=True)
+
+        conn.commit()
+    finally:
+        conn.close()
+
+
+# ── Holdings detail precomputation ─────────────────────────────────────────
+
+
+def precompute_holdings_detail(db_path: Path) -> None:
+    """Precompute per-ticker performance data into computed_holdings_detail.
+
+    Reads computed_daily_tickers for the latest date, filters to "real" tickers
+    (ASCII, no spaces, <=5 chars), then computes month return, start/end value,
+    52-week high/low, and vs_high from daily_close prices.
+    Clears and rewrites the table each invocation.
+    """
+    from .db import get_connection
+
+    conn = get_connection(db_path)
+    try:
+        conn.execute("DELETE FROM computed_holdings_detail")
+
+        # Latest date in computed_daily_tickers
+        row = conn.execute("SELECT date FROM computed_daily_tickers ORDER BY date DESC LIMIT 1").fetchone()
+        if row is None:
+            conn.commit()
+            return
+        latest_date: str = row[0]
+
+        # Tickers with value > 0 on that date
+        ticker_rows = conn.execute(
+            "SELECT ticker, value FROM computed_daily_tickers WHERE date = ? AND value > 0",
+            (latest_date,),
+        ).fetchall()
+
+        # Filter to real tickers: ASCII, no spaces, <=5 chars
+        real_tickers: dict[str, float] = {
+            t: v for t, v in ticker_rows if t.isascii() and " " not in t and len(t) <= 5
+        }
+        if not real_tickers:
+            conn.commit()
+            return
+
+        # Compute per-ticker stats
+        insert_rows: list[tuple[str, float, float, float, float, float, float]] = []
+        for ticker, value in real_tickers.items():
+            closes = conn.execute(
+                "SELECT close FROM daily_close WHERE symbol = ? ORDER BY date",
+                (ticker,),
+            ).fetchall()
+            if len(closes) < 2:
+                continue
+            prices = [r[0] for r in closes]
+            current = prices[-1]
+
+            # Month return (~22 trading days)
+            month_idx = max(0, len(prices) - 23)
+            month_ret = round((current / prices[month_idx] - 1) * 100, 2)
+            start_value = round(value / (1 + month_ret / 100), 2) if month_ret != -100 else 0.0
+
+            # 52-week high/low (~252 trading days)
+            year_prices = prices[-252:]
+            high = max(year_prices)
+            low = min(year_prices)
+            vs_high = round((current / high - 1) * 100, 2)
+
+            insert_rows.append((ticker, month_ret, start_value, round(value, 2), high, low, vs_high))
+
+        if insert_rows:
+            conn.executemany(
+                "INSERT INTO computed_holdings_detail"
+                " (ticker, month_return, start_value, end_value, high_52w, low_52w, vs_high)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                insert_rows,
+            )
+
+        conn.commit()
+    finally:
+        conn.close()
