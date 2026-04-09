@@ -54,6 +54,9 @@ def build_daily_flows(
             bucket["sells"] += amount
         elif action == "dividend":
             bucket["dividends"] += amount
+        elif action == "reinvestment":
+            bucket["dividends"] += amount
+            bucket["buys"] += abs(amount)
         elif action in ("deposit", "withdrawal"):
             bucket["net_cash_in"] += amount
 

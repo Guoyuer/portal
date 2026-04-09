@@ -237,6 +237,11 @@ def create_app(db_path: Path) -> FastAPI:
             elif action_upper.startswith("DIVIDEND"):
                 dividends[symbol]["count"] += 1
                 dividends[symbol]["total"] += amount
+            elif action_upper.startswith("REINVESTMENT"):
+                dividends[symbol]["count"] += 1
+                dividends[symbol]["total"] += abs(amount)
+                buys[symbol]["count"] += 1
+                buys[symbol]["total"] += abs(amount)
 
         def _to_list(d: dict[str, dict[str, float]]) -> list[dict[str, Any]]:
             items: list[dict[str, Any]] = [

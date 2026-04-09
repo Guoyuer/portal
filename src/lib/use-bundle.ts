@@ -205,6 +205,16 @@ function computeActivity(fidelityTxns: FidelityTxn[], start: string, end: string
       e.count += 1;
       e.total += t.amount;
       dividends.set(t.symbol, e);
+    } else if (action.startsWith("REINVESTMENT")) {
+      // Reinvestment = dividend received + auto-bought — count in both
+      const ed = dividends.get(t.symbol) ?? { count: 0, total: 0 };
+      ed.count += 1;
+      ed.total += Math.abs(t.amount);
+      dividends.set(t.symbol, ed);
+      const eb = buys.get(t.symbol) ?? { count: 0, total: 0 };
+      eb.count += 1;
+      eb.total += Math.abs(t.amount);
+      buys.set(t.symbol, eb);
     }
   }
 
