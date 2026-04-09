@@ -179,13 +179,34 @@ Local:  sync_to_d1.py              (manual, full DELETE + INSERT every time)
 ```
 Mac launchd → run.sh:
   1. Detect changes (Qianji DB mtime, new CSVs in Downloads)
-  2. Query D1 for last_date (via wrangler d1 execute)
+  2. Query D1 sync_meta for last_date + last_sync
   3. build_timemachine_db.py --incremental --since <last_date>
   4. sync_to_d1.py --diff (only INSERT new rows)
+  5. Update sync_meta (last_date, last_sync timestamp)
   → D1 updated, Worker serves fresh data (1hr CDN cache)
 ```
 
 **Key change: diff-based sync instead of full replace.**
+
+**Sync metadata table in D1:**
+```sql
+CREATE TABLE IF NOT EXISTS sync_meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+-- Written by sync_to_d1.py after each sync:
+--   last_date  = '2026-04-08'       (latest trading day in computed_daily)
+--   last_sync  = '2026-04-09T14:30:00Z'  (when sync ran)
+```
+
+- `last_date` — determines where incremental build starts (`--since`)
+- `last_sync` — exposed by Worker in `/timeline` response, frontend shows "Data updated: 2 hours ago"
+
+Worker adds `sync_meta` to the response:
+```typescript
+const meta = await env.DB.prepare("SELECT key, value FROM sync_meta").all();
+// → { syncMeta: { lastDate: "2026-04-08", lastSync: "2026-04-09T14:30:00Z" } }
+```
 
 Per-table sync strategy:
 
