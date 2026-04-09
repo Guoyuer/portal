@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, type ReactNode } from "react";
+import { memo, useMemo, type ReactNode } from "react";
 import type { BundleState, CrossCheck } from "@/lib/use-bundle";
 import {
   Area,
@@ -8,14 +8,13 @@ import {
   Brush,
   CartesianGrid,
   ResponsiveContainer,
-  Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
 import type { DailyPoint, PrefixPoint } from "@/lib/schema";
 import { fmtCurrency, fmtCurrencyShort } from "@/lib/format";
 import { useIsDark, useIsMobile } from "@/lib/hooks";
-import { tooltipStyle, gridStroke } from "@/lib/chart-styles";
+import { gridStroke } from "@/lib/chart-styles";
 
 // ── Constants ─────────────────────────────────────────────────────────────
 
@@ -51,9 +50,12 @@ export const TimemachineChart = memo(function TimemachineChart({
   const isDark = useIsDark();
   const isMobile = useIsMobile();
 
-  if (daily.length === 0) return null;
+  const chartData = useMemo(
+    () => daily.map((d) => ({ ...d, ts: new Date(d.date).getTime() })),
+    [daily],
+  );
 
-  const chartData = daily.map((d) => ({ ...d, ts: new Date(d.date).getTime() }));
+  if (daily.length === 0) return null;
 
   const fmtTick = (ts: number) =>
     new Date(ts).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
@@ -90,17 +92,6 @@ export const TimemachineChart = memo(function TimemachineChart({
           width={55}
           axisLine={false}
           tickLine={false}
-        />
-        <Tooltip
-          contentStyle={tooltipStyle(isDark)}
-          formatter={(value, name) => [fmtCurrency(Number(value)), CAT_LABELS[String(name)] ?? String(name)]}
-          labelFormatter={(ts) =>
-            new Date(Number(ts)).toLocaleDateString("en-US", {
-              month: "long",
-              day: "numeric",
-              year: "numeric",
-            })
-          }
         />
         {CAT_KEYS.map((key) => (
           <Area

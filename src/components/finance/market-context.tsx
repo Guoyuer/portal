@@ -1,7 +1,7 @@
 "use client";
 
-import { memo } from "react";
-import { Area, AreaChart, ResponsiveContainer, YAxis } from "recharts";
+import { memo, useState, useEffect, useRef } from "react";
+import { Area, AreaChart, YAxis } from "recharts";
 import type { MarketData, IndexReturn } from "@/lib/types";
 import { fmtPct } from "@/lib/format";
 import { valueColor } from "@/lib/style-helpers";
@@ -35,6 +35,20 @@ function ReturnBadge({ label, value }: { label: string; value: number }) {
 
 // ── Sparkline ───────────────────────────────────────────────────────────
 function Sparkline({ idx }: { idx: IndexReturn }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState({ w: 0, h: 0 });
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect;
+      if (width > 0 && height > 0) setSize({ w: Math.floor(width), h: Math.floor(height) });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   const data = idx.sparkline
     ? idx.sparkline.map((v) => ({ v }))
     : [
@@ -45,26 +59,28 @@ function Sparkline({ idx }: { idx: IndexReturn }) {
   const color = idx.ytdReturn >= 0 ? GAIN : LOSS;
 
   return (
-    <ResponsiveContainer width="100%" height="100%">
-      <AreaChart data={data} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
-        <defs>
-          <linearGradient id={`spark-${idx.ticker}`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={color} stopOpacity={0.3} />
-            <stop offset="100%" stopColor={color} stopOpacity={0} />
-          </linearGradient>
-        </defs>
-        <YAxis domain={["dataMin", "dataMax"]} hide />
-        <Area
-          type="monotone"
-          dataKey="v"
-          stroke={color}
-          strokeWidth={1.5}
-          fill={`url(#spark-${idx.ticker})`}
-          dot={false}
-          isAnimationActive={false}
-        />
-      </AreaChart>
-    </ResponsiveContainer>
+    <div ref={ref} className="w-full h-full">
+      {size.w > 0 && size.h > 0 && (
+        <AreaChart width={size.w} height={size.h} data={data} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
+          <defs>
+            <linearGradient id={`spark-${idx.ticker}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={color} stopOpacity={0.3} />
+              <stop offset="100%" stopColor={color} stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <YAxis domain={["dataMin", "dataMax"]} hide />
+          <Area
+            type="monotone"
+            dataKey="v"
+            stroke={color}
+            strokeWidth={1.5}
+            fill={`url(#spark-${idx.ticker})`}
+            dot={false}
+            isAnimationActive={false}
+          />
+        </AreaChart>
+      )}
+    </div>
   );
 }
 
@@ -114,7 +130,7 @@ function IndexCard({ idx }: { idx: IndexReturn }) {
       <p className="text-xl font-bold tabular-nums text-foreground mt-0.5">
         {pts}
       </p>
-      <div className="flex-1 -mx-1 mt-1.5 min-h-0">
+      <div className="-mx-1 mt-1.5 h-[48px]">
         <Sparkline idx={idx} />
       </div>
       {idx.high52w != null && idx.low52w != null && (

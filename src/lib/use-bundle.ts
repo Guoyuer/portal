@@ -318,7 +318,6 @@ export function useBundle(): BundleState {
 
   const [fullRange, setFullRange] = useState({ start: 0, end: 0 });
   const brushRef = useRef({ start: 0, end: 0 });
-  const rafRef = useRef(0);
 
   // ── Fetch once ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -369,12 +368,9 @@ export function useBundle(): BundleState {
   const onBrushChange = useCallback((state: { startIndex?: number; endIndex?: number }) => {
     if (state.startIndex !== undefined) brushRef.current.start = state.startIndex;
     if (state.endIndex !== undefined) brushRef.current.end = state.endIndex;
-    cancelAnimationFrame(rafRef.current);
-    rafRef.current = requestAnimationFrame(() => {
-      setFullRange({
-        start: toFull[brushRef.current.start] ?? 0,
-        end: toFull[brushRef.current.end] ?? 0,
-      });
+    setFullRange({
+      start: toFull[brushRef.current.start] ?? 0,
+      end: toFull[brushRef.current.end] ?? 0,
     });
   }, [toFull]);
 

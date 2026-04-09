@@ -58,7 +58,7 @@ export const MetricCards = memo(function MetricCards({
             <p className="text-2xl font-bold tabular-nums">{fmtCurrency(netWorth)}</p>
           </div>
           <div className="mt-2 flex h-2 w-full rounded-full overflow-hidden">
-            <div className="h-2 bg-cyan-400 transition-all" style={{ width: `${100 - invPct}%` }} />
+            <div className="h-2 bg-cyan-400" style={{ width: `${100 - invPct}%` }} />
             <div className="h-2 bg-blue-500 flex-1" />
           </div>
           <div className="mt-2 flex justify-between text-xs">
@@ -136,7 +136,7 @@ export const MetricCards = memo(function MetricCards({
         <p className="text-xl sm:text-2xl font-bold mt-1">{Math.round(goalPct)}% <span className="text-xs font-normal text-muted-foreground">of ${Math.round(goal / 1_000_000)}M</span></p>
         <div className="mt-2 h-2 w-full rounded-full bg-black/5 dark:bg-white/10">
           <div
-            className="h-2 rounded-full bg-blue-500 transition-all"
+            className="h-2 rounded-full bg-blue-500"
             style={{ width: `${Math.min(goalPct, 100)}%` }}
           />
         </div>
