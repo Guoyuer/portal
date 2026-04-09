@@ -388,6 +388,39 @@ if (tl.error) return <div className="text-red-500 text-center py-20">Failed to l
 
 ---
 
+## P7 — D1 pipeline architecture cleanup
+
+### 1. Schema dual-source — unify db.py and schema.sql
+**Files:** `pipeline/generate_asset_snapshot/db.py`, `worker/schema.sql`
+**Problem:** Two manually maintained schema definitions that have already drifted. `db.py` has `NOT NULL` + `DEFAULT` on most columns, `schema.sql` does not. Any future column addition must be done in two places.
+**Fix:** Single source of truth. Either:
+- (a) Auto-generate `schema.sql` from `db.py` (add a script that reads `_TABLES` DDL, strips local-only tables like `daily_close`/`empower_*`, and writes `schema.sql` + views)
+- (b) Or use `schema.sql` as source and have `db.py` import it
+Option (a) is simpler since `db.py` already has the superset.
+
+### 2. sync_to_d1.py has no transaction wrapping
+**File:** `pipeline/scripts/sync_to_d1.py`
+**Problem:** Each table is `DELETE` then `INSERT` row-by-row. If sync fails mid-way (network timeout, wrangler crash), a table may be empty in D1 — data loss. No atomicity guarantee.
+**Fix:** Wrap the entire SQL output in `BEGIN; ... COMMIT;`. D1 supports transactions. If any statement fails, the whole batch rolls back and D1 keeps the old data intact.
+
+### 3. Worker has no error handling
+**File:** `worker/src/index.ts`
+**Problem:** `Promise.all()` with 7 D1 queries — if any one fails, the entire request returns an unhandled 500 error with no useful message. No try-catch, no partial degradation.
+**Fix:** Wrap in try-catch. Return structured error:
+```typescript
+try {
+  const [daily, ...] = await Promise.all([...]);
+  // ...
+} catch (e) {
+  return Response.json(
+    { error: "D1 query failed", detail: e instanceof Error ? e.message : "unknown" },
+    { status: 502, headers: CORS_HEADERS }
+  );
+}
+```
+
+---
+
 ## Implementation order
 
 ```
@@ -398,4 +431,5 @@ P3 (automate pipeline):   ~1-2 hours (parameterize + run.sh + launchd)
 P4 (checkpoint + verify): ~2-3 hours (checkpoint table + resume logic + verify mode)
 P5 (data quality):        ~2-3 hours (validation + warnings + contract tests)
 P6 (frontend UX):         ~2-3 hours (error states + empty states + freshness)
+P7 (D1 architecture):     ~1-2 hours (schema unify + txn wrap + worker error handling)
 ```
