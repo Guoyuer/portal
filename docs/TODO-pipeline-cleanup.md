@@ -210,14 +210,18 @@ const meta = await env.DB.prepare("SELECT key, value FROM sync_meta").all();
 
 Per-table sync strategy:
 
-| Table | Sync mode | How |
-|-------|-----------|-----|
-| `computed_daily` | Diff | INSERT rows where `date > last_d1_date` |
-| `computed_daily_tickers` | Diff | INSERT rows where `date > last_d1_date` |
-| `fidelity_transactions` | Diff | INSERT rows with `run_date` after last synced date |
-| `qianji_transactions` | Diff | INSERT rows with `date` after last synced date |
-| `computed_market` | Full replace | Small table (~10 rows), always refresh |
-| `computed_holdings_detail` | Full replace | Small table (~40 rows), always refresh |
+| Table | PK | Sync mode | Idempotency |
+|-------|-----|-----------|-------------|
+| `computed_daily` | `date` | Diff | `INSERT OR IGNORE` — PK prevents duplicates |
+| `computed_daily_tickers` | `(date, ticker)` | Diff | `INSERT OR IGNORE` — composite PK prevents duplicates |
+| `fidelity_transactions` | `id` (AUTOINCREMENT) | Range replace | `DELETE WHERE run_date > ? ; INSERT` — clear range then insert. AUTOINCREMENT id has no meaning, natural key is `(run_date, account_number, action, symbol, amount)` |
+| `qianji_transactions` | _(none)_ | Range replace | `DELETE WHERE date > ? ; INSERT` — clear range then insert. No PK, dedup by date range |
+| `computed_market` | `ticker` | Full replace | `DELETE ; INSERT` — small table (~10 rows), always overwrite |
+| `computed_holdings_detail` | `ticker` | Full replace | `DELETE ; INSERT` — small table (~40 rows), always overwrite |
+
+**Idempotency guarantee:** Running `sync_to_d1.py --diff` twice with the same data produces the same D1 state. PK tables use `INSERT OR IGNORE` (no-op on duplicate). Non-PK tables clear-then-insert by date range (rerunnable). Full-replace tables are trivially idempotent.
+
+**The entire sync SQL is wrapped in `BEGIN; ... COMMIT;`** — if any statement fails, D1 rolls back to pre-sync state. No partial writes.
 
 **D1 becomes the persistent store, local DB becomes a disposable build cache.** Switching computers: query D1 for `last_date`, run incremental build from there, push diff. No need to carry `timemachine.db` around.
 
@@ -319,36 +323,110 @@ This way:
 
 ---
 
-## P5 — Data quality hardening
+## P5 — Data quality hardening + build gate
 
-### 1. CNY rate fallback is a hardcoded stale value
+### Build gate: post-build validation that blocks sync
+
+The existing `test_invariants.py` validates the **R2 legacy path** (`build_report` + positions CSV). The D1 path's output (`computed_daily` + `computed_daily_tickers` + transactions) has **zero automated validation**. If a build produces wrong data, it gets pushed to D1 and shown to the user.
+
+**Solution: a `validate_build()` function in `build_timemachine_db.py` that runs after compute, before sync.** If any check fails, the build exits non-zero and `run.sh` skips `sync_to_d1.py`.
+
+```
+build_timemachine_db.py --incremental
+  ├── [1-6] ingest → replay → precompute   (existing)
+  ├── [V] validate_build()                  (NEW — gate)
+  │     ├── PASS → exit 0
+  │     └── FAIL → exit 1, print what failed
+  │
+run.sh:
+  build ... && sync_to_d1.py --diff    ← sync only runs if build exits 0
+```
+
+**Checks in `validate_build()`:**
+
+| Check | What it catches | Severity |
+|-------|-----------------|----------|
+| `computed_daily.total` ≈ `SUM(computed_daily_tickers.value)` per date (within $1) | Ticker missing from categorization, negative value leak | FATAL |
+| Latest date's total vs previous date's total: change < 10% (unless large transaction exists) | Replay bug, price data corruption, missing holdings | FATAL |
+| Every `(date, ticker)` in `computed_daily_tickers` with `value > 100` has a price in `daily_close` within 5 days | yfinance failure, delisted ticker, typo | FATAL |
+| Latest CNY rate in `daily_close` is within 7 days of latest `computed_daily.date` | Yahoo Finance down, stale exchange rate | WARNING |
+| No unrecognized action types in `fidelity_transactions` (all map to known `action_type`) | New Fidelity action format, corporate actions | WARNING |
+| `computed_daily` has no gaps > 5 consecutive trading days | Build range misconfiguration | WARNING |
+
+FATAL = build fails, no sync. WARNING = log + continue.
+
+```python
+# pipeline/generate_asset_snapshot/validate.py
+def validate_build(db_path: Path) -> list[str]:
+    """Run post-build checks. Returns list of errors (empty = pass)."""
+    errors = []
+    conn = get_connection(db_path)
+    
+    # Check 1: total ≈ sum(tickers) per date
+    for date, total, ticker_sum in conn.execute("""
+        SELECT d.date, d.total, COALESCE(SUM(t.value), 0)
+        FROM computed_daily d
+        LEFT JOIN computed_daily_tickers t ON d.date = t.date AND t.value > 0
+        GROUP BY d.date
+        HAVING ABS(d.total - COALESCE(SUM(t.value), 0)) > 1.0
+    """):
+        errors.append(f"total mismatch on {date}: daily={total:.2f} tickers={ticker_sum:.2f}")
+    
+    # Check 2: day-over-day change < 10%
+    rows = conn.execute(
+        "SELECT date, total FROM computed_daily ORDER BY date"
+    ).fetchall()
+    for i in range(1, len(rows)):
+        prev_total = rows[i-1][1]
+        curr_total = rows[i][1]
+        if prev_total > 0:
+            change = abs(curr_total - prev_total) / prev_total
+            if change > 0.10:
+                errors.append(
+                    f"suspicious {change:.1%} change: {rows[i-1][0]} ${prev_total:,.0f} → {rows[i][0]} ${curr_total:,.0f}"
+                )
+    
+    # Check 3: holdings have prices
+    missing = conn.execute("""
+        SELECT DISTINCT t.ticker, t.date
+        FROM computed_daily_tickers t
+        WHERE t.value > 100
+        AND NOT EXISTS (
+            SELECT 1 FROM daily_close p
+            WHERE p.symbol = t.ticker
+            AND p.date BETWEEN date(t.date, '-5 days') AND t.date
+        )
+    """).fetchall()
+    for ticker, date in missing:
+        errors.append(f"no price for {ticker} on {date} (holding value > $100)")
+    
+    conn.close()
+    return errors
+```
+
+### Input-level warnings (during build, not gating)
+
+These log warnings but don't block the build:
+
+**1. CNY rate fallback is a hardcoded stale value**
 **File:** `allocation.py:113`
 **Problem:** `last_cny_rate = 7.25` is used when Yahoo Finance has no data. If yfinance is down during a build, all CNY assets get valued at this stale rate with no warning.
 **Fix:** Track rate staleness. If latest CNY rate in DB is > 7 days old, log a warning. If no rate at all, fail the build loudly instead of silently using 7.25.
 
-### 2. Unrecognized Fidelity actions are silently dropped
+**2. Unrecognized Fidelity actions are silently dropped**
 **File:** `timemachine.py:117`
 **Problem:** Only actions matching `POSITION_PREFIXES` affect share counts. Corporate actions (mergers, spinoffs, stock splits) and any new Fidelity action types are silently ignored — no log, no error.
-**Fix:** Log a warning for every action that doesn't match any known prefix. Add a contract test that loads the actual CSV and verifies every action type is categorized.
+**Fix:** Log a warning for every action that doesn't match any known prefix.
 
-### 3. Missing prices are silently skipped
+**3. Missing prices are silently skipped**
 **File:** `allocation.py:158-161`
 **Problem:** If a ticker has no price data (delisted, yfinance failure, typo), `pd.notna(price)` silently skips it. The holding disappears from the portfolio total with no trace.
-**Fix:** After computing `ticker_values`, check all holdings from replay have a value. Log a warning for any holding with qty > 0 but no price: `"VOO: 50 shares but no price on 2026-04-09"`.
+**Fix:** Log a warning for any holding with qty > 0 but no price.
 
-### 4. yfinance failures are not handled
+**4. yfinance failures are not handled**
 **File:** `prices.py`
 **Problem:** If yfinance download times out or returns empty data for a symbol, no error is raised. The build succeeds with incomplete price data.
-**Fix:** After each yfinance call, validate that expected symbols have data. Retry once on network timeout. Log which symbols returned zero rows.
-
-### 5. Contract test coverage gaps
-**File:** `tests/contract/test_invariants.py`
-**Missing tests:**
-- Every ticker in `computed_daily_tickers` has at least one price in `daily_close`
-- Latest CNY rate is within 7 days of latest `computed_daily` date
-- Every distinct `action` in `fidelity_transactions` maps to a known `action_type`
-- `computed_daily.total` ≈ sum of `computed_daily_tickers.value` for same date (within $1)
-- No date in `computed_daily` has total = 0 (unless it's the first date)
+**Fix:** Validate expected symbols have data after each yfinance call. Retry once on network timeout.
 
 ---
 
