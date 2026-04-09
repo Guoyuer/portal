@@ -381,7 +381,7 @@ test.describe("Finance Report", () => {
       await expect(tmSection.getByText("Income")).toBeVisible();
       await expect(tmSection.getByText("Expenses")).toBeVisible();
       await expect(tmSection.getByText("Buys")).toBeVisible();
-      await expect(tmSection.getByText("Dividends")).toBeVisible();
+      await expect(tmSection.getByText("Dividends").first()).toBeVisible();
     });
 
     test("displays total value with dollar sign", async ({ page }) => {
