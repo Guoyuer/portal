@@ -505,36 +505,99 @@ All items below use **existing D1 data** — no pipeline changes needed. Pure fr
 
 ---
 
-## P7 — D1 pipeline architecture cleanup
+## P7 — D1 schema + pipeline cleanup
 
-### 1. Schema dual-source — unify db.py and schema.sql
+### 1. Worker must be pure passthrough — move business logic to pipeline
+
+**File:** `worker/src/index.ts`
+**Problem:** Worker contains three pieces of business logic that should live elsewhere:
+
+| Logic | Current location | Should be |
+|-------|-----------------|-----------|
+| Market split: `__`-prefixed rows → scalar indicators, others → indices | Worker lines 49-56 | Pipeline: separate tables |
+| Holdings slice: top 5 / bottom 5 by month_return | Worker lines 59-64 | Pipeline: precompute or D1 view with LIMIT |
+| Sparkline JSON parse: `JSON.parse(r.sparkline)` | Worker line 54 | Frontend (return raw JSON string, parse on client) |
+
+**Fix:** Worker becomes:
+```typescript
+return Response.json({
+  daily: daily.results,
+  dailyTickers: tickers.results,
+  fidelityTxns: fidelity.results,
+  qianjiTxns: qianji.results,
+  market: market.results,          // raw rows, no split
+  holdingsDetail: holdings.results, // raw rows, no slice
+  syncMeta: meta.results,
+});
+```
+All reshaping moves to pipeline precompute (split market into two tables) or frontend (slice top/bottom, parse sparkline).
+
+### 2. `computed_market` mixes two data types in one table
+
+**Problem:** Index rows (`^GSPC`, `^NDX`) and scalar indicators (`__fedRate`, `__vix`, `__usdCny`) have different schemas but share one table. The `__` prefix convention is a hack that forces Worker to split at runtime.
+
+**Fix:** Two tables:
+```sql
+CREATE TABLE computed_market_indices (
+    ticker TEXT PRIMARY KEY, name TEXT, current REAL,
+    month_return REAL, ytd_return REAL, high_52w REAL, low_52w REAL,
+    sparkline TEXT  -- JSON array
+);
+CREATE TABLE computed_market_indicators (
+    key TEXT PRIMARY KEY,    -- 'fedRate', 'vix', 'usdCny', ...
+    value REAL
+);
+```
+Worker does two SELECTs, no parsing. Frontend receives clean typed data.
+
+### 3. D1 stores columns the frontend never uses
+
+**`fidelity_transactions`** — D1 stores 11 columns, view exposes 4:
+
+| Column | In D1 | In view | Used by frontend |
+|--------|-------|---------|-----------------|
+| id | yes | no | no |
+| run_date | yes | yes (runDate) | yes |
+| account | yes | no | no |
+| account_number | yes | no | no |
+| action | yes | yes | yes |
+| symbol | yes | yes | yes |
+| description | yes | no | no |
+| lot_type | yes | no | no |
+| quantity | yes | no | no |
+| price | yes | no | no |
+| amount | yes | yes | yes |
+| settlement_date | yes | no | no |
+
+7 columns synced for nothing. Same for **`qianji_transactions`**: `account` and `note` are unused.
+
+**Fix:** `sync_to_d1.py` should only INSERT the columns the frontend needs. D1 schema drops unused columns. Less data to sync, cleaner contract.
+
+### 4. Frontend uses raw action strings instead of classified action_type
+
+**Problem:** Pipeline has a proper action classifier (`fidelity_history.py` → `action_type`: buy/sell/dividend/reinvestment/deposit/...). But D1 stores the raw Fidelity string (`"YOU BOUGHT VANGUARD..."`), and the frontend re-classifies with `action.startsWith("YOU BOUGHT")`.
+
+Two parallel classification systems → fragile. If Fidelity changes their action format (e.g. `"BOUGHT"` instead of `"YOU BOUGHT"`), the pipeline still works but the frontend silently breaks.
+
+**Fix:** Store `action_type` in D1 instead of (or alongside) raw `action`. Frontend matches on `action_type === "buy"` instead of `action.startsWith("YOU BOUGHT")`. Single classification, single point of failure.
+
+### 5. Schema dual-source — unify db.py and schema.sql
+
 **Files:** `pipeline/generate_asset_snapshot/db.py`, `worker/schema.sql`
 **Problem:** Two manually maintained schema definitions that have already drifted. `db.py` has `NOT NULL` + `DEFAULT` on most columns, `schema.sql` does not. Any future column addition must be done in two places.
-**Fix:** Single source of truth. Either:
-- (a) Auto-generate `schema.sql` from `db.py` (add a script that reads `_TABLES` DDL, strips local-only tables like `daily_close`/`empower_*`, and writes `schema.sql` + views)
-- (b) Or use `schema.sql` as source and have `db.py` import it
-Option (a) is simpler since `db.py` already has the superset.
+**Fix:** Auto-generate `schema.sql` from `db.py` — strip local-only tables (`daily_close`, `empower_*`, `qianji_balances`, `replay_checkpoint`), add views. One source, zero drift.
 
-### 2. sync_to_d1.py has no transaction wrapping
+### 6. sync_to_d1.py has no transaction wrapping
+
 **File:** `pipeline/scripts/sync_to_d1.py`
-**Problem:** Each table is `DELETE` then `INSERT` row-by-row. If sync fails mid-way (network timeout, wrangler crash), a table may be empty in D1 — data loss. No atomicity guarantee.
-**Fix:** Wrap the entire SQL output in `BEGIN; ... COMMIT;`. D1 supports transactions. If any statement fails, the whole batch rolls back and D1 keeps the old data intact.
+**Problem:** If sync fails mid-way, a table may be empty in D1 — data loss.
+**Fix:** Wrap in `BEGIN; ... COMMIT;`. Failure → rollback, D1 keeps old data.
 
-### 3. Worker has no error handling
+### 7. Worker has no error handling
+
 **File:** `worker/src/index.ts`
-**Problem:** `Promise.all()` with 7 D1 queries — if any one fails, the entire request returns an unhandled 500 error with no useful message. No try-catch, no partial degradation.
-**Fix:** Wrap in try-catch. Return structured error:
-```typescript
-try {
-  const [daily, ...] = await Promise.all([...]);
-  // ...
-} catch (e) {
-  return Response.json(
-    { error: "D1 query failed", detail: e instanceof Error ? e.message : "unknown" },
-    { status: 502, headers: CORS_HEADERS }
-  );
-}
-```
+**Problem:** `Promise.all()` with D1 queries — any failure → unhandled 500.
+**Fix:** try-catch → structured 502 with error detail.
 
 ---
 
