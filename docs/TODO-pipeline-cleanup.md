@@ -127,6 +127,10 @@ Mac launchd → run.sh:
 - Same pattern as Qianji replay (already proven)
 - Current forward replay is 36/36 exact match, so both methods give same results *today* — reverse is a defensive improvement
 
+**Performance note:** Even in `--incremental` mode, every new date requires a full forward replay (traverse all historical transactions up to that date). `allocation.py:122-127` caches positions between consecutive days with no transactions, so actual replay count = number of days with transactions, not total days. But each replay still reads the entire CSV from the start.
+
+Reverse replay fixes this: incremental mode would only need to undo a handful of recent transactions from the positions snapshot, instead of replaying thousands from the beginning.
+
 **Implementation sketch:**
 ```python
 def replay_reverse(store_path: Path, positions_csv: Path, as_of: date) -> ...:
