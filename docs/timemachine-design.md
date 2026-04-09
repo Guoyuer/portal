@@ -167,7 +167,7 @@ Full per-ticker breakdown, same structure as today's allocation table:
 | Fidelity transactions | Positions (shares per symbol per account) | Replay — verified 36/36 positions, 3/3 cash |
 | Empower 401k QFX | 401k per-fund positions | Quarterly snapshots + proxy daily interpolation + contribution compensation |
 | Yahoo Finance | Daily close prices + USD/CNY rate | Holding-period scoped, cached in SQLite |
-| Qianji SQLite | Non-investment account balances | Reverse-replay from current balances |
+| Qianji SQLite | Non-investment account balances | Reverse-replay from current balances. `user_bill.time` is the **user-specified transaction date** (not the bookkeeping timestamp); users can back-date entries in the app. |
 | Config | Category/subtype/weight mapping | Static, same as today |
 
 ## How timemachine rebuilds allocation at any date
@@ -208,6 +208,7 @@ Module: `pipeline/generate_asset_snapshot/empower_401k.py`
 ### Qianji replay (verified)
 
 Reverse-replay from current `user_asset` balances:
+- **Date semantics:** `user_bill.time` is the user-specified transaction date (Unix seconds, UTC), not the bookkeeping/creation timestamp. The replay cutoff compares against this date, so balances reflect when transactions *occurred* per the user, not when they were recorded.
 - Expense: undo by adding back to `fromact`
 - Income: undo by subtracting from `fromact`
 - Transfer/Repayment: undo both sides (cross-currency via `extra.curr.tv`)
@@ -235,14 +236,15 @@ Reverse-replay from current `user_asset` balances:
 
 ## Architecture evolution
 
-### Current: static pipeline
+### Legacy: static pipeline (R2, being phased out)
 ```
-Python pipeline → latest.json → R2 → browser (weekly batch, single snapshot)
+Python pipeline → latest.json → R2 → browser (daily batch, single snapshot)
 ```
 
-### Target: backend + DB
+### Current: backend + DB + Workers
 ```
-Data sources → Ingestion → SQLite → Replay → Pre-compute → FastAPI → Next.js
+Data sources → Ingestion → SQLite (timemachine.db) → Replay → Pre-compute
+  → FastAPI (local dev) / D1 + Worker (production) → Next.js
 ```
 
 ### Implementation order
@@ -251,7 +253,8 @@ Data sources → Ingestion → SQLite → Replay → Pre-compute → FastAPI →
 3. ~~Qianji balance replay~~ ✅
 4. ~~401k QFX integration~~ ✅
 5. ~~Cross-validation~~ ✅
-6. Unified SQLite DB (timemachine.db)
-7. Pre-compute daily[] + prefix[] arrays
-8. FastAPI endpoints
-9. Frontend brush/traveller integration
+6. ~~Unified SQLite DB (timemachine.db)~~ ✅
+7. ~~Pre-compute daily[] + prefix[] arrays~~ ✅
+8. ~~FastAPI endpoints~~ ✅
+9. ~~Frontend brush/traveller integration~~ ✅
+10. ~~Cloudflare D1 + Workers migration~~ ✅

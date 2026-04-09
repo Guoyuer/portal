@@ -1,6 +1,6 @@
 # Portal
 
-Personal one-stop dashboard. Finance reports with live data from Fidelity brokerage + [Qianji](https://qianjiapp.com/) expense tracking, with more modules planned.
+Personal one-stop dashboard. Finance reports with live data from Fidelity brokerage + [Qianji](https://qianjiapp.com/) expense tracking + Empower 401k, plus an economic indicators dashboard (FRED). More modules planned.
 
 **Live:** https://portal.guoyuer.com (protected by Cloudflare Access)
 
@@ -12,35 +12,54 @@ graph TB
         SYNC["sync.py<br/>detect new CSVs + Qianji DB"]
     end
 
-    subgraph "Cloudflare R2"
+    subgraph "Local build"
+        BUILD["build_timemachine_db.py<br/>ingest → replay → precompute"]
+        DB[(timemachine.db)]
+    end
+
+    subgraph "Cloudflare R2 (legacy)"
         RAW["latest/<br/>positions.csv · history.csv<br/>qianjiapp.db · config.json"]
-        JSON["reports/<br/>latest.json"]
+        JSON["reports/<br/>latest.json · econ.json"]
+    end
+
+    subgraph "Cloudflare D1 + Workers"
+        D1[(D1 portal-db)]
+        WORKER["Worker<br/>GET /timeline → JSON"]
     end
 
     subgraph "GitHub Actions"
-        CI["CI + Deploy<br/>Python lint/test + Node build + e2e + deploy"]
-        REPORT["Report (weekly cron)<br/>generate JSON → R2"]
+        CI["CI + Deploy<br/>Python lint/test + Node build<br/>+ Pages + Worker deploy"]
+        REPORT["Report (daily cron)<br/>generate JSON → R2 (legacy)"]
     end
 
     subgraph "Cloudflare"
         ACCESS["Cloudflare Access<br/>Google login"]
-        PAGES["Cloudflare Pages<br/>static shell + client-side fetch"]
+        PAGES["Cloudflare Pages<br/>static shell"]
     end
 
     SYNC -->|"wrangler r2 put<br/>(only if MD5 changed)"| RAW
     RAW -->|download| REPORT
     REPORT -->|JSON| JSON
+    BUILD --> DB
+    DB -->|sync_to_d1.py| D1
+    D1 --> WORKER
     CI -->|static shell| PAGES
-    JSON -->|"fetch on page load"| PAGES
+    WORKER -->|"fetch /timeline"| PAGES
     ACCESS -->|protects| PAGES
 
     style SYNC fill:#10b981,color:#fff
-    style REPORT fill:#2563eb,color:#fff
+    style BUILD fill:#10b981,color:#fff
+    style WORKER fill:#2563eb,color:#fff
     style PAGES fill:#f59e0b,color:#000
     style ACCESS fill:#f97316,color:#fff
+    style D1 fill:#2563eb,color:#fff
+    style JSON fill:#6b7280,color:#fff
+    style RAW fill:#6b7280,color:#fff
 ```
 
-**Key design:** Portal is a static shell (HTML + JS) deployed to Cloudflare Pages. On every page load, the browser fetches the latest report data directly from R2. No rebuild needed when data changes — only when code changes.
+**Key design:** Portal is a static shell (HTML + JS) deployed to Cloudflare Pages. The Cloudflare Worker serves `GET /timeline` from D1 (SQLite-compatible). The frontend fetches once on load, then computes allocation, cashflow, activity, and reconciliation locally in `use-bundle.ts`. Brush drag is zero-latency (no network round-trips).
+
+R2 (`latest.json`) is legacy and being phased out in favor of the D1/Worker path.
 
 ## Data Pipeline
 
@@ -48,25 +67,23 @@ graph TB
 sequenceDiagram
     participant Mac as Mac (launchd)
     participant R2 as Cloudflare R2
-    participant GA as GitHub Actions
+    participant Local as Local build
+    participant D1 as Cloudflare D1
+    participant Worker as Worker
     participant User as Browser
 
     Note over Mac: Daily at 9AM + on login
     Mac->>R2: sync.py (CSVs + Qianji DB, MD5 dedup)
 
-    Note over GA: Weekly Monday 9AM ET
-    GA->>R2: wrangler r2 get (raw data)
-    GA->>GA: Check freshness (sync_meta.json)
-    alt Data > 7 days old
-        GA->>GA: Skip (stale data warning in logs)
-    else Fresh data
-        GA->>GA: Python: build ReportData → JSON
-        GA->>R2: Upload latest.json
-    end
+    Note over Local: After sync
+    Local->>Local: build_timemachine_db.py<br/>(ingest → replay → precompute)
+    Local->>D1: sync_to_d1.py (wrangler CLI)
 
     Note over User: Any time
-    User->>R2: fetch latest.json (on page load or Reload button)
-    R2->>User: Report data (JSON)
+    User->>Worker: fetch /timeline
+    Worker->>D1: 7 SELECTs (views)
+    D1->>Worker: rows
+    Worker->>User: JSON (1hr CDN cache)
 ```
 
 ## Project Structure
@@ -77,54 +94,105 @@ portal/
 │   ├── app/
 │   │   ├── layout.tsx                 # Root layout + sidebar
 │   │   ├── page.tsx                   # / → redirects to /finance
-│   │   └── finance/
-│   │       └── page.tsx               # Finance report (client component, fetches R2)
+│   │   ├── finance/
+│   │   │   └── page.tsx               # Finance dashboard (client component)
+│   │   └── econ/
+│   │       └── page.tsx               # Economy dashboard (FRED charts)
 │   ├── components/
 │   │   ├── layout/
 │   │   │   ├── sidebar.tsx            # Nav sidebar
-│   │   │   └── theme-toggle.tsx       # Dark mode toggle
+│   │   │   ├── theme-toggle.tsx       # Dark mode toggle
+│   │   │   └── back-to-top.tsx        # Floating scroll-to-top
 │   │   ├── finance/
 │   │   │   ├── shared.tsx             # SectionHeader, SectionBody, TickerTable
 │   │   │   ├── charts.tsx             # Recharts (donut, bar+line, area)
+│   │   │   ├── timemachine.tsx        # Brush/traveller date-range selector
 │   │   │   ├── metric-cards.tsx       # Portfolio, Net Worth, Savings Rate, Goal
 │   │   │   ├── category-summary.tsx   # Allocation table + donut
 │   │   │   ├── cash-flow.tsx          # Income/expenses + summary
-│   │   │   ├── investment-activity.tsx # Activity + ticker tables
-│   │   │   ├── balance-sheet.tsx      # Assets, liabilities, net worth
+│   │   │   ├── portfolio-activity.tsx # Activity + ticker tables
 │   │   │   ├── market-context.tsx     # Index returns + macro indicators
 │   │   │   ├── gain-loss.tsx          # Unrealized gain/loss per holding
 │   │   │   ├── annual-summary.tsx     # YTD expenses by category
 │   │   │   └── net-worth-growth.tsx   # MoM/YoY growth rates
-│   │   └── ui/                        # shadcn/ui (Card, Table, Badge, Button)
+│   │   ├── econ/
+│   │   │   ├── macro-cards.tsx        # Economic snapshot cards
+│   │   │   └── time-series-chart.tsx  # Multi-line FRED chart viewer
+│   │   └── ui/                        # shadcn/ui (Button, Table)
 │   └── lib/
-│       ├── types.ts                   # 1:1 camelCase mirror of Python ReportData
-│       ├── config.ts                  # R2 URL from env var
-│       └── format.ts                  # Currency/percent/yuan formatters
+│       ├── use-bundle.ts              # Core data hook: fetch /timeline → local compute
+│       ├── schema.ts                  # Zod schemas for timeline API
+│       ├── econ-schema.ts             # Zod schemas for economy data
+│       ├── types.ts                   # Re-exports from schema.ts
+│       ├── config.ts                  # TIMELINE_URL, REPORT_URL (deprecated), GOAL
+│       ├── format.ts                  # Currency/percent/yuan formatters
+│       ├── hooks.ts                   # Shared React hooks
+│       ├── chart-styles.ts            # Recharts theming
+│       ├── style-helpers.ts           # CSS helpers
+│       └── utils.ts                   # General utilities
 │
-├── pipeline/                          # Report generation (Python)
+├── worker/                            # Cloudflare Worker (TypeScript)
+│   ├── src/index.ts                   # GET /timeline → 7 D1 SELECTs → JSON
+│   ├── schema.sql                     # D1 tables + camelCase views
+│   ├── wrangler.toml                  # D1 binding config
+│   ├── tsconfig.json
+│   └── package.json
+│
+├── pipeline/                          # Data pipeline + backend (Python)
 │   ├── generate_asset_snapshot/       # Core package
-│   │   ├── report.py                  # build_report() → ReportData
+│   │   ├── server.py                  # FastAPI backend (local dev, port 8000)
+│   │   ├── db.py                      # SQLite schema + connection helpers
+│   │   ├── timemachine.py             # Historical replay engine
+│   │   ├── allocation.py              # Compute daily per-asset allocation
+│   │   ├── precompute.py              # Build computed_* tables (daily, prefix, market)
+│   │   ├── incremental.py             # Incremental DB update mode
+│   │   ├── prices.py                  # Yahoo Finance price + CNY rate fetcher
+│   │   ├── empower_401k.py            # Empower 401k QFX snapshot parser
 │   │   ├── types.py                   # Source-of-truth dataclasses
-│   │   ├── renderers/json_renderer.py # dataclasses.asdict() + camelCase (~20 lines)
-│   │   ├── ingest/                    # Fidelity CSV + Qianji SQLite parsers
-│   │   ├── market/yahoo.py            # Yahoo Finance: index returns, CNY rate
-│   │   ├── ai/                        # Optional AI features (narrative, classify)
+│   │   ├── report.py                  # build_report() → ReportData (legacy)
+│   │   ├── portfolio.py               # Load positions from Fidelity CSV
+│   │   ├── config.py                  # JSON config loader
+│   │   ├── history.py                 # Build chart data (monthly flows)
+│   │   ├── analysis.py                # Metrics computation
+│   │   ├── renderers/json_renderer.py # dataclasses.asdict() + camelCase
+│   │   ├── ingest/
+│   │   │   ├── fidelity_history.py    # Fidelity transaction CSV parser
+│   │   │   ├── robinhood_history.py   # Robinhood transaction CSV parser
+│   │   │   └── qianji_db.py           # Qianji SQLite reader
+│   │   ├── market/
+│   │   │   ├── yahoo.py               # Yahoo Finance: index returns, CNY rate
+│   │   │   └── fred.py                # FRED API: Fed rate, CPI, VIX, oil, etc.
 │   │   └── core/reconcile.py          # Qianji ↔ Fidelity cross-reconciliation
 │   ├── scripts/
-│   │   ├── sync.py                    # Mac/Win → R2 (wrangler CLI, MD5 dedup, macOS notifications)
-│   │   ├── send_report.py             # Generate report JSON + append net worth history
-│   │   ├── install_launchd.sh         # macOS scheduled sync (daily 9AM + on login)
+│   │   ├── build_timemachine_db.py    # Main build: ingest → replay → precompute → SQLite
+│   │   ├── sync_to_d1.py             # Push timemachine.db tables to D1
+│   │   ├── send_report.py             # Generate report JSON (legacy R2 path)
+│   │   ├── sync.py                    # Mac/Win → R2 (wrangler CLI, MD5 dedup)
+│   │   ├── verify_positions.py        # Verify Fidelity replay accuracy
+│   │   ├── verify_qianji.py           # Verify Qianji replay accuracy
+│   │   ├── create_test_db.py          # Generate test fixture DB
+│   │   ├── install_launchd.sh         # macOS scheduled sync
 │   │   └── install_task.ps1           # Windows Task Scheduler setup
-│   ├── tests/                         # 140 Python tests
-│   ├── config.example.json            # Template config (copy to config.json)
-│   └── requirements.txt               # yfinance, fredapi
+│   ├── tests/                         # 24 test files
+│   │   ├── unit/                      # Unit tests (20 files)
+│   │   ├── contract/                  # Data invariant tests
+│   │   ├── e2e/                       # Server integration tests
+│   │   └── fixtures/                  # Sample CSVs, QFX files
+│   ├── data/
+│   │   └── timemachine.db             # Generated SQLite (not in repo)
+│   ├── pyproject.toml                 # pytest, mypy, ruff config
+│   ├── requirements.txt               # yfinance, fredapi, fastapi, uvicorn
+│   └── config.example.json            # Template config
 │
-├── e2e/
-│   └── finance.spec.ts                # 28 Playwright e2e tests
+├── e2e/                               # Playwright e2e tests
+│   ├── finance.spec.ts                # Finance dashboard tests
+│   ├── econ.spec.ts                   # Economy dashboard tests
+│   ├── perf-brush.spec.ts             # Brush performance tests
+│   └── interactive-check.spec.ts      # Interactive component tests
 │
 ├── .github/workflows/
-│   ├── ci.yml                         # Python + Node CI → deploy (single workflow)
-│   └── report.yml                     # Weekly: generate report JSON → upload to R2
+│   ├── ci.yml                         # Python + Node CI → Pages + Worker deploy
+│   └── report.yml                     # Daily: generate report JSON → R2 (legacy)
 │
 └── package.json
 ```
@@ -135,66 +203,39 @@ Zero translation layer between Python and TypeScript:
 
 ```mermaid
 graph LR
-    PY["Python types.py<br/>(source of truth)"] -->|"dataclasses.asdict()<br/>+ camelCase keys"| JSON["latest.json<br/>(R2)"]
-    JSON -->|"fetch + render"| TS["TypeScript types.ts<br/>(1:1 mirror)"]
+    PY["Python types.py<br/>(source of truth)"] -->|"precompute → SQLite"| DB["timemachine.db"]
+    DB -->|"sync_to_d1.py"| D1["D1"]
+    D1 -->|"Worker views<br/>(camelCase aliases)"| JSON["GET /timeline<br/>(JSON)"]
+    JSON -->|"Zod validation"| TS["TypeScript schema.ts<br/>(camelCase mirror)"]
 
     style PY fill:#3776ab,color:#fff
+    style DB fill:#10b981,color:#fff
+    style D1 fill:#2563eb,color:#fff
     style JSON fill:#f59e0b,color:#000
     style TS fill:#3178c6,color:#fff
 ```
 
-- Python `snake_case` → JSON `camelCase` → TypeScript `camelCase`
-- JSON renderer is ~20 lines (`dataclasses.asdict()` + recursive key conversion)
-- Raw transaction lists stripped from JSON (portal uses pre-computed aggregations)
+- Python `snake_case` → D1 views `camelCase` aliases → TypeScript `camelCase`
+- Frontend validates with Zod schemas (`schema.ts`)
+- Raw transaction lists are included for local computation in `use-bundle.ts`
 - No manual field mapping, no divergent schemas
-
-## Report Sections
-
-```mermaid
-graph TD
-    A["Metric Cards<br/>Portfolio · Net Worth · Savings Rate · Goal"] --> B["Category Summary + Donut<br/>equity & non-equity allocation vs targets"]
-    B --> C["Cash Flow + Bar Chart<br/>income · expenses · savings rates"]
-    C --> D["Investment Activity<br/>net cash in · deployed · passive income"]
-    D --> E["Balance Sheet<br/>Fidelity + personal accounts + CNY + credit"]
-    E --> F["Market Context<br/>index returns · macro indicators"]
-    F --> G["Holdings Detail<br/>top/bottom performers · upcoming earnings"]
-    G --> H["Unrealized Gain/Loss<br/>cost basis · per-holding P&L"]
-    H --> I["Annual Summary<br/>YTD expenses by category"]
-    I --> J["Net Worth Growth<br/>MoM · YoY rates"]
-
-    style A fill:#f8f9fa,stroke:#333
-    style B fill:#f8f9fa,stroke:#333
-    style C fill:#f8f9fa,stroke:#333
-    style D fill:#f8f9fa,stroke:#333
-    style E fill:#f8f9fa,stroke:#333
-    style F fill:#f8f9fa,stroke:#333
-    style G fill:#f8f9fa,stroke:#333
-    style H fill:#f8f9fa,stroke:#333
-    style I fill:#f8f9fa,stroke:#333
-    style J fill:#f8f9fa,stroke:#333
-```
-
-Features:
-- **Dark mode** toggle (persists to localStorage)
-- **Reload button** — fetch fresh data from R2 without page refresh
-- **Data timestamps** — shows when each data source was last updated
-- **Collapsible rows** — expenses < $200 and activity tickers beyond top 5
-- **Mobile responsive** — adaptive layout, hidden columns, scrollable tables
 
 ## Tech Stack
 
 | Layer | Choice | Why |
 |-------|--------|-----|
-| Frontend | Next.js 15 (App Router) | React ecosystem, file-based routing |
-| Charts | Recharts | Lightweight, React-native, ComposedChart for mixed bar+line |
-| Data | Client-side fetch from R2 | No rebuild needed for data updates |
+| Frontend | Next.js 16 (App Router) | React 19, file-based routing |
+| Charts | Recharts 3 | Lightweight, React-native, ComposedChart for mixed bar+line |
+| Validation | Zod 4 | Runtime schema validation for API responses |
+| Data | `use-bundle.ts` → Worker `/timeline` | Fetch once, compute locally, zero-lag brush |
 | Styling | Tailwind CSS v4 + shadcn/ui | Utility-first, dark mode support |
-| Hosting | Cloudflare Pages | Edge CDN, free tier, static shell |
-| Storage | Cloudflare R2 | S3-compatible, free 10GB, CORS enabled |
+| Hosting | Cloudflare Pages + Workers | Edge CDN, D1 SQLite, free tier |
+| Storage | Cloudflare D1 (primary), R2 (legacy) | D1 for structured data, R2 being phased out |
 | Auth | Cloudflare Access | Zero-trust, Google login |
-| Pipeline | Python 3.14 | Fidelity/Qianji parsing, Yahoo Finance API |
-| CI/CD | GitHub Actions | Single workflow: test → build → deploy |
-| Tests | Playwright (28) + pytest (140) | E2E browser tests + Python unit tests |
+| Backend | FastAPI (local dev) | Serves timemachine.db for local development |
+| Pipeline | Python 3.14 | Fidelity/Qianji/Robinhood/401k ingest, Yahoo Finance, FRED API |
+| CI/CD | GitHub Actions | Single workflow: test → build → deploy (Pages + Worker) |
+| Tests | Playwright (4 specs) + pytest (24 test files) | E2E browser tests + Python unit/contract/e2e tests |
 
 ## Development
 
@@ -206,38 +247,52 @@ cd pipeline && python3 -m venv .venv && .venv/bin/pip install -r requirements.tx
 # Config (copy template and fill in your accounts)
 cp pipeline/config.example.json pipeline/config.json
 
-# Environment (create .env.local with your R2 URL)
-echo "NEXT_PUBLIC_R2_URL=https://your-r2-url.r2.dev" > .env.local
+# Environment (create .env.local)
+cat > .env.local <<EOF
+NEXT_PUBLIC_TIMELINE_URL=http://localhost:8000/timeline
+NEXT_PUBLIC_R2_URL=https://your-r2-url.r2.dev
+EOF
 
-# Dev server (fetches live data from R2)
+# Local backend (serves timemachine.db on port 8000)
+cd pipeline && .venv/bin/python -m generate_asset_snapshot.server
+
+# Dev server (fetches from TIMELINE_URL)
 npm run dev              # http://localhost:3000
 
 # Run tests
-npx next build && npx playwright test                     # 28 e2e tests
-cd pipeline && .venv/bin/pytest -q                         # 140 Python tests
-cd pipeline && .venv/bin/mypy generate_asset_snapshot/      # type check
-cd pipeline && .venv/bin/ruff check .                       # lint
+cd pipeline && .venv/bin/pytest -q                          # Python tests
+cd pipeline && .venv/bin/mypy generate_asset_snapshot/ --ignore-missing-imports
+cd pipeline && .venv/bin/ruff check .
+npx next build && npx playwright test                       # e2e tests
 
-# Manual sync to R2
+# Build timemachine DB from raw data
+cd pipeline && python3 scripts/build_timemachine_db.py
+
+# Sync DB to Cloudflare D1
+cd pipeline && python3 scripts/sync_to_d1.py
+
+# Manual sync raw data to R2 (legacy)
 cd pipeline && python3 scripts/sync.py --force
 ```
 
 ## Setup (one-time)
 
-1. **Cloudflare R2**: Create bucket, enable public access (r2.dev URL), set CORS `AllowedOrigins: ["*"]`
-2. **Environment**: Set `NEXT_PUBLIC_R2_URL` in `.env.local` and as GitHub secret
-3. **Custom domain** (optional): Add `portal.yourdomain.com` to Pages project
-4. **Cloudflare Access** (optional): Zero Trust → Add Google IdP → Access Application
-5. **GitHub Secrets**: `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` (Pages + R2 Edit), `NEXT_PUBLIC_R2_URL`
-6. **Config**: Copy `config.example.json` → `config.json`, fill in your accounts
-7. **Mac sync**: `wrangler login && bash pipeline/scripts/install_launchd.sh`
-8. **First sync**: `cd pipeline && python3 scripts/sync.py --force`
+1. **Cloudflare D1**: `cd worker && npx wrangler d1 create portal-db`, apply schema: `npx wrangler d1 execute portal-db --remote --file=schema.sql`
+2. **Cloudflare R2** (legacy): Create bucket, enable public access, set CORS
+3. **Environment**: Set `NEXT_PUBLIC_TIMELINE_URL` (Worker URL) in `.env.local` and as GitHub secret
+4. **Custom domain** (optional): Add `portal.yourdomain.com` to Pages project
+5. **Cloudflare Access** (optional): Zero Trust → Add Google IdP → Access Application
+6. **GitHub Secrets**: `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `NEXT_PUBLIC_TIMELINE_URL`, `NEXT_PUBLIC_R2_URL`, `FRED_API_KEY`
+7. **Config**: Copy `config.example.json` → `config.json`, fill in your accounts
+8. **Mac sync**: `wrangler login && bash pipeline/scripts/install_launchd.sh`
+9. **First build**: `cd pipeline && python3 scripts/build_timemachine_db.py && python3 scripts/sync_to_d1.py`
 
 ## Adding a New Module
 
 ```
 src/app/{module}/page.tsx        ← route + UI
-src/lib/{module}-config.ts       ← data loading
+src/lib/{module}-schema.ts       ← Zod schemas
+src/components/{module}/         ← components
 e2e/{module}.spec.ts             ← tests
 pipeline/...                     ← data generation (if needed)
 ```
@@ -246,9 +301,14 @@ pipeline/...                     ← data generation (if needed)
 
 - [ ] Gmail module — important email auto-triage
 - [ ] News aggregation — RSS feeds
-- [x] Economic indicators dashboard — FRED time series charts
-- [x] FRED API integration — populate macro indicators (Fed Rate, 10Y Treasury, CPI, VIX, etc.)
+- [x] Economic indicators dashboard — FRED time series charts (`/econ`)
+- [x] FRED API integration — Fed rate, CPI, VIX, oil, unemployment, Treasury yields
+- [x] Timemachine — historical portfolio replay with brush navigation
+- [x] Cloudflare D1 + Workers migration — replace local FastAPI for production
+- [x] Robinhood transaction ingestion
+- [x] Empower 401k QFX integration
 - [ ] AI-generated macro narrative — LLM summarizing economic conditions and cycle position
+- [ ] Drop R2 legacy path — remove REPORT_URL, ECON_URL, report.yml workflow
 
 ## License
 
