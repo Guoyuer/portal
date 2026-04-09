@@ -103,11 +103,14 @@ def main() -> None:
         tmp.write_text(combined, encoding="utf-8")
         print(f"\nExecuting {total_rows} rows against D1 ({len(combined):,} bytes)...")
 
+        # Use shell=True on Windows so npx.cmd is found
+        cmd = f'npx wrangler d1 execute portal-db --remote --file="{tmp}"'
         result = subprocess.run(
-            ["npx", "wrangler", "d1", "execute", "portal-db", "--remote", f"--file={tmp}"],
+            cmd,
             cwd=str(_WORKER_DIR),
             capture_output=True,
             text=True,
+            shell=True,
         )
 
         if result.returncode != 0:
