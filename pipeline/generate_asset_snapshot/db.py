@@ -127,6 +127,17 @@ CREATE TABLE IF NOT EXISTS computed_market (
     low_52w      REAL NOT NULL DEFAULT 0,
     sparkline    TEXT NOT NULL DEFAULT '[]'
 );
+
+-- Pre-computed per-ticker holdings performance
+CREATE TABLE IF NOT EXISTS computed_holdings_detail (
+    ticker       TEXT PRIMARY KEY,
+    month_return REAL NOT NULL DEFAULT 0,
+    start_value  REAL NOT NULL DEFAULT 0,
+    end_value    REAL NOT NULL DEFAULT 0,
+    high_52w     REAL,
+    low_52w      REAL,
+    vs_high      REAL
+);
 """
 
 _INDEXES = """

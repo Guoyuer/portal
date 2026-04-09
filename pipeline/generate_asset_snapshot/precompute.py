@@ -244,3 +244,79 @@ def precompute_market(db_path: Path) -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+# ── Holdings detail precomputation ─────────────────────────────────────────
+
+
+def precompute_holdings_detail(db_path: Path) -> None:
+    """Precompute per-ticker performance data into computed_holdings_detail.
+
+    Reads computed_daily_tickers for the latest date, filters to "real" tickers
+    (ASCII, no spaces, <=5 chars), then computes month return, start/end value,
+    52-week high/low, and vs_high from daily_close prices.
+    Clears and rewrites the table each invocation.
+    """
+    from .db import get_connection
+
+    conn = get_connection(db_path)
+    try:
+        conn.execute("DELETE FROM computed_holdings_detail")
+
+        # Latest date in computed_daily_tickers
+        row = conn.execute("SELECT date FROM computed_daily_tickers ORDER BY date DESC LIMIT 1").fetchone()
+        if row is None:
+            conn.commit()
+            return
+        latest_date: str = row[0]
+
+        # Tickers with value > 0 on that date
+        ticker_rows = conn.execute(
+            "SELECT ticker, value FROM computed_daily_tickers WHERE date = ? AND value > 0",
+            (latest_date,),
+        ).fetchall()
+
+        # Filter to real tickers: ASCII, no spaces, <=5 chars
+        real_tickers: dict[str, float] = {
+            t: v for t, v in ticker_rows if t.isascii() and " " not in t and len(t) <= 5
+        }
+        if not real_tickers:
+            conn.commit()
+            return
+
+        # Compute per-ticker stats
+        insert_rows: list[tuple[str, float, float, float, float, float, float]] = []
+        for ticker, value in real_tickers.items():
+            closes = conn.execute(
+                "SELECT close FROM daily_close WHERE symbol = ? ORDER BY date",
+                (ticker,),
+            ).fetchall()
+            if len(closes) < 2:
+                continue
+            prices = [r[0] for r in closes]
+            current = prices[-1]
+
+            # Month return (~22 trading days)
+            month_idx = max(0, len(prices) - 23)
+            month_ret = round((current / prices[month_idx] - 1) * 100, 2)
+            start_value = round(value / (1 + month_ret / 100), 2) if month_ret != -100 else 0.0
+
+            # 52-week high/low (~252 trading days)
+            year_prices = prices[-252:]
+            high = max(year_prices)
+            low = min(year_prices)
+            vs_high = round((current / high - 1) * 100, 2)
+
+            insert_rows.append((ticker, month_ret, start_value, round(value, 2), high, low, vs_high))
+
+        if insert_rows:
+            conn.executemany(
+                "INSERT INTO computed_holdings_detail"
+                " (ticker, month_return, start_value, end_value, high_52w, low_52w, vs_high)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                insert_rows,
+            )
+
+        conn.commit()
+    finally:
+        conn.close()

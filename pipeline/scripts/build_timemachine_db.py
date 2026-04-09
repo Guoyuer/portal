@@ -47,7 +47,12 @@ from generate_asset_snapshot.empower_401k import (
 from generate_asset_snapshot.incremental import append_daily, get_last_computed_date, verify_daily
 from generate_asset_snapshot.ingest.fidelity_history import load_transactions
 from generate_asset_snapshot.ingest.qianji_db import load_all_from_db
-from generate_asset_snapshot.precompute import build_daily_flows, compute_prefix_sums, precompute_market
+from generate_asset_snapshot.precompute import (
+    build_daily_flows,
+    compute_prefix_sums,
+    precompute_holdings_detail,
+    precompute_market,
+)
 from generate_asset_snapshot.prices import (
     fetch_and_store_cny_rates,
     fetch_and_store_prices,
@@ -344,6 +349,11 @@ def _full_build(config, start, end, k401_daily, csv_path: Path):
     precompute_market(DB_PATH)
     print("  Done")
 
+    # Precompute holdings detail
+    print("[H] Precomputing holdings detail...")
+    precompute_holdings_detail(DB_PATH)
+    print("  Done")
+
     _print_summary(alloc)
     return alloc
 
@@ -386,6 +396,11 @@ def _incremental_build(config, start, end, k401_daily, csv_path: Path):
     # Precompute market index data (always refresh on incremental)
     print("[M] Precomputing market data...")
     precompute_market(DB_PATH)
+    print("  Done")
+
+    # Precompute holdings detail (always refresh on incremental)
+    print("[H] Precomputing holdings detail...")
+    precompute_holdings_detail(DB_PATH)
     print("  Done")
 
     _print_summary(alloc)
