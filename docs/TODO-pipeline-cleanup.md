@@ -2,6 +2,78 @@
 
 Notes from April 9, 2026 session. Covers data pipeline simplification, bug fixes, and automation.
 
+## Target architecture (after P0–P6)
+
+```mermaid
+graph TB
+    subgraph Local["Local machine (launchd, daily)"]
+        DETECT["run.sh<br/>detect Qianji DB / CSV changes"]
+        QUERY["Query D1 for last_date"]
+        BUILD["build_timemachine_db.py --incremental --since last_date<br/>replay → prices → precompute"]
+        DIFF["sync_to_d1.py --diff<br/>INSERT new rows only"]
+    end
+
+    subgraph Sources["Data sources (local files)"]
+        QJ[(Qianji DB)]
+        FID[Fidelity CSV]
+        QFX[Empower QFX]
+        RH[Robinhood CSV]
+        POS["Positions CSV<br/>(optional calibration)"]
+    end
+
+    subgraph Cloud["Cloudflare"]
+        D1[(D1 portal-db<br/>persistent store<br/>6 tables)]
+        WORKER["Worker<br/>GET /timeline → JSON"]
+        CDN["CDN cache<br/>1hr TTL"]
+        PAGES["Pages<br/>static shell"]
+        ACCESS["Access<br/>Google login"]
+    end
+
+    subgraph Frontend["Browser"]
+        FETCH["fetch /timeline (once)"]
+        BUNDLE["use-bundle.ts<br/>local compute:<br/>allocation · cashflow<br/>activity · cross-check"]
+        UI["React components"]
+    end
+
+    subgraph CI["GitHub Actions (code only)"]
+        TEST["pytest + mypy + ruff<br/>next build"]
+        DEPLOY["Deploy Pages + Worker"]
+    end
+
+    QJ & FID & QFX & RH --> BUILD
+    POS -.->|"--positions<br/>verify + calibrate"| BUILD
+    DETECT --> QUERY
+    QUERY --> BUILD
+    BUILD --> DIFF
+    DIFF -->|"INSERT new rows"| D1
+    D1 --> WORKER
+    WORKER --> CDN
+    CDN --> FETCH
+    FETCH --> BUNDLE
+    BUNDLE --> UI
+    ACCESS -->|protects| PAGES
+    TEST --> DEPLOY
+    DEPLOY --> PAGES
+    DEPLOY --> WORKER
+
+    style D1 fill:#2563eb,color:#fff
+    style WORKER fill:#2563eb,color:#fff
+    style CDN fill:#2563eb,color:#fff
+    style BUILD fill:#10b981,color:#fff
+    style DIFF fill:#10b981,color:#fff
+    style BUNDLE fill:#f59e0b,color:#000
+    style PAGES fill:#f59e0b,color:#000
+    style POS fill:#6b7280,color:#fff
+```
+
+**Key design principles:**
+- **D1 is the persistent store** — local DB is a disposable build cache
+- **Diff sync** — only new rows are pushed, not full table replacement
+- **No R2** — all data flows through D1 → Worker → frontend
+- **Frontend computes locally** — one fetch, then allocation/cashflow/activity are instant (no server round-trips during brush drag)
+- **Positions CSV is optional** — used for periodic calibration (cost basis correction), not required for daily operation
+- **CI is code-only** — data pipeline runs locally, CI only tests and deploys
+
 ---
 
 ## Background
