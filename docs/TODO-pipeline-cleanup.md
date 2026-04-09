@@ -95,21 +95,43 @@ Notes from April 9, 2026 session. Covers data pipeline simplification, bug fixes
 ```
 Mac launchd → sync.py → R2        (automated, but R2-only)
 Local:  build_timemachine_db.py    (manual, hardcoded Windows paths)
-Local:  sync_to_d1.py              (manual)
+Local:  sync_to_d1.py              (manual, full DELETE + INSERT every time)
 ```
 
-**Target flow (fully automated):**
+**Problems with current sync:**
+- `sync_to_d1.py` does full-table DELETE + INSERT for all 7 tables every time, even if only 1 day is new
+- Local `timemachine.db` is required — switching computers means full rebuild from scratch
+- D1 is treated as a dumb mirror, not as persistent storage
+
+**Target flow (fully automated, D1 as source of truth):**
 ```
 Mac launchd → run.sh:
   1. Detect changes (Qianji DB mtime, new CSVs in Downloads)
-  2. build_timemachine_db.py --incremental
-  3. sync_to_d1.py
+  2. Query D1 for last_date (via wrangler d1 execute)
+  3. build_timemachine_db.py --incremental --since <last_date>
+  4. sync_to_d1.py --diff (only INSERT new rows)
   → D1 updated, Worker serves fresh data (1hr CDN cache)
 ```
 
+**Key change: diff-based sync instead of full replace.**
+
+Per-table sync strategy:
+
+| Table | Sync mode | How |
+|-------|-----------|-----|
+| `computed_daily` | Diff | INSERT rows where `date > last_d1_date` |
+| `computed_daily_tickers` | Diff | INSERT rows where `date > last_d1_date` |
+| `fidelity_transactions` | Diff | INSERT rows with `run_date` after last synced date |
+| `qianji_transactions` | Diff | INSERT rows with `date` after last synced date |
+| `computed_market` | Full replace | Small table (~10 rows), always refresh |
+| `computed_holdings_detail` | Full replace | Small table (~40 rows), always refresh |
+
+**D1 becomes the persistent store, local DB becomes a disposable build cache.** Switching computers: query D1 for `last_date`, run incremental build from there, push diff. No need to carry `timemachine.db` around.
+
 **Changes needed:**
-- `build_timemachine_db.py`: parameterize paths via `--data-dir` / env var, remove hardcoded `C:/Users/guoyu/...`
-- New `pipeline/scripts/run.sh`: detect changes → build → sync, single entry point
+- `sync_to_d1.py`: add `--diff` mode — query D1 for max date, only generate INSERT for rows after that date. Full-replace only for market + holdings_detail.
+- `build_timemachine_db.py`: accept `--since <date>` to skip dates already in D1. Parameterize paths via `--data-dir` / env var, remove hardcoded `C:/Users/guoyu/...`
+- New `pipeline/scripts/run.sh`: detect changes → query D1 → build → diff sync, single entry point
 - New launchd plist / Windows Task Scheduler task to run `run.sh` daily
 - CI (`ci.yml`) stays code-only: test → Pages + Worker deploy
 
