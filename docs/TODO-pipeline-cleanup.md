@@ -204,6 +204,75 @@ This way:
 
 ---
 
+## P5 — Data quality hardening
+
+### 1. CNY rate fallback is a hardcoded stale value
+**File:** `allocation.py:113`
+**Problem:** `last_cny_rate = 7.25` is used when Yahoo Finance has no data. If yfinance is down during a build, all CNY assets get valued at this stale rate with no warning.
+**Fix:** Track rate staleness. If latest CNY rate in DB is > 7 days old, log a warning. If no rate at all, fail the build loudly instead of silently using 7.25.
+
+### 2. Unrecognized Fidelity actions are silently dropped
+**File:** `timemachine.py:117`
+**Problem:** Only actions matching `POSITION_PREFIXES` affect share counts. Corporate actions (mergers, spinoffs, stock splits) and any new Fidelity action types are silently ignored — no log, no error.
+**Fix:** Log a warning for every action that doesn't match any known prefix. Add a contract test that loads the actual CSV and verifies every action type is categorized.
+
+### 3. Missing prices are silently skipped
+**File:** `allocation.py:158-161`
+**Problem:** If a ticker has no price data (delisted, yfinance failure, typo), `pd.notna(price)` silently skips it. The holding disappears from the portfolio total with no trace.
+**Fix:** After computing `ticker_values`, check all holdings from replay have a value. Log a warning for any holding with qty > 0 but no price: `"VOO: 50 shares but no price on 2026-04-09"`.
+
+### 4. yfinance failures are not handled
+**File:** `prices.py`
+**Problem:** If yfinance download times out or returns empty data for a symbol, no error is raised. The build succeeds with incomplete price data.
+**Fix:** After each yfinance call, validate that expected symbols have data. Retry once on network timeout. Log which symbols returned zero rows.
+
+### 5. Contract test coverage gaps
+**File:** `tests/contract/test_invariants.py`
+**Missing tests:**
+- Every ticker in `computed_daily_tickers` has at least one price in `daily_close`
+- Latest CNY rate is within 7 days of latest `computed_daily` date
+- Every distinct `action` in `fidelity_transactions` maps to a known `action_type`
+- `computed_daily.total` ≈ sum of `computed_daily_tickers.value` for same date (within $1)
+- No date in `computed_daily` has total = 0 (unless it's the first date)
+
+---
+
+## P6 — Frontend UX improvements
+
+### 1. Fetch error is not displayed
+**File:** `src/app/finance/page.tsx:95-100`
+**Problem:** `tl.error` is never checked. If `/timeline` fetch fails (Worker down, D1 empty, network error), user sees "Loading..." forever.
+**Fix:** Add error state before loading check:
+```tsx
+if (tl.error) return <div className="text-red-500 text-center py-20">Failed to load: {tl.error}</div>;
+```
+
+### 2. Worker returns empty data without error signal
+**File:** `worker/src/index.ts`
+**Problem:** If D1 is empty (fresh database, failed sync), Worker returns `{ daily: [], prefix: [], ... }` with status 200. Frontend renders empty tables silently.
+**Fix:** If `daily.results.length === 0`, return 503 with `{ error: "No data available" }`. Frontend can then show a clear message.
+
+### 3. Empty data ranges show blank tables
+**Files:** `cash-flow.tsx`, `portfolio-activity.tsx`
+**Problem:** Selecting a date range with no transactions shows table headers with zero rows. User can't tell if data is missing or there were genuinely no transactions.
+**Fix:** Show "No income/expenses in this period" or "No trading activity in this period" when items are empty.
+
+### 4. No data freshness indicator
+**Problem:** No way for the user to know when data was last updated. If sync hasn't run in a week, the dashboard looks normal but shows stale data.
+**Fix:** Add a "Data as of: Apr 9, 2026" line in the header, derived from the latest date in `daily[]`. If > 3 days old, show in yellow/orange.
+
+### 5. econ page has no fetch timeout
+**File:** `src/app/econ/page.tsx`
+**Problem:** `fetch(ECON_URL)` has no timeout. If R2 (or future D1 endpoint) hangs, page shows "Loading economic data..." forever.
+**Fix:** Add `AbortSignal.timeout(10000)` like the finance page does in `use-bundle.ts:327`.
+
+### 6. Currency formatting inconsistency
+**File:** `src/lib/format.ts`
+**Problem:** `fmtCurrency` uses 2 decimals for values < $10 but 0 decimals for >= $10. So $9.99 → "$9.99" but $10.50 → "$11". Jarring at the boundary.
+**Fix:** Use 0 decimals for all values >= $1, or use 2 decimals consistently up to $1,000.
+
+---
+
 ## Implementation order
 
 ```
@@ -212,4 +281,6 @@ P1 (remove prefix):       ~1-2 hours (pipeline + frontend + worker)
 P2 (remove R2):           ~2-3 hours (delete code + migrate /econ)
 P3 (automate pipeline):   ~1-2 hours (parameterize + run.sh + launchd)
 P4 (checkpoint + verify): ~2-3 hours (checkpoint table + resume logic + verify mode)
+P5 (data quality):        ~2-3 hours (validation + warnings + contract tests)
+P6 (frontend UX):         ~2-3 hours (error states + empty states + freshness)
 ```
