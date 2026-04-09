@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, type ReactNode } from "react";
-import type { BundleState } from "@/lib/use-bundle";
+import type { BundleState, PortfolioReconciliation } from "@/lib/use-bundle";
 import {
   Area,
   AreaChart,
@@ -149,10 +149,12 @@ export const TimemachineSummary = memo(function TimemachineSummary({
   snapshot,
   range,
   startDate,
+  portfolioReconciliation: pr,
 }: {
   snapshot: DailyPoint | null;
   range: PrefixPoint | null;
   startDate?: string;
+  portfolioReconciliation?: PortfolioReconciliation | null;
 }) {
   if (!snapshot) return null;
 
@@ -237,6 +239,39 @@ export const TimemachineSummary = memo(function TimemachineSummary({
           </div>
         </>
       )}
+
+      {/* Portfolio reconciliation — net worth change breakdown */}
+      {pr && (
+        <>
+          <div className="border-t border-border" />
+          <div className="grid grid-cols-4 gap-2 text-xs">
+            <div>
+              <p className="text-muted-foreground">Net Change</p>
+              <p className={`font-semibold tabular-nums mt-0.5 ${pr.netChange >= 0 ? "text-green-500" : "text-red-400"}`}>
+                {pr.netChange >= 0 ? "+" : ""}{fmtCurrencyShort(pr.netChange)}
+              </p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Deposits</p>
+              <p className="font-semibold tabular-nums mt-0.5">
+                {fmtCurrencyShort(pr.deposits)}
+              </p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Dividends</p>
+              <p className="font-semibold tabular-nums mt-0.5">
+                {fmtCurrencyShort(pr.dividends)}
+              </p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Market</p>
+              <p className={`font-semibold tabular-nums mt-0.5 ${pr.marketMovement >= 0 ? "text-green-500" : "text-red-400"}`}>
+                {pr.marketMovement >= 0 ? "+" : ""}{fmtCurrencyShort(pr.marketMovement)}
+              </p>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 });
@@ -261,6 +296,7 @@ export function TimemachineSection({
           snapshot={tl.snapshot}
           range={tl.range}
           startDate={tl.startDate ?? undefined}
+          portfolioReconciliation={tl.portfolioReconciliation}
         />
         <div className="mt-4">
           <TimemachineChart

@@ -104,6 +104,58 @@ interface ReconcileResult {
   ok: boolean;
 }
 
+// ── Local computation: portfolio reconciliation ─────────────────────────
+
+export interface PortfolioReconciliation {
+  startDate: string;
+  endDate: string;
+  startValue: number;
+  endValue: number;
+  netChange: number;
+  deposits: number;
+  dividends: number;
+  marketMovement: number;
+}
+
+function computePortfolioReconciliation(
+  daily: DailyPoint[],
+  fidelityTxns: FidelityTxn[],
+  dateIndex: Map<string, number>,
+  startDate: string,
+  endDate: string,
+): PortfolioReconciliation | null {
+  const si = dateIndex.get(startDate);
+  const ei = dateIndex.get(endDate);
+  if (si === undefined || ei === undefined) return null;
+
+  const startValue = daily[si].total;
+  const endValue = daily[ei].total;
+  const netChange = Math.round((endValue - startValue) * 100) / 100;
+
+  const startSort = startDate.replaceAll("-", "");
+  const endSort = endDate.replaceAll("-", "");
+
+  let deposits = 0;
+  let dividends = 0;
+
+  for (const t of fidelityTxns) {
+    const sort = fidelityDateToSort(t.runDate);
+    if (sort < startSort || sort > endSort) continue;
+    const action = t.action.toUpperCase();
+    if (action.startsWith("ELECTRONIC FUNDS TRANSFER RECEIVED")) {
+      deposits += t.amount;
+    } else if (action.startsWith("DIVIDEND") || action.startsWith("REINVESTMENT")) {
+      dividends += t.amount;
+    }
+  }
+
+  deposits = Math.round(deposits * 100) / 100;
+  dividends = Math.round(dividends * 100) / 100;
+  const marketMovement = Math.round((netChange - deposits - dividends) * 100) / 100;
+
+  return { startDate, endDate, startValue, endValue, netChange, deposits, dividends, marketMovement };
+}
+
 /** Convert fidelity "MM/DD/YYYY" to sortable "YYYYMMDD" */
 function fidelityDateToSort(runDate: string): string {
   return runDate.slice(6, 10) + runDate.slice(0, 2) + runDate.slice(3, 5);
@@ -114,7 +166,7 @@ function fidelityDateToMs(runDate: string): number {
   return new Date(`${runDate.slice(6, 10)}-${runDate.slice(0, 2)}-${runDate.slice(3, 5)}`).getTime();
 }
 
-const ONE_DAY_MS = 86_400_000;
+const MATCH_WINDOW_MS = 3 * 86_400_000; // ±3 days (bank transfers take 1-3 business days)
 
 function computeReconcile(fidelityTxns: FidelityTxn[], qianjiTxns: QianjiTxn[], start: string, end: string): ReconcileResult {
   const startSort = start.replaceAll("-", "");
@@ -143,7 +195,7 @@ function computeReconcile(fidelityTxns: FidelityTxn[], qianjiTxns: QianjiTxn[], 
       const tr = transfers[i];
       if (Math.round(tr.amount * 100) !== depAmt) continue;
       const trMs = new Date(tr.date).getTime();
-      if (Math.abs(depMs - trMs) <= ONE_DAY_MS) {
+      if (Math.abs(depMs - trMs) <= MATCH_WINDOW_MS) {
         used.add(i);
         matched++;
         break;
@@ -278,6 +330,7 @@ export interface BundleState {
   market: MarketData | null;
   holdingsDetail: HoldingsDetailData | null;
   reconcile: ReconcileResult | null;
+  portfolioReconciliation: PortfolioReconciliation | null;
 }
 
 export function useBundle(): BundleState {
@@ -374,6 +427,11 @@ export function useBundle(): BundleState {
     [data, startDate, snapshotDate],
   );
 
+  const portfolioReconciliation = useMemo(
+    () => (data && startDate && snapshotDate) ? computePortfolioReconciliation(data.daily, data.fidelityTxns, dateIndex, startDate, snapshotDate) : null,
+    [data, startDate, snapshotDate, dateIndex],
+  );
+
   return {
     chartDaily,
     prefix: data?.prefix ?? [],
@@ -391,5 +449,6 @@ export function useBundle(): BundleState {
     market: data?.market ?? null,
     holdingsDetail: data?.holdingsDetail ?? null,
     reconcile,
+    portfolioReconciliation,
   };
 }
