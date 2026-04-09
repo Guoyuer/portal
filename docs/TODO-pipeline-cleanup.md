@@ -386,6 +386,45 @@ if (tl.error) return <div className="text-red-500 text-center py-20">Failed to l
 **Problem:** `fmtCurrency` uses 2 decimals for values < $10 but 0 decimals for >= $10. So $9.99 → "$9.99" but $10.50 → "$11". Jarring at the boundary.
 **Fix:** Use 0 decimals for all values >= $1, or use 2 decimals consistently up to $1,000.
 
+### 7. CORS `Access-Control-Allow-Origin: *` too permissive
+**File:** `worker/src/index.ts:8`
+**Problem:** Worker endpoint is publicly accessible by any website. Cloudflare Access protects Pages, but the Worker `/timeline` API itself is unprotected — anyone with the URL can read all your financial data.
+**Fix:** Restrict to your domain: `"Access-Control-Allow-Origin": "https://portal.guoyuer.com"`. For local dev, check `Origin` header and allow `localhost:3000` too.
+
+---
+
+## P8 — Frontend feature enrichment
+
+All items below use **existing D1 data** — no pipeline changes needed. Pure frontend additions.
+
+### 1. Portfolio return vs benchmark
+**Data:** `computed_daily.total` (portfolio) + `computed_market` (S&P 500)
+**Feature:** In the timemachine brush panel, show portfolio return % alongside S&P 500 return % for the selected range. "Your portfolio: +12.3% | S&P 500: +9.1%". Immediate insight into whether you're beating the market.
+
+### 2. Net worth milestones on chart
+**Data:** `computed_daily.total`
+**Feature:** Mark milestone crossings ($100K, $250K, $500K, $1M) on the timemachine area chart with dots/flags. Shows progress at a glance.
+
+### 3. Savings rate trend chart
+**Data:** `qianji_transactions` (already in frontend)
+**Feature:** Monthly savings rate over full history as a line chart, not just the current range's number. Shows if spending habits are improving or deteriorating.
+
+### 4. Expense category trend (sparklines)
+**Data:** `qianji_transactions`
+**Feature:** In the cashflow table, add a tiny sparkline next to each expense category showing its trend over the last 6-12 months. Quickly spot categories that are growing.
+
+### 5. Concentration risk indicator
+**Data:** `computed_daily_tickers` (already in frontend as `tickerIndex`)
+**Feature:** If any single position is > 15% of portfolio, show a warning badge. If top 3 positions are > 50%, flag it. Simple risk check.
+
+### 6. Dividend income projection
+**Data:** `fidelity_transactions` (dividends by symbol in frontend)
+**Feature:** Based on trailing 12-month dividends, project annual passive income. Show in metric cards: "Est. annual dividends: $X,XXX". Motivating for income investors.
+
+### 7. Goal timeline projection
+**Data:** `computed_daily` (net worth trend) + `qianji_transactions` (savings rate)
+**Feature:** Extend the current goal progress bar with an estimated date: "At current savings rate + 7% return, reach $2M by ~2031". Simple compound growth projection from current net worth + monthly savings.
+
 ---
 
 ## P7 — D1 pipeline architecture cleanup
