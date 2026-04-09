@@ -146,24 +146,38 @@ With checkpoint:     [checkpoint @ txn 1990] → txn[1991..2000] → today  (10 
 - Incremental build: load latest checkpoint, replay only transactions after that date
 - Optionally save a new checkpoint after each incremental build
 
-### Positions CSV verification (--verify)
-Keep the existing `--verify` mode but enhance it: when a `Portfolio_Positions_*.csv` is available, compare replay output against the CSV as a correctness check. This catches missing/duplicate transactions, replay logic bugs, or CSV parsing errors.
+### Positions CSV calibration (--positions)
+When a `Portfolio_Positions_*.csv` is available, use it to **calibrate** replay state — not just verify. Fidelity's positions CSV includes `Cost Basis Total` per holding (computed using the user's actual lot selection method, e.g. specific lot identification). The current replay uses average cost, which diverges from Fidelity's numbers when specific lots are sold.
+
+`portfolio.py:29` already reads `Cost Basis Total` from this CSV (used by the R2 legacy path). Reuse that parsing for calibration.
 
 ```bash
-# Normal build (no CSV needed)
+# Normal build (no CSV needed, uses replay + average cost)
 python scripts/build_timemachine_db.py --incremental
 
-# Verify against a positions export (optional, after downloading from Fidelity)
-python scripts/build_timemachine_db.py --verify path/to/Portfolio_Positions.csv
+# Calibrate with positions export (optional, when available)
+python scripts/build_timemachine_db.py --incremental --positions path/to/Portfolio_Positions.csv
 ```
 
-**Verification checks:**
-- Per-symbol quantity: replay qty vs CSV qty (flag mismatches > 0.001 shares)
-- Per-account cash: replay cash vs CSV cash (flag mismatches > $0.01)
-- Cost basis per position: replay cost basis vs CSV cost basis (if CSV includes it)
-- Summary: `N/N positions match, M/M cash match`
+**`--positions` does three things:**
 
-This keeps positions CSV as an **optional verification input**, not a required dependency for the pipeline.
+1. **Verify** — compare replay output vs CSV, report discrepancies:
+   - Per-symbol quantity: flag mismatches > 0.001 shares
+   - Per-account cash: flag mismatches > $0.01
+   - Cost basis: flag mismatches > $1.00
+   - Summary: `N/N positions match, M/M cash match, K/K cost basis match`
+
+2. **Calibrate** — overwrite replay values with CSV truth:
+   - Positions (qty per symbol per account)
+   - Cash balances per account
+   - Cost basis per position (from `Cost Basis Total` column — reflects actual lot selection)
+
+3. **Checkpoint** — save calibrated state as new checkpoint. All subsequent incremental builds start from this calibrated point, so cost basis drift doesn't accumulate.
+
+This way:
+- **Daily builds** use forward replay + average cost (good enough, no external input needed)
+- **Periodic calibration** (whenever user exports positions CSV) snaps everything to Fidelity's ground truth
+- Cost basis error resets to zero at each calibration, instead of growing forever
 
 ---
 
