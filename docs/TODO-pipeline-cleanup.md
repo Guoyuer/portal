@@ -460,6 +460,24 @@ try {
 
 ---
 
+## P8 — Frontend feature enrichment
+
+All items below use **existing D1 data** — no pipeline changes needed. Pure frontend additions.
+
+### 1. Net worth milestones on chart
+**Data:** `computed_daily.total`
+**Feature:** Mark milestone crossings ($100K, $250K, $500K, $1M) on the timemachine area chart with dots/flags. Shows progress at a glance.
+
+### 2. Savings rate trend chart
+**Data:** `qianji_transactions` (already in frontend)
+**Feature:** Monthly savings rate over full history as a line chart, not just the current range's number. Shows if spending habits are improving or deteriorating.
+
+### 3. Expense category trend (sparklines)
+**Data:** `qianji_transactions`
+**Feature:** In the cashflow table, add a tiny sparkline next to each expense category showing its trend over the last 6-12 months. Quickly spot categories that are growing.
+
+---
+
 ## Implementation order
 
 ```
@@ -469,6 +487,7 @@ P2 (remove R2):           ~2-3 hours (delete code + migrate /econ)
 P3 (automate pipeline):   ~1-2 hours (parameterize + run.sh + launchd)
 P4 (checkpoint + verify): ~2-3 hours (checkpoint table + resume logic + verify mode)
 P5 (data quality):        ~2-3 hours (validation + warnings + contract tests)
-P6 (frontend UX):         ~2-3 hours (error states + empty states + freshness)
+P6 (frontend UX):         ~2-3 hours (error states + empty states + freshness + CORS)
 P7 (D1 architecture):     ~1-2 hours (schema unify + txn wrap + worker error handling)
+P8 (frontend features):   ~3-4 hours (milestones + savings trend + expense sparklines)
 ```
