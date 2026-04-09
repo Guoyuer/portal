@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, type ReactNode } from "react";
-import type { BundleState, PortfolioReconciliation } from "@/lib/use-bundle";
+import type { BundleState, CrossCheck } from "@/lib/use-bundle";
 import {
   Area,
   AreaChart,
@@ -149,12 +149,12 @@ export const TimemachineSummary = memo(function TimemachineSummary({
   snapshot,
   range,
   startDate,
-  portfolioReconciliation: pr,
+  crossCheck: cc,
 }: {
   snapshot: DailyPoint | null;
   range: PrefixPoint | null;
   startDate?: string;
-  portfolioReconciliation?: PortfolioReconciliation | null;
+  crossCheck?: CrossCheck | null;
 }) {
   if (!snapshot) return null;
 
@@ -240,33 +240,31 @@ export const TimemachineSummary = memo(function TimemachineSummary({
         </>
       )}
 
-      {/* Portfolio reconciliation — net worth change breakdown */}
-      {pr && (
+      {/* Cross-check: Fidelity deposits vs Qianji transfers */}
+      {cc && cc.totalCount > 0 && (
         <>
           <div className="border-t border-border" />
-          <div className="grid grid-cols-4 gap-2 text-xs">
+          <div className="flex items-center justify-between text-xs mb-1">
+            <p className="text-muted-foreground font-medium">
+              Deposit Cross-check
+              <span className={`ml-1.5 ${cc.ok ? "text-green-500" : "text-red-400"}`}>
+                {cc.ok ? "\u2713" : "\u2717"} {cc.matchedCount}/{cc.totalCount}
+              </span>
+            </p>
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-xs">
             <div>
-              <p className="text-muted-foreground">Net Change</p>
-              <p className={`font-semibold tabular-nums mt-0.5 ${pr.netChange >= 0 ? "text-green-500" : "text-red-400"}`}>
-                {pr.netChange >= 0 ? "+" : ""}{fmtCurrencyShort(pr.netChange)}
-              </p>
+              <p className="text-muted-foreground">Fidelity Total</p>
+              <p className="font-semibold tabular-nums mt-0.5">{fmtCurrencyShort(cc.fidelityTotal)}</p>
             </div>
             <div>
-              <p className="text-muted-foreground">Deposits</p>
-              <p className="font-semibold tabular-nums mt-0.5">
-                {fmtCurrencyShort(pr.deposits)}
-              </p>
+              <p className="text-muted-foreground">Matched</p>
+              <p className="font-semibold tabular-nums mt-0.5 text-green-500">{fmtCurrencyShort(cc.matchedTotal)}</p>
             </div>
             <div>
-              <p className="text-muted-foreground">Dividends</p>
-              <p className="font-semibold tabular-nums mt-0.5">
-                {fmtCurrencyShort(pr.dividends)}
-              </p>
-            </div>
-            <div>
-              <p className="text-muted-foreground">Market</p>
-              <p className={`font-semibold tabular-nums mt-0.5 ${pr.marketMovement >= 0 ? "text-green-500" : "text-red-400"}`}>
-                {pr.marketMovement >= 0 ? "+" : ""}{fmtCurrencyShort(pr.marketMovement)}
+              <p className="text-muted-foreground">Unmatched</p>
+              <p className={`font-semibold tabular-nums mt-0.5 ${cc.unmatchedTotal > 0 ? "text-red-400" : ""}`}>
+                {fmtCurrencyShort(cc.unmatchedTotal)}
               </p>
             </div>
           </div>
@@ -296,7 +294,7 @@ export function TimemachineSection({
           snapshot={tl.snapshot}
           range={tl.range}
           startDate={tl.startDate ?? undefined}
-          portfolioReconciliation={tl.portfolioReconciliation}
+          crossCheck={tl.crossCheck}
         />
         <div className="mt-4">
           <TimemachineChart

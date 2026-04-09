@@ -175,14 +175,14 @@ export default function FinancePage() {
       <section id="fidelity-activity">
         <SectionHeader>
           {SECTION_LABELS["fidelity-activity"]}
-          {tl.reconcile && (
+          {tl.crossCheck && (
             <span
-              className={`ml-2 inline-flex items-center gap-1 text-xs font-normal ${tl.reconcile.ok ? "text-green-500" : "text-red-400"}`}
-              title={tl.reconcile.ok
-                ? `${tl.reconcile.matched}/${tl.reconcile.total} deposits matched with Qianji`
-                : `${tl.reconcile.unmatchedFidelity} of ${tl.reconcile.total} deposits not found in Qianji`}
+              className={`ml-2 inline-flex items-center gap-1 text-xs font-normal ${tl.crossCheck.ok ? "text-green-500" : "text-red-400"}`}
+              title={tl.crossCheck.ok
+                ? `${tl.crossCheck.matchedCount}/${tl.crossCheck.totalCount} deposits matched with Qianji`
+                : `${tl.crossCheck.totalCount - tl.crossCheck.matchedCount} of ${tl.crossCheck.totalCount} deposits not found in Qianji`}
             >
-              {tl.reconcile.ok ? "\u2713" : "\u2717"}
+              {tl.crossCheck.ok ? "\u2713" : "\u2717"}
             </span>
           )}
         </SectionHeader>

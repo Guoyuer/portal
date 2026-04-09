@@ -95,65 +95,72 @@ function computeCashflow(qianjiTxns: QianjiTxn[], start: string, end: string): C
   return { incomeItems, expenseItems, totalIncome, totalExpenses, netCashflow, ccPayments: Math.round(ccPayments * 100) / 100, savingsRate, takehomeSavingsRate };
 }
 
-// ── Local computation: reconcile (Fidelity deposits vs Qianji transfers) ──
+// ── Fidelity date helpers ────────────────────────────────────────────────
 
-interface ReconcileResult {
-  matched: number;
-  unmatchedFidelity: number;
-  total: number;
+// ── Local computation: cross-check (Fidelity deposits vs Qianji transfers) ──
+
+export interface CrossCheck {
+  fidelityTotal: number;
+  matchedTotal: number;
+  unmatchedTotal: number;
+  matchedCount: number;
+  totalCount: number;
   ok: boolean;
 }
 
-// ── Local computation: portfolio reconciliation ─────────────────────────
-
-export interface PortfolioReconciliation {
-  startDate: string;
-  endDate: string;
-  startValue: number;
-  endValue: number;
-  netChange: number;
-  deposits: number;
-  dividends: number;
-  marketMovement: number;
-}
-
-function computePortfolioReconciliation(
-  daily: DailyPoint[],
+function computeCrossCheck(
   fidelityTxns: FidelityTxn[],
-  dateIndex: Map<string, number>,
-  startDate: string,
-  endDate: string,
-): PortfolioReconciliation | null {
-  const si = dateIndex.get(startDate);
-  const ei = dateIndex.get(endDate);
-  if (si === undefined || ei === undefined) return null;
+  qianjiTxns: QianjiTxn[],
+  start: string,
+  end: string,
+): CrossCheck {
+  const startSort = start.replaceAll("-", "");
+  const endSort = end.replaceAll("-", "");
 
-  const startValue = daily[si].total;
-  const endValue = daily[ei].total;
-  const netChange = Math.round((endValue - startValue) * 100) / 100;
-
-  const startSort = startDate.replaceAll("-", "");
-  const endSort = endDate.replaceAll("-", "");
-
-  let deposits = 0;
-  let dividends = 0;
-
+  // Fidelity EFT deposits in range
+  const deposits: { amt: number; ms: number }[] = [];
+  let fidelityTotal = 0;
   for (const t of fidelityTxns) {
+    if (!t.action.startsWith("Electronic Funds Transfer Received")) continue;
     const sort = fidelityDateToSort(t.runDate);
-    if (sort < startSort || sort > endSort) continue;
-    const action = t.action.toUpperCase();
-    if (action.startsWith("ELECTRONIC FUNDS TRANSFER RECEIVED")) {
-      deposits += t.amount;
-    } else if (action.startsWith("DIVIDEND") || action.startsWith("REINVESTMENT")) {
-      dividends += t.amount;
+    if (sort >= startSort && sort <= endSort) {
+      deposits.push({ amt: Math.round(Math.abs(t.amount) * 100), ms: fidelityDateToMs(t.runDate) });
+      fidelityTotal += t.amount;
+    }
+  }
+  fidelityTotal = Math.round(fidelityTotal * 100) / 100;
+
+  // Match each deposit to a Qianji transfer (same amount, ±3 days)
+  const transfers = qianjiTxns.filter((t) => t.type === "transfer");
+  const used = new Set<number>();
+  let matchedCount = 0;
+  let matchedTotal = 0;
+
+  for (const dep of deposits) {
+    for (let i = 0; i < transfers.length; i++) {
+      if (used.has(i)) continue;
+      if (Math.round(transfers[i].amount * 100) !== dep.amt) continue;
+      const trMs = new Date(transfers[i].date).getTime();
+      if (Math.abs(dep.ms - trMs) <= MATCH_WINDOW_MS) {
+        used.add(i);
+        matchedCount++;
+        matchedTotal += dep.amt / 100;
+        break;
+      }
     }
   }
 
-  deposits = Math.round(deposits * 100) / 100;
-  dividends = Math.round(dividends * 100) / 100;
-  const marketMovement = Math.round((netChange - deposits - dividends) * 100) / 100;
+  matchedTotal = Math.round(matchedTotal * 100) / 100;
+  const unmatchedTotal = Math.round((fidelityTotal - matchedTotal) * 100) / 100;
 
-  return { startDate, endDate, startValue, endValue, netChange, deposits, dividends, marketMovement };
+  return {
+    fidelityTotal,
+    matchedTotal,
+    unmatchedTotal,
+    matchedCount,
+    totalCount: deposits.length,
+    ok: deposits.length > 0 && matchedCount === deposits.length,
+  };
 }
 
 /** Convert fidelity "MM/DD/YYYY" to sortable "YYYYMMDD" */
@@ -167,44 +174,6 @@ function fidelityDateToMs(runDate: string): number {
 }
 
 const MATCH_WINDOW_MS = 3 * 86_400_000; // ±3 days (bank transfers take 1-3 business days)
-
-function computeReconcile(fidelityTxns: FidelityTxn[], qianjiTxns: QianjiTxn[], start: string, end: string): ReconcileResult {
-  const startSort = start.replaceAll("-", "");
-  const endSort = end.replaceAll("-", "");
-
-  // Fidelity EFT deposits in range
-  const deposits = fidelityTxns.filter((t) => {
-    if (!t.action.startsWith("Electronic Funds Transfer Received")) return false;
-    const sort = fidelityDateToSort(t.runDate);
-    return sort >= startSort && sort <= endSort;
-  });
-
-  // Qianji transfers (no date filter — allow ±1 day outside range)
-  const transfers = qianjiTxns.filter((t) => t.type === "transfer");
-
-  // Greedy match: for each deposit, find first unmatched transfer with same amount & date ±1 day
-  const used = new Set<number>();
-  let matched = 0;
-
-  for (const dep of deposits) {
-    const depMs = fidelityDateToMs(dep.runDate);
-    const depAmt = Math.round(Math.abs(dep.amount) * 100);
-
-    for (let i = 0; i < transfers.length; i++) {
-      if (used.has(i)) continue;
-      const tr = transfers[i];
-      if (Math.round(tr.amount * 100) !== depAmt) continue;
-      const trMs = new Date(tr.date).getTime();
-      if (Math.abs(depMs - trMs) <= MATCH_WINDOW_MS) {
-        used.add(i);
-        matched++;
-        break;
-      }
-    }
-  }
-
-  return { matched, unmatchedFidelity: deposits.length - matched, total: deposits.length, ok: deposits.length > 0 && deposits.length === matched };
-}
 
 // ── Local computation: activity ─────────────────────────────────────────
 
@@ -329,8 +298,7 @@ export interface BundleState {
   activity: ActivityResponse | null;
   market: MarketData | null;
   holdingsDetail: HoldingsDetailData | null;
-  reconcile: ReconcileResult | null;
-  portfolioReconciliation: PortfolioReconciliation | null;
+  crossCheck: CrossCheck | null;
 }
 
 export function useBundle(): BundleState {
@@ -422,14 +390,9 @@ export function useBundle(): BundleState {
     [data, startDate, snapshotDate],
   );
 
-  const reconcile = useMemo(
-    () => (data && startDate && snapshotDate) ? computeReconcile(data.fidelityTxns, data.qianjiTxns, startDate, snapshotDate) : null,
+  const crossCheck = useMemo(
+    () => (data && startDate && snapshotDate) ? computeCrossCheck(data.fidelityTxns, data.qianjiTxns, startDate, snapshotDate) : null,
     [data, startDate, snapshotDate],
-  );
-
-  const portfolioReconciliation = useMemo(
-    () => (data && startDate && snapshotDate) ? computePortfolioReconciliation(data.daily, data.fidelityTxns, dateIndex, startDate, snapshotDate) : null,
-    [data, startDate, snapshotDate, dateIndex],
   );
 
   return {
@@ -448,7 +411,6 @@ export function useBundle(): BundleState {
     activity,
     market: data?.market ?? null,
     holdingsDetail: data?.holdingsDetail ?? null,
-    reconcile,
-    portfolioReconciliation,
+    crossCheck,
   };
 }
