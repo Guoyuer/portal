@@ -115,6 +115,18 @@ CREATE TABLE IF NOT EXISTS empower_contributions (
     cusip  TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (date, amount, ticker, cusip)
 );
+
+-- Pre-computed market index data + macro scalars
+CREATE TABLE IF NOT EXISTS computed_market (
+    ticker       TEXT PRIMARY KEY,
+    name         TEXT NOT NULL DEFAULT '',
+    current      REAL NOT NULL DEFAULT 0,
+    month_return REAL NOT NULL DEFAULT 0,
+    ytd_return   REAL NOT NULL DEFAULT 0,
+    high_52w     REAL NOT NULL DEFAULT 0,
+    low_52w      REAL NOT NULL DEFAULT 0,
+    sparkline    TEXT NOT NULL DEFAULT '[]'
+);
 """
 
 _INDEXES = """
