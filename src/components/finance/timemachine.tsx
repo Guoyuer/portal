@@ -8,13 +8,14 @@ import {
   Brush,
   CartesianGrid,
   ResponsiveContainer,
+  Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
 import type { DailyPoint, PrefixPoint } from "@/lib/schema";
 import { fmtCurrency, fmtCurrencyShort } from "@/lib/format";
 import { useIsDark, useIsMobile } from "@/lib/hooks";
-import { gridStroke } from "@/lib/chart-styles";
+import { tooltipStyle, gridStroke } from "@/lib/chart-styles";
 
 // ── Constants ─────────────────────────────────────────────────────────────
 
@@ -92,6 +93,17 @@ export const TimemachineChart = memo(function TimemachineChart({
           width={55}
           axisLine={false}
           tickLine={false}
+        />
+        <Tooltip
+          contentStyle={tooltipStyle(isDark)}
+          formatter={(value, name) => [fmtCurrency(Number(value)), CAT_LABELS[String(name)] ?? String(name)]}
+          labelFormatter={(ts) =>
+            new Date(Number(ts)).toLocaleDateString("en-US", {
+              month: "long",
+              day: "numeric",
+              year: "numeric",
+            })
+          }
         />
         {CAT_KEYS.map((key) => (
           <Area
