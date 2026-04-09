@@ -115,33 +115,55 @@ Mac launchd → run.sh:
 
 ---
 
-## P4 — Fidelity reverse replay
+## P4 — Replay checkpoint caching + positions verification
 
-**Current:** Forward replay — start from first transaction, accumulate positions forward. Errors (missing early transactions) propagate to the present.
+### Problem
+Even in `--incremental` mode, every new date requires a full forward replay — traversing all historical transactions from the very first one up to that date. `allocation.py:122-127` caches positions between consecutive days without transactions, but each replay still reads the entire CSV from the start. This gets slower as transaction history grows.
 
-**Proposed:** Reverse replay — start from current `Portfolio_Positions_*.csv` snapshot (known accurate), undo transactions backward. Errors accumulate toward the past (less important).
+Reverse replay (from a positions CSV snapshot) was considered but rejected: it requires a positions CSV as anchor, and cost basis tracking is not cleanly invertible (division-by-zero on full sells, precision loss on partial sells). Since we don't want to depend on a positions CSV for normal operation, forward replay remains the only way to reconstruct holdings from pure transaction history.
 
-**Why:**
-- Daily use cares about recent data accuracy
-- If CSV export misses early transactions, forward replay breaks everything; reverse replay only affects old dates
-- Same pattern as Qianji replay (already proven)
-- Current forward replay is 36/36 exact match, so both methods give same results *today* — reverse is a defensive improvement
+### Proposed: checkpoint caching
+Cache the forward replay state (positions + cash + cost_basis) at periodic dates in the DB. Incremental builds resume from the latest checkpoint instead of replaying from scratch.
 
-**Performance note:** Even in `--incremental` mode, every new date requires a full forward replay (traverse all historical transactions up to that date). `allocation.py:122-127` caches positions between consecutive days with no transactions, so actual replay count = number of days with transactions, not total days. But each replay still reads the entire CSV from the start.
-
-Reverse replay fixes this: incremental mode would only need to undo a handful of recent transactions from the positions snapshot, instead of replaying thousands from the beginning.
-
-**Implementation sketch:**
-```python
-def replay_reverse(store_path: Path, positions_csv: Path, as_of: date) -> ...:
-    # 1. Load current positions from CSV (symbol → qty, account → cash)
-    # 2. Iterate transactions from newest to as_of, undo each:
-    #    YOU BOUGHT → qty -= bought_qty
-    #    YOU SOLD → qty += sold_qty
-    #    REINVESTMENT → undo qty + cash
-    #    DIVIDEND → undo cash
-    # 3. Return positions at as_of
+**New table in `timemachine.db`:**
+```sql
+CREATE TABLE replay_checkpoint (
+    date       TEXT PRIMARY KEY,
+    positions  TEXT NOT NULL,  -- JSON: {"(acct,sym)": qty, ...}
+    cash       TEXT NOT NULL,  -- JSON: {"acct": balance, ...}
+    cost_basis TEXT NOT NULL   -- JSON: {"(acct,sym)": basis, ...}
+);
 ```
+
+**Incremental replay flow:**
+```
+Without checkpoint:  txn[0] → txn[1] → ... → txn[2000] → today     (all from scratch)
+With checkpoint:     [checkpoint @ txn 1990] → txn[1991..2000] → today  (10 txns only)
+```
+
+**Checkpoint strategy:**
+- After a full build, save a checkpoint at the latest date
+- Incremental build: load latest checkpoint, replay only transactions after that date
+- Optionally save a new checkpoint after each incremental build
+
+### Positions CSV verification (--verify)
+Keep the existing `--verify` mode but enhance it: when a `Portfolio_Positions_*.csv` is available, compare replay output against the CSV as a correctness check. This catches missing/duplicate transactions, replay logic bugs, or CSV parsing errors.
+
+```bash
+# Normal build (no CSV needed)
+python scripts/build_timemachine_db.py --incremental
+
+# Verify against a positions export (optional, after downloading from Fidelity)
+python scripts/build_timemachine_db.py --verify path/to/Portfolio_Positions.csv
+```
+
+**Verification checks:**
+- Per-symbol quantity: replay qty vs CSV qty (flag mismatches > 0.001 shares)
+- Per-account cash: replay cash vs CSV cash (flag mismatches > $0.01)
+- Cost basis per position: replay cost basis vs CSV cost basis (if CSV includes it)
+- Summary: `N/N positions match, M/M cash match`
+
+This keeps positions CSV as an **optional verification input**, not a required dependency for the pipeline.
 
 ---
 
@@ -152,5 +174,5 @@ P0 (bug fixes):           #1 (5 min), #2 (5 min)
 P1 (remove prefix):       ~1-2 hours (pipeline + frontend + worker)
 P2 (remove R2):           ~2-3 hours (delete code + migrate /econ)
 P3 (automate pipeline):   ~1-2 hours (parameterize + run.sh + launchd)
-P4 (reverse replay):      ~2-3 hours (new replay fn + verification)
+P4 (checkpoint + verify): ~2-3 hours (checkpoint table + resume logic + verify mode)
 ```
