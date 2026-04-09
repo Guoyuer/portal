@@ -5,7 +5,7 @@ Replace the local FastAPI + SQLite backend with Cloudflare D1 + Workers. The Wor
 ## Architecture
 
 ```
-Pipeline (Python, local/CI)
+Pipeline (Python, local)
   build_timemachine_db.py → SQLite (existing)
   sync_to_d1.py (new)    → wrangler d1 execute → D1
 
@@ -18,64 +18,51 @@ Frontend (unchanged)
 
 ## What Changes
 
-### Pipeline — precompute market + holdings + JSON blobs
+### Pipeline — precompute market + holdings detail
 
 **New tables written by pipeline:**
 
-`computed_market` — one row per index ticker, precomputed by pipeline:
+`computed_market` — one row per index ticker:
 ```sql
 CREATE TABLE computed_market (
-  ticker     TEXT PRIMARY KEY,
-  name       TEXT NOT NULL,
-  current    REAL NOT NULL,
-  monthReturn REAL NOT NULL,
-  ytdReturn  REAL NOT NULL,
-  high52w    REAL NOT NULL,
-  low52w     REAL NOT NULL,
-  sparkline  TEXT NOT NULL   -- JSON array of ~252 floats
+  ticker      TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,
+  current     REAL NOT NULL,
+  month_return REAL NOT NULL,
+  ytd_return  REAL NOT NULL,
+  high_52w    REAL NOT NULL,
+  low_52w     REAL NOT NULL,
+  sparkline   TEXT NOT NULL,  -- JSON array of ~252 floats
+  -- scalar macro indicators stored as rows with special ticker keys
+  -- e.g. ticker='__usdCny', current=7.28, others=0
 );
 ```
 
-`computed_market_meta` — scalar macro indicators:
-```sql
-CREATE TABLE computed_market_meta (
-  key   TEXT PRIMARY KEY,
-  value REAL
-);
--- rows: usdCny, fedRate, treasury10y, cpi, unemployment, vix
-```
+Scalar macro indicators (usdCny, fedRate, treasury10y, cpi, unemployment, vix) stored as rows in the same table with special ticker keys (e.g. `__usdCny`). This avoids a second table while keeping everything structured.
 
-`computed_holdings_detail` — top/bottom performers:
+`computed_holdings_detail` — per-ticker performance:
 ```sql
 CREATE TABLE computed_holdings_detail (
-  ticker      TEXT PRIMARY KEY,
-  monthReturn REAL NOT NULL,
-  startValue  REAL NOT NULL,
-  endValue    REAL NOT NULL,
-  high52w     REAL,
-  low52w      REAL,
-  vsHigh      REAL
-);
-```
-
-`computed_daily_json` — pre-serialized ticker arrays (28k rows → 800 rows):
-```sql
-CREATE TABLE computed_daily_json (
-  date         TEXT PRIMARY KEY,
-  tickers_json TEXT NOT NULL  -- JSON array of ticker objects
+  ticker       TEXT PRIMARY KEY,
+  month_return REAL NOT NULL,
+  start_value  REAL NOT NULL,
+  end_value    REAL NOT NULL,
+  high_52w     REAL,
+  low_52w      REAL,
+  vs_high      REAL
 );
 ```
 
 **New script:** `pipeline/scripts/sync_to_d1.py`
-- Dumps relevant tables from local SQLite
+- Dumps relevant tables from local SQLite as SQL INSERT statements
 - Runs `wrangler d1 execute portal-db --file=dump.sql --remote`
-- Clears existing data before import (full replace, not incremental)
+- Clears existing data before import (full replace)
 
 ### D1 — schema + camelCase views
 
-Create D1 database `portal-db`. Schema is the existing SQLite tables plus the new precomputed tables.
+Create D1 database `portal-db`. Schema reuses existing SQLite tables plus the two new precomputed tables above.
 
-**Views for camelCase output (Worker reads these, not raw tables):**
+**Views for camelCase output (Worker reads views, not raw tables):**
 
 ```sql
 CREATE VIEW v_daily AS
@@ -89,9 +76,11 @@ SELECT date, income, expenses, buys, sells, dividends,
   net_cash_in AS netCashIn, cc_payments AS ccPayments
 FROM computed_prefix ORDER BY date;
 
-CREATE VIEW v_daily_json AS
-SELECT date, tickers_json AS tickersJson
-FROM computed_daily_json ORDER BY date;
+CREATE VIEW v_daily_tickers AS
+SELECT date, ticker, value, category, subtype,
+  cost_basis AS costBasis, gain_loss AS gainLoss,
+  gain_loss_pct AS gainLossPct
+FROM computed_daily_tickers ORDER BY date, value DESC;
 
 CREATE VIEW v_fidelity_txns AS
 SELECT run_date AS runDate, action, symbol, amount
@@ -100,18 +89,27 @@ FROM fidelity_transactions ORDER BY id;
 CREATE VIEW v_qianji_txns AS
 SELECT date, type, category, amount
 FROM qianji_transactions ORDER BY date;
+
+CREATE VIEW v_market AS
+SELECT ticker, name, current,
+  month_return AS monthReturn, ytd_return AS ytdReturn,
+  high_52w AS high52w, low_52w AS low52w, sparkline
+FROM computed_market ORDER BY ticker;
+
+CREATE VIEW v_holdings_detail AS
+SELECT ticker, month_return AS monthReturn,
+  start_value AS startValue, end_value AS endValue,
+  high_52w AS high52w, low_52w AS low52w, vs_high AS vsHigh
+FROM computed_holdings_detail ORDER BY month_return DESC;
 ```
 
-Market and holdings detail views are trivial (columns already camelCase from pipeline).
-
-### Worker — single endpoint, ~20 lines
+### Worker — single endpoint
 
 **Location:** `worker/src/index.ts` + `worker/wrangler.toml`
 
 ```ts
 export default {
   async fetch(request, env) {
-    // CORS preflight
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: corsHeaders });
     }
@@ -121,41 +119,44 @@ export default {
       return new Response("Not found", { status: 404 });
     }
 
-    const [daily, prefix, tickerJson, fidelity, qianji, market, marketMeta, holdings] =
+    const [daily, prefix, tickers, fidelity, qianji, market, holdings] =
       await Promise.all([
         env.DB.prepare("SELECT * FROM v_daily").all(),
         env.DB.prepare("SELECT * FROM v_prefix").all(),
-        env.DB.prepare("SELECT * FROM v_daily_json").all(),
+        env.DB.prepare("SELECT * FROM v_daily_tickers").all(),
         env.DB.prepare("SELECT * FROM v_fidelity_txns").all(),
         env.DB.prepare("SELECT * FROM v_qianji_txns").all(),
-        env.DB.prepare("SELECT * FROM computed_market").all(),
-        env.DB.prepare("SELECT * FROM computed_market_meta").all(),
-        env.DB.prepare("SELECT * FROM computed_holdings_detail").all(),
+        env.DB.prepare("SELECT * FROM v_market").all(),
+        env.DB.prepare("SELECT * FROM v_holdings_detail").all(),
       ]);
 
-    // Assemble market object
-    const meta = Object.fromEntries(marketMeta.results.map(r => [r.key, r.value]));
-    const marketObj = {
-      indices: market.results.map(r => ({ ...r, sparkline: JSON.parse(r.sparkline) })),
-      ...meta,
-    };
+    // Split market rows: indices vs scalar indicators
+    const indices = [];
+    const meta = {};
+    for (const r of market.results) {
+      if (r.ticker.startsWith("__")) {
+        meta[r.ticker.slice(2)] = r.current;
+      } else {
+        indices.push({ ...r, sparkline: JSON.parse(r.sparkline) });
+      }
+    }
 
-    // Assemble holdings detail
-    const sorted = [...holdings.results].sort((a, b) => b.monthReturn - a.monthReturn);
-    const holdingsObj = {
-      topPerformers: sorted.slice(0, 5),
-      bottomPerformers: sorted.slice(-5).reverse(),
+    // Top/bottom performers
+    const allHoldings = holdings.results;
+    const holdingsDetail = {
+      topPerformers: allHoldings.slice(0, 5),
+      bottomPerformers: allHoldings.slice(-5).reverse(),
       upcomingEarnings: [],
     };
 
     return Response.json({
       daily: daily.results,
       prefix: prefix.results,
-      dailyTickers: tickerJson.results.flatMap(r => JSON.parse(r.tickersJson)),
+      dailyTickers: tickers.results,
       fidelityTxns: fidelity.results,
       qianjiTxns: qianji.results,
-      market: marketObj,
-      holdingsDetail: holdingsObj,
+      market: { indices, ...meta },
+      holdingsDetail,
     }, {
       headers: {
         "Cache-Control": "public, max-age=3600",
@@ -189,11 +190,11 @@ Add to `.github/workflows/ci.yml`:
 
 | Resource | Limit | Per /timeline request | Requests to exhaust |
 |----------|-------|----------------------|---------------------|
-| Rows read | 5M/day | ~5k (with JSON blobs) | ~1000/day |
+| Rows read | 5M/day | ~33k (800+800+28k+1.8k+2k+10+30) | ~150/day |
 | Rows written | 100k/day | 0 (writes via wrangler) | N/A |
-| Storage | 5GB | 6MB used | N/A |
+| Storage | 5GB | ~6MB | N/A |
 
-Cache-Control (1 hour) means most page loads hit CDN, not D1. Personal use = well within free tier.
+With Cache-Control (1hr), most page loads hit CDN. Personal use = ~10-20 uncached/day = well within free tier.
 
 ## What Does NOT Change
 
@@ -202,12 +203,12 @@ Cache-Control (1 hour) means most page loads hit CDN, not D1. Personal use = wel
 - Econ dashboard (stays on R2)
 - Local dev workflow (FastAPI server still works for dev)
 
-## Migration Steps (high level)
+## Migration Steps
 
-1. Pipeline: add precompute for market, holdings, daily_json
-2. Pipeline: add sync_to_d1.py script
-3. D1: create database + schema + views
-4. Worker: implement and deploy
+1. Pipeline: precompute market returns + holdings detail into new tables
+2. Pipeline: sync_to_d1.py script (SQLite → D1 via wrangler)
+3. D1: create database, schema, views
+4. Worker: implement + deploy
 5. Frontend: update TIMELINE_URL for production
-6. CI: add Worker deployment step
-7. Verify: compare Worker response vs FastAPI response byte-for-byte
+6. CI: add Worker deploy step
+7. Verify: compare Worker response vs FastAPI response
