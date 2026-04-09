@@ -16,13 +16,6 @@ import { TimemachineSection } from "@/components/finance/timemachine";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-/** "2026-03-15" -> "March 2026" */
-function dateToPeriod(dateStr: string): string {
-  const [y, m] = dateStr.split("-");
-  const dt = new Date(+y, +m - 1, 1);
-  return dt.toLocaleDateString("en-US", { month: "long", year: "numeric" });
-}
-
 /** "2026-03-15" -> "2026-03" */
 function dateToMonthKey(dateStr: string): string {
   return dateStr.slice(0, 7);
@@ -87,7 +80,6 @@ export default function FinancePage() {
 
   // ── Derived values ────────────────────────────────────────────────
   const goalPct = tl.allocation ? (tl.allocation.total / GOAL) * 100 : 0;
-  const period = snapshotDate ? dateToPeriod(snapshotDate) : "";
   const invested = tl.range?.buys ?? 0;
   const alloc = tl.allocation;
   const cf = tl.cashflow;
@@ -108,17 +100,21 @@ export default function FinancePage() {
     );
   }
 
-  // ── Period label for activity ──────────────────────────────────────
-  const activityPeriodLabel = startDate && snapshotDate
-    ? `${startDate} \u2013 ${snapshotDate}`
-    : undefined;
-
   return (
     <div className="max-w-5xl mx-auto space-y-10">
       {/* Header */}
-      <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">
-        Dashboard for Yuer
-      </h1>
+      <div>
+        <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">
+          Dashboard for Yuer
+        </h1>
+        {startDate && snapshotDate && (
+          <p className="text-sm text-muted-foreground mt-1">
+            {new Date(startDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+            {" \u2014 "}
+            {new Date(snapshotDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+          </p>
+        )}
+      </div>
 
       {/* ── 1. Overview ─────────────────────────────────────────────────── */}
       {alloc ? (
@@ -143,7 +139,7 @@ export default function FinancePage() {
 
       {/* ── 4. Cash Flow ────────────────────────────────────────────────── */}
       <section id="cashflow">
-        <SectionHeader>{SECTION_LABELS["cashflow"]}{cf ? ` \u2014 ${period}` : ""}</SectionHeader>
+        <SectionHeader>{SECTION_LABELS["cashflow"]}</SectionHeader>
         {cf ? (
           <>
             <SectionBody>
@@ -152,7 +148,7 @@ export default function FinancePage() {
 
             {/* Stat bar + chart -- single glass container, no internal borders */}
             <div className="liquid-glass mt-4 overflow-hidden">
-              <CashFlowStatBar data={cf} invested={invested} period={period} />
+              <CashFlowStatBar data={cf} invested={invested} />
               <div className="mx-3 sm:mx-5 h-px bg-gradient-to-r from-transparent via-foreground/8 to-transparent" />
               {monthlyFlows.length > 0 ? (
                 <div className="px-3 sm:px-5 pb-3 sm:pb-5 pt-3">
@@ -188,7 +184,7 @@ export default function FinancePage() {
         </SectionHeader>
         {act ? (
           <SectionBody>
-            <PortfolioActivity activity={act} periodLabel={activityPeriodLabel} />
+            <PortfolioActivity activity={act} />
           </SectionBody>
         ) : (
           <SectionBody><p className="text-sm text-red-400">Activity data unavailable</p></SectionBody>
