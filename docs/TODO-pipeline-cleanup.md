@@ -172,11 +172,34 @@ python scripts/build_timemachine_db.py --incremental --positions path/to/Portfol
    - Cash balances per account
    - Cost basis per position (from `Cost Basis Total` column — reflects actual lot selection)
 
-3. **Checkpoint** — save calibrated state as new checkpoint. All subsequent incremental builds start from this calibrated point, so cost basis drift doesn't accumulate.
+3. **Report drift** — log the delta between replay and CSV at calibration time, so you can see how much error accumulated since last calibration:
+   ```
+   Calibration drift report (2026-04-09):
+     VOO   qty: 0.000  cost_basis: replay=$41,230  actual=$40,875  drift=$355 (0.9%)
+     QQQM  qty: 0.000  cost_basis: replay=$12,100  actual=$11,940  drift=$160 (1.3%)
+     Cash:  replay=$5,230.15  actual=$5,230.15  drift=$0.00
+     Total cost basis drift: $515 (0.7%)
+     Last calibration: 2026-03-01 (39 days ago)
+   ```
+   Persist drift history in a table for trend tracking:
+   ```sql
+   CREATE TABLE calibration_log (
+       date            TEXT PRIMARY KEY,
+       days_since_last INTEGER,
+       total_cb_drift  REAL,    -- total cost basis $ difference
+       total_cb_pct    REAL,    -- total cost basis % difference
+       positions_ok    INTEGER, -- count of qty matches
+       positions_total INTEGER, -- total positions checked
+       details         TEXT     -- JSON: per-ticker drift breakdown
+   );
+   ```
+
+4. **Checkpoint** — save calibrated state as new checkpoint. All subsequent incremental builds start from this calibrated point, so cost basis drift doesn't accumulate.
 
 This way:
 - **Daily builds** use forward replay + average cost (good enough, no external input needed)
 - **Periodic calibration** (whenever user exports positions CSV) snaps everything to Fidelity's ground truth
+- **Drift report** shows how much error accumulated, helps decide calibration frequency
 - Cost basis error resets to zero at each calibration, instead of growing forever
 
 ---
