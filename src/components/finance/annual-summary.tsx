@@ -1,4 +1,4 @@
-import type { AnnualSummary as AnnualSummaryData } from "@/lib/types";
+import type { AnnualSummary as AnnualSummaryData } from "@/lib/schema";
 import { fmtCurrency } from "@/lib/format";
 import { valueColor } from "@/lib/style-helpers";
 import { TOTAL_ROW_CLASS } from "@/components/finance/shared";

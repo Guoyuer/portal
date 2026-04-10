@@ -78,10 +78,11 @@ export default {
           fidelityTxns: fidelity.results,
           qianjiTxns: qianji.results,
           market: {
-            indices: (indices.results as Record<string, unknown>[]).map(r => ({
-              ...r,
-              sparkline: JSON.parse(r.sparkline as string),
-            })),
+            indices: (indices.results as Record<string, unknown>[]).map(r => {
+              let sparkline: number[] | null = null;
+              try { sparkline = JSON.parse(r.sparkline as string); } catch { /* malformed sparkline */ }
+              return { ...r, sparkline };
+            }),
             ...meta,
           },
           holdingsDetail: { allStocks: holdings.results },

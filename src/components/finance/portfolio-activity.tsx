@@ -1,5 +1,5 @@
 import { memo } from "react";
-import type { ActivityResponse } from "@/lib/types";
+import type { ActivityResponse } from "@/lib/schema";
 import { TickerTable } from "@/components/finance/shared";
 
 // ── Convert API objects to tuple format expected by TickerTable ──────────

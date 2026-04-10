@@ -19,13 +19,13 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type FlowTooltipProps = { active?: boolean; payload?: any[]; label?: string };
+import type { Props as LabelProps } from "recharts/types/component/Label";
+import type { TooltipContentProps } from "recharts/types/component/Tooltip";
 import type {
   CategoryData,
   MonthlyFlowPoint,
   SnapshotPoint,
-} from "@/lib/types";
+} from "@/lib/schema";
 import { fmtCurrencyShort, fmtMonth, fmtMonthYear } from "@/lib/format";
 import { useIsDark, useIsMobile } from "@/lib/hooks";
 import { tooltipStyle, gridStroke } from "@/lib/chart-styles";
@@ -86,8 +86,7 @@ export function AllocationDonut({
 
 // ── Custom bar label: savings rate % above income bar ─────────────────────
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function SavingsLabel(props: any) {
+function SavingsLabel(props: LabelProps) {
   const x = Number(props.x ?? 0);
   const y = Number(props.y ?? 0);
   const width = Number(props.width ?? 0);
@@ -109,7 +108,7 @@ function SavingsLabel(props: any) {
 
 // ── Custom tooltip: Income vs Expenses with savings rate ─────────────────
 
-function FlowTooltip({ active, payload, label }: FlowTooltipProps) {
+function FlowTooltip({ active, payload, label }: TooltipContentProps) {
   if (!active || !payload?.length) return null;
   const isDark = typeof document !== "undefined" && document.documentElement.classList.contains("dark");
   const style = tooltipStyle(isDark);
@@ -119,9 +118,9 @@ function FlowTooltip({ active, payload, label }: FlowTooltipProps) {
     <div style={style}>
       <p style={{ fontWeight: 600, marginBottom: 4 }}>{fmtMonthYear(String(label))}</p>
       {row && <p style={{ color: isDark ? "#e5e7eb" : "#374151", margin: 0 }}>Income : {fmt(row.income)}</p>}
-      {payload.map((entry) => (
-        <p key={entry.dataKey as string} style={{ color: entry.color, margin: 0 }}>
-          {entry.name} : {fmt(Number(entry.value))}
+      {payload.map((entry, i) => (
+        <p key={i} style={{ color: entry.color, margin: 0 }}>
+          {String(entry.name)} : {fmt(Number(entry.value))}
         </p>
       ))}
       {row && row.savingsRate !== 0 && (
@@ -176,8 +175,7 @@ export const IncomeExpensesChart = memo(function IncomeExpensesChart({
           axisLine={false}
           tickLine={false}
         />
-        {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-        <Tooltip cursor={false} content={FlowTooltip as any} />
+        <Tooltip cursor={false} content={FlowTooltip} />
         <Legend verticalAlign="top" height={28} />
         {/* Leader line from active bar to stat bar above */}
         {activeIdx >= 0 && (

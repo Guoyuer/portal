@@ -1,30 +1,35 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
 
-export default function ThemeToggle() {
-  const [dark, setDark] = useState(false);
-  const [mounted, setMounted] = useState(false);
+function subscribeTheme(callback: () => void) {
+  window.addEventListener("theme-change", callback);
+  return () => window.removeEventListener("theme-change", callback);
+}
+
+function getThemeSnapshot(): boolean {
+  const stored = localStorage.getItem("theme");
+  return stored === "dark" || (!stored && window.matchMedia("(prefers-color-scheme: dark)").matches);
+}
+
+function getServerSnapshot(): boolean {
+  return false;
+}
+
+export function ThemeToggle() {
+  const dark = useSyncExternalStore(subscribeTheme, getThemeSnapshot, getServerSnapshot);
 
   useEffect(() => {
-    const stored = localStorage.getItem("theme");
-    const prefersDark =
-      stored === "dark" ||
-      (!stored && window.matchMedia("(prefers-color-scheme: dark)").matches);
-    setDark(prefersDark);
-    document.documentElement.classList.toggle("dark", prefersDark);
-    setMounted(true);
-  }, []);
+    document.documentElement.classList.toggle("dark", dark);
+  }, [dark]);
 
-  function toggle() {
-    const next = !dark;
-    setDark(next);
+  const toggle = useCallback(() => {
+    const next = !document.documentElement.classList.contains("dark");
     document.documentElement.classList.toggle("dark", next);
     localStorage.setItem("theme", next ? "dark" : "light");
-  }
-
-  // Avoid hydration mismatch: render nothing until mounted
-  if (!mounted) return null;
+    // Force re-render by triggering a storage event (useSyncExternalStore picks it up)
+    window.dispatchEvent(new Event("theme-change"));
+  }, []);
 
   return (
     <button

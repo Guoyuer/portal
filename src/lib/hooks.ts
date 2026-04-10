@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 export function useIsDark() {
   const [isDark, setIsDark] = useState(false);
@@ -55,13 +55,16 @@ export function useActiveSection(ids: string[], ready = true) {
 }
 
 export function useIsMobile(breakpoint = 640) {
-  const [isMobile, setIsMobile] = useState(false);
-  useEffect(() => {
+  const subscribe = useCallback((callback: () => void) => {
     const mql = window.matchMedia(`(max-width: ${breakpoint - 1}px)`);
-    setIsMobile(mql.matches);
-    const onChange = (e: MediaQueryListEvent) => setIsMobile(e.matches);
-    mql.addEventListener("change", onChange);
-    return () => mql.removeEventListener("change", onChange);
+    mql.addEventListener("change", callback);
+    return () => mql.removeEventListener("change", callback);
   }, [breakpoint]);
-  return isMobile;
+
+  const getSnapshot = useCallback(
+    () => window.matchMedia(`(max-width: ${breakpoint - 1}px)`).matches,
+    [breakpoint],
+  );
+
+  return useSyncExternalStore(subscribe, getSnapshot, () => false);
 }

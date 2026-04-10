@@ -47,6 +47,8 @@ function computeMonthlyFlows(qianjiTxns: QianjiTxn[], start: string | null, end:
     }));
 }
 
+const PAGE_LOAD_TIME = Date.now();
+
 // ── Sections ─────────────────────────────────────────────────────────
 
 const SECTION_LABELS = {
@@ -80,6 +82,20 @@ export default function FinancePage() {
     [tl.qianjiTxns, startDate, snapshotDate],
   );
 
+  const syncStale = useMemo(() => {
+    const lastSync = tl.syncMeta?.last_sync;
+    if (!lastSync) return null;
+    const syncDate = new Date(lastSync);
+    const daysAgo = Math.floor((PAGE_LOAD_TIME - syncDate.getTime()) / 86_400_000);
+    const stale = daysAgo > 3;
+    return (
+      <p className={`text-xs mt-0.5 ${stale ? "text-yellow-500" : "text-muted-foreground/60"}`}>
+        Data as of {syncDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+        {stale && ` (${daysAgo}d ago)`}
+      </p>
+    );
+  }, [tl.syncMeta]);
+
   // ── Loading state ─────────────────────────────────────────────────
   if (tl.loading) {
     return (
@@ -112,19 +128,7 @@ export default function FinancePage() {
             {new Date(snapshotDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
           </p>
         )}
-        {(() => {
-          const lastSync = tl.syncMeta?.last_sync;
-          if (!lastSync) return null;
-          const syncDate = new Date(lastSync);
-          const daysAgo = Math.floor((Date.now() - syncDate.getTime()) / 86_400_000);
-          const stale = daysAgo > 3;
-          return (
-            <p className={`text-xs mt-0.5 ${stale ? "text-yellow-500" : "text-muted-foreground/60"}`}>
-              Data as of {syncDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-              {stale && ` (${daysAgo}d ago)`}
-            </p>
-          );
-        })()}
+        {syncStale}
       </div>
 
       {/* ── 1. Overview ─────────────────────────────────────────────────── */}
@@ -148,7 +152,7 @@ export default function FinancePage() {
       {/* ── 2. Timemachine ─────────────────────────────────────────────── */}
       <TimemachineSection timeline={tl} fallback={<NetWorthGrowth data={[]} />} />
 
-      {/* ── 4. Cash Flow ────────────────────────────────────────────────── */}
+      {/* ── 3. Cash Flow ────────────────────────────────────────────────── */}
       <section id="cashflow">
         <SectionHeader>{SECTION_LABELS["cashflow"]}</SectionHeader>
         {cf ? (
@@ -182,7 +186,7 @@ export default function FinancePage() {
         )}
       </section>
 
-      {/* ── 5. Portfolio Activity ───────────────────────────────────────── */}
+      {/* ── 4. Portfolio Activity ───────────────────────────────────────── */}
       <section id="fidelity-activity">
         <SectionHeader>
           {SECTION_LABELS["fidelity-activity"]}
