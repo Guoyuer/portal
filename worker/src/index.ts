@@ -38,7 +38,7 @@ export default {
           env.DB.prepare("SELECT * FROM v_market_indices").all(),
           env.DB.prepare("SELECT * FROM v_market_indicators").all(),
           env.DB.prepare("SELECT * FROM v_holdings_detail").all(),
-          env.DB.prepare("SELECT key, value FROM sync_meta").all(),
+          env.DB.prepare("SELECT key, value FROM sync_meta").all().catch(() => ({ results: [] })),
         ]);
 
       if (!daily.results.length) {
