@@ -19,6 +19,8 @@ import {
   type ApiCategory,
 } from "@/lib/schema";
 
+const FETCH_TIMEOUT_MS = 10_000;
+
 // ── Target allocation weights (mirror server _CATEGORIES) ───────────────
 
 const CATEGORIES: { name: string; key: keyof DailyPoint; target: number }[] = [
@@ -97,6 +99,18 @@ function computeCashflow(qianjiTxns: QianjiTxn[], start: string, end: string): C
 
 // ── Fidelity date helpers ────────────────────────────────────────────────
 
+/** Convert fidelity "MM/DD/YYYY" to sortable "YYYYMMDD" */
+function fidelityDateToSort(runDate: string): string {
+  return runDate.slice(6, 10) + runDate.slice(0, 2) + runDate.slice(3, 5);
+}
+
+/** Convert fidelity "MM/DD/YYYY" to epoch ms */
+function fidelityDateToMs(runDate: string): number {
+  return new Date(`${runDate.slice(6, 10)}-${runDate.slice(0, 2)}-${runDate.slice(3, 5)}`).getTime();
+}
+
+const MATCH_WINDOW_MS = 7 * 86_400_000; // Qianji can lag Fidelity by up to 7 days
+
 // ── Local computation: cross-check (Fidelity deposits vs Qianji transfers) ──
 
 export interface CrossCheck {
@@ -167,18 +181,6 @@ function computeCrossCheck(
     ok: deposits.length > 0 && matchedCount === deposits.length,
   };
 }
-
-/** Convert fidelity "MM/DD/YYYY" to sortable "YYYYMMDD" */
-function fidelityDateToSort(runDate: string): string {
-  return runDate.slice(6, 10) + runDate.slice(0, 2) + runDate.slice(3, 5);
-}
-
-/** Convert fidelity "MM/DD/YYYY" to epoch ms */
-function fidelityDateToMs(runDate: string): number {
-  return new Date(`${runDate.slice(6, 10)}-${runDate.slice(0, 2)}-${runDate.slice(3, 5)}`).getTime();
-}
-
-const MATCH_WINDOW_MS = 7 * 86_400_000; // Qianji can lag Fidelity by up to 7 days
 
 // ── Local computation: activity ─────────────────────────────────────────
 
@@ -312,7 +314,7 @@ export function useBundle(): BundleState {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(TIMELINE_URL, { cache: "no-store", signal: AbortSignal.timeout(10000) });
+        const res = await fetch(TIMELINE_URL, { cache: "no-store", signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
         if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
         const json = await res.json();
         const parsed = TimelineDataSchema.safeParse(json);

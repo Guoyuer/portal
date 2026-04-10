@@ -1,4 +1,4 @@
-import type { SnapshotPoint } from "@/lib/types";
+import type { SnapshotPoint } from "@/lib/schema";
 import { fmtCurrency, fmtPct } from "@/lib/format";
 import { valueColor } from "@/lib/style-helpers";
 import { SectionBody } from "@/components/finance/shared";

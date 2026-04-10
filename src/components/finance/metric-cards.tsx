@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useRef, useState, useEffect } from "react";
-import type { ApiCategory, ApiTicker } from "@/lib/types";
+import type { ApiCategory, ApiTicker } from "@/lib/schema";
 import { fmtCurrency, fmtCurrencyShort } from "@/lib/format";
 import { savingsRateColor } from "@/lib/style-helpers";
 import { CategorySummary } from "@/components/finance/category-summary";
@@ -111,36 +111,39 @@ export const MetricCards = memo(function MetricCards({
       </div>
 
       <div className="grid grid-cols-3 gap-4">
-      <div data-slot="card" className="liquid-glass p-4">
-        <p className="text-xs sm:text-sm text-muted-foreground">Savings Rate</p>
-        {savingsRate != null ? (
-          <p className={`text-xl sm:text-2xl font-bold mt-1 ${savingsRateColor(savingsRate)}`}>
-            {Math.round(savingsRate)}%
-          </p>
-        ) : (
-          <p className="text-xl sm:text-2xl font-bold mt-1">N/A</p>
-        )}
-      </div>
-      <div data-slot="card" className="liquid-glass p-4">
-        <p className="text-xs sm:text-sm text-muted-foreground">Take-home Rate</p>
-        {takehomeSavingsRate != null ? (
-          <p className={`text-xl sm:text-2xl font-bold mt-1 ${savingsRateColor(takehomeSavingsRate)}`}>
-            {Math.round(takehomeSavingsRate)}%
-          </p>
-        ) : (
-          <p className="text-xl sm:text-2xl font-bold mt-1">N/A</p>
-        )}
-      </div>
-      <div data-slot="card" className="liquid-glass p-4">
-        <p className="text-xs sm:text-sm text-muted-foreground">Goal</p>
-        <p className="text-xl sm:text-2xl font-bold mt-1">{Math.round(goalPct)}% <span className="text-xs font-normal text-muted-foreground">of ${Math.round(goal / 1_000_000)}M</span></p>
-        <div className="mt-2 h-2 w-full rounded-full bg-black/5 dark:bg-white/10">
-          <div
-            className="h-2 rounded-full bg-blue-500"
-            style={{ width: `${Math.min(goalPct, 100)}%` }}
-          />
+        <div data-slot="card" className="liquid-glass p-4">
+          <p className="text-xs sm:text-sm text-muted-foreground">Savings Rate</p>
+          {savingsRate != null ? (
+            <p className={`text-xl sm:text-2xl font-bold mt-1 ${savingsRateColor(savingsRate)}`}>
+              {Math.round(savingsRate)}%
+            </p>
+          ) : (
+            <p className="text-xl sm:text-2xl font-bold mt-1">N/A</p>
+          )}
         </div>
-      </div>
+        <div data-slot="card" className="liquid-glass p-4">
+          <p className="text-xs sm:text-sm text-muted-foreground">Take-home Rate</p>
+          {takehomeSavingsRate != null ? (
+            <p className={`text-xl sm:text-2xl font-bold mt-1 ${savingsRateColor(takehomeSavingsRate)}`}>
+              {Math.round(takehomeSavingsRate)}%
+            </p>
+          ) : (
+            <p className="text-xl sm:text-2xl font-bold mt-1">N/A</p>
+          )}
+        </div>
+        <div data-slot="card" className="liquid-glass p-4">
+          <p className="text-xs sm:text-sm text-muted-foreground">Goal</p>
+          <p className="text-xl sm:text-2xl font-bold mt-1">
+            {Math.round(goalPct)}%{" "}
+            <span className="text-xs font-normal text-muted-foreground">of ${Math.round(goal / 1_000_000)}M</span>
+          </p>
+          <div className="mt-2 h-2 w-full rounded-full bg-black/5 dark:bg-white/10">
+            <div
+              className="h-2 rounded-full bg-blue-500"
+              style={{ width: `${Math.min(goalPct, 100)}%` }}
+            />
+          </div>
+        </div>
       </div>
     </div>
   );

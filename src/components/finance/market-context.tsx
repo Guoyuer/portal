@@ -2,10 +2,10 @@
 
 import { memo, useState, useEffect, useRef } from "react";
 import { Area, AreaChart, YAxis } from "recharts";
-import type { MarketData, IndexReturn } from "@/lib/types";
+import type { MarketData, IndexReturn } from "@/lib/schema";
 import { fmtPct } from "@/lib/format";
 import { valueColor } from "@/lib/style-helpers";
-import { SectionHeader, SectionBody } from "@/components/finance/shared";
+import { SectionHeader } from "@/components/finance/shared";
 
 // ── Display name mapping ────────────────────────────────────────────────
 const INDEX_NAMES: Record<string, string> = {

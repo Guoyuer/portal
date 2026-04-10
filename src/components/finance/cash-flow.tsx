@@ -1,5 +1,5 @@
 import { memo } from "react";
-import type { CashflowResponse } from "@/lib/types";
+import type { CashflowResponse } from "@/lib/schema";
 import { fmtCurrency } from "@/lib/format";
 import { MAJOR_EXPENSE_THRESHOLD } from "@/lib/style-helpers";
 import { TOTAL_ROW_CLASS } from "@/components/finance/shared";

@@ -20,7 +20,6 @@ export function fmtPct(val: number, signed: boolean): string {
   return `${val.toFixed(1)}%`;
 }
 
-
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 export function fmtMonth(m: string): string {
