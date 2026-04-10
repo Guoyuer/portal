@@ -118,8 +118,8 @@ CREATE TABLE IF NOT EXISTS empower_contributions (
     PRIMARY KEY (date, amount, ticker, cusip)
 );
 
--- Pre-computed market index data + macro scalars
-CREATE TABLE IF NOT EXISTS computed_market (
+-- Pre-computed market index data (^GSPC, ^NDX, etc.)
+CREATE TABLE IF NOT EXISTS computed_market_indices (
     ticker       TEXT PRIMARY KEY,
     name         TEXT NOT NULL DEFAULT '',
     current      REAL NOT NULL DEFAULT 0,
@@ -128,6 +128,12 @@ CREATE TABLE IF NOT EXISTS computed_market (
     high_52w     REAL NOT NULL DEFAULT 0,
     low_52w      REAL NOT NULL DEFAULT 0,
     sparkline    TEXT NOT NULL DEFAULT '[]'
+);
+
+-- Pre-computed macro scalar indicators (fedRate, usdCny, etc.)
+CREATE TABLE IF NOT EXISTS computed_market_indicators (
+    key   TEXT PRIMARY KEY,
+    value REAL NOT NULL DEFAULT 0
 );
 
 -- Pre-computed per-ticker holdings performance

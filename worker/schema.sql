@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS qianji_transactions (
   amount REAL
 );
 
-CREATE TABLE IF NOT EXISTS computed_market (
+CREATE TABLE IF NOT EXISTS computed_market_indices (
   ticker TEXT PRIMARY KEY,
   name TEXT,
   current REAL,
@@ -61,6 +61,11 @@ CREATE TABLE IF NOT EXISTS computed_market (
   high_52w REAL,
   low_52w REAL,
   sparkline TEXT
+);
+
+CREATE TABLE IF NOT EXISTS computed_market_indicators (
+  key TEXT PRIMARY KEY,
+  value REAL
 );
 
 CREATE TABLE IF NOT EXISTS computed_holdings_detail (
@@ -104,10 +109,13 @@ CREATE VIEW IF NOT EXISTS v_qianji_txns AS
 SELECT date, type, category, amount
 FROM qianji_transactions ORDER BY date;
 
-CREATE VIEW IF NOT EXISTS v_market AS
+CREATE VIEW IF NOT EXISTS v_market_indices AS
 SELECT ticker, name, current, month_return AS monthReturn,
   ytd_return AS ytdReturn, high_52w AS high52w, low_52w AS low52w, sparkline
-FROM computed_market ORDER BY ticker;
+FROM computed_market_indices ORDER BY ticker;
+
+CREATE VIEW IF NOT EXISTS v_market_indicators AS
+SELECT key, value FROM computed_market_indicators;
 
 CREATE VIEW IF NOT EXISTS v_holdings_detail AS
 SELECT ticker, month_return AS monthReturn, start_value AS startValue,

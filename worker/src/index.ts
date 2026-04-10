@@ -21,19 +21,19 @@ export default {
       return new Response("Not found", { status: 404 });
     }
 
-    const [daily, prefix, tickers, fidelity, qianji, market, holdings] =
+    const [daily, prefix, tickers, fidelity, qianji, indices, indicators, holdings] =
       await Promise.all([
         env.DB.prepare("SELECT * FROM v_daily").all(),
         env.DB.prepare("SELECT * FROM v_prefix").all(),
         env.DB.prepare("SELECT * FROM v_daily_tickers").all(),
         env.DB.prepare("SELECT * FROM v_fidelity_txns").all(),
         env.DB.prepare("SELECT * FROM v_qianji_txns").all(),
-        env.DB.prepare("SELECT * FROM v_market").all(),
+        env.DB.prepare("SELECT * FROM v_market_indices").all(),
+        env.DB.prepare("SELECT * FROM v_market_indicators").all(),
         env.DB.prepare("SELECT * FROM v_holdings_detail").all(),
       ]);
 
-    // Split market: indices vs __scalar indicators
-    const indices: Record<string, unknown>[] = [];
+    // Indicators -> flat object
     const meta: Record<string, number | null> = {
       fedRate: null,
       treasury10y: null,
@@ -46,13 +46,8 @@ export default {
       btcReturn: null,
       portfolioMonthReturn: null,
     };
-    for (const r of market.results as Record<string, unknown>[]) {
-      const ticker = r.ticker as string;
-      if (ticker.startsWith("__")) {
-        meta[ticker.slice(2)] = r.current as number;
-      } else {
-        indices.push({ ...r, sparkline: JSON.parse(r.sparkline as string) });
-      }
+    for (const r of indicators.results as { key: string; value: number }[]) {
+      meta[r.key] = r.value;
     }
 
     // Top 5 / bottom 5 (already sorted DESC by view)
@@ -70,7 +65,13 @@ export default {
         dailyTickers: tickers.results,
         fidelityTxns: fidelity.results,
         qianjiTxns: qianji.results,
-        market: { indices, ...meta },
+        market: {
+          indices: (indices.results as Record<string, unknown>[]).map(r => ({
+            ...r,
+            sparkline: JSON.parse(r.sparkline as string),
+          })),
+          ...meta,
+        },
         holdingsDetail,
       },
       {

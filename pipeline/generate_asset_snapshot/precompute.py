@@ -140,11 +140,11 @@ _INDEX_NAMES: dict[str, str] = {
 }
 
 _FRED_SNAPSHOT_KEYS: dict[str, str] = {
-    "fedFundsRate": "__fedRate",
-    "treasury10y": "__treasury10y",
-    "cpiYoy": "__cpi",
-    "unemployment": "__unemployment",
-    "vix": "__vix",
+    "fedFundsRate": "fedRate",
+    "treasury10y": "treasury10y",
+    "cpiYoy": "cpi",
+    "unemployment": "unemployment",
+    "vix": "vix",
 }
 
 
@@ -190,24 +190,26 @@ def _compute_index_row(
 
 
 def precompute_market(db_path: Path) -> None:
-    """Precompute market index data and macro scalars into computed_market.
+    """Precompute market index data and macro scalars into separate tables.
 
-    Reads daily_close prices, computes returns/sparklines for each index,
-    and stores CNY rate + optional FRED data as ``__``-prefixed scalar rows.
-    Clears and rewrites computed_market each invocation.
+    Reads daily_close prices, computes returns/sparklines for each index
+    into computed_market_indices, and stores CNY rate + optional FRED data
+    into computed_market_indicators.
+    Clears and rewrites both tables each invocation.
     """
     from .db import get_connection
 
     conn = get_connection(db_path)
     try:
-        conn.execute("DELETE FROM computed_market")
+        conn.execute("DELETE FROM computed_market_indices")
+        conn.execute("DELETE FROM computed_market_indicators")
 
         # ── Index rows ──────────────────────────────────────────────────
         for ticker, name in _INDEX_NAMES.items():
             row = _compute_index_row(conn, ticker, name)
             if row is not None:
                 conn.execute(
-                    "INSERT INTO computed_market"
+                    "INSERT INTO computed_market_indices"
                     " (ticker, name, current, month_return, ytd_return, high_52w, low_52w, sparkline)"
                     " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     row,
@@ -219,8 +221,8 @@ def precompute_market(db_path: Path) -> None:
         ).fetchone()
         if cny_row is not None:
             conn.execute(
-                "INSERT INTO computed_market (ticker, name, current) VALUES (?, ?, ?)",
-                ("__usdCny", "USD/CNY", cny_row[0]),
+                "INSERT INTO computed_market_indicators (key, value) VALUES (?, ?)",
+                ("usdCny", cny_row[0]),
             )
 
         # ── FRED macro data ─────────────────────────────────────────────
@@ -235,8 +237,8 @@ def precompute_market(db_path: Path) -> None:
                     for src, dst in _FRED_SNAPSHOT_KEYS.items():
                         if src in snap:
                             conn.execute(
-                                "INSERT INTO computed_market (ticker, name, current) VALUES (?, ?, ?)",
-                                (dst, src, float(snap[src])),  # type: ignore[arg-type]
+                                "INSERT INTO computed_market_indicators (key, value) VALUES (?, ?)",
+                                (dst, float(snap[src])),  # type: ignore[arg-type]
                             )
             except Exception:  # noqa: BLE001
                 log.warning("Failed to fetch FRED data for precompute_market", exc_info=True)

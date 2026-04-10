@@ -30,7 +30,8 @@ TABLES_TO_SYNC: list[str] = [
     "computed_daily_tickers",
     "fidelity_transactions",
     "qianji_transactions",
-    "computed_market",
+    "computed_market_indices",
+    "computed_market_indicators",
     "computed_holdings_detail",
 ]
 

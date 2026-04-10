@@ -280,6 +280,8 @@ class TestCashflow:
 @pytest.fixture()
 def market_db(tmp_path: Path) -> Path:
     """DB with index prices + CNY rates for /market and /holdings-detail tests."""
+    from generate_asset_snapshot.precompute import precompute_market
+
     p = tmp_path / "market.db"
     init_db(p)
     conn = get_connection(p)
@@ -301,6 +303,8 @@ def market_db(tmp_path: Path) -> Path:
                      ("VOO", d, 500 + i * 20.0 / 29))
     conn.commit()
     conn.close()
+    # Precompute market tables so /market reads from them
+    precompute_market(p)
     return p
 
 
