@@ -20,10 +20,10 @@ import { tooltipStyle, gridStroke } from "@/lib/chart-styles";
 // ── Constants ─────────────────────────────────────────────────────────────
 
 const CAT_COLORS = {
-  usEquity: "#3b82f6",
-  nonUsEquity: "#8b5cf6",
-  crypto: "#f59e0b",
-  safeNet: "#06b6d4",
+  usEquity: "#0072B2",
+  nonUsEquity: "#009E73",
+  crypto: "#E69F00",
+  safeNet: "#56B4E9",
 } as const;
 
 const CAT_LABELS: Record<string, string> = {
@@ -69,12 +69,12 @@ export const TimemachineChart = memo(function TimemachineChart({
         <defs>
           {CAT_KEYS.map((key) => (
             <linearGradient key={key} id={`tm-${key}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={CAT_COLORS[key]} stopOpacity={0.6} />
-              <stop offset="100%" stopColor={CAT_COLORS[key]} stopOpacity={0.05} />
+              <stop offset="0%" stopColor={CAT_COLORS[key]} stopOpacity={0.85} />
+              <stop offset="100%" stopColor={CAT_COLORS[key]} stopOpacity={0.3} />
             </linearGradient>
           ))}
         </defs>
-        <CartesianGrid strokeDasharray="3 3" stroke={gridStroke(isDark)} />
+        <CartesianGrid strokeDasharray="3 3" stroke={gridStroke(isDark)} vertical={false} />
         <XAxis
           dataKey="ts"
           type="number"

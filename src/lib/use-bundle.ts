@@ -19,10 +19,8 @@ import {
   computeCashflow,
   computeActivity,
   computeCrossCheck,
-  downsample,
   buildDateIndex,
   buildTickerIndex,
-  TARGET_CHART_POINTS,
   type CrossCheck,
 } from "@/lib/compute";
 
@@ -84,17 +82,14 @@ export function useBundle(): BundleState {
   const dateIndex = useMemo(() => data ? buildDateIndex(data.daily) : new Map<string, number>(), [data]);
   const tickerIndex = useMemo(() => data ? buildTickerIndex(data.dailyTickers) : new Map(), [data]);
 
-  // ── Downsampling ────────────────────────────────────────────────────
-  const { sampled: chartDaily, toFull } = useMemo(
-    () => data ? downsample(data.daily) : { sampled: [] as DailyPoint[], toFull: [] as number[] },
-    [data],
-  );
+  // ── Chart data (no downsampling — show every day) ───────────────────
+  const chartDaily = data?.daily ?? [];
+  const toFull = useMemo(() => chartDaily.map((_, i) => i), [chartDaily]);
 
   const defaultEndIndex = chartDaily.length > 0 ? chartDaily.length - 1 : 0;
   const defaultStartIndex = useMemo(() => {
     if (!data || chartDaily.length === 0) return 0;
-    const step = Math.max(1, Math.floor(data.daily.length / TARGET_CHART_POINTS));
-    return Math.max(0, defaultEndIndex - Math.floor(252 / step));
+    return Math.max(0, defaultEndIndex - 252);
   }, [data, chartDaily.length, defaultEndIndex]);
 
   useEffect(() => {

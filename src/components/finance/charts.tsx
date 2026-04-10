@@ -30,7 +30,14 @@ import { fmtCurrencyShort, fmtMonth, fmtMonthYear } from "@/lib/format";
 import { useIsDark, useIsMobile } from "@/lib/hooks";
 import { tooltipStyle, gridStroke } from "@/lib/chart-styles";
 
-const COLORS = ["#06b6d4", "#8b5cf6", "#f59e0b", "#10b981", "#f87171"];
+const COLORS = ["#06b6d4", "#eab308", "#f59e0b", "#10b981", "#f87171"];
+
+const CAT_COLOR_MAP: Record<string, string> = {
+  "US Equity": "#0072B2",
+  "Non-US Equity": "#009E73",
+  "Crypto": "#E69F00",
+  "Safe Net": "#56B4E9",
+};
 
 // ── Donut: Category Allocation ─────────────────────────────────────────────
 
@@ -57,8 +64,8 @@ export function AllocationDonut({
             stroke="rgba(255,255,255,0.3)"
             strokeWidth={1}
           >
-            {data.map((_, i) => (
-              <Cell key={i} fill={COLORS[i % COLORS.length]} />
+            {data.map((d, i) => (
+              <Cell key={i} fill={CAT_COLOR_MAP[d.name] ?? COLORS[i % COLORS.length]} />
             ))}
           </Pie>
           <Tooltip
@@ -75,7 +82,7 @@ export function AllocationDonut({
       <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2 text-sm">
         {data.map((d, i) => (
           <div key={d.name} className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
+            <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: CAT_COLOR_MAP[d.name] ?? COLORS[i % COLORS.length] }} />
             <span className="text-muted-foreground">{d.name} {d.pct.toFixed(0)}%</span>
           </div>
         ))}
@@ -186,12 +193,12 @@ export const IncomeExpensesChart = memo(function IncomeExpensesChart({
             strokeWidth={1}
           />
         )}
-        <Bar dataKey="expenses" name="Expenses" stackId="income" isAnimationActive={false}>
+        <Bar dataKey="expenses" name="Expenses" stackId="income" fill={expenseColor} isAnimationActive={false}>
           {stacked.map((_, i) => (
             <Cell key={i} fill={expenseColor} opacity={activeIdx >= 0 && i !== activeIdx ? 0.35 : 0.9} />
           ))}
         </Bar>
-        <Bar dataKey="savings" name="Savings" stackId="income" radius={[2, 2, 0, 0]} isAnimationActive={false}>
+        <Bar dataKey="savings" name="Savings" stackId="income" fill={savingsColor} radius={[2, 2, 0, 0]} isAnimationActive={false}>
           {stacked.map((_, i) => (
             <Cell key={i} fill={savingsColor} opacity={activeIdx >= 0 && i !== activeIdx ? 0.35 : 0.9} />
           ))}
