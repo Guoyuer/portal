@@ -256,29 +256,6 @@ class MarketData:
 
 
 @dataclass
-class StockDetail:
-    """Per-stock detail for holdings deep dive."""
-
-    ticker: str
-    month_return: float
-    start_value: float
-    end_value: float
-    pe_ratio: float | None
-    market_cap: float | None
-    high_52w: float | None
-    low_52w: float | None
-    vs_high: float | None  # current / 52w_high - 1
-    next_earnings: str | None  # "Apr 24 (Thu)"
-
-
-@dataclass
-class HoldingsDetailData:
-    """Holdings deep dive from Yahoo Finance."""
-
-    all_stocks: list[StockDetail]  # sorted by month_return desc
-
-
-@dataclass
 class SnapshotPoint:
     """Single historical portfolio snapshot for trend charts."""
 

@@ -85,7 +85,7 @@ export default {
             }),
             ...meta,
           },
-          holdingsDetail: { allStocks: holdings.results },
+          holdingsDetail: holdings.results,
           syncMeta: Object.keys(syncMeta).length > 0 ? syncMeta : null,
         },
         {

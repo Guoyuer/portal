@@ -8,7 +8,7 @@ import {
   type CashflowResponse,
   type ActivityResponse,
   type MarketData,
-  type HoldingsDetailData,
+  type StockDetail,
   type DailyPoint,
   type QianjiTxn,
   type FidelityTxn,
@@ -47,7 +47,7 @@ export interface BundleState {
   cashflow: CashflowResponse | null;
   activity: ActivityResponse | null;
   market: MarketData | null;
-  holdingsDetail: HoldingsDetailData | null;
+  holdingsDetail: StockDetail[] | null;
   crossCheck: CrossCheck | null;
   syncMeta: Record<string, string> | null;
 }

@@ -47,10 +47,6 @@ const StockDetailSchema = z.object({
   nextEarnings: z.string().nullable().default(null),
 });
 
-const HoldingsDetailDataSchema = z.object({
-  allStocks: z.array(StockDetailSchema),
-});
-
 // ── Timemachine ─────────────────────────────────────────────────────────
 
 const DailyPointSchema = z.object({
@@ -98,7 +94,7 @@ export const TimelineDataSchema = z.object({
   fidelityTxns: z.array(FidelityTxnSchema).default([]),
   qianjiTxns: z.array(QianjiTxnSchema).default([]),
   market: MarketDataSchema.nullable().default(null),
-  holdingsDetail: HoldingsDetailDataSchema.nullable().default(null),
+  holdingsDetail: z.array(StockDetailSchema).nullable().default(null),
   syncMeta: z.record(z.string(), z.string()).nullable().default(null),
 });
 
@@ -112,7 +108,6 @@ export type TimelineData = z.infer<typeof TimelineDataSchema>;
 export type IndexReturn = z.infer<typeof IndexReturnSchema>;
 export type MarketData = z.infer<typeof MarketDataSchema>;
 export type StockDetail = z.infer<typeof StockDetailSchema>;
-export type HoldingsDetailData = z.infer<typeof HoldingsDetailDataSchema>;
 
 // ── Client-computed types (not from Zod, defined inline) ────────────────
 
@@ -137,7 +132,7 @@ export type CategoryData = {
   subtypes: { name: string; holdings: { ticker: string; value: number }[]; value: number; lots: number; pct: number }[];
   holdings: { ticker: string; value: number }[];
 };
-export type ApiTicker = { ticker: string; value: number; category: string; subtype: string; costBasis: number; gainLoss: number; gainLossPct: number };
+export type ApiTicker = Omit<DailyTicker, "date">;
 export type ApiCategory = { name: string; value: number; pct: number; target: number; deviation: number };
 export type AllocationResponse = { total: number; netWorth: number; liabilities: number; categories: ApiCategory[]; tickers: ApiTicker[] };
 export type CashflowResponse = {
