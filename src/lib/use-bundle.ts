@@ -88,7 +88,7 @@ function computeCashflow(qianjiTxns: QianjiTxn[], start: string, end: string): C
   const totalExpenses = Math.round(expenseItems.reduce((s, i) => s + i.amount, 0) * 100) / 100;
   const netCashflow = Math.round((totalIncome - totalExpenses) * 100) / 100;
   const savingsRate = totalIncome ? Math.round(((totalIncome - totalExpenses) / totalIncome) * 10000) / 100 : 0;
-  const k401 = incomeItems.find((i) => i.category === "401K")?.amount ?? 0;
+  const k401 = incomeItems.find((i) => i.category.toLowerCase().includes("401"))?.amount ?? 0;
   const takehomeIncome = totalIncome - k401;
   const takehomeSavingsRate = takehomeIncome ? Math.round(((takehomeIncome - totalExpenses) / takehomeIncome) * 10000) / 100 : 0;
 
