@@ -12,8 +12,6 @@ from pathlib import Path
 from types import ModuleType
 from unittest.mock import MagicMock
 
-import pytest
-
 # ── Mock yfinance before importing prices.py ────────────────────────────────
 
 _yf_mock = MagicMock(spec=ModuleType)
@@ -25,7 +23,6 @@ from generate_asset_snapshot.prices import (  # noqa: E402
     load_prices,
     load_proxy_prices,
 )
-
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
