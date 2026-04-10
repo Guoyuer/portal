@@ -45,7 +45,7 @@ def create_app(db_path: Path) -> FastAPI:
     def timeline() -> dict[str, Any]:
         conn = get_connection(db_path)
         try:
-            # ── Daily + prefix (existing) ──────────────────────────────
+            # ── Daily snapshots ───────────────────────────────────────
             cur = conn.execute(
                 "SELECT date, total, us_equity, non_us_equity, crypto, safe_net, liabilities "
                 "FROM computed_daily ORDER BY date"
@@ -59,24 +59,6 @@ def create_app(db_path: Path) -> FastAPI:
                     "crypto": row[4],
                     "safeNet": row[5],
                     "liabilities": row[6],
-                }
-                for row in cur.fetchall()
-            ]
-
-            cur = conn.execute(
-                "SELECT date, income, expenses, buys, sells, dividends, net_cash_in, cc_payments "
-                "FROM computed_prefix ORDER BY date"
-            )
-            prefix = [
-                {
-                    "date": row[0],
-                    "income": row[1],
-                    "expenses": row[2],
-                    "buys": row[3],
-                    "sells": row[4],
-                    "dividends": row[5],
-                    "netCashIn": row[6],
-                    "ccPayments": row[7],
                 }
                 for row in cur.fetchall()
             ]
@@ -135,7 +117,6 @@ def create_app(db_path: Path) -> FastAPI:
 
         return {
             "daily": daily,
-            "prefix": prefix,
             "dailyTickers": daily_tickers,
             "fidelityTxns": fidelity_txns,
             "qianjiTxns": qianji_txns,

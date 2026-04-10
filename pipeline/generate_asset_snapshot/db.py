@@ -97,18 +97,6 @@ CREATE TABLE IF NOT EXISTS computed_daily_tickers (
     PRIMARY KEY (date, ticker)
 );
 
--- Pre-computed prefix sums
-CREATE TABLE IF NOT EXISTS computed_prefix (
-    date        TEXT PRIMARY KEY,
-    income      REAL NOT NULL DEFAULT 0,
-    expenses    REAL NOT NULL DEFAULT 0,
-    buys        REAL NOT NULL DEFAULT 0,
-    sells       REAL NOT NULL DEFAULT 0,
-    dividends   REAL NOT NULL DEFAULT 0,
-    net_cash_in REAL NOT NULL DEFAULT 0,
-    cc_payments REAL NOT NULL DEFAULT 0
-);
-
 -- Empower 401k contributions (BUYMF transactions from QFX)
 CREATE TABLE IF NOT EXISTS empower_contributions (
     date   TEXT NOT NULL,

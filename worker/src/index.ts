@@ -29,10 +29,9 @@ export default {
     }
 
     try {
-      const [daily, prefix, tickers, fidelity, qianji, indices, indicators, holdings] =
+      const [daily, tickers, fidelity, qianji, indices, indicators, holdings] =
         await Promise.all([
           env.DB.prepare("SELECT * FROM v_daily").all(),
-          env.DB.prepare("SELECT * FROM v_prefix").all(),
           env.DB.prepare("SELECT * FROM v_daily_tickers").all(),
           env.DB.prepare("SELECT * FROM v_fidelity_txns").all(),
           env.DB.prepare("SELECT * FROM v_qianji_txns").all(),
@@ -68,7 +67,6 @@ export default {
       return Response.json(
         {
           daily: daily.results,
-          prefix: prefix.results,
           dailyTickers: tickers.results,
           fidelityTxns: fidelity.results,
           qianjiTxns: qianji.results,

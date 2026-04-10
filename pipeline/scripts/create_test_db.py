@@ -29,18 +29,6 @@ def main() -> None:
         days,
     )
 
-    # Prefix sums
-    conn.executemany(
-        "INSERT INTO computed_prefix (date, income, expenses, buys, sells, dividends, net_cash_in, cc_payments) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        [
-            ("2025-01-02", 5000, 1000, 3000, 0, 10, 2000, 500),
-            ("2025-02-03", 10000, 2000, 6000, 0, 25, 4000, 1000),
-            ("2025-03-03", 15000, 3000, 9000, 0, 40, 6000, 1500),
-            ("2025-04-01", 20000, 4000, 12000, 0, 55, 8000, 2000),
-        ],
-    )
-
     # Ticker-level data for each day
     tickers_template = [
         ("VOO", "US Equity", "broad", 0.4),

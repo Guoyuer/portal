@@ -69,7 +69,7 @@ export default function FinancePage() {
 
   // ── Derived values ────────────────────────────────────────────────
   const goalPct = tl.allocation ? (tl.allocation.total / GOAL) * 100 : 0;
-  const invested = tl.range?.buys ?? 0;
+  const invested = tl.activity?.buysBySymbol.reduce((s, b) => s + b.total, 0) ?? 0;
   const alloc = tl.allocation;
   const cf = tl.cashflow;
   const act = tl.activity;

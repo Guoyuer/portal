@@ -41,17 +41,6 @@ CREATE TABLE IF NOT EXISTS computed_daily_tickers (
     PRIMARY KEY (date, ticker)
 );
 
-CREATE TABLE IF NOT EXISTS computed_prefix (
-    date        TEXT PRIMARY KEY,
-    income      REAL NOT NULL DEFAULT 0,
-    expenses    REAL NOT NULL DEFAULT 0,
-    buys        REAL NOT NULL DEFAULT 0,
-    sells       REAL NOT NULL DEFAULT 0,
-    dividends   REAL NOT NULL DEFAULT 0,
-    net_cash_in REAL NOT NULL DEFAULT 0,
-    cc_payments REAL NOT NULL DEFAULT 0
-);
-
 CREATE TABLE IF NOT EXISTS computed_market_indices (
     ticker       TEXT PRIMARY KEY,
     name         TEXT NOT NULL DEFAULT '',
@@ -90,11 +79,6 @@ CREATE VIEW IF NOT EXISTS v_daily AS
 SELECT date, total, us_equity AS usEquity, non_us_equity AS nonUsEquity,
   crypto, safe_net AS safeNet, liabilities
 FROM computed_daily ORDER BY date;
-
-CREATE VIEW IF NOT EXISTS v_prefix AS
-SELECT date, income, expenses, buys, sells, dividends,
-  net_cash_in AS netCashIn, cc_payments AS ccPayments
-FROM computed_prefix ORDER BY date;
 
 CREATE VIEW IF NOT EXISTS v_daily_tickers AS
 SELECT date, ticker, value, category, subtype,

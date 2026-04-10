@@ -26,7 +26,6 @@ _WORKER_DIR = _PROJECT_DIR.parent / "worker"
 
 TABLES_TO_SYNC: list[str] = [
     "computed_daily",
-    "computed_prefix",
     "computed_daily_tickers",
     "fidelity_transactions",
     "qianji_transactions",

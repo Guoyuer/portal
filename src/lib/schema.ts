@@ -214,17 +214,6 @@ export const DailyPointSchema = z.object({
   liabilities: z.number().default(0),
 });
 
-export const PrefixPointSchema = z.object({
-  date: z.string(),
-  income: z.number(),
-  expenses: z.number(),
-  buys: z.number(),
-  sells: z.number(),
-  dividends: z.number(),
-  netCashIn: z.number(),
-  ccPayments: z.number(),
-});
-
 // ── Raw transaction schemas (bundled in /timeline) ──────────────────────
 
 export const DailyTickerSchema = z.object({
@@ -254,7 +243,6 @@ export const QianjiTxnSchema = z.object({
 
 export const TimelineDataSchema = z.object({
   daily: z.array(DailyPointSchema),
-  prefix: z.array(PrefixPointSchema),
   dailyTickers: z.array(DailyTickerSchema).default([]),
   fidelityTxns: z.array(FidelityTxnSchema).default([]),
   qianjiTxns: z.array(QianjiTxnSchema).default([]),
@@ -263,7 +251,6 @@ export const TimelineDataSchema = z.object({
 });
 
 export type DailyPoint = z.infer<typeof DailyPointSchema>;
-export type PrefixPoint = z.infer<typeof PrefixPointSchema>;
 export type DailyTicker = z.infer<typeof DailyTickerSchema>;
 export type FidelityTxn = z.infer<typeof FidelityTxnSchema>;
 export type QianjiTxn = z.infer<typeof QianjiTxnSchema>;

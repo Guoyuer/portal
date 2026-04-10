@@ -13,7 +13,7 @@ import {
   type DailyTicker,
   type FidelityTxn,
   type QianjiTxn,
-  type PrefixPoint,
+
   type TimelineData,
   type ApiTicker,
   type ApiCategory,
@@ -244,23 +244,6 @@ function downsample(daily: DailyPoint[]): { sampled: DailyPoint[]; toFull: numbe
   return { sampled, toFull };
 }
 
-// ── Prefix sum range query (O(1)) ──────────────────────────────────────
-
-function prefixRange(prefix: PrefixPoint[], left: number, right: number): PrefixPoint {
-  const r = prefix[right];
-  const l = left > 0 ? prefix[left - 1] : null;
-  return {
-    date: r.date,
-    income: r.income - (l?.income ?? 0),
-    expenses: r.expenses - (l?.expenses ?? 0),
-    buys: r.buys - (l?.buys ?? 0),
-    sells: r.sells - (l?.sells ?? 0),
-    dividends: r.dividends - (l?.dividends ?? 0),
-    netCashIn: r.netCashIn - (l?.netCashIn ?? 0),
-    ccPayments: r.ccPayments - (l?.ccPayments ?? 0),
-  };
-}
-
 // ── Build indexes ──────────────────────────────────────────────────────
 
 function buildDateIndex(daily: DailyPoint[]): Map<string, number> {
@@ -292,13 +275,11 @@ function buildTickerIndex(tickers: DailyTicker[]): Map<string, ApiTicker[]> {
 export interface BundleState {
   // Timeline (same as old useTimeline)
   chartDaily: DailyPoint[];
-  prefix: PrefixPoint[];
   qianjiTxns: QianjiTxn[];
   fidelityTxns: FidelityTxn[];
   defaultStartIndex: number;
   defaultEndIndex: number;
   snapshot: DailyPoint | null;
-  range: PrefixPoint | null;
   startDate: string | null;
   onBrushChange: (state: { startIndex?: number; endIndex?: number }) => void;
   loading: boolean;
@@ -377,7 +358,6 @@ export function useBundle(): BundleState {
 
   // ── Derived timeline state (instant — user sees these during drag) ──
   const snapshot = useMemo(() => data?.daily[fullRange.end] ?? null, [data, fullRange.end]);
-  const range = useMemo(() => data ? prefixRange(data.prefix, fullRange.start, fullRange.end) : null, [data, fullRange.start, fullRange.end]);
   const startDate = data?.daily[fullRange.start]?.date ?? null;
   const snapshotDate = snapshot?.date ?? null;
 
@@ -404,13 +384,11 @@ export function useBundle(): BundleState {
 
   return {
     chartDaily,
-    prefix: data?.prefix ?? [],
     qianjiTxns: data?.qianjiTxns ?? [],
     fidelityTxns: data?.fidelityTxns ?? [],
     defaultStartIndex,
     defaultEndIndex,
     snapshot,
-    range,
     startDate,
     onBrushChange,
     loading,
