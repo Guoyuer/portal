@@ -56,6 +56,7 @@ from generate_asset_snapshot.prices import (
     symbol_holding_periods,
 )
 from generate_asset_snapshot.timemachine import DEFAULT_QJ_DB, _load_raw_rows, _parse_date
+from generate_asset_snapshot.validate import Severity, validate_build
 
 # ── Paths ────────────────────────────────────────────────────────────────────
 
@@ -199,6 +200,22 @@ def _load_401k_contributions(
     return contribs
 
 
+def _run_validation() -> None:
+    """Run post-build validation and exit on FATAL issues."""
+    print("[V] Validating build...")
+    issues = validate_build(DB_PATH)
+    fatals = [i for i in issues if i.severity == Severity.FATAL]
+    warnings = [i for i in issues if i.severity == Severity.WARNING]
+    for w in warnings:
+        print(f"  WARNING: {w.name}: {w.message}")
+    if fatals:
+        for f in fatals:
+            print(f"  FATAL: {f.name}: {f.message}")
+        print(f"\n  Build validation FAILED ({len(fatals)} fatal). Sync blocked.")
+        sys.exit(1)
+    print(f"  Passed ({len(warnings)} warnings)")
+
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 
@@ -313,6 +330,10 @@ def _full_build(config, start, end, k401_daily, csv_path: Path):
     print("  Done")
 
     _print_summary(alloc)
+
+    if "--no-validate" not in sys.argv:
+        _run_validation()
+
     return alloc
 
 
@@ -350,6 +371,10 @@ def _incremental_build(config, start, end, k401_daily, csv_path: Path):
     print("  Done")
 
     _print_summary(alloc)
+
+    if "--no-validate" not in sys.argv:
+        _run_validation()
+
     return alloc
 
 
