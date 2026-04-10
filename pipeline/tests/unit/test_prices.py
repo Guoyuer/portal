@@ -1,21 +1,12 @@
-"""Tests for prices.py: price loading, caching, and holding periods.
-
-Note: yfinance is mocked to avoid the build dependency in CI.
-Only the DB-reading functions (load_prices, load_cny_rates, load_proxy_prices)
-are tested here since they don't depend on yfinance.
-"""
+"""Tests for prices.py: price loading, caching, and holding periods."""
 from __future__ import annotations
 
-import sys
 from datetime import date
 from pathlib import Path
-from types import ModuleType
-from unittest.mock import MagicMock
 
-# ── Mock yfinance before importing prices.py ────────────────────────────────
+import pytest
 
-_yf_mock = MagicMock(spec=ModuleType)
-sys.modules.setdefault("yfinance", _yf_mock)
+pytest.importorskip("yfinance", reason="yfinance required for prices module")
 
 from generate_asset_snapshot.db import get_connection, init_db  # noqa: E402
 from generate_asset_snapshot.prices import (  # noqa: E402
