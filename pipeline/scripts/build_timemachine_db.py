@@ -121,8 +121,11 @@ def _merge_fidelity_csvs() -> Path:
         "Amount", "Settlement Date",
     ]
 
-    # Read all CSVs with DictReader, normalise to canonical columns
-    seen: set[tuple[str, ...]] = set()
+    # Read all CSVs with DictReader, normalise to canonical columns.
+    # Dedup across files (overlapping quarterly exports) but NOT within the same file —
+    # Fidelity can have multiple identical transactions on the same day (same symbol,
+    # qty, amount) that are legitimately distinct trades.
+    cross_file_seen: dict[tuple[str, ...], str] = {}  # key -> source filename
     parsed: list[dict[str, str]] = []
 
     for csv_path in raw_csvs:
@@ -143,11 +146,12 @@ def _merge_fidelity_csvs() -> Path:
                 continue
             # Build canonical row dict
             row = {col: (record.get(col) or "").strip().strip('"') for col in out_cols}
-            # Dedup key: all meaningful fields (avoid merging distinct transactions)
             key = tuple(row[c] for c in out_cols)
-            if key in seen:
+            # Skip only if the exact same row was already seen in a DIFFERENT file
+            prev_file = cross_file_seen.get(key)
+            if prev_file is not None and prev_file != csv_path.name:
                 continue
-            seen.add(key)
+            cross_file_seen[key] = csv_path.name
             parsed.append(row)
 
     if not parsed:
