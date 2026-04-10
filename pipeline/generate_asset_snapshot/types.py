@@ -255,49 +255,5 @@ class MarketData:
     portfolio_month_return: float | None = None
 
 
-@dataclass
-class SnapshotPoint:
-    """Single historical portfolio snapshot for trend charts."""
-
-    date: str  # "2025-11-07"
-    total: float
-
-
-@dataclass
-class MonthlyFlowPoint:
-    """Single month's income/expense totals for trend charts."""
-
-    month: str  # "2025-11"
-    income: float
-    expenses: float
-    savings_rate: float  # (income - expenses) / income * 100
-
-
-@dataclass
-class AnnualCategoryTotal:
-    """Single category's annual total."""
-
-    category: str
-    amount: float
-    count: int
-
-
-@dataclass
-class AnnualSummary:
-    """Annual income/expense summary by category."""
-
-    year: int
-    expense_by_category: list[AnnualCategoryTotal]
-    total_expenses: float
-    total_income: float
-    takehome_savings_rate: float = 0.0
-
-
-@dataclass
-class ChartData:
-    """Chart data computed from historical sources. Optional on ReportData."""
-
-    net_worth_trend: list[SnapshotPoint] = field(default_factory=list)
-    monthly_flows: list[MonthlyFlowPoint] = field(default_factory=list)
 
 

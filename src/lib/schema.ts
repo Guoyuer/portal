@@ -113,14 +113,6 @@ export type StockDetail = z.infer<typeof StockDetailSchema>;
 
 export type MonthlyFlowPoint = { month: string; income: number; expenses: number; savingsRate: number };
 export type SnapshotPoint = { date: string; total: number };
-export type AnnualCategoryTotal = { category: string; amount: number; count: number };
-export type AnnualSummary = {
-  year: number;
-  expenseByCategory: AnnualCategoryTotal[];
-  totalExpenses: number;
-  totalIncome: number;
-  takehomeSavingsRate?: number;
-};
 export type CategoryData = {
   name: string;
   value: number;
