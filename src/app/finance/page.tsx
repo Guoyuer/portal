@@ -89,6 +89,15 @@ export default function FinancePage() {
     );
   }
 
+  if (tl.error) {
+    return (
+      <div className="max-w-5xl mx-auto py-20 text-center">
+        <p className="text-red-500 mb-2">Failed to load data</p>
+        <p className="text-sm text-muted-foreground">{tl.error}</p>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-5xl mx-auto space-y-10">
       {/* Header */}
