@@ -242,7 +242,7 @@ export const DailyTickerSchema = z.object({
 
 export const FidelityTxnSchema = z.object({
   runDate: z.string(),
-  action: z.string(),
+  actionType: z.string(),
   symbol: z.string(),
   amount: z.number(),
 });

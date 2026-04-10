@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .empower_401k import Contribution, parse_qfx
+from .ingest.fidelity_history import _classify_action
 
 # ── Schema DDL ───────────────────────────────────────────────────────────────
 
@@ -20,6 +21,7 @@ CREATE TABLE IF NOT EXISTS fidelity_transactions (
     account         TEXT NOT NULL,
     account_number  TEXT NOT NULL,
     action          TEXT NOT NULL,
+    action_type     TEXT NOT NULL DEFAULT '',
     symbol          TEXT NOT NULL DEFAULT '',
     description     TEXT NOT NULL DEFAULT '',
     lot_type        TEXT NOT NULL DEFAULT '',
@@ -207,7 +209,7 @@ def ingest_fidelity_csv(db_path: Path, csv_path: Path) -> int:
 
     # Parse with csv.DictReader from the header line onward
     reader = csv.DictReader(lines[header_idx:])
-    rows: list[tuple[str, str, str, str, str, str, str, float, float, float, str]] = []
+    rows: list[tuple[str, str, str, str, str, str, str, str, float, float, float, str]] = []
     dates: list[str] = []
 
     for record in reader:
@@ -215,11 +217,13 @@ def ingest_fidelity_csv(db_path: Path, csv_path: Path) -> int:
         if not _DATE_RE.match(run_date):
             continue
 
+        raw_action = record.get("Action", "").strip().strip('"')
         rows.append((
             run_date,
             record.get("Account", "").strip().strip('"'),
             record.get("Account Number", "").strip().strip('"'),
-            record.get("Action", "").strip().strip('"'),
+            raw_action,
+            _classify_action(raw_action),
             record.get("Symbol", "").strip(),
             record.get("Description", "").strip().strip('"'),
             record.get("Type", "").strip(),
@@ -254,9 +258,9 @@ def ingest_fidelity_csv(db_path: Path, csv_path: Path) -> int:
         # Insert all new rows
         conn.executemany(
             """INSERT INTO fidelity_transactions
-               (run_date, account, account_number, action, symbol,
+               (run_date, account, account_number, action, action_type, symbol,
                 description, lot_type, quantity, price, amount, settlement_date)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             rows,
         )
         conn.commit()

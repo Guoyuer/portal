@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS fidelity_transactions (
   account TEXT,
   account_number TEXT,
   action TEXT,
+  action_type TEXT,
   symbol TEXT,
   description TEXT,
   lot_type TEXT,
@@ -106,7 +107,7 @@ SELECT date, ticker, value, category, subtype,
 FROM computed_daily_tickers ORDER BY date, value DESC;
 
 CREATE VIEW IF NOT EXISTS v_fidelity_txns AS
-SELECT run_date AS runDate, action, symbol, amount
+SELECT run_date AS runDate, action_type AS actionType, symbol, amount
 FROM fidelity_transactions ORDER BY id;
 
 CREATE VIEW IF NOT EXISTS v_qianji_txns AS

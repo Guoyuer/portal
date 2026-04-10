@@ -121,7 +121,7 @@ function computeCrossCheck(
   const deposits: { amt: number; ms: number }[] = [];
   let fidelityTotal = 0;
   for (const t of fidelityTxns) {
-    if (!t.action.startsWith("Electronic Funds Transfer Received")) continue;
+    if (t.actionType !== "deposit") continue;
     const sort = fidelityDateToSort(t.runDate);
     if (sort >= startSort && sort <= endSort) {
       deposits.push({ amt: Math.round(Math.abs(t.amount) * 100), ms: fidelityDateToMs(t.runDate) });
@@ -189,23 +189,22 @@ function computeActivity(fidelityTxns: FidelityTxn[], start: string, end: string
     const sort = fidelityDateToSort(t.runDate);
     if (sort < startSort || sort > endSort) continue;
     if (!t.symbol) continue;
-    const action = t.action.toUpperCase();
-    if (action.startsWith("YOU BOUGHT")) {
+    if (t.actionType === "buy") {
       const e = buys.get(t.symbol) ?? { count: 0, total: 0 };
       e.count += 1;
       e.total += Math.abs(t.amount);
       buys.set(t.symbol, e);
-    } else if (action.startsWith("YOU SOLD")) {
+    } else if (t.actionType === "sell") {
       const e = sells.get(t.symbol) ?? { count: 0, total: 0 };
       e.count += 1;
       e.total += Math.abs(t.amount);
       sells.set(t.symbol, e);
-    } else if (action.startsWith("DIVIDEND")) {
+    } else if (t.actionType === "dividend") {
       const e = dividends.get(t.symbol) ?? { count: 0, total: 0 };
       e.count += 1;
       e.total += t.amount;
       dividends.set(t.symbol, e);
-    } else if (action.startsWith("REINVESTMENT")) {
+    } else if (t.actionType === "reinvestment") {
       // Reinvestment = dividend received + auto-bought — count in both
       const ed = dividends.get(t.symbol) ?? { count: 0, total: 0 };
       ed.count += 1;

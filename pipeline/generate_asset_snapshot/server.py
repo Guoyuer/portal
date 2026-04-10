@@ -102,12 +102,12 @@ def create_app(db_path: Path) -> FastAPI:
 
             # ── Raw transactions (for cashflow + activity) ────────────
             cur = conn.execute(
-                "SELECT run_date, action, symbol, amount FROM fidelity_transactions ORDER BY id"
+                "SELECT run_date, action_type, symbol, amount FROM fidelity_transactions ORDER BY id"
             )
             fidelity_txns = [
                 {
                     "runDate": row[0],
-                    "action": row[1],
+                    "actionType": row[1],
                     "symbol": row[2],
                     "amount": row[3],
                 }
