@@ -131,6 +131,9 @@ def _parse_csv_text(text: str) -> list[FidelityTransaction]:
         price = _parse_float(row.get("Price", ""))
         amount = _parse_float(row.get("Amount", ""))
         action_type = _classify_action(raw_action)
+        # EFT with negative amount is a withdrawal, not a deposit
+        if action_type == ACT_DEPOSIT and amount < 0:
+            action_type = ACT_WITHDRAWAL
 
         txn: FidelityTransaction = {
             "date": run_date,
