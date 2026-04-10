@@ -369,7 +369,7 @@ def create_app(db_path: Path) -> FastAPI:
     @app.get("/holdings-detail")
     def holdings_detail() -> dict[str, Any]:
         """Return per-ticker detail from DB prices (month return, 52w high/low)."""
-        empty: dict[str, Any] = {"topPerformers": [], "bottomPerformers": [], "upcomingEarnings": []}
+        empty: dict[str, Any] = {"allStocks": []}
 
         conn = get_connection(db_path)
         try:
@@ -426,9 +426,7 @@ def create_app(db_path: Path) -> FastAPI:
             conn.close()
 
         sorted_by_return = sorted(stocks, key=lambda s: float(s["monthReturn"]), reverse=True)
-        top = sorted_by_return[:5]
-        bottom = sorted_by_return[-5:][::-1] if len(sorted_by_return) > 5 else []
-        return {"topPerformers": top, "bottomPerformers": bottom, "upcomingEarnings": []}
+        return {"allStocks": sorted_by_return}
 
     return app
 

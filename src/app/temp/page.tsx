@@ -70,15 +70,19 @@ export default function TempPage() {
 
   useEffect(() => { fetchReport(); }, [fetchReport]);
 
-  const upcomingEarnings = useMemo(() => {
-    if (!r?.holdingsDetail) return [];
+  const { topPerformers, bottomPerformers, upcomingEarnings } = useMemo(() => {
+    if (!r?.holdingsDetail) return { topPerformers: [], bottomPerformers: [], upcomingEarnings: [] };
+    const sorted = [...r.holdingsDetail.allStocks].sort((a, b) => b.monthReturn - a.monthReturn);
+    const top = sorted.slice(0, 5);
+    const bottom = sorted.length > 5 ? sorted.slice(-5).reverse() : [];
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() + 30);
-    return r.holdingsDetail.upcomingEarnings.filter((s) => {
+    const earnings = r.holdingsDetail.allStocks.filter((s) => {
       if (!s.nextEarnings) return false;
       const d = new Date(s.nextEarnings);
       return d >= new Date() && d <= cutoff;
     });
+    return { topPerformers: top, bottomPerformers: bottom, upcomingEarnings: earnings };
   }, [r]);
 
   if (loading) {
@@ -108,8 +112,8 @@ export default function TempPage() {
           <SectionBody>
             {r.holdingsDetail && (
               <>
-                <PerformersTable title="Top Performers" data={r.holdingsDetail.topPerformers} />
-                <PerformersTable title="Bottom Performers" data={r.holdingsDetail.bottomPerformers} />
+                <PerformersTable title="Top Performers" data={topPerformers} />
+                <PerformersTable title="Bottom Performers" data={bottomPerformers} />
                 {upcomingEarnings.length > 0 && (
                   <div>
                     <h3 className="font-semibold mb-2">Upcoming Earnings</h3>

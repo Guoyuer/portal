@@ -215,20 +215,7 @@ def build_holdings_detail(portfolio: Portfolio) -> HoldingsDetailData | None:
         log.debug("Ticker %s: month=%.1f%% pe=%s mcap=%s", ticker, month_ret, detail.pe_ratio, detail.market_cap)
         stocks.append(detail)
 
-    # Sort by month return
+    # Sort by month return (descending)
     sorted_by_return = sorted(stocks, key=lambda s: s.month_return, reverse=True)
-    top = sorted_by_return[:5]
-    bottom = sorted_by_return[-5:][::-1] if len(sorted_by_return) > 5 else []
-    # Bottom should be sorted worst first
-    bottom = sorted(bottom, key=lambda s: s.month_return)
 
-    upcoming = sorted(
-        [s for s in stocks if s.next_earnings],
-        key=lambda s: s.next_earnings or "",
-    )
-
-    return HoldingsDetailData(
-        top_performers=top,
-        bottom_performers=bottom,
-        upcoming_earnings=upcoming,
-    )
+    return HoldingsDetailData(all_stocks=sorted_by_return)

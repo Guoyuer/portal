@@ -345,9 +345,9 @@ class TestHoldingsDetail:
         resp = market_client.get("/holdings-detail")
         assert resp.status_code == 200
         data = resp.json()
-        assert "topPerformers" in data
-        assert len(data["topPerformers"]) >= 1
-        top = data["topPerformers"][0]
+        assert "allStocks" in data
+        assert len(data["allStocks"]) >= 1
+        top = data["allStocks"][0]
         assert top["ticker"] == "VOO"
         assert top["endValue"] == 40000
         assert top["high52w"] > 0
@@ -360,11 +360,10 @@ class TestHoldingsDetail:
         from generate_asset_snapshot.server import create_app
         c = TestClient(create_app(p))
         data = c.get("/holdings-detail").json()
-        assert data["topPerformers"] == []
-        assert data["bottomPerformers"] == []
+        assert data["allStocks"] == []
 
     def test_month_return_calculated(self, market_client: TestClient) -> None:
         data = market_client.get("/holdings-detail").json()
-        voo = data["topPerformers"][0]
+        voo = data["allStocks"][0]
         assert "monthReturn" in voo
         assert isinstance(voo["monthReturn"], float)
