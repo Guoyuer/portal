@@ -63,7 +63,6 @@ from generate_asset_snapshot.validate import Severity, validate_build
 PIPELINE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = PIPELINE_DIR / "data"
 DB_PATH = DATA_DIR / "timemachine.db"
-FIDELITY_CSV = DATA_DIR / "fidelity_transactions.csv"  # fallback only
 CONFIG_PATH = Path(os.environ.get("PORTAL_CONFIG", PIPELINE_DIR.parent / "data" / "config.json"))
 DOWNLOADS = Path(os.environ.get("PORTAL_DOWNLOADS", Path.home() / "Downloads"))
 ROBINHOOD_CSV = DOWNLOADS / "Robinhood_history.csv"
@@ -106,11 +105,7 @@ def _ingest_fidelity_csvs() -> Path:
     # Scan Downloads for Accounts_History*.csv
     raw_csvs = sorted(DOWNLOADS.glob("Accounts_History*.csv"))
     if not raw_csvs:
-        if FIDELITY_CSV.exists():
-            print(f"  No Accounts_History CSVs in Downloads, using existing {FIDELITY_CSV.name}")
-            ingest_fidelity_csv(DB_PATH, FIDELITY_CSV)
-            return FIDELITY_CSV
-        print("  ERROR: No Fidelity CSVs found in Downloads or pipeline/data/")
+        print("  ERROR: No Accounts_History CSVs found in Downloads")
         sys.exit(1)
 
     # Sort by earliest date in each file (chronological ingestion)
