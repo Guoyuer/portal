@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any
 
 from .types import (
     EQUITY_CATEGORIES,
@@ -113,45 +112,3 @@ def classify_account(name: str, config: Config) -> str:
     if name in qa.get("cny", []):
         return TIER_CNY
     return TIER_CASH
-
-
-def manual_values_from_snapshot(
-    snapshot: dict[str, Any],
-    config: Config,
-) -> dict[str, float]:
-    """Derive manual asset values (Debit Cash, I Bonds, CNY Assets) from Qianji balances.
-
-    Maps Qianji account names to config tickers via qianji_accounts.ticker_map.
-    Uses DB currency field (snapshot["currencies"]) to determine CNY accounts,
-    falling back to config["qianji_accounts"]["cny"] for backwards compatibility.
-    """
-    balances = {
-        acct: bal
-        for acct, bal in snapshot.get("balances", {}).items()
-        if classify_account(acct, config) != TIER_FIDELITY and abs(bal) >= 0.01
-    }
-
-    cny_rate = snapshot["cny_rate"]
-    currencies: dict[str, str] = snapshot.get("currencies", {})
-    cny_fallback: list[str] = config["qianji_accounts"].get("cny", [])
-    ticker_map: dict[str, str] = config["qianji_accounts"].get("ticker_map", {})
-
-    def _is_cny(acct: str) -> bool:
-        if currencies:
-            return currencies.get(acct) == "CNY"
-        return acct in cny_fallback
-
-    result: dict[str, float] = {}
-    for qj_account, ticker in ticker_map.items():
-        if qj_account in balances:
-            val = balances[qj_account]
-            if _is_cny(qj_account):
-                val = val / cny_rate
-            result[ticker] = val
-
-    cny_total = sum(bal for acct, bal in balances.items() if _is_cny(acct) and acct not in ticker_map)
-    if cny_total > 0:
-        result["CNY Assets"] = cny_total / cny_rate
-
-    log.info("Manual values: %s", {k: f"${v:,.2f}" for k, v in result.items()})
-    return result
