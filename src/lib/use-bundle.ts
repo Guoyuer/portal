@@ -293,6 +293,8 @@ export interface BundleState {
   // Timeline (same as old useTimeline)
   chartDaily: DailyPoint[];
   prefix: PrefixPoint[];
+  qianjiTxns: QianjiTxn[];
+  fidelityTxns: FidelityTxn[];
   defaultStartIndex: number;
   defaultEndIndex: number;
   snapshot: DailyPoint | null;
@@ -403,6 +405,8 @@ export function useBundle(): BundleState {
   return {
     chartDaily,
     prefix: data?.prefix ?? [],
+    qianjiTxns: data?.qianjiTxns ?? [],
+    fidelityTxns: data?.fidelityTxns ?? [],
     defaultStartIndex,
     defaultEndIndex,
     snapshot,

@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { GOAL } from "@/lib/config";
 import { useBundle } from "@/lib/use-bundle";
-import type { MonthlyFlowPoint, PrefixPoint } from "@/lib/schema";
+import type { MonthlyFlowPoint, QianjiTxn } from "@/lib/schema";
 import { SectionHeader, SectionBody } from "@/components/finance/shared";
 import { IncomeExpensesChart } from "@/components/finance/charts";
 import { MetricCards } from "@/components/finance/metric-cards";
@@ -21,41 +21,30 @@ function dateToMonthKey(dateStr: string): string {
   return dateStr.slice(0, 7);
 }
 
-// ── Compute monthly flows from timeline prefix sums ───────────────────
+// ── Compute monthly flows from raw Qianji transactions ────────────────
 
-function computeMonthlyFlows(prefix: PrefixPoint[], start: string | null, end: string | null): MonthlyFlowPoint[] {
-  if (prefix.length === 0 || !start || !end) return [];
+function computeMonthlyFlows(qianjiTxns: QianjiTxn[], start: string | null, end: string | null): MonthlyFlowPoint[] {
+  if (!qianjiTxns.length || !start || !end) return [];
 
-  // Filter prefix to brush range
-  const filtered = prefix.filter((p) => p.date >= start && p.date <= end);
-  if (filtered.length === 0) return [];
+  const months = new Map<string, { income: number; expenses: number }>();
 
-  // Group by month, take last entry per month as cumulative value
-  const monthEnds = new Map<string, PrefixPoint>();
-  for (const p of filtered) {
-    monthEnds.set(p.date.slice(0, 7), p);
+  for (const t of qianjiTxns) {
+    if (t.date < start || t.date > end) continue;
+    const month = t.date.slice(0, 7);
+    const entry = months.get(month) ?? { income: 0, expenses: 0 };
+    if (t.type === "income") entry.income += t.amount;
+    else if (t.type === "expense") entry.expenses += t.amount;
+    months.set(month, entry);
   }
 
-  // We also need the prefix point just before the range to compute the first month's delta
-  const beforeRange = prefix.filter((p) => p.date < start);
-  const baseline = beforeRange.length > 0 ? beforeRange[beforeRange.length - 1] : null;
-
-  const months = Array.from(monthEnds.entries()).sort(([a], [b]) => a.localeCompare(b));
-  const result: MonthlyFlowPoint[] = [];
-
-  for (let i = 0; i < months.length; i++) {
-    const [month, curr] = months[i];
-    // For the first month, use the point before the range as baseline
-    const prev = i > 0 ? months[i - 1][1] : baseline;
-
-    const income = curr.income - (prev?.income ?? 0);
-    const expenses = curr.expenses - (prev?.expenses ?? 0);
-    const savingsRate = income > 0 ? ((income - expenses) / income) * 100 : 0;
-
-    result.push({ month, income, expenses, savingsRate });
-  }
-
-  return result;
+  return Array.from(months.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([month, { income, expenses }]) => ({
+      month,
+      income: Math.round(income * 100) / 100,
+      expenses: Math.round(expenses * 100) / 100,
+      savingsRate: income > 0 ? Math.round(((income - expenses) / income) * 10000) / 100 : 0,
+    }));
 }
 
 // ── Sections ─────────────────────────────────────────────────────────
@@ -87,8 +76,8 @@ export default function FinancePage() {
   const mkt = tl.market;
 
   const monthlyFlows = useMemo(
-    () => computeMonthlyFlows(tl.prefix, startDate, snapshotDate),
-    [tl.prefix, startDate, snapshotDate],
+    () => computeMonthlyFlows(tl.qianjiTxns, startDate, snapshotDate),
+    [tl.qianjiTxns, startDate, snapshotDate],
   );
 
   // ── Loading state ─────────────────────────────────────────────────
