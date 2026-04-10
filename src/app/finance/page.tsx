@@ -112,8 +112,10 @@ export default function FinancePage() {
             {new Date(snapshotDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
           </p>
         )}
-        {tl.syncMeta?.last_sync && (() => {
-          const syncDate = new Date(tl.syncMeta.last_sync);
+        {(() => {
+          const lastSync = tl.syncMeta?.last_sync;
+          if (!lastSync) return null;
+          const syncDate = new Date(lastSync);
           const daysAgo = Math.floor((Date.now() - syncDate.getTime()) / 86_400_000);
           const stale = daysAgo > 3;
           return (
