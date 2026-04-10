@@ -296,6 +296,7 @@ export interface BundleState {
   market: MarketData | null;
   holdingsDetail: HoldingsDetailData | null;
   crossCheck: CrossCheck | null;
+  syncMeta: Record<string, string> | null;
 }
 
 export function useBundle(): BundleState {
@@ -404,5 +405,6 @@ export function useBundle(): BundleState {
     market: data?.market ?? null,
     holdingsDetail: data?.holdingsDetail ?? null,
     crossCheck,
+    syncMeta: data?.syncMeta ?? null,
   };
 }

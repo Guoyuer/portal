@@ -89,6 +89,15 @@ export default function FinancePage() {
     );
   }
 
+  if (tl.error) {
+    return (
+      <div className="max-w-5xl mx-auto py-20 text-center">
+        <p className="text-red-500 mb-2">Failed to load data</p>
+        <p className="text-sm text-muted-foreground">{tl.error}</p>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-5xl mx-auto space-y-10">
       {/* Header */}
@@ -103,6 +112,19 @@ export default function FinancePage() {
             {new Date(snapshotDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
           </p>
         )}
+        {(() => {
+          const lastSync = tl.syncMeta?.last_sync;
+          if (!lastSync) return null;
+          const syncDate = new Date(lastSync);
+          const daysAgo = Math.floor((Date.now() - syncDate.getTime()) / 86_400_000);
+          const stale = daysAgo > 3;
+          return (
+            <p className={`text-xs mt-0.5 ${stale ? "text-yellow-500" : "text-muted-foreground/60"}`}>
+              Data as of {syncDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+              {stale && ` (${daysAgo}d ago)`}
+            </p>
+          );
+        })()}
       </div>
 
       {/* ── 1. Overview ─────────────────────────────────────────────────── */}
@@ -130,27 +152,31 @@ export default function FinancePage() {
       <section id="cashflow">
         <SectionHeader>{SECTION_LABELS["cashflow"]}</SectionHeader>
         {cf ? (
-          <>
-            <SectionBody>
-              <CashFlow data={cf} />
-            </SectionBody>
+          cf.totalIncome === 0 && cf.totalExpenses === 0 ? (
+            <SectionBody><p className="text-sm text-muted-foreground">No transactions in this period</p></SectionBody>
+          ) : (
+            <>
+              <SectionBody>
+                <CashFlow data={cf} />
+              </SectionBody>
 
-            {/* Stat bar + chart -- single glass container, no internal borders */}
-            <div className="liquid-glass mt-4 overflow-hidden">
-              <CashFlowStatBar data={cf} invested={invested} />
-              <div className="mx-3 sm:mx-5 h-px bg-gradient-to-r from-transparent via-foreground/8 to-transparent" />
-              {monthlyFlows.length > 0 ? (
-                <div className="px-3 sm:px-5 pb-3 sm:pb-5 pt-3">
-                  <IncomeExpensesChart
-                    data={monthlyFlows}
-                    activeMonth={snapshotDate ? dateToMonthKey(snapshotDate) : undefined}
-                  />
-                </div>
-              ) : (
-                <p className="text-sm text-red-400 px-4 pb-4">Monthly flow data unavailable</p>
-              )}
-            </div>
-          </>
+              {/* Stat bar + chart -- single glass container, no internal borders */}
+              <div className="liquid-glass mt-4 overflow-hidden">
+                <CashFlowStatBar data={cf} invested={invested} />
+                <div className="mx-3 sm:mx-5 h-px bg-gradient-to-r from-transparent via-foreground/8 to-transparent" />
+                {monthlyFlows.length > 0 ? (
+                  <div className="px-3 sm:px-5 pb-3 sm:pb-5 pt-3">
+                    <IncomeExpensesChart
+                      data={monthlyFlows}
+                      activeMonth={snapshotDate ? dateToMonthKey(snapshotDate) : undefined}
+                    />
+                  </div>
+                ) : (
+                  <p className="text-sm text-red-400 px-4 pb-4">Monthly flow data unavailable</p>
+                )}
+              </div>
+            </>
+          )
         ) : (
           <SectionBody><p className="text-sm text-red-400">Cash flow data unavailable</p></SectionBody>
         )}
@@ -172,9 +198,13 @@ export default function FinancePage() {
           )}
         </SectionHeader>
         {act ? (
-          <SectionBody>
-            <PortfolioActivity activity={act} />
-          </SectionBody>
+          act.buysBySymbol.length === 0 && act.sellsBySymbol.length === 0 && act.dividendsBySymbol.length === 0 ? (
+            <SectionBody><p className="text-sm text-muted-foreground">No activity in this period</p></SectionBody>
+          ) : (
+            <SectionBody>
+              <PortfolioActivity activity={act} />
+            </SectionBody>
+          )
         ) : (
           <SectionBody><p className="text-sm text-red-400">Activity data unavailable</p></SectionBody>
         )}

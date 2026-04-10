@@ -17,6 +17,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 
 # ── Configuration ──────────────────────────────────────────────────────────────
@@ -100,6 +101,16 @@ def main() -> None:
         all_sql.append(sql)
         total_rows += count
         print(f"  {table}: {count} rows")
+
+    # Sync metadata — last_sync timestamp and data coverage
+    now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    last_date_row = conn.execute("SELECT MAX(date) FROM computed_daily").fetchone()
+    last_date = last_date_row[0] if last_date_row and last_date_row[0] else ""
+    all_sql.append(
+        "DELETE FROM sync_meta;\n"
+        f"INSERT INTO sync_meta (key, value) VALUES ('last_sync', '{now}');\n"
+        f"INSERT INTO sync_meta (key, value) VALUES ('last_date', '{last_date}');"
+    )
 
     conn.close()
 

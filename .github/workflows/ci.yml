@@ -39,7 +39,6 @@ jobs:
           restore-keys: nextjs-${{ hashFiles('package-lock.json') }}-
       - run: npx next build
         env:
-          NEXT_PUBLIC_R2_URL: ${{ secrets.NEXT_PUBLIC_R2_URL }}
           NEXT_PUBLIC_TIMELINE_URL: ${{ secrets.NEXT_PUBLIC_TIMELINE_URL }}
       # e2e skipped — Playwright install too slow in CI
       # Deploy only on main (not PRs)
