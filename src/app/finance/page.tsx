@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { GOAL } from "@/lib/config";
 import { useBundle } from "@/lib/use-bundle";
-import type { MonthlyFlowPoint, QianjiTxn } from "@/lib/schema";
+import { computeMonthlyFlows } from "@/lib/compute";
 import { SectionHeader, SectionBody } from "@/components/finance/shared";
 import { IncomeExpensesChart } from "@/components/finance/charts";
 import { MetricCards } from "@/components/finance/metric-cards";
@@ -19,32 +19,6 @@ import { TimemachineSection } from "@/components/finance/timemachine";
 /** "2026-03-15" -> "2026-03" */
 function dateToMonthKey(dateStr: string): string {
   return dateStr.slice(0, 7);
-}
-
-// ── Compute monthly flows from raw Qianji transactions ────────────────
-
-function computeMonthlyFlows(qianjiTxns: QianjiTxn[], start: string | null, end: string | null): MonthlyFlowPoint[] {
-  if (!qianjiTxns.length || !start || !end) return [];
-
-  const months = new Map<string, { income: number; expenses: number }>();
-
-  for (const t of qianjiTxns) {
-    if (t.date < start || t.date > end) continue;
-    const month = t.date.slice(0, 7);
-    const entry = months.get(month) ?? { income: 0, expenses: 0 };
-    if (t.type === "income") entry.income += t.amount;
-    else if (t.type === "expense") entry.expenses += t.amount;
-    months.set(month, entry);
-  }
-
-  return Array.from(months.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([month, { income, expenses }]) => ({
-      month,
-      income: Math.round(income * 100) / 100,
-      expenses: Math.round(expenses * 100) / 100,
-      savingsRate: income > 0 ? Math.round(((income - expenses) / income) * 10000) / 100 : 0,
-    }));
 }
 
 const PAGE_LOAD_TIME = Date.now();
