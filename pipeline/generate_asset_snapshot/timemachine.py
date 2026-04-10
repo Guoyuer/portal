@@ -139,6 +139,58 @@ def replay(store_path: Path, as_of: date | None = None) -> dict[str, Any]:
     return {"positions": positions, "cost_basis": cb_out, "cash": cash, "as_of": as_of, "txn_count": count}
 
 
+def replay_from_db(db_path: Path, as_of: date | None = None) -> dict[str, Any]:
+    """Like replay() but reads from fidelity_transactions table instead of CSV."""
+    import sqlite3
+
+    conn = sqlite3.connect(str(db_path))
+    rows = conn.execute(
+        "SELECT run_date, account_number, action, symbol, lot_type, quantity, amount"
+        " FROM fidelity_transactions ORDER BY id"
+    ).fetchall()
+    conn.close()
+
+    holdings: dict[tuple[str, str], float] = defaultdict(float)
+    cost_basis: dict[tuple[str, str], float] = defaultdict(float)
+    cash_flow: dict[str, float] = defaultdict(float)
+    mm_drip: dict[str, float] = defaultdict(float)
+    count = 0
+
+    for run_date, acct, action, sym, lot_type, qty, amt in rows:
+        txn_date = _parse_date(run_date)
+        if as_of and txn_date > as_of:
+            continue
+        count += 1
+
+        sym = (sym or "").strip()
+        acct = (acct or "").strip()
+        action_upper = (action or "").upper()
+
+        # ── Positions (exclude money market) ──
+        if sym and sym not in MM_SYMBOLS and qty != 0 and any(action_upper.startswith(p) for p in POSITION_PREFIXES):
+            key = (acct, sym)
+            if action_upper.startswith("YOU SOLD") and holdings[key] > 0:
+                sold_fraction = min(abs(qty) / holdings[key], 1.0)
+                cost_basis[key] -= cost_basis[key] * sold_fraction
+            elif action_upper.startswith(("YOU BOUGHT", "REINVESTMENT")):
+                cost_basis[key] += abs(amt)
+            holdings[key] += qty
+
+        # ── Cash (exclude Type=Shares: stock distributions, lending, sweeps) ──
+        if acct and lot_type != "Shares":
+            cash_flow[acct] += amt
+            if sym in MM_SYMBOLS and "REINVESTMENT" in action_upper and qty != 0:
+                mm_drip[acct] += qty
+
+    positions = {k: round(v, 6) for k, v in holdings.items() if abs(v) > 0.001}
+    cb_out = {k: round(v, 2) for k, v in cost_basis.items() if abs(v) > 0.01}
+    cash = {acct: round(cash_flow[acct] + mm_drip.get(acct, 0.0), 2)
+            for acct in cash_flow
+            if re.match(r"^[A-Z0-9]+$", acct)}
+
+    return {"positions": positions, "cost_basis": cb_out, "cash": cash, "as_of": as_of, "txn_count": count}
+
+
 # ── Qianji replay ─────────────────────────────────────────────────────────────
 
 def _qj_target_value(money: float, extra_str: str | None) -> float:
