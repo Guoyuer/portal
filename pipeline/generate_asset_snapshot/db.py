@@ -332,9 +332,6 @@ def ingest_empower_qfx(db_path: Path, qfx_path: Path) -> int:
     return len(snap.funds)
 
 
-# ── Price ingestion ────────────────────────────────────────────────────────
-
-
 # ── Empower contributions ingestion ─────────────────────────────────────────
 
 

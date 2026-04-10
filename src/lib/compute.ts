@@ -252,18 +252,10 @@ export function buildDateIndex(daily: DailyPoint[]): Map<string, number> {
 
 export function buildTickerIndex(tickers: DailyTicker[]): Map<string, ApiTicker[]> {
   const m = new Map<string, ApiTicker[]>();
-  for (const t of tickers) {
-    let arr = m.get(t.date);
-    if (!arr) { arr = []; m.set(t.date, arr); }
-    arr.push({
-      ticker: t.ticker,
-      value: t.value,
-      category: t.category,
-      subtype: t.subtype,
-      costBasis: t.costBasis,
-      gainLoss: t.gainLoss,
-      gainLossPct: t.gainLossPct,
-    });
+  for (const { date, ...rest } of tickers) {
+    let arr = m.get(date);
+    if (!arr) { arr = []; m.set(date, arr); }
+    arr.push(rest);
   }
   return m;
 }

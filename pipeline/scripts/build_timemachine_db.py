@@ -81,7 +81,7 @@ def _f(val: object) -> float:
     return float(val)  # type: ignore[arg-type]
 
 
-def _ingest_fidelity_csvs() -> Path:
+def _ingest_fidelity_csvs() -> None:
     """Ingest all Fidelity CSVs from Downloads directly into the database.
 
     Each CSV covers a date range. ``ingest_fidelity_csv()`` handles overlap
@@ -100,7 +100,7 @@ def _ingest_fidelity_csvs() -> Path:
                 sys.exit(1)
             print(f"  Using single CSV: {p}")
             ingest_fidelity_csv(DB_PATH, p)
-            return p
+            return
 
     # Scan Downloads for Accounts_History*.csv
     raw_csvs = sorted(DOWNLOADS.glob("Accounts_History*.csv"))

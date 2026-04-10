@@ -42,11 +42,11 @@ export function TickerTable({
   data,
 }: {
   title: string;
-  data: [string, number, number][]; // [symbol, trades, total]
+  data: { symbol: string; count: number; total: number }[];
 }) {
   const top = data.slice(0, ACTIVITY_TOP_SYMBOLS);
   const rest = data.slice(ACTIVITY_TOP_SYMBOLS);
-  const restTotal = rest.reduce((s, t) => s + t[2], 0);
+  const restTotal = rest.reduce((s, t) => s + t.total, 0);
   return (
     <div className="overflow-x-auto">
       <h3 className="font-semibold mb-2">{title}</h3>
@@ -59,10 +59,10 @@ export function TickerTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {top.map(([symbol, trades, total]) => (
+          {top.map(({ symbol, count, total }) => (
             <TableRow key={symbol} className="even:bg-muted/50">
               <TableCell className="font-mono">{symbol}</TableCell>
-              <TableCell className="text-right">{trades}</TableCell>
+              <TableCell className="text-right">{count}</TableCell>
               <TableCell className="text-right">
                 {fmtCurrency(total)}
               </TableCell>
@@ -77,7 +77,7 @@ export function TickerTable({
                   </summary>
                   <table className="w-full text-sm">
                     <tbody>
-                      {rest.map(([symbol, trades, total]) => (
+                      {rest.map(({ symbol, count, total }) => (
                         <tr
                           key={symbol}
                           className="border-b border-border even:bg-muted/50"
@@ -86,7 +86,7 @@ export function TickerTable({
                             {symbol}
                           </td>
                           <td className="px-2 py-1.5 text-right text-muted-foreground">
-                            {trades}
+                            {count}
                           </td>
                           <td className="px-2 py-1.5 text-right text-muted-foreground">
                             {fmtCurrency(total)}
