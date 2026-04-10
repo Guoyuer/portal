@@ -6,7 +6,8 @@ file (DELETE + INSERT), then executes it against D1 via wrangler CLI.
 Requires: wrangler CLI authenticated (`wrangler login`)
 
 Usage:
-    python scripts/sync_to_d1.py              # sync all tables
+    python scripts/sync_to_d1.py              # sync to remote D1
+    python scripts/sync_to_d1.py --local      # sync to local D1 (for wrangler dev)
     python scripts/sync_to_d1.py --dry-run    # generate SQL but don't execute
 """
 
@@ -78,6 +79,7 @@ def _dump_table(conn: sqlite3.Connection, table: str) -> tuple[str, int]:
 
 def main() -> None:
     dry_run = "--dry-run" in sys.argv
+    local = "--local" in sys.argv
 
     if not _DB_PATH.exists():
         print(f"Error: database not found: {_DB_PATH}", file=sys.stderr)
@@ -115,7 +117,8 @@ def main() -> None:
         print(f"\nExecuting {total_rows} rows against D1 ({len(combined):,} bytes)...")
 
         # Use shell=True on Windows so npx.cmd is found
-        cmd = f'npx wrangler d1 execute portal-db --remote --file="{tmp}"'
+        remote_flag = "--local" if local else "--remote"
+        cmd = f'npx wrangler d1 execute portal-db {remote_flag} --file="{tmp}"'
         result = subprocess.run(
             cmd,
             cwd=str(_WORKER_DIR),

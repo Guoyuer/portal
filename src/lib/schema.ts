@@ -116,12 +116,12 @@ const StockDetailSchema = z.object({
   monthReturn: z.number(),
   startValue: z.number(),
   endValue: z.number(),
-  peRatio: z.number().nullable(),
-  marketCap: z.number().nullable(),
-  high52w: z.number().nullable(),
-  low52w: z.number().nullable(),
-  vsHigh: z.number().nullable(),
-  nextEarnings: z.string().nullable(),
+  peRatio: z.number().nullable().default(null),
+  marketCap: z.number().nullable().default(null),
+  high52w: z.number().nullable().default(null),
+  low52w: z.number().nullable().default(null),
+  vsHigh: z.number().nullable().default(null),
+  nextEarnings: z.string().nullable().default(null),
 });
 
 const HoldingsDetailDataSchema = z.object({

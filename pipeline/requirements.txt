@@ -2,7 +2,5 @@
 yfinance==1.2.0
 fredapi>=0.5,<1
 
-# Server
-fastapi>=0.115,<1
-uvicorn>=0.34,<1
+# HTTP client (used by tests)
 httpx>=0.28,<1
