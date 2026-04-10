@@ -13,7 +13,7 @@ import {
   type DailyTicker,
   type FidelityTxn,
   type QianjiTxn,
-  type PrefixPoint,
+
   type TimelineData,
   type ApiTicker,
   type ApiCategory,
@@ -88,7 +88,7 @@ function computeCashflow(qianjiTxns: QianjiTxn[], start: string, end: string): C
   const totalExpenses = Math.round(expenseItems.reduce((s, i) => s + i.amount, 0) * 100) / 100;
   const netCashflow = Math.round((totalIncome - totalExpenses) * 100) / 100;
   const savingsRate = totalIncome ? Math.round(((totalIncome - totalExpenses) / totalIncome) * 10000) / 100 : 0;
-  const k401 = incomeItems.find((i) => i.category === "401K")?.amount ?? 0;
+  const k401 = incomeItems.find((i) => i.category.toLowerCase().includes("401"))?.amount ?? 0;
   const takehomeIncome = totalIncome - k401;
   const takehomeSavingsRate = takehomeIncome ? Math.round(((takehomeIncome - totalExpenses) / takehomeIncome) * 10000) / 100 : 0;
 
@@ -121,7 +121,7 @@ function computeCrossCheck(
   const deposits: { amt: number; ms: number }[] = [];
   let fidelityTotal = 0;
   for (const t of fidelityTxns) {
-    if (!t.action.startsWith("Electronic Funds Transfer Received")) continue;
+    if (t.actionType !== "deposit") continue;
     const sort = fidelityDateToSort(t.runDate);
     if (sort >= startSort && sort <= endSort) {
       deposits.push({ amt: Math.round(Math.abs(t.amount) * 100), ms: fidelityDateToMs(t.runDate) });
@@ -194,23 +194,22 @@ function computeActivity(fidelityTxns: FidelityTxn[], start: string, end: string
     const sort = fidelityDateToSort(t.runDate);
     if (sort < startSort || sort > endSort) continue;
     if (!t.symbol) continue;
-    const action = t.action.toUpperCase();
-    if (action.startsWith("YOU BOUGHT")) {
+    if (t.actionType === "buy") {
       const e = buys.get(t.symbol) ?? { count: 0, total: 0 };
       e.count += 1;
       e.total += Math.abs(t.amount);
       buys.set(t.symbol, e);
-    } else if (action.startsWith("YOU SOLD")) {
+    } else if (t.actionType === "sell") {
       const e = sells.get(t.symbol) ?? { count: 0, total: 0 };
       e.count += 1;
       e.total += Math.abs(t.amount);
       sells.set(t.symbol, e);
-    } else if (action.startsWith("DIVIDEND")) {
+    } else if (t.actionType === "dividend") {
       const e = dividends.get(t.symbol) ?? { count: 0, total: 0 };
       e.count += 1;
       e.total += t.amount;
       dividends.set(t.symbol, e);
-    } else if (action.startsWith("REINVESTMENT")) {
+    } else if (t.actionType === "reinvestment") {
       // Reinvestment = dividend received + auto-bought — count in both
       const ed = dividends.get(t.symbol) ?? { count: 0, total: 0 };
       ed.count += 1;
@@ -250,23 +249,6 @@ function downsample(daily: DailyPoint[]): { sampled: DailyPoint[]; toFull: numbe
   return { sampled, toFull };
 }
 
-// ── Prefix sum range query (O(1)) ──────────────────────────────────────
-
-function prefixRange(prefix: PrefixPoint[], left: number, right: number): PrefixPoint {
-  const r = prefix[right];
-  const l = left > 0 ? prefix[left - 1] : null;
-  return {
-    date: r.date,
-    income: r.income - (l?.income ?? 0),
-    expenses: r.expenses - (l?.expenses ?? 0),
-    buys: r.buys - (l?.buys ?? 0),
-    sells: r.sells - (l?.sells ?? 0),
-    dividends: r.dividends - (l?.dividends ?? 0),
-    netCashIn: r.netCashIn - (l?.netCashIn ?? 0),
-    ccPayments: r.ccPayments - (l?.ccPayments ?? 0),
-  };
-}
-
 // ── Build indexes ──────────────────────────────────────────────────────
 
 function buildDateIndex(daily: DailyPoint[]): Map<string, number> {
@@ -298,11 +280,11 @@ function buildTickerIndex(tickers: DailyTicker[]): Map<string, ApiTicker[]> {
 export interface BundleState {
   // Timeline (same as old useTimeline)
   chartDaily: DailyPoint[];
-  prefix: PrefixPoint[];
+  qianjiTxns: QianjiTxn[];
+  fidelityTxns: FidelityTxn[];
   defaultStartIndex: number;
   defaultEndIndex: number;
   snapshot: DailyPoint | null;
-  range: PrefixPoint | null;
   startDate: string | null;
   onBrushChange: (state: { startIndex?: number; endIndex?: number }) => void;
   loading: boolean;
@@ -381,7 +363,6 @@ export function useBundle(): BundleState {
 
   // ── Derived timeline state (instant — user sees these during drag) ──
   const snapshot = useMemo(() => data?.daily[fullRange.end] ?? null, [data, fullRange.end]);
-  const range = useMemo(() => data ? prefixRange(data.prefix, fullRange.start, fullRange.end) : null, [data, fullRange.start, fullRange.end]);
   const startDate = data?.daily[fullRange.start]?.date ?? null;
   const snapshotDate = snapshot?.date ?? null;
 
@@ -408,11 +389,11 @@ export function useBundle(): BundleState {
 
   return {
     chartDaily,
-    prefix: data?.prefix ?? [],
+    qianjiTxns: data?.qianjiTxns ?? [],
+    fidelityTxns: data?.fidelityTxns ?? [],
     defaultStartIndex,
     defaultEndIndex,
     snapshot,
-    range,
     startDate,
     onBrushChange,
     loading,

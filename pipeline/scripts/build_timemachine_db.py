@@ -6,8 +6,7 @@ Integration script that:
   3. Ingests Empower 401k quarterly snapshots + contributions from QFX files
   4. Fetches and stores prices + CNY rates in timemachine.db.daily_close
   5. Computes daily allocation (reads prices from DB)
-  6. Computes prefix sums
-  7. Stores results
+  6. Stores results
 
 Modes:
   (default)       Full rebuild — recompute everything, overwrite DB
@@ -45,11 +44,8 @@ from generate_asset_snapshot.empower_401k import (
     load_all_qfx,
 )
 from generate_asset_snapshot.incremental import append_daily, get_last_computed_date, verify_daily
-from generate_asset_snapshot.ingest.fidelity_history import load_transactions
 from generate_asset_snapshot.ingest.qianji_db import load_all_from_db
 from generate_asset_snapshot.precompute import (
-    build_daily_flows,
-    compute_prefix_sums,
     precompute_holdings_detail,
     precompute_market,
 )
@@ -60,6 +56,7 @@ from generate_asset_snapshot.prices import (
     symbol_holding_periods,
 )
 from generate_asset_snapshot.timemachine import DEFAULT_QJ_DB, _load_raw_rows, _parse_date
+from generate_asset_snapshot.validate import Severity, validate_build
 
 # ── Paths ────────────────────────────────────────────────────────────────────
 
@@ -203,6 +200,22 @@ def _load_401k_contributions(
     return contribs
 
 
+def _run_validation() -> None:
+    """Run post-build validation and exit on FATAL issues."""
+    print("[V] Validating build...")
+    issues = validate_build(DB_PATH)
+    fatals = [i for i in issues if i.severity == Severity.FATAL]
+    warnings = [i for i in issues if i.severity == Severity.WARNING]
+    for w in warnings:
+        print(f"  WARNING: {w.name}: {w.message}")
+    if fatals:
+        for f in fatals:
+            print(f"  FATAL: {f.name}: {f.message}")
+        print(f"\n  Build validation FAILED ({len(fatals)} fatal). Sync blocked.")
+        sys.exit(1)
+    print(f"  Passed ({len(warnings)} warnings)")
+
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 
@@ -259,42 +272,6 @@ def _ingest_and_fetch(config, start, end, csv_path: Path):
     return k401_daily
 
 
-def _compute_and_store_prefix(alloc, start, end, csv_path: Path):
-    """Compute prefix sums from transactions and store (full rewrite)."""
-    print("[P] Computing prefix sums...")
-    fidelity_txns = load_transactions(csv_path)
-    qianji_records, _ = load_all_from_db(DEFAULT_QJ_DB)
-    daily_flows = build_daily_flows(
-        fidelity_txns, qianji_records, start.isoformat(), end.isoformat(),
-    )
-    prefix_rows = compute_prefix_sums(daily_flows)
-
-    daily_dates = sorted(str(r["date"]) for r in alloc)
-    prefix_by_date: dict[str, dict[str, object]] = {str(r["date"]): r for r in prefix_rows}
-    prefix_fields = ["income", "expenses", "buys", "sells", "dividends", "netCashIn", "ccPayments"]
-    last_prefix: dict[str, float] = {f: 0.0 for f in prefix_fields}
-    aligned: list[dict[str, object]] = []
-    for d in daily_dates:
-        if d in prefix_by_date:
-            last_prefix = {f: _f(prefix_by_date[d].get(f, 0)) for f in prefix_fields}
-        aligned.append({"date": d, **last_prefix})
-
-    conn = get_connection(DB_PATH)
-    try:
-        conn.execute("DELETE FROM computed_prefix")
-        conn.executemany(
-            "INSERT INTO computed_prefix (date, income, expenses, buys, sells, dividends, net_cash_in, cc_payments)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            [(r["date"], r.get("income", 0), r.get("expenses", 0), r.get("buys", 0),
-              r.get("sells", 0), r.get("dividends", 0), r.get("netCashIn", 0), r.get("ccPayments", 0))
-             for r in aligned],
-        )
-        conn.commit()
-    finally:
-        conn.close()
-    print(f"  {len(aligned)} prefix rows written")
-
-
 def _print_summary(alloc):
     if not alloc:
         return
@@ -335,8 +312,6 @@ def _full_build(config, start, end, k401_daily, csv_path: Path):
     finally:
         conn.close()
 
-    _compute_and_store_prefix(alloc, start, end, csv_path)
-
     # Ingest Qianji transactions for /cashflow endpoint
     from generate_asset_snapshot.db import ingest_qianji_transactions
 
@@ -355,6 +330,10 @@ def _full_build(config, start, end, k401_daily, csv_path: Path):
     print("  Done")
 
     _print_summary(alloc)
+
+    if "--no-validate" not in sys.argv:
+        _run_validation()
+
     return alloc
 
 
@@ -381,18 +360,6 @@ def _incremental_build(config, start, end, k401_daily, csv_path: Path):
         added = append_daily(DB_PATH, alloc)
         print(f"  {added} rows appended")
 
-        # Prefix sums must be recomputed fully (cumulative)
-        # Merge existing + new alloc dates for alignment
-        conn = get_connection(DB_PATH)
-        try:
-            all_alloc = [
-                {"date": r[0], "total": r[1]} for r in
-                conn.execute("SELECT date, total FROM computed_daily ORDER BY date")
-            ]
-        finally:
-            conn.close()
-        _compute_and_store_prefix(all_alloc, start, end, csv_path)
-
     # Precompute market index data (always refresh on incremental)
     print("[M] Precomputing market data...")
     precompute_market(DB_PATH)
@@ -404,6 +371,10 @@ def _incremental_build(config, start, end, k401_daily, csv_path: Path):
     print("  Done")
 
     _print_summary(alloc)
+
+    if "--no-validate" not in sys.argv:
+        _run_validation()
+
     return alloc
 
 

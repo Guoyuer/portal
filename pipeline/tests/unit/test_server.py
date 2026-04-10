@@ -18,10 +18,6 @@ def db_path(tmp_path: Path) -> Path:
         "INSERT INTO computed_daily (date, total, us_equity, non_us_equity, crypto, safe_net, liabilities) "
         "VALUES ('2025-01-02', 100000, 55000, 15000, 3000, 27000, -500)"
     )
-    conn.execute(
-        "INSERT INTO computed_prefix (date, income, expenses, buys, sells, dividends, net_cash_in, cc_payments) "
-        "VALUES ('2025-01-02', 5000, 1000, 3000, 0, 10, 2000, 500)"
-    )
     # Ticker-level data
     conn.executemany(
         "INSERT INTO computed_daily_tickers (date, ticker, value, category, subtype, cost_basis, gain_loss, gain_loss_pct)"
@@ -74,21 +70,15 @@ def client(db_path: Path) -> TestClient:
 
 
 class TestTimeline:
-    def test_returns_daily_and_prefix(self, client: TestClient) -> None:
+    def test_returns_daily(self, client: TestClient) -> None:
         resp = client.get("/timeline")
         assert resp.status_code == 200
         data = resp.json()
         assert "daily" in data
-        assert "prefix" in data
+        assert "prefix" not in data
         assert len(data["daily"]) == 1
         assert data["daily"][0]["total"] == 100000
         assert data["daily"][0]["usEquity"] == 55000
-
-    def test_prefix_keys_camel_case(self, client: TestClient) -> None:
-        data = client.get("/timeline").json()
-        p = data["prefix"][0]
-        assert "netCashIn" in p
-        assert "ccPayments" in p
 
     def test_empty_db(self, tmp_path: Path) -> None:
         p = tmp_path / "empty.db"
@@ -100,7 +90,6 @@ class TestTimeline:
         assert resp.status_code == 200
         data = resp.json()
         assert data["daily"] == []
-        assert data["prefix"] == []
         assert data["dailyTickers"] == []
         assert data["fidelityTxns"] == []
         assert data["qianjiTxns"] == []
@@ -280,6 +269,8 @@ class TestCashflow:
 @pytest.fixture()
 def market_db(tmp_path: Path) -> Path:
     """DB with index prices + CNY rates for /market and /holdings-detail tests."""
+    from generate_asset_snapshot.precompute import precompute_market
+
     p = tmp_path / "market.db"
     init_db(p)
     conn = get_connection(p)
@@ -301,6 +292,8 @@ def market_db(tmp_path: Path) -> Path:
                      ("VOO", d, 500 + i * 20.0 / 29))
     conn.commit()
     conn.close()
+    # Precompute market tables so /market reads from them
+    precompute_market(p)
     return p
 
 
@@ -341,9 +334,9 @@ class TestHoldingsDetail:
         resp = market_client.get("/holdings-detail")
         assert resp.status_code == 200
         data = resp.json()
-        assert "topPerformers" in data
-        assert len(data["topPerformers"]) >= 1
-        top = data["topPerformers"][0]
+        assert "allStocks" in data
+        assert len(data["allStocks"]) >= 1
+        top = data["allStocks"][0]
         assert top["ticker"] == "VOO"
         assert top["endValue"] == 40000
         assert top["high52w"] > 0
@@ -356,11 +349,10 @@ class TestHoldingsDetail:
         from generate_asset_snapshot.server import create_app
         c = TestClient(create_app(p))
         data = c.get("/holdings-detail").json()
-        assert data["topPerformers"] == []
-        assert data["bottomPerformers"] == []
+        assert data["allStocks"] == []
 
     def test_month_return_calculated(self, market_client: TestClient) -> None:
         data = market_client.get("/holdings-detail").json()
-        voo = data["topPerformers"][0]
+        voo = data["allStocks"][0]
         assert "monthReturn" in voo
         assert isinstance(voo["monthReturn"], float)

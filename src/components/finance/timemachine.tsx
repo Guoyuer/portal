@@ -12,7 +12,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { DailyPoint, PrefixPoint } from "@/lib/schema";
+import type { DailyPoint, CashflowResponse, ActivityResponse } from "@/lib/schema";
 import { fmtCurrency, fmtCurrencyShort } from "@/lib/format";
 import { useIsDark, useIsMobile } from "@/lib/hooks";
 import { tooltipStyle, gridStroke } from "@/lib/chart-styles";
@@ -150,12 +150,14 @@ function fmtDateShort(iso: string): string {
 
 export const TimemachineSummary = memo(function TimemachineSummary({
   snapshot,
-  range,
+  cashflow,
+  activity,
   startDate,
   crossCheck: cc,
 }: {
   snapshot: DailyPoint | null;
-  range: PrefixPoint | null;
+  cashflow?: CashflowResponse | null;
+  activity?: ActivityResponse | null;
   startDate?: string;
   crossCheck?: CrossCheck | null;
 }) {
@@ -168,12 +170,12 @@ export const TimemachineSummary = memo(function TimemachineSummary({
     pct: total > 0 ? (snapshot[key] / total) * 100 : 0,
   }));
 
-  const rangeStats = range
+  const rangeStats = (cashflow || activity)
     ? [
-        { label: "Income", value: range.income },
-        { label: "Expenses", value: range.expenses },
-        { label: "Buys", value: range.buys },
-        { label: "Dividends", value: range.dividends },
+        { label: "Income", value: cashflow?.totalIncome ?? 0 },
+        { label: "Expenses", value: cashflow?.totalExpenses ?? 0 },
+        { label: "Buys", value: activity?.buysBySymbol.reduce((s, b) => s + b.total, 0) ?? 0 },
+        { label: "Dividends", value: activity?.dividendsBySymbol.reduce((s, d) => s + d.total, 0) ?? 0 },
       ]
     : [];
 
@@ -295,7 +297,8 @@ export function TimemachineSection({
       <div className="liquid-glass p-4 sm:p-5">
         <TimemachineSummary
           snapshot={tl.snapshot}
-          range={tl.range}
+          cashflow={tl.cashflow}
+          activity={tl.activity}
           startDate={tl.startDate ?? undefined}
           crossCheck={tl.crossCheck}
         />

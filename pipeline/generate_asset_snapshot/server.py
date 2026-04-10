@@ -1,11 +1,11 @@
 """FastAPI server for the timemachine API."""
 from __future__ import annotations
 
+import json
 import logging
-import os
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import uvicorn
 from fastapi import FastAPI, Query
@@ -45,7 +45,7 @@ def create_app(db_path: Path) -> FastAPI:
     def timeline() -> dict[str, Any]:
         conn = get_connection(db_path)
         try:
-            # ── Daily + prefix (existing) ──────────────────────────────
+            # ── Daily snapshots ───────────────────────────────────────
             cur = conn.execute(
                 "SELECT date, total, us_equity, non_us_equity, crypto, safe_net, liabilities "
                 "FROM computed_daily ORDER BY date"
@@ -59,24 +59,6 @@ def create_app(db_path: Path) -> FastAPI:
                     "crypto": row[4],
                     "safeNet": row[5],
                     "liabilities": row[6],
-                }
-                for row in cur.fetchall()
-            ]
-
-            cur = conn.execute(
-                "SELECT date, income, expenses, buys, sells, dividends, net_cash_in, cc_payments "
-                "FROM computed_prefix ORDER BY date"
-            )
-            prefix = [
-                {
-                    "date": row[0],
-                    "income": row[1],
-                    "expenses": row[2],
-                    "buys": row[3],
-                    "sells": row[4],
-                    "dividends": row[5],
-                    "netCashIn": row[6],
-                    "ccPayments": row[7],
                 }
                 for row in cur.fetchall()
             ]
@@ -102,12 +84,12 @@ def create_app(db_path: Path) -> FastAPI:
 
             # ── Raw transactions (for cashflow + activity) ────────────
             cur = conn.execute(
-                "SELECT run_date, action, symbol, amount FROM fidelity_transactions ORDER BY id"
+                "SELECT run_date, action_type, symbol, amount FROM fidelity_transactions ORDER BY id"
             )
             fidelity_txns = [
                 {
                     "runDate": row[0],
-                    "action": row[1],
+                    "actionType": row[1],
                     "symbol": row[2],
                     "amount": row[3],
                 }
@@ -135,7 +117,6 @@ def create_app(db_path: Path) -> FastAPI:
 
         return {
             "daily": daily,
-            "prefix": prefix,
             "dailyTickers": daily_tickers,
             "fidelityTxns": fidelity_txns,
             "qianjiTxns": qianji_txns,
@@ -315,62 +296,34 @@ def create_app(db_path: Path) -> FastAPI:
 
     # ── GET /market ──────────────────────────────────────────────────
 
-    index_names: dict[str, str] = {
-        "^GSPC": "S&P 500",
-        "^NDX": "NASDAQ 100",
-        "VXUS": "VXUS",
-        "000300.SS": "CSI 300",
-    }
-
     @app.get("/market")
     def market() -> dict[str, Any]:
-        """Return market data from DB (indices, CNY) + optional live FRED."""
+        """Return market data from precomputed tables."""
         conn = get_connection(db_path)
         try:
-            # Latest CNY rate
-            cny_row = conn.execute(
-                "SELECT close FROM daily_close WHERE symbol='CNY=X' ORDER BY date DESC LIMIT 1"
-            ).fetchone()
-            usd_cny = cny_row[0] if cny_row else None
+            # ── Indices from computed_market_indices ──────────────────
+            idx_rows = conn.execute(
+                "SELECT ticker, name, current, month_return, ytd_return, high_52w, low_52w, sparkline"
+                " FROM computed_market_indices ORDER BY ticker"
+            ).fetchall()
+            indices: list[dict[str, Any]] = [
+                {
+                    "ticker": r[0],
+                    "name": r[1],
+                    "current": r[2],
+                    "monthReturn": r[3],
+                    "ytdReturn": r[4],
+                    "high52w": r[5],
+                    "low52w": r[6],
+                    "sparkline": json.loads(r[7]),
+                }
+                for r in idx_rows
+            ]
 
-            # Index data from daily_close
-            indices: list[dict[str, Any]] = []
-            for ticker, name in index_names.items():
-                rows = conn.execute(
-                    "SELECT date, close FROM daily_close WHERE symbol = ? ORDER BY date",
-                    (ticker,),
-                ).fetchall()
-                if len(rows) < 2:
-                    continue
-                closes = [r[1] for r in rows]
-                dates = [r[0] for r in rows]
-                current = closes[-1]
-
-                # Month return (~22 trading days back)
-                month_idx = max(0, len(closes) - 23)
-                month_return = round((current / closes[month_idx] - 1) * 100, 2)
-
-                # YTD return (first trading day of current year)
-                current_year = dates[-1][:4]
-                ytd_start = next((c for d, c in zip(dates, closes, strict=False) if d.startswith(current_year)), closes[0])
-                ytd_return = round((current / ytd_start - 1) * 100, 2)
-
-                # 52w high/low (~252 trading days)
-                year_closes = closes[-252:]
-                high_52w = max(year_closes)
-                low_52w = min(year_closes)
-
-                # Sparkline: last 252 days
-                indices.append({
-                    "ticker": ticker,
-                    "name": name,
-                    "monthReturn": month_return,
-                    "ytdReturn": ytd_return,
-                    "current": current,
-                    "sparkline": year_closes,
-                    "high52w": high_52w,
-                    "low52w": low_52w,
-                })
+            # ── Indicators from computed_market_indicators ───────────
+            ind_rows = conn.execute(
+                "SELECT key, value FROM computed_market_indicators"
+            ).fetchall()
         finally:
             conn.close()
 
@@ -382,30 +335,13 @@ def create_app(db_path: Path) -> FastAPI:
             "unemployment": None,
             "vix": None,
             "dxy": None,
-            "usdCny": usd_cny,
+            "usdCny": None,
             "goldReturn": None,
             "btcReturn": None,
             "portfolioMonthReturn": None,
         }
-
-        # Optionally fetch FRED data (only external call)
-        fred_key = os.environ.get("FRED_API_KEY", "")
-        if fred_key:
-            try:
-                from .market.fred import fetch_fred_data
-
-                fred = fetch_fred_data(fred_key)
-                if fred and "snapshot" in fred:
-                    snap = cast(dict[str, Any], fred["snapshot"])
-                    for src, dst in [
-                        ("fedFundsRate", "fedRate"), ("treasury10y", "treasury10y"),
-                        ("cpiYoy", "cpi"), ("unemployment", "unemployment"), ("vix", "vix"),
-                    ]:
-                        if src in snap:
-                            result[dst] = snap[src]
-                    result["fred"] = fred
-            except Exception:  # noqa: BLE001
-                log.warning("Failed to fetch FRED data", exc_info=True)
+        for key, value in ind_rows:
+            result[key] = value
 
         return result
 
@@ -414,7 +350,7 @@ def create_app(db_path: Path) -> FastAPI:
     @app.get("/holdings-detail")
     def holdings_detail() -> dict[str, Any]:
         """Return per-ticker detail from DB prices (month return, 52w high/low)."""
-        empty: dict[str, Any] = {"topPerformers": [], "bottomPerformers": [], "upcomingEarnings": []}
+        empty: dict[str, Any] = {"allStocks": []}
 
         conn = get_connection(db_path)
         try:
@@ -471,9 +407,7 @@ def create_app(db_path: Path) -> FastAPI:
             conn.close()
 
         sorted_by_return = sorted(stocks, key=lambda s: float(s["monthReturn"]), reverse=True)
-        top = sorted_by_return[:5]
-        bottom = sorted_by_return[-5:][::-1] if len(sorted_by_return) > 5 else []
-        return {"topPerformers": top, "bottomPerformers": bottom, "upcomingEarnings": []}
+        return {"allStocks": sorted_by_return}
 
     return app
 

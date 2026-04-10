@@ -29,8 +29,8 @@ EXPECTED_TABLES = frozenset({
     "qianji_transactions",
     "computed_daily",
     "computed_daily_tickers",
-    "computed_prefix",
-    "computed_market",
+    "computed_market_indices",
+    "computed_market_indicators",
     "computed_holdings_detail",
 })
 

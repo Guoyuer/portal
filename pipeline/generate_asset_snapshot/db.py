@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .empower_401k import Contribution, parse_qfx
+from .ingest.fidelity_history import _classify_action
 
 # ── Schema DDL ───────────────────────────────────────────────────────────────
 
@@ -20,6 +21,7 @@ CREATE TABLE IF NOT EXISTS fidelity_transactions (
     account         TEXT NOT NULL,
     account_number  TEXT NOT NULL,
     action          TEXT NOT NULL,
+    action_type     TEXT NOT NULL DEFAULT '',
     symbol          TEXT NOT NULL DEFAULT '',
     description     TEXT NOT NULL DEFAULT '',
     lot_type        TEXT NOT NULL DEFAULT '',
@@ -95,18 +97,6 @@ CREATE TABLE IF NOT EXISTS computed_daily_tickers (
     PRIMARY KEY (date, ticker)
 );
 
--- Pre-computed prefix sums
-CREATE TABLE IF NOT EXISTS computed_prefix (
-    date        TEXT PRIMARY KEY,
-    income      REAL NOT NULL DEFAULT 0,
-    expenses    REAL NOT NULL DEFAULT 0,
-    buys        REAL NOT NULL DEFAULT 0,
-    sells       REAL NOT NULL DEFAULT 0,
-    dividends   REAL NOT NULL DEFAULT 0,
-    net_cash_in REAL NOT NULL DEFAULT 0,
-    cc_payments REAL NOT NULL DEFAULT 0
-);
-
 -- Empower 401k contributions (BUYMF transactions from QFX)
 CREATE TABLE IF NOT EXISTS empower_contributions (
     date   TEXT NOT NULL,
@@ -116,8 +106,8 @@ CREATE TABLE IF NOT EXISTS empower_contributions (
     PRIMARY KEY (date, amount, ticker, cusip)
 );
 
--- Pre-computed market index data + macro scalars
-CREATE TABLE IF NOT EXISTS computed_market (
+-- Pre-computed market index data (^GSPC, ^NDX, etc.)
+CREATE TABLE IF NOT EXISTS computed_market_indices (
     ticker       TEXT PRIMARY KEY,
     name         TEXT NOT NULL DEFAULT '',
     current      REAL NOT NULL DEFAULT 0,
@@ -126,6 +116,12 @@ CREATE TABLE IF NOT EXISTS computed_market (
     high_52w     REAL NOT NULL DEFAULT 0,
     low_52w      REAL NOT NULL DEFAULT 0,
     sparkline    TEXT NOT NULL DEFAULT '[]'
+);
+
+-- Pre-computed macro scalar indicators (fedRate, usdCny, etc.)
+CREATE TABLE IF NOT EXISTS computed_market_indicators (
+    key   TEXT PRIMARY KEY,
+    value REAL NOT NULL DEFAULT 0
 );
 
 -- Pre-computed per-ticker holdings performance
@@ -207,7 +203,7 @@ def ingest_fidelity_csv(db_path: Path, csv_path: Path) -> int:
 
     # Parse with csv.DictReader from the header line onward
     reader = csv.DictReader(lines[header_idx:])
-    rows: list[tuple[str, str, str, str, str, str, str, float, float, float, str]] = []
+    rows: list[tuple[str, str, str, str, str, str, str, str, float, float, float, str]] = []
     dates: list[str] = []
 
     for record in reader:
@@ -215,11 +211,13 @@ def ingest_fidelity_csv(db_path: Path, csv_path: Path) -> int:
         if not _DATE_RE.match(run_date):
             continue
 
+        raw_action = record.get("Action", "").strip().strip('"')
         rows.append((
             run_date,
             record.get("Account", "").strip().strip('"'),
             record.get("Account Number", "").strip().strip('"'),
-            record.get("Action", "").strip().strip('"'),
+            raw_action,
+            _classify_action(raw_action),
             record.get("Symbol", "").strip(),
             record.get("Description", "").strip().strip('"'),
             record.get("Type", "").strip(),
@@ -254,9 +252,9 @@ def ingest_fidelity_csv(db_path: Path, csv_path: Path) -> int:
         # Insert all new rows
         conn.executemany(
             """INSERT INTO fidelity_transactions
-               (run_date, account, account_number, action, symbol,
+               (run_date, account, account_number, action, action_type, symbol,
                 description, lot_type, quantity, price, amount, settlement_date)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             rows,
         )
         conn.commit()

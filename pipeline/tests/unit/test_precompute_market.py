@@ -53,22 +53,20 @@ def db_path(tmp_path: Path) -> Path:
 
 
 class TestPrecomputeMarketRows:
-    """Verify that precompute_market writes correct rows into computed_market."""
+    """Verify that precompute_market writes correct rows into computed_market_indices."""
 
     def test_writes_rows_for_each_index(self, db_path: Path) -> None:
         precompute_market(db_path)
         conn = get_connection(db_path)
-        rows = conn.execute(
-            "SELECT ticker FROM computed_market WHERE ticker NOT LIKE '@_@_%' ESCAPE '@'"
-        ).fetchall()
+        rows = conn.execute("SELECT ticker FROM computed_market_indices").fetchall()
         conn.close()
         tickers = {r[0] for r in rows}
         assert tickers == {"^GSPC", "^NDX", "VXUS", "000300.SS"}
 
-    def test_writes_usd_cny_row(self, db_path: Path) -> None:
+    def test_writes_usd_cny_indicator(self, db_path: Path) -> None:
         precompute_market(db_path)
         conn = get_connection(db_path)
-        row = conn.execute("SELECT current FROM computed_market WHERE ticker = '__usdCny'").fetchone()
+        row = conn.execute("SELECT value FROM computed_market_indicators WHERE key = 'usdCny'").fetchone()
         conn.close()
         assert row is not None
         assert row[0] == pytest.approx(7.26, abs=0.01)
@@ -76,7 +74,7 @@ class TestPrecomputeMarketRows:
     def test_index_name_populated(self, db_path: Path) -> None:
         precompute_market(db_path)
         conn = get_connection(db_path)
-        row = conn.execute("SELECT name FROM computed_market WHERE ticker = '^GSPC'").fetchone()
+        row = conn.execute("SELECT name FROM computed_market_indices WHERE ticker = '^GSPC'").fetchone()
         conn.close()
         assert row is not None
         assert row[0] == "S&P 500"
@@ -84,7 +82,7 @@ class TestPrecomputeMarketRows:
     def test_current_price_is_last_close(self, db_path: Path) -> None:
         precompute_market(db_path)
         conn = get_connection(db_path)
-        row = conn.execute("SELECT current FROM computed_market WHERE ticker = '^GSPC'").fetchone()
+        row = conn.execute("SELECT current FROM computed_market_indices WHERE ticker = '^GSPC'").fetchone()
         conn.close()
         assert row is not None
         # base=5000, 300 days, last = 5000 + 299*0.5 = 5149.5
@@ -97,7 +95,7 @@ class TestSparkline:
     def test_sparkline_is_valid_json_array(self, db_path: Path) -> None:
         precompute_market(db_path)
         conn = get_connection(db_path)
-        row = conn.execute("SELECT sparkline FROM computed_market WHERE ticker = '^GSPC'").fetchone()
+        row = conn.execute("SELECT sparkline FROM computed_market_indices WHERE ticker = '^GSPC'").fetchone()
         conn.close()
         assert row is not None
         parsed = json.loads(row[0])
@@ -108,7 +106,7 @@ class TestSparkline:
     def test_sparkline_max_252_points(self, db_path: Path) -> None:
         precompute_market(db_path)
         conn = get_connection(db_path)
-        row = conn.execute("SELECT sparkline FROM computed_market WHERE ticker = '^GSPC'").fetchone()
+        row = conn.execute("SELECT sparkline FROM computed_market_indices WHERE ticker = '^GSPC'").fetchone()
         conn.close()
         parsed = json.loads(row[0])
         assert len(parsed) <= 252
@@ -120,7 +118,7 @@ class TestReturnsComputation:
     def test_month_return_computed(self, db_path: Path) -> None:
         precompute_market(db_path)
         conn = get_connection(db_path)
-        row = conn.execute("SELECT month_return FROM computed_market WHERE ticker = '^GSPC'").fetchone()
+        row = conn.execute("SELECT month_return FROM computed_market_indices WHERE ticker = '^GSPC'").fetchone()
         conn.close()
         assert row is not None
         # With a steady uptrend, month return should be positive
@@ -129,7 +127,7 @@ class TestReturnsComputation:
     def test_ytd_return_computed(self, db_path: Path) -> None:
         precompute_market(db_path)
         conn = get_connection(db_path)
-        row = conn.execute("SELECT ytd_return FROM computed_market WHERE ticker = '^GSPC'").fetchone()
+        row = conn.execute("SELECT ytd_return FROM computed_market_indices WHERE ticker = '^GSPC'").fetchone()
         conn.close()
         assert row is not None
         # With a steady uptrend from start of year, YTD return should be positive
@@ -139,7 +137,7 @@ class TestReturnsComputation:
         precompute_market(db_path)
         conn = get_connection(db_path)
         row = conn.execute(
-            "SELECT high_52w, low_52w, current FROM computed_market WHERE ticker = '^GSPC'"
+            "SELECT high_52w, low_52w, current FROM computed_market_indices WHERE ticker = '^GSPC'"
         ).fetchone()
         conn.close()
         assert row is not None
@@ -163,7 +161,7 @@ class TestReturnsComputation:
         month_idx = max(0, len(closes) - 23)
         expected_month = round((current / closes[month_idx] - 1) * 100, 2)
 
-        row = conn.execute("SELECT month_return FROM computed_market WHERE ticker = '^GSPC'").fetchone()
+        row = conn.execute("SELECT month_return FROM computed_market_indices WHERE ticker = '^GSPC'").fetchone()
         conn.close()
         assert row[0] == pytest.approx(expected_month, abs=0.01)
 
@@ -175,10 +173,11 @@ class TestClearAndRewrite:
         precompute_market(db_path)
         precompute_market(db_path)
         conn = get_connection(db_path)
-        count = conn.execute("SELECT COUNT(*) FROM computed_market").fetchone()[0]
+        idx_count = conn.execute("SELECT COUNT(*) FROM computed_market_indices").fetchone()[0]
+        ind_count = conn.execute("SELECT COUNT(*) FROM computed_market_indicators").fetchone()[0]
         conn.close()
-        # 4 indices + 1 __usdCny = 5
-        assert count == 5
+        assert idx_count == 4  # 4 indices
+        assert ind_count == 1  # 1 usdCny indicator
 
 
 class TestSkipTickerWithTooFewRows:
@@ -192,7 +191,7 @@ class TestSkipTickerWithTooFewRows:
         ingest_prices(db_path, {"CNY=X": {"2025-06-01": 7.25}})
         precompute_market(db_path)
         conn = get_connection(db_path)
-        idx_rows = conn.execute("SELECT ticker FROM computed_market WHERE ticker NOT LIKE '__%'").fetchall()
+        idx_rows = conn.execute("SELECT ticker FROM computed_market_indices").fetchall()
         conn.close()
         # ^GSPC has only 1 row, should be skipped; no other indices seeded
         assert len(idx_rows) == 0

@@ -26,13 +26,19 @@ _WORKER_DIR = _PROJECT_DIR.parent / "worker"
 
 TABLES_TO_SYNC: list[str] = [
     "computed_daily",
-    "computed_prefix",
     "computed_daily_tickers",
     "fidelity_transactions",
     "qianji_transactions",
-    "computed_market",
+    "computed_market_indices",
+    "computed_market_indicators",
     "computed_holdings_detail",
 ]
+
+# Column subsets to sync to D1.  None → all columns (SELECT *).
+_D1_COLUMNS: dict[str, list[str] | None] = {
+    "fidelity_transactions": ["run_date", "action_type", "symbol", "amount"],
+    "qianji_transactions": ["date", "type", "category", "amount"],
+}
 
 
 # ── SQL generation ─────────────────────────────────────────────────────────────
@@ -50,7 +56,12 @@ def _escape(value: object) -> str:
 
 def _dump_table(conn: sqlite3.Connection, table: str) -> tuple[str, int]:
     """Generate DELETE + INSERT statements for one table. Returns (sql, row_count)."""
-    cursor = conn.execute(f"SELECT * FROM {table}")  # noqa: S608
+    cols = _D1_COLUMNS.get(table)
+    if cols:
+        col_list = ", ".join(cols)
+        cursor = conn.execute(f"SELECT {col_list} FROM {table}")  # noqa: S608
+    else:
+        cursor = conn.execute(f"SELECT * FROM {table}")  # noqa: S608
     columns = [desc[0] for desc in cursor.description]
     rows = cursor.fetchall()
 
