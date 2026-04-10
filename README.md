@@ -8,18 +8,9 @@ Personal one-stop dashboard. Finance reports with live data from Fidelity broker
 
 ```mermaid
 graph TB
-    subgraph "Mac (launchd, daily)"
-        SYNC["sync.py<br/>detect new CSVs + Qianji DB"]
-    end
-
     subgraph "Local build"
         BUILD["build_timemachine_db.py<br/>ingest → replay → precompute"]
         DB[(timemachine.db)]
-    end
-
-    subgraph "Cloudflare R2 (legacy)"
-        RAW["latest/<br/>positions.csv · history.csv<br/>qianjiapp.db · config.json"]
-        JSON["reports/<br/>latest.json · econ.json"]
     end
 
     subgraph "Cloudflare D1 + Workers"
@@ -29,7 +20,6 @@ graph TB
 
     subgraph "GitHub Actions"
         CI["CI + Deploy<br/>Python lint/test + Node build<br/>+ Pages + Worker deploy"]
-        REPORT["Report (daily cron)<br/>generate JSON → R2 (legacy)"]
     end
 
     subgraph "Cloudflare"
@@ -37,9 +27,6 @@ graph TB
         PAGES["Cloudflare Pages<br/>static shell"]
     end
 
-    SYNC -->|"wrangler r2 put<br/>(only if MD5 changed)"| RAW
-    RAW -->|download| REPORT
-    REPORT -->|JSON| JSON
     BUILD --> DB
     DB -->|sync_to_d1.py| D1
     D1 --> WORKER
@@ -47,35 +34,24 @@ graph TB
     WORKER -->|"fetch /timeline"| PAGES
     ACCESS -->|protects| PAGES
 
-    style SYNC fill:#10b981,color:#fff
     style BUILD fill:#10b981,color:#fff
     style WORKER fill:#2563eb,color:#fff
     style PAGES fill:#f59e0b,color:#000
     style ACCESS fill:#f97316,color:#fff
     style D1 fill:#2563eb,color:#fff
-    style JSON fill:#6b7280,color:#fff
-    style RAW fill:#6b7280,color:#fff
 ```
 
 **Key design:** Portal is a static shell (HTML + JS) deployed to Cloudflare Pages. The Cloudflare Worker serves `GET /timeline` from D1 (SQLite-compatible). The frontend fetches once on load, then computes allocation, cashflow, activity, and reconciliation locally in `use-bundle.ts`. Brush drag is zero-latency (no network round-trips).
-
-R2 (`latest.json`) is legacy and being phased out in favor of the D1/Worker path.
 
 ## Data Pipeline
 
 ```mermaid
 sequenceDiagram
-    participant Mac as Mac (launchd)
-    participant R2 as Cloudflare R2
     participant Local as Local build
     participant D1 as Cloudflare D1
     participant Worker as Worker
     participant User as Browser
 
-    Note over Mac: Daily at 9AM + on login
-    Mac->>R2: sync.py (CSVs + Qianji DB, MD5 dedup)
-
-    Note over Local: After sync
     Local->>Local: build_timemachine_db.py<br/>(ingest → replay → precompute)
     Local->>D1: sync_to_d1.py (wrangler CLI)
 
@@ -112,8 +88,6 @@ portal/
 │   │   │   ├── cash-flow.tsx          # Income/expenses + summary
 │   │   │   ├── portfolio-activity.tsx # Activity + ticker tables
 │   │   │   ├── market-context.tsx     # Index returns + macro indicators
-│   │   │   ├── gain-loss.tsx          # Unrealized gain/loss per holding
-│   │   │   ├── annual-summary.tsx     # YTD expenses by category
 │   │   │   └── net-worth-growth.tsx   # MoM/YoY growth rates
 │   │   ├── econ/
 │   │   │   ├── macro-cards.tsx        # Economic snapshot cards
@@ -123,9 +97,9 @@ portal/
 │       ├── use-bundle.ts              # Core data hook: fetch /timeline → local compute
 │       ├── schema.ts                  # Zod schemas for timeline API
 │       ├── econ-schema.ts             # Zod schemas for economy data
-│       ├── types.ts                   # Re-exports from schema.ts
-│       ├── config.ts                  # TIMELINE_URL, REPORT_URL (deprecated), GOAL
-│       ├── format.ts                  # Currency/percent/yuan formatters
+│       ├── compute.ts                 # Pure computation (allocation, cashflow, activity)
+│       ├── config.ts                  # TIMELINE_URL, GOAL
+│       ├── format.ts                  # Currency/percent formatters
 │       ├── hooks.ts                   # Shared React hooks
 │       ├── chart-styles.ts            # Recharts theming
 │       ├── style-helpers.ts           # CSS helpers
@@ -138,23 +112,19 @@ portal/
 │   ├── tsconfig.json
 │   └── package.json
 │
-├── pipeline/                          # Data pipeline + backend (Python)
+├── pipeline/                          # Data pipeline (Python)
 │   ├── generate_asset_snapshot/       # Core package
-│   │   ├── server.py                  # FastAPI backend (local dev, port 8000)
 │   │   ├── db.py                      # SQLite schema + connection helpers
 │   │   ├── timemachine.py             # Historical replay engine
 │   │   ├── allocation.py              # Compute daily per-asset allocation
-│   │   ├── precompute.py              # Build computed_* tables (daily, prefix, market)
+│   │   ├── precompute.py              # Build computed_* tables (daily, market)
 │   │   ├── incremental.py             # Incremental DB update mode
+│   │   ├── validate.py                # Post-build validation gate
 │   │   ├── prices.py                  # Yahoo Finance price + CNY rate fetcher
 │   │   ├── empower_401k.py            # Empower 401k QFX snapshot parser
 │   │   ├── types.py                   # Source-of-truth dataclasses
-│   │   ├── report.py                  # build_report() → ReportData (legacy)
 │   │   ├── portfolio.py               # Load positions from Fidelity CSV
 │   │   ├── config.py                  # JSON config loader
-│   │   ├── history.py                 # Build chart data (monthly flows)
-│   │   ├── analysis.py                # Metrics computation
-│   │   ├── renderers/json_renderer.py # dataclasses.asdict() + camelCase
 │   │   ├── ingest/
 │   │   │   ├── fidelity_history.py    # Fidelity transaction CSV parser
 │   │   │   ├── robinhood_history.py   # Robinhood transaction CSV parser
@@ -166,22 +136,18 @@ portal/
 │   ├── scripts/
 │   │   ├── build_timemachine_db.py    # Main build: ingest → replay → precompute → SQLite
 │   │   ├── sync_to_d1.py             # Push timemachine.db tables to D1
-│   │   ├── send_report.py             # Generate report JSON (legacy R2 path)
-│   │   ├── sync.py                    # Mac/Win → R2 (wrangler CLI, MD5 dedup)
+│   │   ├── gen_schema_sql.py          # Auto-generate worker/schema.sql from db.py
 │   │   ├── verify_positions.py        # Verify Fidelity replay accuracy
 │   │   ├── verify_qianji.py           # Verify Qianji replay accuracy
-│   │   ├── create_test_db.py          # Generate test fixture DB
-│   │   ├── install_launchd.sh         # macOS scheduled sync
-│   │   └── install_task.ps1           # Windows Task Scheduler setup
-│   ├── tests/                         # 24 test files
-│   │   ├── unit/                      # Unit tests (20 files)
+│   │   └── create_test_db.py          # Generate test fixture DB
+│   ├── tests/                         # Unit + contract tests
+│   │   ├── unit/                      # Unit tests
 │   │   ├── contract/                  # Data invariant tests
-│   │   ├── e2e/                       # Server integration tests
 │   │   └── fixtures/                  # Sample CSVs, QFX files
 │   ├── data/
 │   │   └── timemachine.db             # Generated SQLite (not in repo)
 │   ├── pyproject.toml                 # pytest, mypy, ruff config
-│   ├── requirements.txt               # yfinance, fredapi, fastapi, uvicorn
+│   ├── requirements.txt               # yfinance, fredapi, httpx
 │   └── config.example.json            # Template config
 │
 ├── e2e/                               # Playwright e2e tests
@@ -191,8 +157,7 @@ portal/
 │   └── interactive-check.spec.ts      # Interactive component tests
 │
 ├── .github/workflows/
-│   ├── ci.yml                         # Python + Node CI → Pages + Worker deploy
-│   └── report.yml                     # Daily: generate report JSON → R2 (legacy)
+│   └── ci.yml                         # Python + Node CI → Pages + Worker deploy
 │
 └── package.json
 ```
@@ -230,9 +195,8 @@ graph LR
 | Data | `use-bundle.ts` → Worker `/timeline` | Fetch once, compute locally, zero-lag brush |
 | Styling | Tailwind CSS v4 + shadcn/ui | Utility-first, dark mode support |
 | Hosting | Cloudflare Pages + Workers | Edge CDN, D1 SQLite, free tier |
-| Storage | Cloudflare D1 (primary), R2 (legacy) | D1 for structured data, R2 being phased out |
+| Storage | Cloudflare D1 | Structured data via Worker |
 | Auth | Cloudflare Access | Zero-trust, Google login |
-| Backend | FastAPI (local dev) | Serves timemachine.db for local development |
 | Pipeline | Python 3.14 | Fidelity/Qianji/Robinhood/401k ingest, Yahoo Finance, FRED API |
 | CI/CD | GitHub Actions | Single workflow: test → build → deploy (Pages + Worker) |
 | Tests | Playwright (4 specs) + pytest (24 test files) | E2E browser tests + Python unit/contract/e2e tests |
@@ -249,12 +213,11 @@ cp pipeline/config.example.json pipeline/config.json
 
 # Environment (create .env.local)
 cat > .env.local <<EOF
-NEXT_PUBLIC_TIMELINE_URL=http://localhost:8000/timeline
-NEXT_PUBLIC_R2_URL=https://your-r2-url.r2.dev
+NEXT_PUBLIC_TIMELINE_URL=http://localhost:8787/timeline
 EOF
 
-# Local backend (serves timemachine.db on port 8000)
-cd pipeline && .venv/bin/python -m generate_asset_snapshot.server
+# Worker (local proxy to remote D1)
+cd worker && npx wrangler dev --remote   # http://localhost:8787
 
 # Dev server (fetches from TIMELINE_URL)
 npm run dev              # http://localhost:3000
@@ -270,22 +233,17 @@ cd pipeline && python3 scripts/build_timemachine_db.py
 
 # Sync DB to Cloudflare D1
 cd pipeline && python3 scripts/sync_to_d1.py
-
-# Manual sync raw data to R2 (legacy)
-cd pipeline && python3 scripts/sync.py --force
 ```
 
 ## Setup (one-time)
 
 1. **Cloudflare D1**: `cd worker && npx wrangler d1 create portal-db`, apply schema: `npx wrangler d1 execute portal-db --remote --file=schema.sql`
-2. **Cloudflare R2** (legacy): Create bucket, enable public access, set CORS
-3. **Environment**: Set `NEXT_PUBLIC_TIMELINE_URL` (Worker URL) in `.env.local` and as GitHub secret
-4. **Custom domain** (optional): Add `portal.yourdomain.com` to Pages project
-5. **Cloudflare Access** (optional): Zero Trust → Add Google IdP → Access Application
-6. **GitHub Secrets**: `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `NEXT_PUBLIC_TIMELINE_URL`, `NEXT_PUBLIC_R2_URL`, `FRED_API_KEY`
-7. **Config**: Copy `config.example.json` → `config.json`, fill in your accounts
-8. **Mac sync**: `wrangler login && bash pipeline/scripts/install_launchd.sh`
-9. **First build**: `cd pipeline && python3 scripts/build_timemachine_db.py && python3 scripts/sync_to_d1.py`
+2. **Environment**: Set `NEXT_PUBLIC_TIMELINE_URL` (Worker URL) in `.env.local` and as GitHub secret
+3. **Custom domain** (optional): Add `portal.yourdomain.com` to Pages project
+4. **Cloudflare Access** (optional): Zero Trust → Add Google IdP → Access Application
+5. **GitHub Secrets**: `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `NEXT_PUBLIC_TIMELINE_URL`, `FRED_API_KEY`
+6. **Config**: Copy `config.example.json` → `config.json`, fill in your accounts
+7. **First build**: `cd pipeline && python3 scripts/build_timemachine_db.py && python3 scripts/sync_to_d1.py`
 
 ## Adding a New Module
 
@@ -308,7 +266,7 @@ pipeline/...                     ← data generation (if needed)
 - [x] Robinhood transaction ingestion
 - [x] Empower 401k QFX integration
 - [ ] AI-generated macro narrative — LLM summarizing economic conditions and cycle position
-- [ ] Drop R2 legacy path — remove REPORT_URL, ECON_URL, report.yml workflow
+- [ ] Drop R2 legacy path — migrate /econ page from R2 to D1
 
 ## License
 
