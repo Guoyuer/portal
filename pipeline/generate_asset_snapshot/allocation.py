@@ -153,10 +153,18 @@ def compute_daily_allocation(
         # ── Compute values per ticker ──
         ticker_values: dict[str, float] = {}
 
+        # yfinance labels mutual fund NAV with date T but it's actually T+1's NAV.
+        # Use T-1 price for mutual funds to align with the correct trading day.
+        mutual_funds = frozenset({"FXAIX", "FSSNX", "FNJHX"})
+        mf_price_date = price_date - timedelta(days=1)
+        while mf_price_date not in prices.index and mf_price_date > start:
+            mf_price_date -= timedelta(days=1)
+
         # Fidelity positions x price
         for (_acct, sym), qty in positions.items():
-            if sym in prices.columns and price_date in prices.index:
-                price = prices.loc[price_date, sym]
+            p_date = mf_price_date if sym in mutual_funds else price_date
+            if sym in prices.columns and p_date in prices.index:
+                price = prices.loc[p_date, sym]
                 if pd.notna(price):
                     ticker_values[sym] = ticker_values.get(sym, 0) + qty * float(price)
 
