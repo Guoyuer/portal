@@ -4,10 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, TypedDict
-
-if TYPE_CHECKING:
-    from .core.reconcile import CrossReconciliationData, ReconciliationData
+from typing import TypedDict
 
 # ── Constants ───────────────────────────────────────────────────────────────
 
@@ -327,45 +324,3 @@ class ChartData:
     monthly_flows: list[MonthlyFlowPoint] = field(default_factory=list)
 
 
-@dataclass
-class ReportSources:
-    """Optional data sources passed through to ReportData."""
-
-    market: MarketData | None = None
-    holdings_detail: HoldingsDetailData | None = None
-
-
-# ── Full ReportData ─────────────────────────────────────────────────────────
-
-
-@dataclass
-class ReportData:
-    # Core (always present)
-    date: str
-    total: float
-    total_lots: int
-    goal: float
-    goal_pct: float
-    equity_categories: list[CategoryData]
-    non_equity_categories: list[CategoryData]
-
-    # Investment activity (if Fidelity history available)
-    activity: ActivityData | None = None
-
-    # Portfolio reconciliation (if previous snapshot exists)
-    reconciliation: ReconciliationData | None = None
-
-    # Personal finance (if Qianji available)
-    balance_sheet: BalanceSheetData | None = None
-    cashflow: CashFlowData | None = None
-    cross_reconciliation: CrossReconciliationData | None = None
-
-    # Market context (if APIs available)
-    market: MarketData | None = None
-    holdings_detail: HoldingsDetailData | None = None
-
-    # Charts (if historical data available)
-    chart_data: ChartData | None = None
-
-    # Annual summary (if Qianji data spans multiple months)
-    annual_summary: AnnualSummary | None = None

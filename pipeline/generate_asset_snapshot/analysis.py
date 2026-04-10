@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from .types import Config, FidelityTransaction, Portfolio
+from .types import Config, Portfolio
 
 
 def pct(value: float, total: float) -> float:
@@ -68,19 +68,3 @@ def calculate_allocation(portfolio: Portfolio, config: Config, amount: float) ->
             allocation[cat] += remaining * target / 100
 
     return allocation
-
-
-def aggregate_by_symbol(txns: list[FidelityTransaction]) -> list[tuple[str, int, float]]:
-    """Aggregate transactions by symbol → (symbol, count, total_amount).
-
-    Shared by both terminal and HTML renderers for buys/dividends tables.
-    """
-    by_sym: dict[str, list[float]] = defaultdict(list)
-    for t in txns:
-        sym = (t["symbol"] or "").strip() or "Cash"
-        by_sym[sym].append(abs(t["amount"]))
-    return sorted(
-        [(sym, len(amounts), sum(amounts)) for sym, amounts in by_sym.items()],
-        key=lambda x: x[2],
-        reverse=True,
-    )
