@@ -15,9 +15,8 @@ from pathlib import Path
 import pandas as pd
 
 from .timemachine import (
-    _load_raw_rows,
     _parse_date,
-    replay,
+    replay_from_db,
     replay_qianji,
     replay_qianji_currencies,
 )
@@ -74,9 +73,6 @@ def compute_daily_allocation(
     prices = load_prices(db_path)
     cny_rates = load_cny_rates(db_path)
 
-    # ── Fidelity CSV path (still reads CSV for now) ──
-    store_path = db_path.parent / "fidelity_transactions.csv"
-
     assets: dict[str, object] = config["assets"]  # type: ignore[assignment]
     qj_accounts: dict[str, object] = config.get("qianji_accounts", {})  # type: ignore[assignment]
     ticker_map: dict[str, str] = qj_accounts.get("ticker_map", {})  # type: ignore[assignment]
@@ -100,8 +96,12 @@ def compute_daily_allocation(
         skip_qj_accounts.add("Robinhood")  # Don't double-count
 
     # ── Pre-compute transaction dates for caching ──
-    all_rows = _load_raw_rows(store_path)
-    fidelity_txn_dates = sorted({_parse_date(r["Run Date"]) for r in all_rows})
+    import sqlite3 as _sqlite3
+    _conn = _sqlite3.connect(str(db_path))
+    fidelity_txn_dates = sorted({
+        _parse_date(r[0]) for r in _conn.execute("SELECT DISTINCT run_date FROM fidelity_transactions")
+    })
+    _conn.close()
     qj_txn_dates = set(_qianji_transaction_dates(qj_db))
 
     results: list[dict[str, object]] = []
@@ -121,7 +121,7 @@ def compute_daily_allocation(
         # ── Replay Fidelity only when positions changed ──
         latest_fidelity = max((d for d in fidelity_txn_dates if d <= current), default=None)
         if latest_fidelity != last_fidelity_replay:
-            result = replay(store_path, current)
+            result = replay_from_db(db_path, current)
             cached_positions = result["positions"]
             cached_cash = result["cash"]
             last_fidelity_replay = latest_fidelity
@@ -153,16 +153,30 @@ def compute_daily_allocation(
         # ── Compute values per ticker ──
         ticker_values: dict[str, float] = {}
 
+        # yfinance labels mutual fund NAV with date T but it's actually T+1's NAV.
+        # Use T-1 price for mutual funds to align with the correct trading day.
+        mutual_funds = frozenset({"FXAIX", "FSSNX", "FNJHX"})
+        mf_price_date = price_date - timedelta(days=1)
+        while mf_price_date not in prices.index and mf_price_date > start:
+            mf_price_date -= timedelta(days=1)
+
         # Fidelity positions x price
         for (_acct, sym), qty in positions.items():
-            if sym in prices.columns and price_date in prices.index:
-                price = prices.loc[price_date, sym]
+            p_date = mf_price_date if sym in mutual_funds else price_date
+            if sym in prices.columns and p_date in prices.index:
+                price = prices.loc[p_date, sym]
                 if pd.notna(price):
                     ticker_values[sym] = ticker_values.get(sym, 0) + qty * float(price)
 
-        # Fidelity cash -> money market (Safe Net)
-        for _acct, bal in fidelity_cash.items():
-            ticker_values["FZFXX"] = ticker_values.get("FZFXX", 0) + bal
+        # Fidelity cash -> per-account money market ticker
+        acct_mm: dict[str, str] = {
+            "Z29133576": "FZFXX",    # Taxable
+            "238986483": "FDRXX",    # ROTH IRA
+            "Z29276228": "SPAXX",    # Cash Management
+        }
+        for acct_num, bal in fidelity_cash.items():
+            mm_ticker = acct_mm.get(acct_num, "FZFXX")
+            ticker_values[mm_ticker] = ticker_values.get(mm_ticker, 0) + bal
 
         # Qianji balances -> mapped tickers (including liabilities)
         for qj_acct, bal in qj_balances.items():

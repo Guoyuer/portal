@@ -59,6 +59,44 @@ def symbol_holding_periods(store_path: Path) -> dict[str, tuple[date, date | Non
     return result
 
 
+def symbol_holding_periods_from_db(db_path: Path) -> dict[str, tuple[date, date | None]]:
+    """Like symbol_holding_periods but reads from fidelity_transactions table."""
+    conn = get_connection(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT run_date, symbol, action, quantity FROM fidelity_transactions ORDER BY id"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    holdings: dict[str, float] = {}
+    first_held: dict[str, date] = {}
+    last_zero: dict[str, date] = {}
+
+    for run_date, sym, action, qty in rows:
+        sym = sym.strip()
+        action_upper = action.upper()
+        if not sym or sym in MM_SYMBOLS or qty == 0:
+            continue
+        if not any(action_upper.startswith(p) for p in POSITION_PREFIXES):
+            continue
+        txn_date = _parse_date(run_date)
+        holdings[sym] = holdings.get(sym, 0) + qty
+        if sym not in first_held:
+            first_held[sym] = txn_date
+        if abs(holdings[sym]) < 0.001:
+            last_zero[sym] = txn_date
+
+    result: dict[str, tuple[date, date | None]] = {}
+    for sym in first_held:
+        if sym[0].isdigit():
+            continue
+        start = first_held[sym]
+        end = last_zero.get(sym) if abs(holdings.get(sym, 0)) < 0.001 else None
+        result[sym] = (start, end)
+    return result
+
+
 # ── Cache helpers ───────────────────────────────────────────────────────────
 
 
