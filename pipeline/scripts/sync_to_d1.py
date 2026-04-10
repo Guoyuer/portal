@@ -103,7 +103,7 @@ def main() -> None:
         print(f"  {table}: {count} rows")
 
     # Sync metadata — last_sync timestamp and data coverage
-    now = datetime.now(UTC).isoformat(timespec="seconds") + "Z"
+    now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     last_date_row = conn.execute("SELECT MAX(date) FROM computed_daily").fetchone()
     last_date = last_date_row[0] if last_date_row and last_date_row[0] else ""
     all_sql.append(
