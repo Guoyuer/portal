@@ -137,16 +137,21 @@ function computeCrossCheck(
   let matchedTotal = 0;
 
   for (const dep of deposits) {
+    let bestIdx = -1;
+    let bestDist = Infinity;
     for (let i = 0; i < transfers.length; i++) {
       if (used.has(i)) continue;
       if (Math.round(transfers[i].amount * 100) !== dep.amt) continue;
-      const trMs = new Date(transfers[i].date).getTime();
-      if (Math.abs(dep.ms - trMs) <= MATCH_WINDOW_MS) {
-        used.add(i);
-        matchedCount++;
-        matchedTotal += dep.amt / 100;
-        break;
+      const dist = Math.abs(dep.ms - new Date(transfers[i].date).getTime());
+      if (dist <= MATCH_WINDOW_MS && dist < bestDist) {
+        bestIdx = i;
+        bestDist = dist;
       }
+    }
+    if (bestIdx >= 0) {
+      used.add(bestIdx);
+      matchedCount++;
+      matchedTotal += dep.amt / 100;
     }
   }
 
@@ -173,7 +178,7 @@ function fidelityDateToMs(runDate: string): number {
   return new Date(`${runDate.slice(6, 10)}-${runDate.slice(0, 2)}-${runDate.slice(3, 5)}`).getTime();
 }
 
-const MATCH_WINDOW_MS = 3 * 86_400_000; // ±3 days (bank transfers take 1-3 business days)
+const MATCH_WINDOW_MS = 7 * 86_400_000; // Qianji can lag Fidelity by up to 7 days
 
 // ── Local computation: activity ─────────────────────────────────────────
 
