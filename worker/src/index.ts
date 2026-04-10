@@ -29,7 +29,7 @@ export default {
     }
 
     try {
-      const [daily, tickers, fidelity, qianji, indices, indicators, holdings] =
+      const [daily, tickers, fidelity, qianji, indices, indicators, holdings, syncMetaRows] =
         await Promise.all([
           env.DB.prepare("SELECT * FROM v_daily").all(),
           env.DB.prepare("SELECT * FROM v_daily_tickers").all(),
@@ -38,6 +38,7 @@ export default {
           env.DB.prepare("SELECT * FROM v_market_indices").all(),
           env.DB.prepare("SELECT * FROM v_market_indicators").all(),
           env.DB.prepare("SELECT * FROM v_holdings_detail").all(),
+          env.DB.prepare("SELECT key, value FROM sync_meta").all(),
         ]);
 
       if (!daily.results.length) {
@@ -64,6 +65,12 @@ export default {
         meta[r.key] = r.value;
       }
 
+      // Sync metadata
+      const syncMeta: Record<string, string> = {};
+      for (const r of syncMetaRows.results as { key: string; value: string }[]) {
+        syncMeta[r.key] = r.value;
+      }
+
       return Response.json(
         {
           daily: daily.results,
@@ -78,6 +85,7 @@ export default {
             ...meta,
           },
           holdingsDetail: { allStocks: holdings.results },
+          syncMeta: Object.keys(syncMeta).length > 0 ? syncMeta : null,
         },
         {
           headers: {

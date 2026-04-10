@@ -112,6 +112,17 @@ export default function FinancePage() {
             {new Date(snapshotDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
           </p>
         )}
+        {tl.syncMeta?.last_sync && (() => {
+          const syncDate = new Date(tl.syncMeta.last_sync);
+          const daysAgo = Math.floor((Date.now() - syncDate.getTime()) / 86_400_000);
+          const stale = daysAgo > 3;
+          return (
+            <p className={`text-xs mt-0.5 ${stale ? "text-yellow-500" : "text-muted-foreground/60"}`}>
+              Data as of {syncDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+              {stale && ` (${daysAgo}d ago)`}
+            </p>
+          );
+        })()}
       </div>
 
       {/* ── 1. Overview ─────────────────────────────────────────────────── */}

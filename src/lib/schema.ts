@@ -248,6 +248,7 @@ export const TimelineDataSchema = z.object({
   qianjiTxns: z.array(QianjiTxnSchema).default([]),
   market: MarketDataSchema.nullable().default(null),
   holdingsDetail: HoldingsDetailDataSchema.nullable().default(null),
+  syncMeta: z.record(z.string(), z.string()).nullable().default(null),
 });
 
 export type DailyPoint = z.infer<typeof DailyPointSchema>;
