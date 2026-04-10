@@ -4,7 +4,7 @@ interface Env {
   DB: D1Database;
 }
 
-const ALLOWED_ORIGINS = ["https://portal.guoyuer.com", "http://localhost:3000"];
+const ALLOWED_ORIGINS = ["https://portal.guoyuer.com", "http://localhost:3000", "http://localhost:3100"];
 
 function corsHeaders(origin: string | null): HeadersInit {
   const allowed = origin && ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
