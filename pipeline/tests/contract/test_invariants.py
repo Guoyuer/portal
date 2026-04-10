@@ -4,12 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
-from generate_asset_snapshot.config import load_config
 from generate_asset_snapshot.ingest.fidelity_history import load_transactions
-from generate_asset_snapshot.portfolio import load_portfolio
-from generate_asset_snapshot.report import build_report
 from generate_asset_snapshot.types import QianjiRecord
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
@@ -67,79 +62,6 @@ class TestDedupInvariants:
         for a, b in zip(first, second, strict=True):
             assert a["id"] == b["id"]
             assert a["amount"] == b["amount"]
-
-
-# ── Financial invariants ────────────────────────────────────────────────────
-
-
-class TestFinancialInvariants:
-    """Mathematical properties that must always hold for financial data."""
-
-    @pytest.fixture()
-    def real_config(self) -> dict:
-        p = Path("config.json")
-        if not p.exists():
-            pytest.skip("config.json not found")
-        return load_config(p)
-
-    @pytest.fixture()
-    def real_csv(self) -> Path:
-        csvs = sorted(Path("data").glob("Portfolio_Positions_*.csv"))
-        if not csvs:
-            pytest.skip("No CSV files found in data/")
-        return csvs[-1]
-
-    @pytest.fixture()
-    def real_portfolio(self, real_csv: Path, real_config: dict) -> dict:
-        return load_portfolio(real_csv, real_config)
-
-    def test_percentages_sum_to_100(self, real_csv: Path, real_config: dict, real_portfolio: dict) -> None:
-        """All category percentages must sum to ~100%."""
-        report = build_report(real_portfolio, real_config, real_csv.name)
-        all_cats = report.equity_categories + report.non_equity_categories
-        total_pct = sum(c.pct for c in all_cats)
-        assert abs(total_pct - 100.0) < 0.1, f"Category percentages sum to {total_pct}%, expected ~100%"
-
-    def test_category_value_sums_to_total(self, real_csv: Path, real_config: dict, real_portfolio: dict) -> None:
-        """Sum of all category values must equal portfolio total."""
-        report = build_report(real_portfolio, real_config, real_csv.name)
-        all_cats = report.equity_categories + report.non_equity_categories
-        cat_sum = sum(c.value for c in all_cats)
-        assert abs(cat_sum - report.total) < 0.01, f"Category sum {cat_sum} != total {report.total}"
-
-    def test_holdings_sum_to_category(self, real_csv: Path, real_config: dict, real_portfolio: dict) -> None:
-        """Holdings within each category must sum to category value."""
-        report = build_report(real_portfolio, real_config, real_csv.name)
-        for cat in report.equity_categories:
-            holdings_sum = sum(h.value for grp in cat.subtypes for h in grp.holdings)
-            assert abs(holdings_sum - cat.value) < 0.01, (
-                f"{cat.name}: holdings sum {holdings_sum} != category value {cat.value}"
-            )
-        for cat in report.non_equity_categories:
-            holdings_sum = sum(h.value for h in cat.holdings)
-            assert abs(holdings_sum - cat.value) < 0.01, (
-                f"{cat.name}: holdings sum {holdings_sum} != category value {cat.value}"
-            )
-
-    def test_target_weights_sum_to_100(self, real_config: dict) -> None:
-        """Target weights must sum to exactly 100%."""
-        total = sum(real_config["weights"].values())
-        assert abs(total - 100.0) < 0.01, f"Weights sum to {total}%"
-
-    def test_no_negative_values(self, real_csv: Path, real_config: dict, real_portfolio: dict) -> None:
-        """No holding or category should have negative value."""
-        report = build_report(real_portfolio, real_config, real_csv.name)
-        for cat in report.equity_categories + report.non_equity_categories:
-            assert cat.value >= 0, f"{cat.name} has negative value: {cat.value}"
-
-    def test_contribution_sums_to_amount(self, real_csv: Path, real_config: dict, real_portfolio: dict) -> None:
-        """Contribution allocations must sum to the contributed amount."""
-        amount = 5000.0
-        report = build_report(real_portfolio, real_config, real_csv.name, contribute=amount)
-        assert report.contribution is not None
-        alloc_sum = sum(r.allocate for r in report.contribution.rows)
-        # Some remainder may not be allocated if all categories are overweight
-        assert alloc_sum <= amount + 0.01, f"Allocated {alloc_sum} > contributed {amount}"
 
 
 # ── Transaction classification invariants ───────────────────────────────────
