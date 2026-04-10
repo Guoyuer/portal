@@ -160,9 +160,15 @@ def compute_daily_allocation(
                 if pd.notna(price):
                     ticker_values[sym] = ticker_values.get(sym, 0) + qty * float(price)
 
-        # Fidelity cash -> money market (Safe Net)
-        for _acct, bal in fidelity_cash.items():
-            ticker_values["FZFXX"] = ticker_values.get("FZFXX", 0) + bal
+        # Fidelity cash -> per-account money market ticker
+        acct_mm: dict[str, str] = {
+            "Z29133576": "FZFXX",    # Taxable
+            "238986483": "FDRXX",    # ROTH IRA
+            "Z29276228": "SPAXX",    # Cash Management
+        }
+        for acct_num, bal in fidelity_cash.items():
+            mm_ticker = acct_mm.get(acct_num, "FZFXX")
+            ticker_values[mm_ticker] = ticker_values.get(mm_ticker, 0) + bal
 
         # Qianji balances -> mapped tickers (including liabilities)
         for qj_acct, bal in qj_balances.items():
