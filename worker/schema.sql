@@ -40,26 +40,16 @@ CREATE TABLE IF NOT EXISTS computed_daily_tickers (
 CREATE TABLE IF NOT EXISTS fidelity_transactions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   run_date TEXT,
-  account TEXT,
-  account_number TEXT,
-  action TEXT,
   action_type TEXT,
   symbol TEXT,
-  description TEXT,
-  lot_type TEXT,
-  quantity REAL,
-  price REAL,
-  amount REAL,
-  settlement_date TEXT
+  amount REAL
 );
 
 CREATE TABLE IF NOT EXISTS qianji_transactions (
   date TEXT,
   type TEXT,
   category TEXT,
-  amount REAL,
-  account TEXT,
-  note TEXT
+  amount REAL
 );
 
 CREATE TABLE IF NOT EXISTS computed_market (
