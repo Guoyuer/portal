@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
-
-import pandas as pd
 import pytest
+
+pytest.importorskip("fredapi", reason="fredapi required for FRED tests")
+
+from unittest.mock import MagicMock, patch  # noqa: E402
+
+import pandas as pd  # noqa: E402
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 

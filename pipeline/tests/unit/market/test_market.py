@@ -1,9 +1,12 @@
 """Tests for market data fetchers (Yahoo Finance and FRED API)."""
 
-from unittest.mock import MagicMock, patch
-
-import pandas as pd
 import pytest
+
+pytest.importorskip("yfinance", reason="yfinance required for market tests")
+
+from unittest.mock import MagicMock, patch  # noqa: E402
+
+import pandas as pd  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Yahoo Finance — fetch_index_returns
