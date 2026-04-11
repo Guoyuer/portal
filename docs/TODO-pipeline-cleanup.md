@@ -90,87 +90,48 @@ graph TB
 ### Qianji date semantics
 `user_bill.time` is the **user-specified transaction date** (Unix seconds, UTC), not the bookkeeping timestamp. Users can back-date entries. Replay uses this date.
 
-### Current D1 tables (before cleanup)
+### Current D1 tables
 
 | Table | Purpose |
 |-------|---------|
 | `computed_daily` | Per-trading-day totals + 4 categories + liabilities |
-| `computed_prefix` | Cumulative prefix sums — **redundant, remove in Phase 1** |
 | `computed_daily_tickers` | Per-day per-ticker value, category, cost basis |
-| `fidelity_transactions` | Raw Fidelity records (11 cols, frontend uses 4) |
-| `qianji_transactions` | Raw Qianji records (6 cols, frontend uses 4) |
-| `computed_market` | Indices + FRED indicators mixed — **split in Phase 1** |
+| `fidelity_transactions` | Classified Fidelity records (4 cols: runDate, actionType, symbol, amount) |
+| `qianji_transactions` | Qianji records (4 cols: date, type, category, amount) |
+| `computed_market_indices` | Index returns + sparklines (^GSPC, ^NDX, etc.) |
+| `computed_market_indicators` | Scalar FRED indicators (fedRate, vix, usdCny, etc.) |
 | `computed_holdings_detail` | Per-ticker performance metrics |
+| `sync_meta` | Sync timestamp + data coverage metadata |
 
 ---
 
-## Phase 1 — Clean up schema and contracts
+## Phase 1 — Clean up schema and contracts ✅ DONE
 
-Foundation work. Changes the data contract between pipeline, D1, Worker, and frontend. Must be done first because everything else builds on it.
+All items completed across PRs #57–#63.
 
-### 1a. Remove `computed_prefix` table
-**Rationale:** Frontend already iterates raw transactions for per-category/per-symbol breakdowns (< 1ms for 5yr data). Prefix sums are redundant and have caused the sell-sign inconsistency.
-**Changes:**
-- Delete from `db.py`, `precompute.py`, `build_timemachine_db.py`, `sync_to_d1.py`, `schema.sql`
-- Remove `PrefixPointSchema` from `schema.ts`, `prefix` from Worker response
-- Rewrite `computeMonthlyFlows()` to aggregate `qianji_transactions` by month
-- `timemachine.tsx` brush panel reads from cashflow/activity instead of `range`
-
-### 1b. Split `computed_market` into two tables
-**Problem:** Index rows (`^GSPC`) and scalar indicators (`__fedRate`) share one table with a `__` prefix hack. Worker has to split them at runtime.
-**Fix:**
-```sql
-computed_market_indices (ticker, name, current, month_return, ytd_return, high_52w, low_52w, sparkline)
-computed_market_indicators (key, value)   -- 'fedRate', 'vix', 'usdCny', ...
-```
-
-### 1c. Store `action_type` instead of raw action strings
-**Problem:** Pipeline classifies actions (`fidelity_history.py` → buy/sell/dividend/...) but D1 stores raw Fidelity strings. Frontend re-classifies with `action.startsWith("YOU BOUGHT")` — two parallel systems, fragile.
-**Fix:** D1 stores `action_type`. Frontend matches `=== "buy"`. Single classification point.
-
-### 1d. Trim D1 tables to only columns frontend needs
-**Problem:** `fidelity_transactions` syncs 11 columns, frontend uses 4 (runDate, action_type, symbol, amount). 7 wasted columns.
-**Fix:** D1 schema and sync only include needed columns. Same for `qianji_transactions` (drop `account`, `note`).
-
-### 1e. Worker becomes pure passthrough
-**Problem:** Worker does market split, holdings top/bottom slice, sparkline JSON parse.
-**Fix:** Worker becomes `SELECT → JSON` only. Market split handled by separate tables (1b). Holdings slice moves to frontend. Sparkline returned as raw JSON string, parsed on client.
-
-### 1f. Unify schema source — auto-generate `schema.sql` from `db.py`
-**Problem:** Two manually maintained schemas have already drifted (`NOT NULL`/`DEFAULT` mismatches).
-**Fix:** Script generates `schema.sql` from `db.py`, stripping local-only tables. One source, zero drift.
-
-### 1g. Worker error handling + CORS
-- Wrap D1 queries in try-catch, return structured 502 on failure
-- Return 503 if `daily` is empty (fresh/broken D1)
-- Restrict CORS to `portal.guoyuer.com` + `localhost:3000`
-
-### 1h. Bug fix: 401K category detection
-`use-bundle.ts:91` uses `=== "401K"` (exact). Change to `.toLowerCase().includes("401")`.
-
-**After Phase 1:**
-- D1 has 6 tables (prefix removed, market split into 2)
-- Worker is ~15 lines (pure passthrough)
-- Frontend uses `action_type` (not raw strings)
-- No unused columns synced
+- **1a.** `computed_prefix` removed. Frontend iterates raw transactions via `compute.ts`.
+- **1b.** `computed_market` split into `computed_market_indices` + `computed_market_indicators`.
+- **1c.** D1 stores `action_type` (classified). Frontend matches `=== "buy"`.
+- **1d.** D1 tables trimmed to only frontend-needed columns (4 for fidelity, 4 for qianji).
+- **1e.** Worker is pure passthrough: 7 parallel SELECTs → JSON (~100 lines).
+- **1f.** `schema.sql` auto-generated from `db.py` via `gen_schema_sql.py`.
+- **1g.** Worker: try-catch → 502, empty data → 503, CORS whitelist.
+- **1h.** 401K category detection fixed.
 
 ---
 
-## Phase 2 — Remove R2 legacy path
+## Phase 2 — Remove R2 legacy path (partially done)
 
-Depends on Phase 1 (clean schema). Deletes the old R2 pipeline entirely.
+R2 pipeline code has been deleted (PRs #57, #63):
+- ~~`.github/workflows/report.yml`~~ ✅ deleted
+- ~~`pipeline/scripts/sync.py`~~ ✅ deleted
+- ~~`pipeline/scripts/send_report.py`~~ ✅ deleted
+- ~~`pipeline/generate_asset_snapshot/report.py`~~ ✅ deleted
+- ~~`pipeline/generate_asset_snapshot/renderers/`~~ ✅ deleted
+- ~~R2-era types in `schema.ts`~~ ✅ cleaned up
 
-**Delete:**
-- `.github/workflows/report.yml` — daily R2 report generation
-- `pipeline/scripts/sync.py` — R2 upload
-- `pipeline/scripts/send_report.py` — latest.json generation
-- `pipeline/generate_asset_snapshot/report.py` — R2 report builder
-- `pipeline/generate_asset_snapshot/renderers/json_renderer.py` — camelCase serializer
-- `NEXT_PUBLIC_R2_URL`, `REPORT_URL`, `ECON_URL` from config
-
-**Migrate:** `/econ` page → move FRED time-series to D1 (new table or extend `computed_market_indicators`), serve through Worker.
-
-**Also clean up:** Old R2-era types in `schema.ts` (`ReportDataSchema`, `ActivityDataSchema`, `CashFlowDataSchema`, etc.) that are no longer used by the D1 path.
+**Remaining:**
+- `/econ` page still reads from R2 (`econ.json` via `NEXT_PUBLIC_R2_URL`). Migrate FRED time-series to D1 and serve through Worker to fully drop R2.
 
 ---
 
@@ -287,40 +248,29 @@ CREATE TABLE calibration_log (
 ## Phase 6 — Frontend UX + features
 
 ### UX fixes
-1. **Show fetch errors** — `finance/page.tsx` never checks `tl.error`. Add error state.
-2. **Empty range messages** — "No transactions in this period" instead of blank tables
-3. **Data freshness** — show "Data as of: Apr 9" from `sync_meta.last_sync`. Yellow if > 3 days stale.
+1. ~~**Show fetch errors**~~ ✅ Error state added to finance page
+2. ~~**Empty range messages**~~ ✅ "No transactions in this period" shown
+3. ~~**Data freshness**~~ ✅ Sync metadata displayed from `sync_meta`
 4. **Econ fetch timeout** — add `AbortSignal.timeout(10000)`
 5. **Currency formatting** — consistent decimals ($9.99 and $10.50, not $9.99 and $11)
+6. ~~**Colorblind accessibility**~~ ✅ Okabe-Ito palette for allocation colors (protanomaly-safe)
 
 ### New features (existing D1 data, no pipeline changes)
-6. **Net worth milestones** — mark $100K/$250K/$500K/$1M crossings on chart
-7. **Savings rate trend** — monthly savings rate line chart over full history
-8. **Expense sparklines** — mini 6-month trend per category row in cashflow table
+7. **Net worth milestones** — mark $100K/$250K/$500K/$1M crossings on chart
+8. **Savings rate trend** — monthly savings rate line chart over full history
+9. **Expense sparklines** — mini 6-month trend per category row in cashflow table
 
 ---
 
 ## Implementation order
 
 ```
-Phase 1 (schema + contracts):  ~3-4 hours
-  1a remove prefix, 1b split market, 1c action_type, 1d trim columns,
-  1e Worker passthrough, 1f schema unify, 1g error/CORS, 1h 401K fix
-
-Phase 2 (remove R2):           ~2-3 hours
-  Delete legacy code, migrate /econ to D1
-
+Phase 1 (schema + contracts):  ✅ DONE
+Phase 2 (remove R2):           ~1 hour remaining (migrate /econ to D1)
 Phase 3 (build gate):          ~2 hours
-  validate_build() + input warnings
-
 Phase 4 (automate pipeline):   ~2-3 hours
-  Diff sync, sync_meta, idempotency, parameterize paths, run.sh
-
 Phase 5 (replay optimization): ~3 hours
-  Checkpoint caching + positions calibration + drift tracking
-
-Phase 6 (frontend):            ~4-5 hours
-  UX fixes (1-5) + features (6-8)
+Phase 6 (frontend):            ~3 hours remaining (items 4-5, 7-9)
 ```
 
-Dependencies: `Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5`. Phase 6 can start after Phase 1.
+Dependencies: `Phase 2 (finish) → Phase 3 → Phase 4 → Phase 5`. Phase 6 is independent.

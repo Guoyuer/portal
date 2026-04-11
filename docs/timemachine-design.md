@@ -32,7 +32,6 @@ graph TB
         T_401[(empower_snapshots)]
         T_PRICE[(daily_close + CNY rates)]
         T_QJ[(qianji_records)]
-        T_SNAP[(computed_snapshots)]
     end
 
     subgraph Replay["Replay Engine"]
@@ -43,25 +42,20 @@ graph TB
     end
 
     subgraph Precompute["Pre-computation"]
-        PC_DAILY["daily[] — point-in-time values"]
-        PC_PREFIX["prefix[] — cumulative sums"]
+        PC_DAILY["computed_daily — point-in-time values"]
+        PC_TICKERS["computed_daily_tickers — per-ticker detail"]
+        PC_MARKET["computed_market_* — indices + indicators"]
     end
 
-    subgraph API["FastAPI"]
-        EP_INIT["GET /timeline — daily[] + prefix[]"]
-        EP_DETAIL["GET /allocation?date="]
-        EP_INGEST["POST /ingest"]
+    subgraph Cloud["Cloudflare D1 + Worker"]
+        D1[(D1 portal-db)]
+        WORKER["Worker GET /timeline<br/>7 parallel SELECTs → JSON"]
     end
 
     subgraph FE["Next.js Frontend"]
+        FETCH["fetch /timeline (once on load)"]
+        COMPUTE["compute.ts — pure functions:<br/>allocation · cashflow · activity · cross-check"]
         BRUSH["Brush + Traveller"]
-        subgraph During["During Drag — O(1) per frame"]
-            PIT["Point-in-Time: daily[rightEdge]"]
-            RANGE["Time-Range: prefix[right] - prefix[left]"]
-        end
-        subgraph OnStop["On Stop — debounce 200ms"]
-            DETAIL["Allocation Table: per-ticker detail"]
-        end
     end
 
     FID --> I_FID --> T_TXN
@@ -79,32 +73,29 @@ graph TB
     R_401 --> MERGE
     R_QJ --> MERGE
 
-    MERGE --> T_SNAP
-    T_SNAP --> PC_DAILY
-    T_SNAP --> PC_PREFIX
+    MERGE --> PC_DAILY
+    MERGE --> PC_TICKERS
+    MERGE --> PC_MARKET
 
-    PC_DAILY --> EP_INIT
-    PC_PREFIX --> EP_INIT
-    T_SNAP --> EP_DETAIL
-    EP_INGEST --> I_FID
-    EP_INGEST --> I_QFX
-
-    EP_INIT -->|once on load| BRUSH
-    BRUSH --> PIT
-    BRUSH --> RANGE
-    BRUSH -->|debounce 200ms| EP_DETAIL
-    EP_DETAIL --> DETAIL
+    PC_DAILY -->|sync_to_d1.py| D1
+    PC_TICKERS -->|sync_to_d1.py| D1
+    PC_MARKET -->|sync_to_d1.py| D1
+    D1 --> WORKER
+    WORKER -->|JSON ~385KB gzip| FETCH
+    FETCH --> COMPUTE
+    COMPUTE --> BRUSH
 ```
 
 ## Frontend performance model
 
-Three interaction tiers, zero lag during drag:
+All computation happens client-side after a single fetch. Zero network during brush interaction:
 
 | Tier | When | Data | Cost |
 |------|------|------|------|
-| **Initial load** | Page open | `GET /timeline` → daily[] + prefix[] (~50KB) | One request |
-| **During drag** | Every frame | `daily[rightEdge]` for point-in-time, `prefix[right] - prefix[left]` for range | O(1), pure frontend |
-| **On brush stop** | Debounce 200ms | `GET /allocation?date=` → per-ticker detail | One request |
+| **Initial load** | Page open | `GET /timeline` → all data (~4.6 MB JSON, ~385 KB gzip) | One request |
+| **During drag** | Every frame | `daily[rightEdge]` for point-in-time, iterate txns for range | O(n) but instant (<1ms for 5yr data) |
+
+All daily data points are rendered directly (no downsampling). `compute.ts` contains pure functions for allocation, cashflow, activity, and cross-check — called on every brush position change with no network round-trips.
 
 ### daily[] — point-in-time (drives chart + summary tiles)
 
@@ -118,45 +109,25 @@ One row per trading day (~800 rows for 3 years):
   nonUsEquity: number
   crypto: number
   safeNet: number
+  liabilities: number // credit cards (negative)
 }
 ```
 
-### prefix[] — cumulative sums (drives range tiles)
+### Raw transactions — drives range computation
 
-One row per trading day, cumulative values. Frontend computes any range in O(1):
+Frontend receives raw `fidelityTxns[]` and `qianjiTxns[]`. `compute.ts` iterates them to compute cashflow (income/expenses/savings rate) and activity (buys/sells/dividends) for any date range. No pre-aggregated prefix sums needed.
 
-```
-rangeIncome = prefix[rightIdx].income - prefix[leftIdx - 1].income
-```
+### Allocation detail — per-ticker breakdown
 
-```typescript
-{
-  date: string
-  income: number       // Qianji
-  expenses: number     // Qianji
-  buys: number         // Fidelity
-  sells: number        // Fidelity
-  dividends: number    // Fidelity
-  netCashIn: number    // deposits - withdrawals
-  ccPayments: number   // Qianji repayments
-}
-```
-
-### AllocationDetail — on brush stop
-
-Full per-ticker breakdown, same structure as today's allocation table:
+Computed client-side from `dailyTickers[]` index:
 
 ```typescript
 {
-  date: string
-  categories: {
-    name: string
-    value: number
-    pct: number
-    target: number
-    deviation: number
-    holdings: { ticker: string; value: number; pct: number }[]
-  }[]
+  total: number
+  netWorth: number
+  liabilities: number
+  categories: { name, value, pct, target, deviation }[]
+  tickers: { ticker, value, category, subtype, costBasis, gainLoss, gainLossPct }[]
 }
 ```
 
@@ -236,25 +207,15 @@ Reverse-replay from current `user_asset` balances:
 
 ## Architecture evolution
 
-### Legacy: static pipeline (R2, being phased out)
+### Legacy (removed): static pipeline via R2
 ```
 Python pipeline → latest.json → R2 → browser (daily batch, single snapshot)
 ```
+R2 pipeline, `report.py`, `json_renderer.py`, `send_report.py`, `sync.py`, and `report.yml` workflow have all been deleted. Only `/econ` page still reads from R2 (`econ.json`).
 
-### Current: backend + DB + Workers
+### Current: D1 + Workers (fully deployed)
 ```
 Data sources → Ingestion → SQLite (timemachine.db) → Replay → Pre-compute
-  → FastAPI (local dev) / D1 + Worker (production) → Next.js
+  → sync_to_d1.py → D1 + Worker → Next.js (static shell)
 ```
-
-### Implementation order
-1. ~~Fidelity replay logic~~ ✅
-2. ~~Historical prices + CNY rates~~ ✅
-3. ~~Qianji balance replay~~ ✅
-4. ~~401k QFX integration~~ ✅
-5. ~~Cross-validation~~ ✅
-6. ~~Unified SQLite DB (timemachine.db)~~ ✅
-7. ~~Pre-compute daily[] + prefix[] arrays~~ ✅
-8. ~~FastAPI endpoints~~ ✅
-9. ~~Frontend brush/traveller integration~~ ✅
-10. ~~Cloudflare D1 + Workers migration~~ ✅
+Worker is pure passthrough: 7 parallel SELECTs → JSON. Frontend computes everything locally. Same Worker code runs locally via `wrangler dev --remote` and in production.

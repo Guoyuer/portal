@@ -199,7 +199,7 @@ graph LR
 | Auth | Cloudflare Access | Zero-trust, Google login |
 | Pipeline | Python 3.14 | Fidelity/Qianji/Robinhood/401k ingest, Yahoo Finance, FRED API |
 | CI/CD | GitHub Actions | Single workflow: test → build → deploy (Pages + Worker) |
-| Tests | Playwright (4 specs) + pytest (24 test files) | E2E browser tests + Python unit/contract/e2e tests |
+| Tests | Playwright (4 specs) + pytest (25 test files) + vitest | E2E browser + Python unit/contract + TS unit tests |
 
 ## Development
 
@@ -262,7 +262,7 @@ pipeline/...                     ← data generation (if needed)
 - [x] Economic indicators dashboard — FRED time series charts (`/econ`)
 - [x] FRED API integration — Fed rate, CPI, VIX, oil, unemployment, Treasury yields
 - [x] Timemachine — historical portfolio replay with brush navigation
-- [x] Cloudflare D1 + Workers migration — replace local FastAPI for production
+- [x] Cloudflare D1 + Workers migration — production backend
 - [x] Robinhood transaction ingestion
 - [x] Empower 401k QFX integration
 - [ ] AI-generated macro narrative — LLM summarizing economic conditions and cycle position

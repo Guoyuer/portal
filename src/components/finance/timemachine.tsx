@@ -13,25 +13,16 @@ import {
   YAxis,
 } from "recharts";
 import type { DailyPoint, CashflowResponse, ActivityResponse } from "@/lib/schema";
-import { fmtCurrency, fmtCurrencyShort } from "@/lib/format";
+import { fmtCurrency, fmtCurrencyShort, fmtDateLong, fmtDateMonthYear } from "@/lib/format";
 import { useIsDark, useIsMobile } from "@/lib/hooks";
-import { tooltipStyle, gridStroke } from "@/lib/chart-styles";
+import { tooltipStyle, gridStroke, axisProps, brushColors } from "@/lib/chart-styles";
+import { CATEGORIES, CAT_COLOR_BY_KEY } from "@/lib/compute";
 
 // ── Constants ─────────────────────────────────────────────────────────────
 
-const CAT_COLORS = {
-  usEquity: "#0072B2",
-  nonUsEquity: "#009E73",
-  crypto: "#E69F00",
-  safeNet: "#56B4E9",
-} as const;
-
-const CAT_LABELS: Record<string, string> = {
-  usEquity: "US Equity",
-  nonUsEquity: "Non-US Equity",
-  crypto: "Crypto",
-  safeNet: "Safe Net",
-};
+const CAT_LABELS: Record<string, string> = Object.fromEntries(
+  CATEGORIES.map((c) => [c.key, c.name]),
+);
 
 const CAT_KEYS = ["safeNet", "crypto", "nonUsEquity", "usEquity"] as const;
 
@@ -61,7 +52,6 @@ export const TimemachineChart = memo(function TimemachineChart({
   const fmtTick = (ts: number) =>
     new Date(ts).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
 
-  const brushColor = isDark ? "#22d3ee" : "#0891b2";
 
   return (
     <ResponsiveContainer width="100%" height={isMobile ? 240 : 280}>
@@ -69,8 +59,8 @@ export const TimemachineChart = memo(function TimemachineChart({
         <defs>
           {CAT_KEYS.map((key) => (
             <linearGradient key={key} id={`tm-${key}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={CAT_COLORS[key]} stopOpacity={0.85} />
-              <stop offset="100%" stopColor={CAT_COLORS[key]} stopOpacity={0.3} />
+              <stop offset="0%" stopColor={CAT_COLOR_BY_KEY[key]} stopOpacity={0.85} />
+              <stop offset="100%" stopColor={CAT_COLOR_BY_KEY[key]} stopOpacity={0.3} />
             </linearGradient>
           ))}
         </defs>
@@ -81,18 +71,13 @@ export const TimemachineChart = memo(function TimemachineChart({
           scale="time"
           domain={["dataMin", "dataMax"]}
           tickFormatter={fmtTick}
-          fontSize={11}
-          tick={{ fill: isDark ? "#9ca3af" : "#6b7280" }}
-          axisLine={{ stroke: gridStroke(isDark) }}
-          tickLine={false}
+          {...axisProps(isDark)}
         />
         <YAxis
           tickFormatter={fmtCurrencyShort}
-          fontSize={11}
-          tick={{ fill: isDark ? "#9ca3af" : "#6b7280" }}
           width={55}
+          {...axisProps(isDark)}
           axisLine={false}
-          tickLine={false}
         />
         <Tooltip
           contentStyle={tooltipStyle(isDark)}
@@ -120,8 +105,7 @@ export const TimemachineChart = memo(function TimemachineChart({
         <Brush
           dataKey="ts"
           height={28}
-          stroke={brushColor}
-          fill={isDark ? "rgba(8,145,178,0.2)" : "rgba(207,250,254,0.5)"}
+          {...brushColors(isDark)}
           startIndex={defaultStartIndex}
           endIndex={defaultEndIndex}
           onChange={onBrushChange}
@@ -132,19 +116,6 @@ export const TimemachineChart = memo(function TimemachineChart({
   );
 });
 
-// ── Date formatting helpers ──────────────────────────────────────────────
-
-function fmtDate(iso: string): string {
-  const [y, m, d] = iso.split("-");
-  const dt = new Date(+y, +m - 1, +d);
-  return dt.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
-}
-
-function fmtDateShort(iso: string): string {
-  const [y, m] = iso.split("-");
-  const dt = new Date(+y, +m - 1, 1);
-  return dt.toLocaleDateString("en-US", { month: "short", year: "numeric" });
-}
 
 // ── TimemachineSummary ──────────────────────────────────────────────────
 
@@ -180,14 +151,14 @@ export const TimemachineSummary = memo(function TimemachineSummary({
     : [];
 
   const rangeLabel = startDate
-    ? `${fmtDateShort(startDate)} — ${fmtDateShort(snapshot.date)}`
+    ? `${fmtDateMonthYear(startDate)} — ${fmtDateMonthYear(snapshot.date)}`
     : "";
 
   return (
     <div className="space-y-3">
       {/* Date + total */}
       <div className="flex items-baseline justify-between">
-        <p className="text-sm text-muted-foreground" data-testid="tm-date">{fmtDate(snapshot.date)}</p>
+        <p className="text-sm text-muted-foreground" data-testid="tm-date">{fmtDateLong(snapshot.date)}</p>
         <p className="text-xl font-bold tabular-nums" data-testid="tm-total">
           {fmtCurrency(total)}
         </p>
@@ -199,7 +170,7 @@ export const TimemachineSummary = memo(function TimemachineSummary({
           <div
             key={key}
             className="h-2"
-            style={{ width: `${pct}%`, backgroundColor: CAT_COLORS[key] }}
+            style={{ width: `${pct}%`, backgroundColor: CAT_COLOR_BY_KEY[key] }}
           />
         ))}
       </div>
@@ -211,7 +182,7 @@ export const TimemachineSummary = memo(function TimemachineSummary({
             <div className="flex items-center gap-1">
               <span
                 className="inline-block w-2 h-2 rounded-full flex-shrink-0"
-                style={{ backgroundColor: CAT_COLORS[key] }}
+                style={{ backgroundColor: CAT_COLOR_BY_KEY[key] }}
               />
               <span className="text-muted-foreground">
                 {pct.toFixed(0)}%

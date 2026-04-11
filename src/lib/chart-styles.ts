@@ -15,3 +15,19 @@ export function tooltipStyle(isDark: boolean) {
 export function gridStroke(isDark: boolean): string {
   return isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)";
 }
+
+export function axisProps(isDark: boolean) {
+  return {
+    fontSize: 11,
+    tick: { fill: isDark ? "#9ca3af" : "#6b7280" },
+    axisLine: { stroke: gridStroke(isDark) },
+    tickLine: false,
+  } as const;
+}
+
+export function brushColors(isDark: boolean) {
+  return {
+    stroke: isDark ? "#22d3ee" : "#0891b2",
+    fill: isDark ? "rgba(8,145,178,0.2)" : "rgba(207,250,254,0.5)",
+  } as const;
+}

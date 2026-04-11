@@ -15,14 +15,39 @@ import type {
   MonthlyFlowPoint,
 } from "@/lib/schema";
 
+// ── Helpers ──────────────────────────────────────────────────────────────
+
+function round(val: number, decimals = 2): number {
+  const factor = 10 ** decimals;
+  return Math.round(val * factor) / factor;
+}
+
+function accum(map: Map<string, { count: number; total: number }>, key: string, amount: number) {
+  const e = map.get(key) ?? { count: 0, total: 0 };
+  e.count += 1;
+  e.total += amount;
+  map.set(key, e);
+}
+
 // ── Target allocation weights (mirror server _CATEGORIES) ───────────────
 
-export const CATEGORIES: { name: string; key: keyof DailyPoint; target: number }[] = [
-  { name: "US Equity", key: "usEquity", target: 55 },
-  { name: "Non-US Equity", key: "nonUsEquity", target: 15 },
-  { name: "Crypto", key: "crypto", target: 3 },
-  { name: "Safe Net", key: "safeNet", target: 27 },
+// Okabe-Ito colorblind-friendly palette (protanomaly-safe)
+export const CATEGORIES: { name: string; key: keyof DailyPoint; target: number; color: string }[] = [
+  { name: "US Equity", key: "usEquity", target: 55, color: "#0072B2" },
+  { name: "Non-US Equity", key: "nonUsEquity", target: 15, color: "#009E73" },
+  { name: "Crypto", key: "crypto", target: 3, color: "#E69F00" },
+  { name: "Safe Net", key: "safeNet", target: 27, color: "#56B4E9" },
 ];
+
+/** Color by display name (e.g. "US Equity") */
+export const CAT_COLOR_BY_NAME: Record<string, string> = Object.fromEntries(
+  CATEGORIES.map((c) => [c.name, c.color]),
+);
+
+/** Color by camelCase key (e.g. "usEquity") */
+export const CAT_COLOR_BY_KEY: Record<string, string> = Object.fromEntries(
+  CATEGORIES.map((c) => [c.key, c.color]),
+);
 
 // ── Allocation ────────────────────────────────────────────────────────────
 
@@ -40,55 +65,50 @@ export function computeAllocation(
 
   const categories: ApiCategory[] = CATEGORIES.map(({ name, key, target }) => {
     const value = d[key] as number;
-    const pct = total ? Math.round((value / total) * 1000) / 10 : 0;
-    return { name, value, pct, target, deviation: Math.round((pct - target) * 10) / 10 };
+    const pct = total ? round((value / total) * 100, 1) : 0;
+    return { name, value, pct, target, deviation: round(pct - target, 1) };
   });
 
   const tickers: ApiTicker[] = tickerIndex.get(date) ?? [];
 
-  return { total, netWorth: Math.round((total + liabilities) * 100) / 100, liabilities, categories, tickers };
+  return { total, netWorth: round(total + liabilities), liabilities, categories, tickers };
 }
 
 // ── Cashflow ──────────────────────────────────────────────────────────────
 
 export function computeCashflow(qianjiTxns: QianjiTxn[], start: string, end: string): CashflowResponse {
-  const incomeMap = new Map<string, { amount: number; count: number }>();
-  const expenseMap = new Map<string, { amount: number; count: number }>();
+  const incomeMap = new Map<string, { count: number; total: number }>();
+  const expenseMap = new Map<string, { count: number; total: number }>();
   let ccPayments = 0;
 
   for (const t of qianjiTxns) {
     if (t.date < start || t.date > end) continue;
     if (t.type === "income") {
-      const e = incomeMap.get(t.category) ?? { amount: 0, count: 0 };
-      e.amount += t.amount;
-      e.count += 1;
-      incomeMap.set(t.category, e);
+      accum(incomeMap, t.category, t.amount);
     } else if (t.type === "expense") {
-      const e = expenseMap.get(t.category) ?? { amount: 0, count: 0 };
-      e.amount += t.amount;
-      e.count += 1;
-      expenseMap.set(t.category, e);
+      accum(expenseMap, t.category, t.amount);
     } else if (t.type === "repayment") {
       ccPayments += t.amount;
     }
   }
 
-  const incomeItems = [...incomeMap.entries()]
-    .map(([category, v]) => ({ category, amount: Math.round(v.amount * 100) / 100, count: v.count }))
-    .sort((a, b) => b.amount - a.amount);
-  const expenseItems = [...expenseMap.entries()]
-    .map(([category, v]) => ({ category, amount: Math.round(v.amount * 100) / 100, count: v.count }))
-    .sort((a, b) => b.amount - a.amount);
+  const toItems = (m: Map<string, { count: number; total: number }>) =>
+    [...m.entries()]
+      .map(([category, v]) => ({ category, amount: round(v.total), count: v.count }))
+      .sort((a, b) => b.amount - a.amount);
 
-  const totalIncome = Math.round(incomeItems.reduce((s, i) => s + i.amount, 0) * 100) / 100;
-  const totalExpenses = Math.round(expenseItems.reduce((s, i) => s + i.amount, 0) * 100) / 100;
-  const netCashflow = Math.round((totalIncome - totalExpenses) * 100) / 100;
-  const savingsRate = totalIncome ? Math.round(((totalIncome - totalExpenses) / totalIncome) * 10000) / 100 : 0;
+  const incomeItems = toItems(incomeMap);
+  const expenseItems = toItems(expenseMap);
+
+  const totalIncome = round(incomeItems.reduce((s, i) => s + i.amount, 0));
+  const totalExpenses = round(expenseItems.reduce((s, i) => s + i.amount, 0));
+  const netCashflow = round(totalIncome - totalExpenses);
+  const savingsRate = totalIncome ? round(((totalIncome - totalExpenses) / totalIncome) * 100) : 0;
   const k401 = incomeItems.find((i) => i.category.toLowerCase().includes("401"))?.amount ?? 0;
   const takehomeIncome = totalIncome - k401;
-  const takehomeSavingsRate = takehomeIncome ? Math.round(((takehomeIncome - totalExpenses) / takehomeIncome) * 10000) / 100 : 0;
+  const takehomeSavingsRate = takehomeIncome ? round(((takehomeIncome - totalExpenses) / takehomeIncome) * 100) : 0;
 
-  return { incomeItems, expenseItems, totalIncome, totalExpenses, netCashflow, ccPayments: Math.round(ccPayments * 100) / 100, savingsRate, takehomeSavingsRate };
+  return { incomeItems, expenseItems, totalIncome, totalExpenses, netCashflow, ccPayments: round(ccPayments), savingsRate, takehomeSavingsRate };
 }
 
 // ── Fidelity date helpers ────────────────────────────────────────────────
@@ -135,7 +155,7 @@ export function computeCrossCheck(
       fidelityTotal += t.amount;
     }
   }
-  fidelityTotal = Math.round(fidelityTotal * 100) / 100;
+  fidelityTotal = round(fidelityTotal);
 
   const transfers = qianjiTxns.filter((t) => t.type === "transfer");
   const used = new Set<number>();
@@ -161,8 +181,8 @@ export function computeCrossCheck(
     }
   }
 
-  matchedTotal = Math.round(matchedTotal * 100) / 100;
-  const unmatchedTotal = Math.round((fidelityTotal - matchedTotal) * 100) / 100;
+  matchedTotal = round(matchedTotal);
+  const unmatchedTotal = round(fidelityTotal - matchedTotal);
 
   return {
     fidelityTotal,
@@ -188,58 +208,25 @@ export function computeActivity(fidelityTxns: FidelityTxn[], start: string, end:
     const sort = fidelityDateToSort(t.runDate);
     if (sort < startSort || sort > endSort) continue;
     if (!t.symbol) continue;
+    const abs = Math.abs(t.amount);
     if (t.actionType === "buy") {
-      const e = buys.get(t.symbol) ?? { count: 0, total: 0 };
-      e.count += 1;
-      e.total += Math.abs(t.amount);
-      buys.set(t.symbol, e);
+      accum(buys, t.symbol, abs);
     } else if (t.actionType === "sell") {
-      const e = sells.get(t.symbol) ?? { count: 0, total: 0 };
-      e.count += 1;
-      e.total += Math.abs(t.amount);
-      sells.set(t.symbol, e);
+      accum(sells, t.symbol, abs);
     } else if (t.actionType === "dividend") {
-      const e = dividends.get(t.symbol) ?? { count: 0, total: 0 };
-      e.count += 1;
-      e.total += t.amount;
-      dividends.set(t.symbol, e);
+      accum(dividends, t.symbol, t.amount);
     } else if (t.actionType === "reinvestment") {
-      const ed = dividends.get(t.symbol) ?? { count: 0, total: 0 };
-      ed.count += 1;
-      ed.total += Math.abs(t.amount);
-      dividends.set(t.symbol, ed);
-      const eb = buys.get(t.symbol) ?? { count: 0, total: 0 };
-      eb.count += 1;
-      eb.total += Math.abs(t.amount);
-      buys.set(t.symbol, eb);
+      accum(dividends, t.symbol, abs);
+      accum(buys, t.symbol, abs);
     }
   }
 
   const toList = (m: Map<string, { count: number; total: number }>) =>
     [...m.entries()]
-      .map(([symbol, v]) => ({ symbol, count: v.count, total: Math.round(v.total * 100) / 100 }))
+      .map(([symbol, v]) => ({ symbol, count: v.count, total: round(v.total) }))
       .sort((a, b) => b.total - a.total);
 
   return { buysBySymbol: toList(buys), sellsBySymbol: toList(sells), dividendsBySymbol: toList(dividends) };
-}
-
-// ── Downsampling ──────────────────────────────────────────────────────────
-
-export const TARGET_CHART_POINTS = 150;
-
-export function downsample(daily: DailyPoint[]): { sampled: DailyPoint[]; toFull: number[] } {
-  const step = Math.max(1, Math.floor(daily.length / TARGET_CHART_POINTS));
-  const sampled: DailyPoint[] = [];
-  const toFull: number[] = [];
-  for (let i = 0; i < daily.length; i += step) {
-    sampled.push(daily[i]);
-    toFull.push(i);
-  }
-  if (toFull[toFull.length - 1] !== daily.length - 1) {
-    sampled.push(daily[daily.length - 1]);
-    toFull.push(daily.length - 1);
-  }
-  return { sampled, toFull };
 }
 
 // ── Build indexes ─────────────────────────────────────────────────────────
@@ -281,8 +268,8 @@ export function computeMonthlyFlows(qianjiTxns: QianjiTxn[], start: string | nul
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([month, { income, expenses }]) => ({
       month,
-      income: Math.round(income * 100) / 100,
-      expenses: Math.round(expenses * 100) / 100,
-      savingsRate: income > 0 ? Math.round(((income - expenses) / income) * 10000) / 100 : 0,
+      income: round(income),
+      expenses: round(expenses),
+      savingsRate: income > 0 ? round(((income - expenses) / income) * 100) : 0,
     }));
 }

@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { GOAL } from "@/lib/config";
 import { useBundle } from "@/lib/use-bundle";
 import { computeMonthlyFlows } from "@/lib/compute";
+import { fmtDateMedium } from "@/lib/format";
 import { SectionHeader, SectionBody } from "@/components/finance/shared";
 import { IncomeExpensesChart } from "@/components/finance/charts";
 import { MetricCards } from "@/components/finance/metric-cards";
@@ -15,11 +16,6 @@ import { BackToTop } from "@/components/layout/back-to-top";
 import { TimemachineSection } from "@/components/finance/timemachine";
 
 // ── Helpers ──────────────────────────────────────────────────────────
-
-/** "2026-03-15" -> "2026-03" */
-function dateToMonthKey(dateStr: string): string {
-  return dateStr.slice(0, 7);
-}
 
 const PAGE_LOAD_TIME = Date.now();
 
@@ -97,9 +93,9 @@ export default function FinancePage() {
         </h1>
         {startDate && snapshotDate && (
           <p className="text-sm text-muted-foreground mt-1">
-            {new Date(startDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+            {fmtDateMedium(startDate)}
             {" \u2014 "}
-            {new Date(snapshotDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+            {fmtDateMedium(snapshotDate)}
           </p>
         )}
         {syncStale}
@@ -146,7 +142,7 @@ export default function FinancePage() {
                   <div className="px-3 sm:px-5 pb-3 sm:pb-5 pt-3">
                     <IncomeExpensesChart
                       data={monthlyFlows}
-                      activeMonth={snapshotDate ? dateToMonthKey(snapshotDate) : undefined}
+                      activeMonth={snapshotDate?.slice(0, 7)}
                     />
                   </div>
                 ) : (

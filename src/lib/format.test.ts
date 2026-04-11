@@ -53,6 +53,19 @@ describe("fmtCurrencyShort", () => {
     expect(fmtCurrencyShort(999)).toBe("$999");
     expect(fmtCurrencyShort(5.5)).toBe("$5.50");
   });
+
+  it("formats negative thousands", () => {
+    expect(fmtCurrencyShort(-5000)).toBe("-$5k");
+    expect(fmtCurrencyShort(-50_000)).toBe("-$50k");
+  });
+
+  it("formats negative millions", () => {
+    expect(fmtCurrencyShort(-1_500_000)).toBe("-$1.5M");
+  });
+
+  it("formats small negatives via fmtCurrency", () => {
+    expect(fmtCurrencyShort(-500)).toBe("-$500");
+  });
 });
 
 // ── fmtPct ──────────────────────────────────────────────────────────────

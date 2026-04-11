@@ -57,9 +57,6 @@ export default {
         vix: null,
         dxy: null,
         usdCny: null,
-        goldReturn: null,
-        btcReturn: null,
-        portfolioMonthReturn: null,
       };
       for (const r of indicators.results as { key: string; value: number }[]) {
         meta[r.key] = r.value;
