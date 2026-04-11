@@ -131,7 +131,7 @@ export default function FinancePage() {
             ) : (
               <>
                 <SectionBody>
-                  <CashFlow data={cf} qianjiTxns={tl.qianjiTxns} endDate={snapshotDate ?? undefined} />
+                  <CashFlow data={cf} />
                 </SectionBody>
 
                 {/* Stat bar + chart -- single glass container, no internal borders */}
@@ -222,6 +222,8 @@ export default function FinancePage() {
           daily={tl.chartDaily}
           defaultStartIndex={tl.defaultStartIndex}
           defaultEndIndex={tl.defaultEndIndex}
+          startDate={tl.startDate}
+          endDate={tl.endDate}
           onBrushChange={tl.onBrushChange}
         />
       )}
