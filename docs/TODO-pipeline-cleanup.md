@@ -142,7 +142,9 @@ FATAL = exit 1, no sync. WARNING = log, continue.
 
 ---
 
-## Phase 4 — Automate pipeline (diff sync + D1 as persistent store)
+## Phase 4 — Automate pipeline ✅ DONE
+
+argparse CLI, diff-based sync (--diff --since), run.sh orchestration script.
 
 Depends on Phase 1 (clean schema) + Phase 3 (build gate in place).
 
@@ -184,7 +186,9 @@ Remove hardcoded `C:/Users/guoyu/...` from `build_timemachine_db.py`. Use `--dat
 
 ---
 
-## Phase 5 — Replay optimization + calibration
+## Phase 5 — Replay optimization + calibration ✅ DONE
+
+replay_checkpoint table + save/load, positions CSV calibration with drift logging.
 
 ### Checkpoint caching
 Cache replay state (positions + cash + cost_basis) in local DB. Incremental builds resume from checkpoint instead of replaying all transactions from scratch.
@@ -228,14 +232,14 @@ CREATE TABLE calibration_log (
 1. ~~**Show fetch errors**~~ ✅ Error state added to finance page
 2. ~~**Empty range messages**~~ ✅ "No transactions in this period" shown
 3. ~~**Data freshness**~~ ✅ Sync metadata displayed from `sync_meta`
-4. **Econ fetch timeout** — add `AbortSignal.timeout(10000)`
-5. **Currency formatting** — consistent decimals ($9.99 and $10.50, not $9.99 and $11)
+4. ~~**Econ fetch timeout**~~ ✅ `AbortSignal.timeout(10000)` added
+5. ~~**Currency formatting**~~ ✅ Consistent decimals ($9.99 and $10.50, not $9.99 and $11)
 6. ~~**Colorblind accessibility**~~ ✅ Okabe-Ito palette for allocation colors (protanomaly-safe)
 
 ### New features (existing D1 data, no pipeline changes)
-7. **Net worth milestones** — mark $100K/$250K/$500K/$1M crossings on chart
-8. **Savings rate trend** — monthly savings rate line chart over full history
-9. **Expense sparklines** — mini 6-month trend per category row in cashflow table
+7. ~~**Net worth milestones**~~ ✅ $100K/$250K/$500K/$1M crossings marked on chart
+8. ~~**Savings rate trend**~~ ✅ Monthly savings rate line chart over full history
+9. ~~**Expense sparklines**~~ ❌ Removed (not visually appealing)
 
 ---
 
@@ -245,9 +249,9 @@ CREATE TABLE calibration_log (
 Phase 1 (schema + contracts):  ✅ DONE
 Phase 2 (remove R2):           ✅ DONE
 Phase 3 (build gate):          ✅ DONE
-Phase 4 (automate pipeline):   TODO
-Phase 5 (replay optimization): TODO
-Phase 6 (frontend):            TODO (items 4-5, 7-9)
+Phase 4 (automate pipeline):   ✅ DONE
+Phase 5 (replay optimization): ✅ DONE
+Phase 6 (frontend):            ✅ DONE (item 9 removed)
 ```
 
 Dependencies: `Phase 2 (finish) → Phase 3 → Phase 4 → Phase 5`. Phase 6 is independent.

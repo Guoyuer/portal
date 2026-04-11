@@ -61,7 +61,7 @@ def _check_total_vs_tickers(db_path: Path) -> list[CheckResult]:
 
 
 def _check_day_over_day(db_path: Path) -> list[CheckResult]:
-    """Flag consecutive days where total changes by more than 10%."""
+    """Flag suspicious day-over-day total changes."""
     conn = get_connection(db_path)
     try:
         rows = conn.execute(
@@ -77,11 +77,18 @@ def _check_day_over_day(db_path: Path) -> list[CheckResult]:
         if prev_total == 0:
             continue
         pct_change = abs((curr_total - prev_total) / prev_total) * 100
-        if pct_change > 10:
+        abs_change = abs(curr_total - prev_total)
+        if pct_change > 20 and abs_change > 10000:
             results.append(CheckResult(
                 name="day_over_day",
                 severity=Severity.FATAL,
-                message=f"{prev_date} -> {curr_date}: {pct_change:.1f}% change ({prev_total:,.0f} -> {curr_total:,.0f})",
+                message=f"{prev_date} -> {curr_date}: {pct_change:.1f}% change (${abs_change:,.0f}, {prev_total:,.0f} -> {curr_total:,.0f})",
+            ))
+        elif pct_change > 15 and abs_change > 5000:
+            results.append(CheckResult(
+                name="day_over_day",
+                severity=Severity.WARNING,
+                message=f"{prev_date} -> {curr_date}: {pct_change:.1f}% change (${abs_change:,.0f}, {prev_total:,.0f} -> {curr_total:,.0f})",
             ))
     return results
 

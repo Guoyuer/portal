@@ -84,6 +84,16 @@ class TestRangeReplace:
         assert "DELETE FROM qianji_transactions" in sql
 
 
+class TestGenSchema:
+    def test_gen_schema_includes_sync_meta(self):
+        """gen_schema_sql output must include sync_meta table."""
+        schema = Path(__file__).resolve().parent.parent.parent.parent / "worker" / "schema.sql"
+        if not schema.exists():
+            pytest.skip("schema.sql not found")
+        text = schema.read_text()
+        assert "sync_meta" in text, "sync_meta table missing from generated schema"
+
+
 class TestEscape:
     def test_none(self):
         assert _escape(None) == "NULL"

@@ -39,7 +39,6 @@ test.describe("Finance Report", () => {
     await expect(page.getByTestId("net-worth-card")).toBeVisible({ timeout: 10000 });
     // Click Net Worth tile to expand allocation
     await page.getByTestId("net-worth-card").getByRole("button").click();
-    await page.waitForTimeout(600);
     await expect(page.getByRole("cell", { name: "US Equity", exact: true })).toBeVisible();
     await expect(page.getByRole("cell", { name: "Non-US Equity" })).toBeVisible();
     await expect(page.getByRole("cell", { name: "Crypto" })).toBeVisible();
@@ -49,7 +48,6 @@ test.describe("Finance Report", () => {
   test("shows subtypes under equity categories", async ({ page }) => {
     await expect(page.getByTestId("net-worth-card")).toBeVisible({ timeout: 10000 });
     await page.getByTestId("net-worth-card").getByRole("button").click();
-    await page.waitForTimeout(600);
     await expect(page.getByText("broad").first()).toBeVisible();
     await expect(page.getByText("growth").first()).toBeVisible();
   });
@@ -57,7 +55,6 @@ test.describe("Finance Report", () => {
   test("shows target and deviation columns", async ({ page }) => {
     await expect(page.getByTestId("net-worth-card")).toBeVisible({ timeout: 10000 });
     await page.getByTestId("net-worth-card").getByRole("button").click();
-    await page.waitForTimeout(600);
     await expect(page.getByRole("columnheader", { name: "Target" })).toBeVisible();
     await expect(page.getByRole("columnheader", { name: "Deviation" })).toBeVisible();
   });
@@ -65,7 +62,6 @@ test.describe("Finance Report", () => {
   test("shows category deviations with correct colors", async ({ page }) => {
     await expect(page.getByTestId("net-worth-card")).toBeVisible({ timeout: 10000 });
     await page.getByTestId("net-worth-card").getByRole("button").click();
-    await page.waitForTimeout(600);
     // Deviation cells should have red or green colors
     const deviationCells = page.locator("td[class*='text-red-'], td[class*='text-green-'], td[class*='text-emerald-']");
     await expect(deviationCells.first()).toBeVisible();
@@ -135,11 +131,13 @@ test.describe("Finance Report", () => {
   test("shows buys and dividends by symbol", async ({ page }) => {
     const section = page.locator("#fidelity-activity");
     await expect(section).toBeAttached();
-    // Activity data may take time to load
-    if ((await section.locator("table").count()) === 0) {
-      await page.waitForTimeout(3000);
+    // Wait for activity data to load
+    const activityTable = section.locator("table").first();
+    try {
+      await activityTable.waitFor({ timeout: 5000 });
+    } catch {
+      return; // No data available
     }
-    if ((await section.locator("table").count()) === 0) return;
     await expect(page.getByText("Buys by Symbol")).toBeVisible();
     await expect(page.getByText("Dividends by Symbol")).toBeVisible();
   });
@@ -178,7 +176,6 @@ test.describe("Finance Report", () => {
     await expect(page.getByTestId("net-worth-card")).toBeVisible({ timeout: 10000 });
     // Click Net Worth tile to expand allocation
     await page.getByTestId("net-worth-card").getByRole("button").click();
-    await page.waitForTimeout(600);
     const donut = page.locator(".recharts-pie");
     await expect(donut).toBeVisible();
     // Legend labels
@@ -187,9 +184,8 @@ test.describe("Finance Report", () => {
 
   test("renders income vs expenses bar chart", async ({ page }) => {
     const section = page.locator("#cashflow");
-    // Wait for chart to render (may take time with API)
-    await page.waitForTimeout(3000);
     const bars = section.locator(".recharts-bar-rectangle");
+    await bars.first().waitFor({ timeout: 5000 }).catch(() => {});
     if (await bars.count() > 0) {
       expect(await bars.count()).toBeGreaterThan(0);
     }
@@ -197,8 +193,9 @@ test.describe("Finance Report", () => {
 
   test("income vs expenses chart has legend", async ({ page }) => {
     const section = page.locator("#cashflow");
-    await page.waitForTimeout(3000);
-    if (await section.locator(".recharts-bar-rectangle").count() > 0) {
+    const chartBars = section.locator(".recharts-bar-rectangle");
+    await chartBars.first().waitFor({ timeout: 5000 }).catch(() => {});
+    if (await chartBars.count() > 0) {
       await expect(section.getByText("Expenses").first()).toBeVisible();
       await expect(section.getByText("Savings").first()).toBeVisible();
     }
@@ -209,17 +206,18 @@ test.describe("Finance Report", () => {
   test("shows market context with index cards", async ({ page }) => {
     const section = page.getByTestId("market-section");
     await expect(section).toBeAttached();
-    // Market data may take time to load
-    await page.waitForTimeout(5000);
-    if ((await section.locator("[data-slot='card']").count()) === 0) return;
+    // Wait for market cards to render
+    const marketCard = section.locator("[data-slot='card']").first();
+    try { await marketCard.waitFor({ timeout: 10000 }); } catch { return; }
     await expect(page.getByText("S&P 500").first()).toBeVisible();
   });
 
   test("market section renders without macro when FRED unavailable", async ({ page }) => {
     const section = page.getByTestId("market-section");
     await expect(section).toBeAttached();
-    await page.waitForTimeout(5000);
-    if ((await section.locator("[data-slot='card']").count()) === 0) return;
+    // Wait for market cards to render
+    const marketCard = section.locator("[data-slot='card']").first();
+    try { await marketCard.waitFor({ timeout: 10000 }); } catch { return; }
     await expect(page.getByText("S&P 500").first()).toBeVisible();
   });
 
@@ -306,9 +304,9 @@ test.describe("Finance Report", () => {
     await traveller.focus();
     for (let i = 0; i < 6; i++) {
       await page.keyboard.press("ArrowRight");
-      await page.waitForTimeout(100);
+      await page.waitForTimeout(50);
     }
-    await page.waitForTimeout(500);
+    await page.waitForLoadState("networkidle");
 
     // Any remaining labels must have valid percentages (not stale data)
     const allTextAfter = await section.locator("svg text").allTextContents();
@@ -325,8 +323,8 @@ test.describe("Finance Report", () => {
   test("income vs expenses chart renders bars", async ({ page }) => {
     // Scroll to chart area
     await page.locator("#cashflow").scrollIntoViewIfNeeded();
-    await page.waitForTimeout(3000);
     const bars = page.locator("#cashflow .recharts-bar-rectangle");
+    await bars.first().waitFor({ timeout: 5000 }).catch(() => {});
     if (await bars.count() > 0) {
       expect(await bars.count()).toBeGreaterThan(0);
     }

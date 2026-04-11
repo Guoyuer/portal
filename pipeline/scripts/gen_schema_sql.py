@@ -142,6 +142,14 @@ def main() -> None:
         parts.append(stmt)
     parts.append("")
 
+    # sync_meta is D1-only (not in local DB) — always include
+    parts.append("-- Sync metadata (last_sync timestamp, data coverage)")
+    parts.append("CREATE TABLE IF NOT EXISTS sync_meta (")
+    parts.append("    key   TEXT PRIMARY KEY,")
+    parts.append("    value TEXT NOT NULL")
+    parts.append(");")
+    parts.append("")
+
     if views_section:
         # Views are maintained manually — append as-is
         parts.append(views_section.rstrip())
