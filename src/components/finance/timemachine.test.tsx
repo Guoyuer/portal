@@ -48,7 +48,8 @@ describe("TimemachineSummary", () => {
   it("renders date and total", () => {
     render(<TimemachineSummary snapshot={SNAPSHOT} />);
     expect(screen.getByTestId("tm-date").textContent).toBe("January 15, 2026");
-    expect(screen.getByTestId("tm-total").textContent).toBe("$100,000");
+    // netWorth = total + liabilities = 100000 + (-5000) = 95000
+    expect(screen.getByTestId("tm-total").textContent).toBe("$95,000");
   });
 
   it("renders 4 category percentages", () => {
@@ -69,9 +70,11 @@ describe("TimemachineSummary", () => {
         startDate="2025-07-01"
       />,
     );
+    expect(screen.getByText("Net Savings")).toBeTruthy();
+    expect(screen.getByText("Investments")).toBeTruthy();
+    expect(screen.getByText("CC Payments")).toBeTruthy();
     expect(screen.getByText("Income")).toBeTruthy();
     expect(screen.getByText("Expenses")).toBeTruthy();
-    expect(screen.getByText("Buys")).toBeTruthy();
     expect(screen.getByText("Dividends")).toBeTruthy();
   });
 
