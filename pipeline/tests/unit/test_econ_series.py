@@ -58,3 +58,16 @@ class TestIngestEconSeries:
     def test_empty_series(self, tmp_db: Path) -> None:
         count = ingest_econ_series(tmp_db, {})
         assert count == 0
+
+    def test_inline_econ_series_insert(self, tmp_db: Path) -> None:
+        """Verify the inline SQL pattern used by precompute_market works."""
+        conn = get_connection(tmp_db)
+        conn.execute("DELETE FROM econ_series")
+        conn.execute(
+            "INSERT INTO econ_series (key, date, value) VALUES (?, ?, ?)",
+            ("fedFundsRate", "2025-01", 4.33),
+        )
+        conn.commit()
+        row = conn.execute("SELECT key, date, value FROM econ_series").fetchone()
+        conn.close()
+        assert row == ("fedFundsRate", "2025-01", 4.33)
