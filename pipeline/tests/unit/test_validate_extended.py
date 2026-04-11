@@ -76,7 +76,7 @@ class TestDayOverDayEdgeCases:
         assert day_over_day == []
 
     def test_exactly_10_pct_not_flagged(self, tmp_path: Path) -> None:
-        """10% exactly should NOT trigger FATAL (only > 10%)."""
+        """10% on a large portfolio should NOT trigger (below 15% threshold)."""
         db_path = tmp_path / "test.db"
         init_db(db_path)
         conn = get_connection(db_path)
@@ -93,6 +93,66 @@ class TestDayOverDayEdgeCases:
         issues = validate_build(db_path)
         day_over_day = [i for i in issues if i.name == "day_over_day"]
         assert day_over_day == []
+
+    def test_moderate_change_small_portfolio_not_flagged(self, tmp_path: Path) -> None:
+        """12% change on a small portfolio ($600 absolute) should not be flagged."""
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        conn = get_connection(db_path)
+        conn.execute(
+            "INSERT INTO computed_daily (date, total, us_equity, non_us_equity, crypto, safe_net)"
+            " VALUES ('2025-01-02', 5000, 2750, 750, 150, 1350)"
+        )
+        conn.execute(
+            "INSERT INTO computed_daily (date, total, us_equity, non_us_equity, crypto, safe_net)"
+            " VALUES ('2025-01-03', 5600, 3080, 840, 168, 1512)"
+        )
+        conn.commit()
+        conn.close()
+        issues = validate_build(db_path)
+        day_over_day = [i for i in issues if i.name == "day_over_day"]
+        assert day_over_day == []
+
+    def test_large_pct_large_dollar_is_fatal(self, tmp_path: Path) -> None:
+        """25% change with >$10k absolute should be FATAL."""
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        conn = get_connection(db_path)
+        conn.execute(
+            "INSERT INTO computed_daily (date, total, us_equity, non_us_equity, crypto, safe_net)"
+            " VALUES ('2025-01-02', 100000, 55000, 15000, 3000, 27000)"
+        )
+        conn.execute(
+            "INSERT INTO computed_daily (date, total, us_equity, non_us_equity, crypto, safe_net)"
+            " VALUES ('2025-01-03', 125000, 68750, 18750, 3750, 33750)"
+        )
+        conn.commit()
+        conn.close()
+        issues = validate_build(db_path)
+        fatals = [i for i in issues if i.name == "day_over_day" and i.severity == Severity.FATAL]
+        assert len(fatals) == 1
+
+    def test_moderate_pct_large_dollar_is_warning(self, tmp_path: Path) -> None:
+        """16% change with >$5k absolute should be WARNING, not FATAL."""
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        conn = get_connection(db_path)
+        conn.execute(
+            "INSERT INTO computed_daily (date, total, us_equity, non_us_equity, crypto, safe_net)"
+            " VALUES ('2025-01-02', 50000, 27500, 7500, 1500, 13500)"
+        )
+        conn.execute(
+            "INSERT INTO computed_daily (date, total, us_equity, non_us_equity, crypto, safe_net)"
+            " VALUES ('2025-01-03', 58000, 31900, 8700, 1740, 15660)"
+        )
+        conn.commit()
+        conn.close()
+        issues = validate_build(db_path)
+        day_over_day = [i for i in issues if i.name == "day_over_day"]
+        fatals = [i for i in day_over_day if i.severity == Severity.FATAL]
+        warnings = [i for i in day_over_day if i.severity == Severity.WARNING]
+        assert len(fatals) == 0
+        assert len(warnings) == 1
 
 
 class TestTotalVsTickersTolerance:
