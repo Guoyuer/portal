@@ -6,9 +6,10 @@ export default defineConfig({
     alias: { "@": path.resolve(__dirname, "src") },
   },
   test: {
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.{ts,tsx}"],
     coverage: {
       provider: "v8",
+      reporter: ["text", "json-summary", "json"],
       include: ["src/lib/**"],
       thresholds: {
         statements: 70,

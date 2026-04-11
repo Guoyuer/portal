@@ -9,7 +9,7 @@ import { MacroCards } from "@/components/econ/macro-cards";
 import { TimeSeriesChart, type LineConfig } from "@/components/econ/time-series-chart";
 import { BackToTop } from "@/components/layout/back-to-top";
 import { EconSkeleton } from "@/components/loading-skeleton";
-import { ErrorBoundary } from "@/components/error-boundary";
+import { ErrorBoundary, SectionError } from "@/components/error-boundary";
 
 // ── Range filter ─────────────────────────────────────────────────────
 
@@ -99,7 +99,6 @@ export default function EconPage() {
   }
 
   return (
-    <ErrorBoundary>
     <div className="max-w-5xl mx-auto space-y-10">
       {/* Header */}
       <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">
@@ -113,7 +112,9 @@ export default function EconPage() {
       </p>
 
       {/* Macro snapshot cards */}
-      <MacroCards snapshot={data.snapshot} />
+      <ErrorBoundary fallback={<SectionError label="Macro Cards" />}>
+        <MacroCards snapshot={data.snapshot} />
+      </ErrorBoundary>
 
       {/* Range toggle — controls chart time range below */}
       <div className="flex gap-1 liquid-glass-pill rounded-full p-1 w-fit">
@@ -133,40 +134,45 @@ export default function EconPage() {
       </div>
 
       {/* ── Interest Rates ──────────────────────────────────────────────── */}
-      <section>
-        <SectionHeader>Interest Rates</SectionHeader>
-        <SectionBody>
-          <TimeSeriesChart title="Fed Rate, 10Y & 2Y Treasury" lines={RATE_LINES} data={filtered} />
-          <div className="mt-6 pt-6 border-t border-border">
-            <TimeSeriesChart title="2s10s Yield Spread" lines={SPREAD_LINES} data={filtered} />
-          </div>
-        </SectionBody>
-      </section>
+      <ErrorBoundary fallback={<SectionError label="Interest Rates" />}>
+        <section>
+          <SectionHeader>Interest Rates</SectionHeader>
+          <SectionBody>
+            <TimeSeriesChart title="Fed Rate, 10Y & 2Y Treasury" lines={RATE_LINES} data={filtered} />
+            <div className="mt-6 pt-6 border-t border-border">
+              <TimeSeriesChart title="2s10s Yield Spread" lines={SPREAD_LINES} data={filtered} />
+            </div>
+          </SectionBody>
+        </section>
+      </ErrorBoundary>
 
       {/* ── Inflation ───────────────────────────────────────────────────── */}
-      <section>
-        <SectionHeader>Inflation</SectionHeader>
-        <SectionBody>
-          <TimeSeriesChart title="CPI & Core CPI (Year-over-Year)" lines={INFLATION_LINES} data={filtered} />
-        </SectionBody>
-      </section>
+      <ErrorBoundary fallback={<SectionError label="Inflation" />}>
+        <section>
+          <SectionHeader>Inflation</SectionHeader>
+          <SectionBody>
+            <TimeSeriesChart title="CPI & Core CPI (Year-over-Year)" lines={INFLATION_LINES} data={filtered} />
+          </SectionBody>
+        </section>
+      </ErrorBoundary>
 
       {/* ── Labor / Sentiment / Commodities ──────────────────────────── */}
-      <section>
-        <SectionHeader>Labor / Sentiment / Commodities</SectionHeader>
-        <SectionBody>
-          <TimeSeriesChart title="Unemployment Rate" lines={UNEMPLOYMENT_LINES} data={filtered} />
-          <div className="mt-6 pt-6 border-t border-border">
-            <TimeSeriesChart title="VIX (Volatility Index)" lines={VIX_LINES} data={filtered} />
-          </div>
-          <div className="mt-6 pt-6 border-t border-border">
-            <TimeSeriesChart title="Oil WTI" lines={OIL_LINES} data={filtered} />
-          </div>
-        </SectionBody>
-      </section>
+      <ErrorBoundary fallback={<SectionError label="Labor / Sentiment / Commodities" />}>
+        <section>
+          <SectionHeader>Labor / Sentiment / Commodities</SectionHeader>
+          <SectionBody>
+            <TimeSeriesChart title="Unemployment Rate" lines={UNEMPLOYMENT_LINES} data={filtered} />
+            <div className="mt-6 pt-6 border-t border-border">
+              <TimeSeriesChart title="VIX (Volatility Index)" lines={VIX_LINES} data={filtered} />
+            </div>
+            <div className="mt-6 pt-6 border-t border-border">
+              <TimeSeriesChart title="Oil WTI" lines={OIL_LINES} data={filtered} />
+            </div>
+          </SectionBody>
+        </section>
+      </ErrorBoundary>
 
       <BackToTop />
     </div>
-    </ErrorBoundary>
   );
 }

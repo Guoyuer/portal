@@ -15,7 +15,7 @@ import { NetWorthGrowth } from "@/components/finance/net-worth-growth";
 import { BackToTop } from "@/components/layout/back-to-top";
 import { TimemachineSection } from "@/components/finance/timemachine";
 import { FinanceSkeleton } from "@/components/loading-skeleton";
-import { ErrorBoundary } from "@/components/error-boundary";
+import { ErrorBoundary, SectionError } from "@/components/error-boundary";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -81,7 +81,6 @@ export default function FinancePage() {
   }
 
   return (
-    <ErrorBoundary>
     <div className="max-w-5xl mx-auto space-y-10">
       {/* Header */}
       <div>
@@ -99,102 +98,111 @@ export default function FinancePage() {
       </div>
 
       {/* ── 1. Overview ─────────────────────────────────────────────────── */}
-      {alloc ? (
-        <MetricCards
-          total={alloc.total}
-          netWorth={alloc.netWorth}
-          categories={alloc.categories}
-          tickers={alloc.tickers}
-          savingsRate={cf?.savingsRate ?? null}
-          takehomeSavingsRate={cf?.takehomeSavingsRate ?? null}
-          goal={GOAL}
-          goalPct={goalPct}
-          allocationOpen={allocOpen}
-          onAllocationToggle={() => setAllocOpen((v) => !v)}
-        />
-      ) : (
-        <div className="liquid-glass p-4 text-center text-sm text-red-400">Allocation data unavailable</div>
-      )}
+      <ErrorBoundary fallback={<SectionError label="Allocation" />}>
+        {alloc ? (
+          <MetricCards
+            total={alloc.total}
+            netWorth={alloc.netWorth}
+            categories={alloc.categories}
+            tickers={alloc.tickers}
+            savingsRate={cf?.savingsRate ?? null}
+            takehomeSavingsRate={cf?.takehomeSavingsRate ?? null}
+            goal={GOAL}
+            goalPct={goalPct}
+            allocationOpen={allocOpen}
+            onAllocationToggle={() => setAllocOpen((v) => !v)}
+          />
+        ) : (
+          <div className="liquid-glass p-4 text-center text-sm text-red-400">Allocation data unavailable</div>
+        )}
+      </ErrorBoundary>
 
       {/* ── 2. Timemachine ─────────────────────────────────────────────── */}
-      <TimemachineSection timeline={tl} fallback={<NetWorthGrowth data={[]} />} />
+      <ErrorBoundary fallback={<SectionError label="Timemachine" />}>
+        <TimemachineSection timeline={tl} fallback={<NetWorthGrowth data={[]} />} />
+      </ErrorBoundary>
 
       {/* ── 3. Cash Flow ────────────────────────────────────────────────── */}
-      <section id="cashflow">
-        <SectionHeader>{SECTION_LABELS["cashflow"]}</SectionHeader>
-        {cf ? (
-          cf.totalIncome === 0 && cf.totalExpenses === 0 ? (
-            <SectionBody><p className="text-sm text-muted-foreground">No transactions in this period</p></SectionBody>
-          ) : (
-            <>
-              <SectionBody>
-                <CashFlow data={cf} />
-              </SectionBody>
+      <ErrorBoundary fallback={<SectionError label="Cash Flow" />}>
+        <section id="cashflow">
+          <SectionHeader>{SECTION_LABELS["cashflow"]}</SectionHeader>
+          {cf ? (
+            cf.totalIncome === 0 && cf.totalExpenses === 0 ? (
+              <SectionBody><p className="text-sm text-muted-foreground">No transactions in this period</p></SectionBody>
+            ) : (
+              <>
+                <SectionBody>
+                  <CashFlow data={cf} />
+                </SectionBody>
 
-              {/* Stat bar + chart -- single glass container, no internal borders */}
-              <div className="liquid-glass mt-4 overflow-hidden">
-                <CashFlowStatBar data={cf} invested={invested} />
-                <div className="mx-3 sm:mx-5 h-px bg-gradient-to-r from-transparent via-foreground/8 to-transparent" />
-                {monthlyFlows.length > 0 ? (
-                  <div className="px-3 sm:px-5 pb-3 sm:pb-5 pt-3">
-                    <IncomeExpensesChart
-                      data={monthlyFlows}
-                      activeMonth={snapshotDate?.slice(0, 7)}
-                    />
-                  </div>
-                ) : (
-                  <p className="text-sm text-red-400 px-4 pb-4">Monthly flow data unavailable</p>
-                )}
-              </div>
-            </>
-          )
-        ) : (
-          <SectionBody><p className="text-sm text-red-400">Cash flow data unavailable</p></SectionBody>
-        )}
-      </section>
+                {/* Stat bar + chart -- single glass container, no internal borders */}
+                <div className="liquid-glass mt-4 overflow-hidden">
+                  <CashFlowStatBar data={cf} invested={invested} />
+                  <div className="mx-3 sm:mx-5 h-px bg-gradient-to-r from-transparent via-foreground/8 to-transparent" />
+                  {monthlyFlows.length > 0 ? (
+                    <div className="px-3 sm:px-5 pb-3 sm:pb-5 pt-3">
+                      <IncomeExpensesChart
+                        data={monthlyFlows}
+                        activeMonth={snapshotDate?.slice(0, 7)}
+                      />
+                    </div>
+                  ) : (
+                    <p className="text-sm text-red-400 px-4 pb-4">Monthly flow data unavailable</p>
+                  )}
+                </div>
+              </>
+            )
+          ) : (
+            <SectionBody><p className="text-sm text-red-400">Cash flow data unavailable</p></SectionBody>
+          )}
+        </section>
+      </ErrorBoundary>
 
       {/* ── 4. Portfolio Activity ───────────────────────────────────────── */}
-      <section id="fidelity-activity">
-        <SectionHeader>
-          {SECTION_LABELS["fidelity-activity"]}
-          {tl.crossCheck && (
-            <span
-              className={`ml-2 inline-flex items-center gap-1 text-xs font-normal ${tl.crossCheck.ok ? "text-green-500" : "text-red-400"}`}
-              title={tl.crossCheck.ok
-                ? `${tl.crossCheck.matchedCount}/${tl.crossCheck.totalCount} deposits matched with Qianji`
-                : `${tl.crossCheck.totalCount - tl.crossCheck.matchedCount} of ${tl.crossCheck.totalCount} deposits not found in Qianji`}
-            >
-              {tl.crossCheck.ok ? "\u2713" : "\u2717"}
-            </span>
-          )}
-        </SectionHeader>
-        {act ? (
-          act.buysBySymbol.length === 0 && act.sellsBySymbol.length === 0 && act.dividendsBySymbol.length === 0 ? (
-            <SectionBody><p className="text-sm text-muted-foreground">No activity in this period</p></SectionBody>
+      <ErrorBoundary fallback={<SectionError label="Fidelity Activity" />}>
+        <section id="fidelity-activity">
+          <SectionHeader>
+            {SECTION_LABELS["fidelity-activity"]}
+            {tl.crossCheck && (
+              <span
+                className={`ml-2 inline-flex items-center gap-1 text-xs font-normal ${tl.crossCheck.ok ? "text-green-500" : "text-red-400"}`}
+                title={tl.crossCheck.ok
+                  ? `${tl.crossCheck.matchedCount}/${tl.crossCheck.totalCount} deposits matched with Qianji`
+                  : `${tl.crossCheck.totalCount - tl.crossCheck.matchedCount} of ${tl.crossCheck.totalCount} deposits not found in Qianji`}
+              >
+                {tl.crossCheck.ok ? "\u2713" : "\u2717"}
+              </span>
+            )}
+          </SectionHeader>
+          {act ? (
+            act.buysBySymbol.length === 0 && act.sellsBySymbol.length === 0 && act.dividendsBySymbol.length === 0 ? (
+              <SectionBody><p className="text-sm text-muted-foreground">No activity in this period</p></SectionBody>
+            ) : (
+              <SectionBody>
+                <PortfolioActivity activity={act} />
+              </SectionBody>
+            )
           ) : (
-            <SectionBody>
-              <PortfolioActivity activity={act} />
-            </SectionBody>
-          )
-        ) : (
-          <SectionBody><p className="text-sm text-red-400">Activity data unavailable</p></SectionBody>
-        )}
-      </section>
+            <SectionBody><p className="text-sm text-red-400">Activity data unavailable</p></SectionBody>
+          )}
+        </section>
+      </ErrorBoundary>
 
       {/* ── Market Context ──────────────────────────────────────────────── */}
-      <div id="market">
-        {mkt ? (
-          <MarketContext data={mkt} title={SECTION_LABELS["market"]} />
-        ) : (
-          <>
-            <SectionHeader>{SECTION_LABELS["market"]}</SectionHeader>
-            <p className="text-sm text-red-400">Market data unavailable</p>
-          </>
-        )}
-      </div>
+      <ErrorBoundary fallback={<SectionError label="Market" />}>
+        <div id="market">
+          {mkt ? (
+            <MarketContext data={mkt} title={SECTION_LABELS["market"]} />
+          ) : (
+            <>
+              <SectionHeader>{SECTION_LABELS["market"]}</SectionHeader>
+              <p className="text-sm text-red-400">Market data unavailable</p>
+            </>
+          )}
+        </div>
+      </ErrorBoundary>
 
       <BackToTop />
     </div>
-    </ErrorBoundary>
   );
 }
