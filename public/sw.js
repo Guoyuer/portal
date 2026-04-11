@@ -24,8 +24,8 @@ self.addEventListener("activate", (e) => {
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
 
-  // API: stale-while-revalidate
-  if (url.pathname === "/timeline") {
+  // API: stale-while-revalidate (same-origin only)
+  if (url.pathname === "/timeline" && url.origin === self.location.origin) {
     e.respondWith(
       caches.open(CACHE_API).then(async (cache) => {
         const cached = await cache.match(e.request);
