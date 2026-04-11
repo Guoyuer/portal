@@ -155,27 +155,61 @@ test.describe("Finance Report", () => {
     } catch {
       return; // No data
     }
-    // Click the first ticker row (font-mono cell = symbol)
     const firstTicker = activityTable.locator("td.font-mono").first();
     if (!(await firstTicker.isVisible())) return;
-    const symbol = await firstTicker.textContent();
     await firstTicker.click();
-    // Should show loading or chart
-    const chartRow = section.locator("text=/Loading.*chart|No price data|recharts/i");
-    const chartContainer = section.locator(".recharts-wrapper");
-    // Wait for either loading text or chart to appear
-    try {
-      await expect(chartRow.or(chartContainer).first()).toBeVisible({ timeout: 5000 });
-    } catch {
-      // Chart may not render if /prices endpoint has no data for this symbol
-    }
+    // Should show loading text, then chart or "no price data"
+    const chartOrFallback = section.locator("text=/Loading.*chart/i").or(section.locator(".recharts-wrapper")).or(section.locator("text=/No price data/i"));
+    await expect(chartOrFallback.first()).toBeVisible({ timeout: 8000 });
     // Click again to collapse
     await firstTicker.click();
-    // Verify chart is gone (no recharts wrapper in the expanded row)
-    if (await chartContainer.count() > 0) {
-      // Chart might still be visible from main timemachine, just verify the count decreased
+  });
+
+  test("ticker chart shows buy markers and avg cost line", async ({ page }) => {
+    const section = page.locator("#fidelity-activity");
+    const activityTable = section.locator("table").first();
+    try {
+      await activityTable.waitFor({ timeout: 5000 });
+    } catch {
+      return;
     }
-    test.info().annotations.push({ type: "info", description: `Clicked ticker: ${symbol}` });
+    // Click the first ticker with trades
+    const firstTicker = activityTable.locator("td.font-mono").first();
+    if (!(await firstTicker.isVisible())) return;
+    await firstTicker.click();
+    const chart = section.locator(".recharts-wrapper").first();
+    if (!(await chart.isVisible({ timeout: 8000 }).catch(() => false))) return;
+    // Should have: price line, scatter series (buy/sell), reference line (avg cost)
+    await expect(chart.locator(".recharts-line")).toBeVisible();
+    expect(await chart.locator(".recharts-scatter").count()).toBeGreaterThanOrEqual(1);
+    await expect(chart.locator(".recharts-reference-line")).toBeVisible();
+    await firstTicker.click(); // collapse
+  });
+
+  test("ticker with no prices shows fallback message", async ({ page }) => {
+    const section = page.locator("#fidelity-activity");
+    const activityTable = section.locator("table").first();
+    try {
+      await activityTable.waitFor({ timeout: 5000 });
+    } catch {
+      return;
+    }
+    // Expand "more" and find SPAXX (money market, no daily close prices)
+    const moreBtn = section.locator("summary").filter({ hasText: /and \d+ more/ }).first();
+    if (!(await moreBtn.isVisible())) return;
+    await moreBtn.click();
+    const moreRows = section.locator("details").first().locator("tr");
+    let found = false;
+    for (let i = 0; i < await moreRows.count(); i++) {
+      const text = await moreRows.nth(i).textContent();
+      if (text?.includes("SPAXX")) {
+        await moreRows.nth(i).click();
+        found = true;
+        break;
+      }
+    }
+    if (!found) return;
+    await expect(section.getByText("No price data for SPAXX")).toBeVisible({ timeout: 5000 });
   });
 
 

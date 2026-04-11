@@ -126,10 +126,13 @@ function TickerRow({
   return (
     <>
       <TableRow
-        className="even:bg-muted/50 cursor-pointer hover:bg-muted/80"
+        className="even:bg-muted/50 cursor-pointer hover:bg-muted/80 group"
         onClick={onToggle}
       >
-        <TableCell className="font-mono">{symbol}</TableCell>
+        <TableCell className="font-mono">
+          <span className={`inline-block w-3 text-[10px] text-muted-foreground transition-transform ${expanded ? "rotate-90" : ""}`}>&#9654;</span>
+          {symbol}
+        </TableCell>
         <TableCell className="text-right">{count}</TableCell>
         <TableCell className="text-right">{fmtCurrency(total)}</TableCell>
       </TableRow>
@@ -163,7 +166,10 @@ function RestTickerRow({
         className="border-b border-border even:bg-muted/50 cursor-pointer hover:bg-muted/80"
         onClick={onToggle}
       >
-        <td className="px-2 py-1.5 font-mono text-muted-foreground">{symbol}</td>
+        <td className="px-2 py-1.5 font-mono text-muted-foreground">
+          <span className={`inline-block w-3 text-[10px] transition-transform ${expanded ? "rotate-90" : ""}`}>&#9654;</span>
+          {symbol}
+        </td>
         <td className="px-2 py-1.5 text-right text-muted-foreground">{count}</td>
         <td className="px-2 py-1.5 text-right text-muted-foreground">{fmtCurrency(total)}</td>
       </tr>
