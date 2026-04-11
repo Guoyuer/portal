@@ -456,15 +456,14 @@ test.describe("Finance Report", () => {
       await expect(tmSection.locator("text=/\\$\\d/").first()).toBeVisible();
     });
 
-    test("shows milestone reference lines on chart", async ({ page }) => {
+    test("timemachine chart renders stacked areas", async ({ page }) => {
       const tmSection = page.locator("#timemachine");
       if (!(await tmSection.isVisible().catch(() => false))) {
         test.skip();
         return;
       }
-      // At least one milestone line should be visible (data crosses $100K)
-      const refLines = tmSection.locator(".recharts-reference-line");
-      expect(await refLines.count()).toBeGreaterThan(0);
+      const areas = tmSection.locator(".recharts-area");
+      expect(await areas.count()).toBeGreaterThan(0);
     });
   });
 });

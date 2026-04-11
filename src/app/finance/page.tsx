@@ -130,7 +130,7 @@ export default function FinancePage() {
 
       {/* ── 3. Cash Flow ────────────────────────────────────────────────── */}
       <ErrorBoundary fallback={<SectionError label="Cash Flow" />}>
-        <section id="cashflow" style={{ contentVisibility: "auto", containIntrinsicSize: "auto 400px" }}>
+        <section id="cashflow">
           <SectionHeader>{SECTION_LABELS["cashflow"]}</SectionHeader>
           {cf ? (
             cf.totalIncome === 0 && cf.totalExpenses === 0 ? (
@@ -162,7 +162,7 @@ export default function FinancePage() {
 
       {/* ── 4. Portfolio Activity ───────────────────────────────────────── */}
       <ErrorBoundary fallback={<SectionError label="Fidelity Activity" />}>
-        <section id="fidelity-activity" style={{ contentVisibility: "auto", containIntrinsicSize: "auto 400px" }}>
+        <section id="fidelity-activity">
           <SectionHeader>
             {SECTION_LABELS["fidelity-activity"]}
             {tl.crossCheck && (
@@ -192,7 +192,7 @@ export default function FinancePage() {
 
       {/* ── Market Context ──────────────────────────────────────────────── */}
       <ErrorBoundary fallback={<SectionError label="Market" />}>
-        <div id="market" data-testid="market-section" style={{ contentVisibility: "auto", containIntrinsicSize: "auto 400px" }}>
+        <div id="market" data-testid="market-section">
           {mkt ? (
             <MarketContext data={mkt} title={SECTION_LABELS["market"]} />
           ) : (
