@@ -18,4 +18,10 @@ test.describe("Economy Dashboard", () => {
     // Should link to /econ
     await expect(econLink).toHaveAttribute("href", "/econ");
   });
+
+  test("econ page renders", async ({ page }) => {
+    await page.goto("/econ");
+    // Econ page should at least show the sidebar with Economy link active
+    await expect(page.locator("aside").first()).toBeVisible({ timeout: 5000 });
+  });
 });

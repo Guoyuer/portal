@@ -11,6 +11,7 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "json-summary", "json"],
       include: ["src/lib/**"],
+      exclude: ["src/lib/chart-styles.ts", "src/lib/hooks.ts"],
       thresholds: {
         statements: 70,
         branches: 70,

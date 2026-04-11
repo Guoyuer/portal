@@ -10,6 +10,7 @@ import { IncomeExpensesChart } from "@/components/finance/charts";
 import { MetricCards } from "@/components/finance/metric-cards";
 import { CashFlow, CashFlowStatBar } from "@/components/finance/cash-flow";
 import { PortfolioActivity } from "@/components/finance/portfolio-activity";
+import { SavingsTrend } from "@/components/finance/savings-trend";
 import { MarketContext } from "@/components/finance/market-context";
 import { NetWorthGrowth } from "@/components/finance/net-worth-growth";
 import { BackToTop } from "@/components/layout/back-to-top";
@@ -64,7 +65,7 @@ export default function FinancePage() {
   const mkt = tl.market;
 
   const monthlyFlows = computeMonthlyFlows(tl.qianjiTxns, startDate, snapshotDate);
-
+  const allMonthlyFlows = computeMonthlyFlows(tl.qianjiTxns, tl.chartDaily[0]?.date ?? null, tl.chartDaily[tl.chartDaily.length - 1]?.date ?? null);
 
   // ── Loading state ─────────────────────────────────────────────────
   if (tl.loading) return <FinanceSkeleton />;
@@ -152,6 +153,20 @@ export default function FinancePage() {
             )
           ) : (
             <SectionBody><p className="text-sm text-red-400">Cash flow data unavailable</p></SectionBody>
+          )}
+        </section>
+      </ErrorBoundary>
+
+      {/* ── 3.5 Savings Rate Trend ─────────────────────────────────── */}
+      <ErrorBoundary fallback={<SectionError label="Savings Trend" />}>
+        <section id="savings-trend">
+          <SectionHeader>Savings Rate Trend</SectionHeader>
+          {allMonthlyFlows.length > 0 ? (
+            <SectionBody>
+              <SavingsTrend data={allMonthlyFlows} />
+            </SectionBody>
+          ) : (
+            <SectionBody><p className="text-sm text-muted-foreground">No data available</p></SectionBody>
           )}
         </section>
       </ErrorBoundary>

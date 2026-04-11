@@ -1,6 +1,6 @@
 export function fmtCurrency(val: number): string {
   const abs = Math.abs(val);
-  const decimals = abs < 10 ? 2 : 0;
+  const decimals = abs >= 1000 ? 0 : 2;
   const formatted = abs.toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
   return val < 0 ? `-$${formatted}` : `$${formatted}`;
 }

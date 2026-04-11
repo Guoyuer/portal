@@ -25,6 +25,8 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
+from .db import get_connection
+
 log = logging.getLogger(__name__)
 
 # ── Constants ─────────────────────────────────────────────────────────────────
@@ -189,6 +191,188 @@ def replay_from_db(db_path: Path, as_of: date | None = None) -> dict[str, Any]:
             if re.match(r"^[A-Z0-9]+$", acct)}
 
     return {"positions": positions, "cost_basis": cb_out, "cash": cash, "as_of": as_of, "txn_count": count}
+
+
+# ── Checkpoint save/load ──────────────────────────────────────────────────────
+
+
+def save_checkpoint(db_path: Path, replay_result: dict[str, Any]) -> None:
+    """Persist replay state as a checkpoint for future incremental builds."""
+    as_of = str(replay_result["as_of"])
+    # Serialize tuple keys: (account, symbol) → "account|symbol"
+    positions = {f"{k[0]}|{k[1]}": v for k, v in replay_result["positions"].items()}
+    cost_basis = {f"{k[0]}|{k[1]}": v for k, v in replay_result["cost_basis"].items()}
+    cash = dict(replay_result["cash"])  # already string keys
+
+    conn = get_connection(db_path)
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO replay_checkpoint (date, positions, cash, cost_basis) VALUES (?, ?, ?, ?)",
+            (as_of, json.dumps(positions), json.dumps(cash), json.dumps(cost_basis)),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def load_checkpoint(db_path: Path) -> dict[str, Any] | None:
+    """Load the latest replay checkpoint, or None if no checkpoint exists."""
+    conn = get_connection(db_path)
+    try:
+        row = conn.execute(
+            "SELECT date, positions, cash, cost_basis FROM replay_checkpoint ORDER BY date DESC LIMIT 1"
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if row is None:
+        return None
+
+    as_of_str, pos_json, cash_json, cb_json = row
+    # Deserialize: "account|symbol" → (account, symbol)
+    raw_positions = json.loads(pos_json)
+    positions = {tuple(k.split("|", 1)): v for k, v in raw_positions.items()}
+    raw_cb = json.loads(cb_json)
+    cost_basis = {tuple(k.split("|", 1)): v for k, v in raw_cb.items()}
+    cash = json.loads(cash_json)
+
+    return {
+        "positions": positions,
+        "cost_basis": cost_basis,
+        "cash": cash,
+        "as_of": date.fromisoformat(as_of_str),
+        "txn_count": 0,  # unknown from checkpoint
+    }
+
+
+# ── Positions CSV calibration ────────────────────────────────────────────────
+
+
+def calibrate_from_positions(
+    db_path: Path,
+    csv_path: Path,
+    replay_result: dict[str, Any],
+) -> dict[str, Any]:
+    """Compare replay state against Fidelity positions CSV, log drift, return calibrated state.
+
+    Returns a new replay_result dict with positions/cost_basis overwritten by CSV ground truth.
+    """
+    import csv as csv_mod
+
+    # Parse CSV
+    text = csv_path.read_text(encoding="utf-8-sig")
+    reader = csv_mod.DictReader(text.strip().splitlines())
+
+    csv_positions: dict[tuple[str, str], float] = {}  # (account, symbol) -> qty
+    csv_cost_basis: dict[tuple[str, str], float] = {}
+
+    for row in reader:
+        acct = (row.get("Account Number") or "").strip()
+        sym = (row.get("Symbol") or "").strip()
+        qty_str = (row.get("Quantity") or "").strip()
+        cb_str = (row.get("Cost Basis Total") or "").strip().replace("$", "").replace(",", "")
+
+        if not acct or not sym or sym in MM_SYMBOLS:
+            continue
+        if sym.startswith("**"):  # total row
+            continue
+
+        qty = _float(qty_str)
+        cb = _float(cb_str) if cb_str and cb_str != "--" else 0.0
+
+        if qty > 0.001:
+            key = (acct, sym)
+            csv_positions[key] = qty
+            csv_cost_basis[key] = abs(cb)
+
+    # Compare with replay
+    replay_pos: dict[tuple[str, str], float] = dict(replay_result["positions"])
+    replay_cb: dict[tuple[str, str], float] = dict(replay_result["cost_basis"])
+
+    details: list[dict[str, Any]] = []
+    positions_ok = 0
+    total_cb_drift = 0.0
+    total_csv_cb = 0.0
+
+    all_keys = set(csv_positions.keys()) | set(replay_pos.keys())
+    for key in sorted(all_keys):
+        csv_qty = csv_positions.get(key, 0.0)
+        csv_cb = csv_cost_basis.get(key, 0.0)
+        rep_qty = replay_pos.get(key, 0.0)
+        rep_cb = replay_cb.get(key, 0.0)
+
+        qty_match = abs(csv_qty - rep_qty) < 0.01
+        cb_drift = csv_cb - rep_cb
+
+        if qty_match and abs(cb_drift) < 1.0:
+            positions_ok += 1
+        else:
+            details.append({
+                "account": key[0],
+                "symbol": key[1],
+                "csv_qty": round(csv_qty, 4),
+                "replay_qty": round(rep_qty, 4),
+                "csv_cb": round(csv_cb, 2),
+                "replay_cb": round(rep_cb, 2),
+                "cb_drift": round(cb_drift, 2),
+            })
+
+        total_cb_drift += cb_drift
+        total_csv_cb += csv_cb
+
+    total_cb_pct = (total_cb_drift / total_csv_cb * 100) if total_csv_cb else 0.0
+
+    # Log to calibration_log
+    today = date.today().isoformat()
+
+    conn = get_connection(db_path)
+    try:
+        # Check days since last calibration
+        last_row = conn.execute("SELECT date FROM calibration_log ORDER BY date DESC LIMIT 1").fetchone()
+        days_since = (date.today() - date.fromisoformat(last_row[0])).days if last_row else 0
+
+        conn.execute(
+            "INSERT OR REPLACE INTO calibration_log (date, days_since_last, total_cb_drift, total_cb_pct,"
+            " positions_ok, positions_total, details) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (today, days_since, round(total_cb_drift, 2), round(total_cb_pct, 2),
+             positions_ok, len(all_keys), json.dumps(details)),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    # Print summary
+    print(f"  Calibration: {positions_ok}/{len(all_keys)} positions match")
+    if details:
+        print(f"  Total cost basis drift: ${total_cb_drift:,.2f} ({total_cb_pct:.1f}%)")
+        for d in details[:5]:
+            print(f"    {d['symbol']}: qty {d['replay_qty']}->{d['csv_qty']},"
+                  f" CB ${d['replay_cb']:,.2f}->${d['csv_cb']:,.2f} (delta ${d['cb_drift']:+,.2f})")
+        if len(details) > 5:
+            print(f"    ... and {len(details) - 5} more")
+
+    # Return calibrated state (CSV ground truth overwrites replay)
+    calibrated: dict[str, Any] = {
+        "positions": {**replay_pos, **csv_positions},  # CSV overwrites
+        "cost_basis": {**replay_cb, **csv_cost_basis},
+        "cash": dict(replay_result["cash"]),
+        "as_of": replay_result["as_of"],
+        "txn_count": replay_result["txn_count"],
+    }
+
+    # Remove positions that are in replay but not in CSV (sold since last replay)
+    cal_pos: dict[tuple[str, str], float] = calibrated["positions"]
+    cal_cb: dict[tuple[str, str], float] = calibrated["cost_basis"]
+    for key in list(cal_pos.keys()):
+        if key not in csv_positions and key in replay_pos:
+            del cal_pos[key]
+            if key in cal_cb:
+                del cal_cb[key]
+
+    # Save calibrated state as checkpoint
+    save_checkpoint(db_path, calibrated)
+
+    return calibrated
 
 
 # ── Qianji replay ─────────────────────────────────────────────────────────────

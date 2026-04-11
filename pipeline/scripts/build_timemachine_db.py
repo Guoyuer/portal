@@ -9,21 +9,23 @@ Integration script that:
   6. Stores results
 
 Modes:
-  (default)       Full rebuild — recompute everything, overwrite DB
-  --incremental   Only compute dates after last persisted date
-  --verify        Full recompute + diff against persisted data (no writes)
+  full            Full rebuild — recompute everything, overwrite DB (default)
+  incremental     Only compute dates after last persisted date
+  verify          Full recompute + diff against persisted data (no writes)
 
 Usage:
-  /c/Python314/python scripts/build_timemachine_db.py [--incremental | --verify]
+  python scripts/build_timemachine_db.py [full|incremental|verify] [--csv PATH] [--no-validate]
 """
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import sqlite3
 import sys
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 # Ensure the pipeline package is importable
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -61,11 +63,41 @@ from generate_asset_snapshot.validate import Severity, validate_build
 # ── Paths ────────────────────────────────────────────────────────────────────
 
 PIPELINE_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = PIPELINE_DIR / "data"
-DB_PATH = DATA_DIR / "timemachine.db"
-CONFIG_PATH = Path(os.environ.get("PORTAL_CONFIG", PIPELINE_DIR.parent / "data" / "config.json"))
-DOWNLOADS = Path(os.environ.get("PORTAL_DOWNLOADS", Path.home() / "Downloads"))
-ROBINHOOD_CSV = DOWNLOADS / "Robinhood_history.csv"
+
+# Module-level path globals — set from args in main()
+DATA_DIR: Path = PIPELINE_DIR / "data"
+DB_PATH: Path = DATA_DIR / "timemachine.db"
+CONFIG_PATH: Path = Path(os.environ.get("PORTAL_CONFIG", PIPELINE_DIR.parent / "data" / "config.json"))
+DOWNLOADS: Path = Path(os.environ.get("PORTAL_DOWNLOADS", Path.home() / "Downloads"))
+ROBINHOOD_CSV: Path = DOWNLOADS / "Robinhood_history.csv"
+
+
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(description="Build the timemachine SQLite database")
+    parser.add_argument("mode", nargs="?", default="full", choices=["full", "incremental", "verify"])
+    parser.add_argument("--csv", type=Path, help="Path to a specific Fidelity CSV file")
+    parser.add_argument("--no-validate", action="store_true", help="Skip post-build validation")
+    parser.add_argument("--data-dir", type=Path, default=None, help="Override data directory (default: pipeline/data/)")
+    parser.add_argument("--config", type=Path, default=None, help="Override config.json path")
+    parser.add_argument("--downloads", type=Path, default=None, help="Override downloads directory")
+    parser.add_argument("--positions", type=Path, default=None, help="Fidelity positions CSV for calibration (future)")
+    return parser.parse_args(argv)
+
+
+def _resolve_paths(args: argparse.Namespace) -> SimpleNamespace:
+    """Resolve all file paths from parsed args and environment variables."""
+    data_dir = args.data_dir or Path(os.environ.get("PORTAL_DATA_DIR", PIPELINE_DIR / "data"))
+    config = args.config or Path(os.environ.get("PORTAL_CONFIG", PIPELINE_DIR.parent / "data" / "config.json"))
+    downloads = args.downloads or Path(os.environ.get("PORTAL_DOWNLOADS", Path.home() / "Downloads"))
+    return SimpleNamespace(
+        data_dir=data_dir,
+        db_path=data_dir / "timemachine.db",
+        config=config,
+        downloads=downloads,
+        robinhood_csv=downloads / "Robinhood_history.csv",
+        csv=args.csv,
+    )
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -81,7 +113,7 @@ def _f(val: object) -> float:
     return float(val)  # type: ignore[arg-type]
 
 
-def _ingest_fidelity_csvs() -> None:
+def _ingest_fidelity_csvs(csv_override: Path | None = None) -> None:
     """Ingest all Fidelity CSVs from Downloads directly into the database.
 
     Each CSV covers a date range. ``ingest_fidelity_csv()`` handles overlap
@@ -90,17 +122,14 @@ def _ingest_fidelity_csvs() -> None:
 
     Returns the path to the last ingested CSV (used for holding period detection).
     """
-    # Check for --csv <path> argument
-    if "--csv" in sys.argv:
-        idx = sys.argv.index("--csv")
-        if idx + 1 < len(sys.argv):
-            p = Path(sys.argv[idx + 1])
-            if not p.exists():
-                print(f"  ERROR: --csv file not found: {p}")
-                sys.exit(1)
-            print(f"  Using single CSV: {p}")
-            ingest_fidelity_csv(DB_PATH, p)
-            return
+    # Use explicit --csv path if provided
+    if csv_override is not None:
+        if not csv_override.exists():
+            print(f"  ERROR: --csv file not found: {csv_override}")
+            sys.exit(1)
+        print(f"  Using single CSV: {csv_override}")
+        ingest_fidelity_csv(DB_PATH, csv_override)
+        return
 
     # Scan Downloads for Accounts_History*.csv
     raw_csvs = sorted(DOWNLOADS.glob("Accounts_History*.csv"))
@@ -178,7 +207,7 @@ def _run_validation() -> None:
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 
-def _ingest_and_fetch(config, end):
+def _ingest_and_fetch(config, end, *, csv_override: Path | None = None):
     """Steps 1-4: init DB, ingest sources, fetch prices. Returns k401_daily."""
     # ── Step 1: Initialise database ──
     print("\n[1] Initialising database...")
@@ -187,7 +216,7 @@ def _ingest_and_fetch(config, end):
 
     # ── Step 2: Ingest Fidelity ──
     print("[2] Ingesting Fidelity transactions...")
-    _ingest_fidelity_csvs()
+    _ingest_fidelity_csvs(csv_override=csv_override)
 
     # ── Step 3: Ingest Empower QFX ──
     print("[3] Ingesting Empower 401k...")
@@ -244,7 +273,7 @@ def _print_summary(alloc):
 # ── Full rebuild ────────────────────────────────────────────────────────────
 
 
-def _full_build(config, start, end, k401_daily):
+def _full_build(config, start, end, k401_daily, *, no_validate: bool = False):
     print("\n[5] Computing full allocation...")
     alloc = compute_daily_allocation(DB_PATH, DEFAULT_QJ_DB, config, k401_daily, start, end, robinhood_csv=ROBINHOOD_CSV)
     print(f"  {len(alloc)} daily records")
@@ -292,7 +321,7 @@ def _full_build(config, start, end, k401_daily):
 
     _print_summary(alloc)
 
-    if "--no-validate" not in sys.argv:
+    if not no_validate:
         _run_validation()
 
     return alloc
@@ -301,11 +330,11 @@ def _full_build(config, start, end, k401_daily):
 # ── Incremental ─────────────────────────────────────────────────────────────
 
 
-def _incremental_build(config, start, end, k401_daily):
+def _incremental_build(config, start, end, k401_daily, *, no_validate: bool = False):
     last = get_last_computed_date(DB_PATH)
     if last is None:
         print("  No existing data — falling back to full build")
-        return _full_build(config, start, end, k401_daily)
+        return _full_build(config, start, end, k401_daily, no_validate=no_validate)
 
     inc_start = last + timedelta(days=1)
     if inc_start > end:
@@ -333,7 +362,7 @@ def _incremental_build(config, start, end, k401_daily):
 
     _print_summary(alloc)
 
-    if "--no-validate" not in sys.argv:
+    if not no_validate:
         _run_validation()
 
     return alloc
@@ -364,21 +393,26 @@ def _verify_build(config, start, end, k401_daily):
 
 
 def main() -> None:
-    mode = "full"
-    if "--incremental" in sys.argv:
-        mode = "incremental"
-    elif "--verify" in sys.argv:
-        mode = "verify"
+    args = _parse_args()
+    paths = _resolve_paths(args)
+
+    # Set module-level path globals so existing functions work unchanged
+    global DATA_DIR, DB_PATH, CONFIG_PATH, DOWNLOADS, ROBINHOOD_CSV  # noqa: PLW0603
+    DATA_DIR = paths.data_dir
+    DB_PATH = paths.db_path
+    CONFIG_PATH = paths.config
+    DOWNLOADS = paths.downloads
+    ROBINHOOD_CSV = paths.robinhood_csv
 
     print("=" * 60)
-    print(f"  Timemachine DB Builder  [{mode}]")
+    print(f"  Timemachine DB Builder  [{args.mode}]")
     print("=" * 60)
 
     config = _load_config(CONFIG_PATH)
     end = date.today()
 
     # Ingest all sources, fetch prices (populates DB)
-    k401_daily = _ingest_and_fetch(config, end)
+    k401_daily = _ingest_and_fetch(config, end, csv_override=paths.csv)
 
     # Derive date range from ingested fidelity transactions
     conn = get_connection(DB_PATH)
@@ -392,11 +426,11 @@ def main() -> None:
     start = date.fromisoformat(row[0]) if row and row[0] else end
     print(f"  Range: {start} -> {end}")
 
-    if mode == "full":
-        _full_build(config, start, end, k401_daily)
-    elif mode == "incremental":
-        _incremental_build(config, start, end, k401_daily)
-    elif mode == "verify":
+    if args.mode == "full":
+        _full_build(config, start, end, k401_daily, no_validate=args.no_validate)
+    elif args.mode == "incremental":
+        _incremental_build(config, start, end, k401_daily, no_validate=args.no_validate)
+    elif args.mode == "verify":
         _verify_build(config, start, end, k401_daily)
 
     print("\n" + "=" * 60)

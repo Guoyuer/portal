@@ -11,6 +11,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
+
 /** Merge income items below $10 into "Other" */
 function consolidateSmallItems(items: CashflowResponse["incomeItems"], threshold = 10) {
   const big = items.filter((i) => i.amount >= threshold);
