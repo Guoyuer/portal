@@ -107,44 +107,21 @@ graph TB
 
 ## Phase 1 — Clean up schema and contracts ✅ DONE
 
-All items completed across PRs #57–#63.
-
-- **1a.** `computed_prefix` removed. Frontend iterates raw transactions via `compute.ts`.
-- **1b.** `computed_market` split into `computed_market_indices` + `computed_market_indicators`.
-- **1c.** D1 stores `action_type` (classified). Frontend matches `=== "buy"`.
-- **1d.** D1 tables trimmed to only frontend-needed columns (4 for fidelity, 4 for qianji).
-- **1e.** Worker is pure passthrough: 7 parallel SELECTs → JSON (~100 lines).
-- **1f.** `schema.sql` auto-generated from `db.py` via `gen_schema_sql.py`.
-- **1g.** Worker: try-catch → 502, empty data → 503, CORS whitelist.
-- **1h.** 401K category detection fixed.
+All items completed across PRs #57–#63 (computed_prefix removal, market table split, action_type classification, column trimming, Worker passthrough, schema auto-gen, error handling, 401K fix).
 
 ---
 
-## Phase 2 — Remove R2 legacy path (partially done)
+## Phase 2 — Remove R2 legacy path ✅ DONE
 
-R2 pipeline code has been deleted (PRs #57, #63):
-- ~~`.github/workflows/report.yml`~~ ✅ deleted
-- ~~`pipeline/scripts/sync.py`~~ ✅ deleted
-- ~~`pipeline/scripts/send_report.py`~~ ✅ deleted
-- ~~`pipeline/generate_asset_snapshot/report.py`~~ ✅ deleted
-- ~~`pipeline/generate_asset_snapshot/renderers/`~~ ✅ deleted
-- ~~R2-era types in `schema.ts`~~ ✅ cleaned up
-
-**Remaining:**
-- `/econ` page still reads from R2 (`econ.json` via `NEXT_PUBLIC_R2_URL`). Migrate FRED time-series to D1 and serve through Worker to fully drop R2.
+R2 pipeline code deleted (PRs #57, #63). `/econ` page migrated from R2 to D1: FRED time-series stored in `econ_series` table, served via Worker `/econ` endpoint, `NEXT_PUBLIC_R2_URL` removed.
 
 ---
 
-## Phase 3 — Build gate (data correctness)
+## Phase 3 — Build gate (data correctness) ✅ DONE
 
-Must be in place before automation (Phase 4). Bad data should never reach D1.
+`validate_build()` in `validate.py` runs 5 checks (total vs tickers, day-over-day, holdings prices, CNY freshness, date gaps). FATAL blocks sync via `sys.exit(1)`. yfinance failures now raise instead of silently using stale cache.
 
-### `validate_build()` — post-build checks that block sync
-
-```
-build --incremental → compute → validate_build() → PASS → sync
-                                                  → FAIL → exit 1, no sync
-```
+### Reference: validation checks
 
 | Check | Catches | Severity |
 |-------|---------|----------|
@@ -266,11 +243,11 @@ CREATE TABLE calibration_log (
 
 ```
 Phase 1 (schema + contracts):  ✅ DONE
-Phase 2 (remove R2):           ~1 hour remaining (migrate /econ to D1)
-Phase 3 (build gate):          ~2 hours
-Phase 4 (automate pipeline):   ~2-3 hours
-Phase 5 (replay optimization): ~3 hours
-Phase 6 (frontend):            ~3 hours remaining (items 4-5, 7-9)
+Phase 2 (remove R2):           ✅ DONE
+Phase 3 (build gate):          ✅ DONE
+Phase 4 (automate pipeline):   TODO
+Phase 5 (replay optimization): TODO
+Phase 6 (frontend):            TODO (items 4-5, 7-9)
 ```
 
 Dependencies: `Phase 2 (finish) → Phase 3 → Phase 4 → Phase 5`. Phase 6 is independent.

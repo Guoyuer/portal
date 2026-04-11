@@ -1,4 +1,4 @@
-// ── Worker: GET /timeline ────────────────────────────────────────────────────
+// ── Worker: GET /timeline, GET /econ ─────────────────────────────────────────
 
 interface Env {
   DB: D1Database;
@@ -24,6 +24,49 @@ export default {
     }
 
     const url = new URL(request.url);
+
+    if (url.pathname === "/econ") {
+      try {
+        const [seriesRows, syncMetaRows] = await Promise.all([
+          env.DB.prepare("SELECT key, date, value FROM v_econ_series").all(),
+          env.DB.prepare("SELECT key, value FROM sync_meta").all().catch(() => ({ results: [] })),
+        ]);
+
+        // Group rows into {key: [{date, value}]}
+        const series: Record<string, { date: string; value: number }[]> = {};
+        const snapshot: Record<string, number> = {};
+        for (const r of seriesRows.results as { key: string; date: string; value: number }[]) {
+          if (!series[r.key]) series[r.key] = [];
+          series[r.key].push({ date: r.date, value: r.value });
+        }
+        // Snapshot = last value per series
+        for (const [key, points] of Object.entries(series)) {
+          if (points.length > 0) {
+            snapshot[key] = points[points.length - 1].value;
+          }
+        }
+
+        const syncMeta: Record<string, string> = {};
+        for (const r of syncMetaRows.results as { key: string; value: string }[]) {
+          syncMeta[r.key] = r.value;
+        }
+
+        return Response.json(
+          {
+            generatedAt: syncMeta.last_sync ?? new Date().toISOString(),
+            snapshot,
+            series,
+          },
+          { headers: { ...corsHeaders(origin), "Cache-Control": "no-cache" } },
+        );
+      } catch (e) {
+        return Response.json(
+          { error: "Database query failed", detail: e instanceof Error ? e.message : "unknown" },
+          { status: 502, headers: corsHeaders(origin) },
+        );
+      }
+    }
+
     if (url.pathname !== "/timeline") {
       return new Response("Not found", { status: 404, headers: corsHeaders(origin) });
     }

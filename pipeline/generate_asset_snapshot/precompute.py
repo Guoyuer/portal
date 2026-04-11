@@ -144,6 +144,18 @@ def precompute_market(db_path: Path) -> None:
                                 "INSERT INTO computed_market_indicators (key, value) VALUES (?, ?)",
                                 (dst, float(snap[src])),  # type: ignore[arg-type]
                             )
+                if fred and "series" in fred:
+                    conn.execute("DELETE FROM econ_series")
+                    econ_count = 0
+                    series: dict[str, list[dict[str, object]]] = fred["series"]  # type: ignore[assignment]
+                    for skey, points in series.items():
+                        for pt in points:
+                            conn.execute(
+                                "INSERT INTO econ_series (key, date, value) VALUES (?, ?, ?)",
+                                (skey, pt["date"], pt["value"]),
+                            )
+                            econ_count += 1
+                    log.info("Stored %d econ_series rows", econ_count)
             except Exception:  # noqa: BLE001
                 log.warning("Failed to fetch FRED data for precompute_market", exc_info=True)
 

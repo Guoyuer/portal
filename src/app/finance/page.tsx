@@ -13,7 +13,7 @@ import { PortfolioActivity } from "@/components/finance/portfolio-activity";
 import { MarketContext } from "@/components/finance/market-context";
 import { NetWorthGrowth } from "@/components/finance/net-worth-growth";
 import { BackToTop } from "@/components/layout/back-to-top";
-import { TimemachineSection } from "@/components/finance/timemachine";
+import { TimemachineSection, StickyBrush } from "@/components/finance/timemachine";
 import { FinanceSkeleton } from "@/components/loading-skeleton";
 import { ErrorBoundary, SectionError } from "@/components/error-boundary";
 
@@ -79,7 +79,7 @@ export default function FinancePage() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto space-y-10">
+    <div className="max-w-5xl mx-auto space-y-10 pb-16">
       {/* Header */}
       <div>
         <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">
@@ -201,6 +201,15 @@ export default function FinancePage() {
       </ErrorBoundary>
 
       <BackToTop />
+
+      {!tl.loading && !tl.error && tl.chartDaily.length > 0 && (
+        <StickyBrush
+          daily={tl.chartDaily}
+          defaultStartIndex={tl.defaultStartIndex}
+          defaultEndIndex={tl.defaultEndIndex}
+          onBrushChange={tl.onBrushChange}
+        />
+      )}
     </div>
   );
 }
