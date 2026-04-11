@@ -237,13 +237,13 @@ test.describe("Finance Report", () => {
     const html = page.locator("html");
     // Initially light (no dark class)
     await expect(html).not.toHaveClass(/dark/);
-    // Click toggle in sidebar
-    const toggle = page.locator("aside").first().getByRole("button").last();
+    // Click the visible dark mode toggle (desktop sidebar)
+    const toggle = page.getByLabel("Switch to dark mode").first();
     await toggle.click();
     // Should now have dark class
     await expect(html).toHaveClass(/dark/);
-    // Click again to go back
-    await toggle.click();
+    // Click again to go back (label changes in dark mode)
+    await page.getByLabel(/switch to (light|dark) mode/i).first().click();
     await expect(html).not.toHaveClass(/dark/);
   });
 
@@ -268,19 +268,11 @@ test.describe("Finance Report", () => {
     await expect(section.getByText(/[+-]\d+\.\d+%/).first()).toBeVisible();
   });
 
-  test("net worth chart has brush slider", async ({ page }) => {
-    const section = page.locator("#net-worth");
-    test.skip(!(await section.isVisible()), "timeline loaded — net-worth fallback not rendered");
-    const brush = section.locator(".recharts-brush");
-    await expect(brush).toBeVisible();
-  });
-
-  test("income vs expenses chart has brush slider", async ({ page }) => {
-    const section = page.locator("#cashflow");
-    await page.waitForTimeout(3000);
-    const brush = section.locator(".recharts-brush");
-    if (await brush.count() > 0) {
-      await expect(brush).toBeVisible();
+  test("sticky brush bar is visible at page bottom", async ({ page }) => {
+    // Brush is now in a fixed bar at the bottom, not inside individual charts
+    const stickyBrush = page.locator(".recharts-brush");
+    if (await stickyBrush.count() > 0) {
+      await expect(stickyBrush.first()).toBeVisible();
     }
   });
 
@@ -296,8 +288,8 @@ test.describe("Finance Report", () => {
     const labelsBefore = allTextBefore.filter((t) => /^\d+%$/.test(t));
     if (labelsBefore.length === 0) return;
 
-    // Focus left brush traveller and press ArrowRight to narrow range
-    const traveller = section.locator(".recharts-brush-traveller").first();
+    // Focus left brush traveller in the sticky brush bar and press ArrowRight
+    const traveller = page.locator(".recharts-brush-traveller").first();
     if (!(await traveller.isVisible().catch(() => false))) return;
     await traveller.focus();
     for (let i = 0; i < 6; i++) {

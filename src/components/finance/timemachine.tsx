@@ -127,7 +127,7 @@ export function StickyBrush({
     new Date(ts).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-40 bg-background/80 backdrop-blur-md border-t border-border px-4 py-2">
+    <div className="fixed bottom-0 left-0 right-0 md:left-56 z-40 bg-background/80 backdrop-blur-md border-t border-border px-4 py-2">
       <div className="max-w-5xl mx-auto">
         <ResponsiveContainer width="100%" height={40}>
           <AreaChart data={chartData} margin={{ top: 0, right: 20, left: 10, bottom: 0 }}>
