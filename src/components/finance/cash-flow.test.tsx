@@ -4,8 +4,8 @@ import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, cleanup, within } from "@testing-library/react";
 
 afterEach(cleanup);
-import { CashFlow, CashFlowStatBar } from "./cash-flow";
-import type { CashflowResponse } from "@/lib/schema";
+import { CashFlow, CashFlowStatBar, categoryMonthlyTotals } from "./cash-flow";
+import type { CashflowResponse, QianjiTxn } from "@/lib/schema";
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -75,5 +75,44 @@ describe("CashFlowStatBar", () => {
   it("shows period label when provided", () => {
     render(<CashFlowStatBar data={BASE_DATA} invested={1500} period="YTD" />);
     expect(screen.getByText("YTD Summary")).toBeTruthy();
+  });
+});
+
+// ── Sparkline helpers ──────────────────────────────────────────────────
+
+describe("categoryMonthlyTotals", () => {
+  it("computes 6-month trend", () => {
+    const txns: QianjiTxn[] = [
+      { date: "2026-01-15", type: "expense", category: "Meals", amount: 100 },
+      { date: "2026-02-10", type: "expense", category: "Meals", amount: 150 },
+      { date: "2026-03-20", type: "expense", category: "Meals", amount: 200 },
+      { date: "2026-01-05", type: "income", category: "Salary", amount: 5000 },
+    ];
+    const result = categoryMonthlyTotals(txns, "Meals", "2026-03-31");
+    // 6 months: Oct, Nov, Dec, Jan, Feb, Mar
+    expect(result).toHaveLength(6);
+    expect(result[3]).toBe(100); // Jan
+    expect(result[4]).toBe(150); // Feb
+    expect(result[5]).toBe(200); // Mar
+    expect(result[0]).toBe(0);   // Oct (no data)
+  });
+
+  it("ignores non-expense and non-matching categories", () => {
+    const txns: QianjiTxn[] = [
+      { date: "2026-03-10", type: "income", category: "Meals", amount: 999 },
+      { date: "2026-03-10", type: "expense", category: "Rent", amount: 888 },
+    ];
+    const result = categoryMonthlyTotals(txns, "Meals", "2026-03-31");
+    expect(result).toHaveLength(6);
+    expect(result.every(v => v === 0)).toBe(true);
+  });
+
+  it("sums multiple transactions in same month", () => {
+    const txns: QianjiTxn[] = [
+      { date: "2026-03-01", type: "expense", category: "Food", amount: 50 },
+      { date: "2026-03-15", type: "expense", category: "Food", amount: 75 },
+    ];
+    const result = categoryMonthlyTotals(txns, "Food", "2026-03-31");
+    expect(result[5]).toBe(125);
   });
 });

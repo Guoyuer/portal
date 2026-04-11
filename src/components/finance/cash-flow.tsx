@@ -1,4 +1,4 @@
-import type { CashflowResponse } from "@/lib/schema";
+import type { CashflowResponse, QianjiTxn } from "@/lib/schema";
 import { fmtCurrency } from "@/lib/format";
 import { MAJOR_EXPENSE_THRESHOLD } from "@/lib/style-helpers";
 import { TOTAL_ROW_CLASS } from "@/components/finance/shared";
@@ -10,6 +10,46 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+
+// ── Sparkline helpers ──────────────────────────────────────────────────
+
+/** Compute last 6 months of spending for a given category */
+export function categoryMonthlyTotals(txns: QianjiTxn[], category: string, endDate: string): number[] {
+  const end = new Date(endDate);
+  const endY = end.getFullYear();
+  const endM = end.getMonth(); // 0-based
+  const months: string[] = [];
+  for (let i = 5; i >= 0; i--) {
+    const totalMonths = endY * 12 + endM - i;
+    const y = Math.floor(totalMonths / 12);
+    const m = (totalMonths % 12) + 1;
+    months.push(`${y}-${String(m).padStart(2, "0")}`);
+  }
+  const totals = new Map(months.map(m => [m, 0]));
+  for (const t of txns) {
+    if (t.type !== "expense") continue;
+    if (t.category !== category) continue;
+    const m = t.date.slice(0, 7);
+    if (totals.has(m)) totals.set(m, (totals.get(m) ?? 0) + t.amount);
+  }
+  return months.map(m => totals.get(m) ?? 0);
+}
+
+function Sparkline({ values }: { values: number[] }) {
+  if (values.length === 0 || values.every(v => v === 0)) return null;
+  const max = Math.max(...values);
+  if (max === 0) return null;
+  const w = 40;
+  const h = 16;
+  const points = values
+    .map((v, i) => `${(i / (values.length - 1)) * w},${h - (v / max) * h}`)
+    .join(" ");
+  return (
+    <svg width={w} height={h} className="inline-block ml-2 align-middle opacity-50">
+      <polyline points={points} fill="none" stroke="currentColor" strokeWidth={1.5} />
+    </svg>
+  );
+}
 
 /** Merge income items below $10 into "Other" */
 function consolidateSmallItems(items: CashflowResponse["incomeItems"], threshold = 10) {
@@ -25,7 +65,7 @@ function consolidateSmallItems(items: CashflowResponse["incomeItems"], threshold
   return [...big, { category: "Other", amount: extraAmt, count: extraCnt }];
 }
 
-export function CashFlow({ data }: { data: CashflowResponse }) {
+export function CashFlow({ data, qianjiTxns, endDate }: { data: CashflowResponse; qianjiTxns?: QianjiTxn[]; endDate?: string }) {
   const major = data.expenseItems.filter(
     (i) => i.amount >= MAJOR_EXPENSE_THRESHOLD
   );
@@ -98,6 +138,9 @@ export function CashFlow({ data }: { data: CashflowResponse }) {
                   </TableCell>
                   <TableCell className="text-right">
                     {fmtCurrency(item.amount)}
+                    {qianjiTxns && endDate && (
+                      <Sparkline values={categoryMonthlyTotals(qianjiTxns, item.category, endDate)} />
+                    )}
                   </TableCell>
                 </TableRow>
               ))}
