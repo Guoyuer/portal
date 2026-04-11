@@ -99,20 +99,62 @@ export function TimemachineChart({
             isAnimationActive={false}
           />
         ))}
-        <Brush
-          dataKey="ts"
-          height={28}
-          {...brushColors(isDark)}
-          startIndex={defaultStartIndex}
-          endIndex={defaultEndIndex}
-          onChange={onBrushChange}
-          tickFormatter={fmtTick}
-        />
       </AreaChart>
     </ResponsiveContainer>
   );
 }
 
+
+// ── StickyBrush ──────────────────────────────────────────────────────────
+
+export function StickyBrush({
+  daily,
+  defaultStartIndex,
+  defaultEndIndex,
+  onBrushChange,
+}: {
+  daily: DailyPoint[];
+  defaultStartIndex: number;
+  defaultEndIndex: number;
+  onBrushChange: (state: { startIndex?: number; endIndex?: number }) => void;
+}) {
+  const isDark = useIsDark();
+
+  const chartData = daily.map((d) => ({ ...d, ts: new Date(d.date).getTime() }));
+  if (daily.length === 0) return null;
+
+  const fmtTick = (ts: number) =>
+    new Date(ts).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+
+  return (
+    <div className="fixed bottom-0 left-0 right-0 z-40 bg-background/80 backdrop-blur-md border-t border-border px-4 py-2">
+      <div className="max-w-5xl mx-auto">
+        <ResponsiveContainer width="100%" height={40}>
+          <AreaChart data={chartData} margin={{ top: 0, right: 20, left: 10, bottom: 0 }}>
+            <XAxis dataKey="ts" hide />
+            <YAxis hide />
+            <Area
+              type="monotone"
+              dataKey="total"
+              stroke="none"
+              fill={isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.06)"}
+              isAnimationActive={false}
+            />
+            <Brush
+              dataKey="ts"
+              height={28}
+              {...brushColors(isDark)}
+              startIndex={defaultStartIndex}
+              endIndex={defaultEndIndex}
+              onChange={onBrushChange}
+              tickFormatter={fmtTick}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
 
 // ── TimemachineSummary ──────────────────────────────────────────────────
 
