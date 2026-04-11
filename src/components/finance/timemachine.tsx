@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import type { BundleState, CrossCheck } from "@/lib/use-bundle";
 import {
   Area,
@@ -42,10 +42,7 @@ export function TimemachineChart({
   const isDark = useIsDark();
   const isMobile = useIsMobile();
 
-  const chartData = useMemo(
-    () => daily.map((d) => ({ ...d, ts: new Date(d.date).getTime() })),
-    [daily],
-  );
+  const chartData = daily.map((d) => ({ ...d, ts: new Date(d.date).getTime() }));
 
   if (daily.length === 0) return null;
 

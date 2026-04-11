@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ECON_URL } from "@/lib/config";
 import { EconDataSchema, type EconData, type EconPoint } from "@/lib/econ-schema";
 import { Button } from "@/components/ui/button";
@@ -69,7 +69,6 @@ export default function EconPage() {
       const json = await res.json();
       const parsed = EconDataSchema.safeParse(json);
       if (!parsed.success) {
-        console.error("Econ validation failed:", parsed.error.issues);
         throw new Error(`Invalid econ data: ${parsed.error.issues[0]?.message ?? "schema mismatch"}`);
       }
       setData(parsed.data);
@@ -82,10 +81,7 @@ export default function EconPage() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  const filtered = useMemo(
-    () => data ? filterSeries(data.series, RANGE_MONTHS[range]) : {},
-    [data, range],
-  );
+  const filtered = data ? filterSeries(data.series, RANGE_MONTHS[range]) : {};
 
   if (loading) return <EconSkeleton />;
 

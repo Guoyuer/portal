@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { TIMELINE_URL } from "@/lib/config";
 import {
   TimelineDataSchema,
@@ -79,18 +79,17 @@ export function useBundle(): BundleState {
   }, []);
 
   // ── Indexes (built once when data arrives) ──────────────────────────
-  const dateIndex = useMemo(() => data ? buildDateIndex(data.daily) : new Map<string, number>(), [data]);
-  const tickerIndex = useMemo(() => data ? buildTickerIndex(data.dailyTickers) : new Map(), [data]);
+  const dateIndex = data ? buildDateIndex(data.daily) : new Map<string, number>();
+  const tickerIndex = data ? buildTickerIndex(data.dailyTickers) : new Map();
 
   // ── Chart data (no downsampling — show every day) ───────────────────
   const chartDaily = data?.daily ?? [];
 
   const defaultEndIndex = chartDaily.length > 0 ? chartDaily.length - 1 : 0;
-  const defaultStartIndex = useMemo(() => {
-    if (!data || chartDaily.length === 0) return 0;
-    const TRADING_DAYS_PER_YEAR = 252;
-    return Math.max(0, defaultEndIndex - TRADING_DAYS_PER_YEAR);
-  }, [data, chartDaily.length, defaultEndIndex]);
+  const TRADING_DAYS_PER_YEAR = 252;
+  const defaultStartIndex = (!data || chartDaily.length === 0)
+    ? 0
+    : Math.max(0, defaultEndIndex - TRADING_DAYS_PER_YEAR);
 
   useEffect(() => {
     if (data && chartDaily.length > 0) {
@@ -99,40 +98,25 @@ export function useBundle(): BundleState {
     }
   }, [data, chartDaily.length, defaultStartIndex, defaultEndIndex]);
 
-  const onBrushChange = useCallback((state: { startIndex?: number; endIndex?: number }) => {
+  const onBrushChange = (state: { startIndex?: number; endIndex?: number }) => {
     if (state.startIndex !== undefined) brushRef.current.start = state.startIndex;
     if (state.endIndex !== undefined) brushRef.current.end = state.endIndex;
     setFullRange({
       start: brushRef.current.start,
       end: brushRef.current.end,
     });
-  }, []);
+  };
 
   // ── Derived timeline state (instant — user sees these during drag) ──
-  const snapshot = useMemo(() => data?.daily[fullRange.end] ?? null, [data, fullRange.end]);
+  const snapshot = data?.daily[fullRange.end] ?? null;
   const startDate = data?.daily[fullRange.start]?.date ?? null;
   const snapshotDate = snapshot?.date ?? null;
 
   // ── Computed data (pure, instant) ───────────────────────────────────
-  const allocation = useMemo(
-    () => (data && snapshotDate) ? computeAllocation(data.daily, tickerIndex, dateIndex, snapshotDate) : null,
-    [data, snapshotDate, tickerIndex, dateIndex],
-  );
-
-  const cashflow = useMemo(
-    () => (data && startDate && snapshotDate) ? computeCashflow(data.qianjiTxns, startDate, snapshotDate) : null,
-    [data, startDate, snapshotDate],
-  );
-
-  const activity = useMemo(
-    () => (data && startDate && snapshotDate) ? computeActivity(data.fidelityTxns, startDate, snapshotDate) : null,
-    [data, startDate, snapshotDate],
-  );
-
-  const crossCheck = useMemo(
-    () => (data && startDate && snapshotDate) ? computeCrossCheck(data.fidelityTxns, data.qianjiTxns, startDate, snapshotDate) : null,
-    [data, startDate, snapshotDate],
-  );
+  const allocation = (data && snapshotDate) ? computeAllocation(data.daily, tickerIndex, dateIndex, snapshotDate) : null;
+  const cashflow = (data && startDate && snapshotDate) ? computeCashflow(data.qianjiTxns, startDate, snapshotDate) : null;
+  const activity = (data && startDate && snapshotDate) ? computeActivity(data.fidelityTxns, startDate, snapshotDate) : null;
+  const crossCheck = (data && startDate && snapshotDate) ? computeCrossCheck(data.fidelityTxns, data.qianjiTxns, startDate, snapshotDate) : null;
 
   return {
     chartDaily,
