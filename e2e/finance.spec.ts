@@ -4,7 +4,7 @@ test.describe("Finance Report", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/finance");
     // Wait for page title (always rendered, even before API data loads)
-    await page.getByText("Dashboard for Yuer").waitFor({ timeout: 15000 });
+    await page.getByText("Dashboard for Yuer").waitFor({ timeout: 5000 });
   });
 
   test("renders page title", async ({ page }) => {

@@ -40,7 +40,7 @@ jobs:
           restore-keys: nextjs-${{ hashFiles('package-lock.json') }}-
       - run: npx next build
         env:
-          NEXT_PUBLIC_TIMELINE_URL: ${{ secrets.NEXT_PUBLIC_TIMELINE_URL || 'https://portal-worker.guoyuer.workers.dev/timeline' }}
+          NEXT_PUBLIC_TIMELINE_URL: http://localhost:4444/timeline
 
       # ── Unit tests + coverage ──────────────────────────────────
       - run: npm run test:coverage
