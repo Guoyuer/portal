@@ -44,10 +44,9 @@ test.describe("Interactive Visual Check", () => {
     // Click net worth card to expand allocation
     const netWorthCard = page.locator("[data-slot=card]").first();
     await netWorthCard.click();
-    await page.waitForTimeout(600); // wait for animation
-    await page.screenshot({ path: `${SCREENSHOT_DIR}/03-allocation-expanded.png`, fullPage: true });
-    // Should show category rows
+    // Wait for allocation table to expand
     await expect(page.getByText("US Equity").first()).toBeVisible();
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/03-allocation-expanded.png`, fullPage: true });
     await expect(page.getByText("Non-US Equity").first()).toBeVisible();
     await expect(page.getByText("Crypto").first()).toBeVisible();
     await expect(page.getByText("Safe Net").first()).toBeVisible();
@@ -116,7 +115,7 @@ test.describe("Interactive Visual Check", () => {
         await page.mouse.down();
         await page.mouse.move(startX + 100, startY, { steps: 20 });
         await page.mouse.up();
-        await page.waitForTimeout(500);
+        await page.waitForLoadState("networkidle");
 
         await tmSection.screenshot({ path: `${SCREENSHOT_DIR}/09-after-brush.png` });
 
