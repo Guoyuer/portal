@@ -134,6 +134,14 @@ CREATE TABLE IF NOT EXISTS computed_holdings_detail (
     low_52w      REAL,
     vs_high      REAL
 );
+
+-- FRED economic time-series (monthly, 5yr lookback)
+CREATE TABLE IF NOT EXISTS econ_series (
+    key   TEXT NOT NULL,
+    date  TEXT NOT NULL,
+    value REAL NOT NULL,
+    PRIMARY KEY (key, date)
+);
 """
 
 _INDEXES = """
@@ -142,6 +150,7 @@ CREATE INDEX IF NOT EXISTS idx_fidelity_acct_sym ON fidelity_transactions(accoun
 CREATE INDEX IF NOT EXISTS idx_daily_close_date  ON daily_close(date);
 CREATE INDEX IF NOT EXISTS idx_daily_tickers_date ON computed_daily_tickers(date);
 CREATE INDEX IF NOT EXISTS idx_qianji_txn_date ON qianji_transactions(date);
+CREATE INDEX IF NOT EXISTS idx_econ_series_key ON econ_series(key);
 """
 
 # ── Public API ───────────────────────────────────────────────────────────────
@@ -359,6 +368,28 @@ def ingest_empower_contributions(db_path: Path, contributions: list[Contribution
     finally:
         conn.close()
     return count
+
+
+# ── Price ingestion ────────────────────────────────────────────────────────
+
+
+def ingest_econ_series(path: Path, series: dict[str, list[dict[str, Any]]]) -> int:
+    """Write FRED time-series to econ_series table. Returns row count."""
+    conn = get_connection(path)
+    try:
+        conn.execute("DELETE FROM econ_series")
+        count = 0
+        for key, points in series.items():
+            for pt in points:
+                conn.execute(
+                    "INSERT INTO econ_series (key, date, value) VALUES (?, ?, ?)",
+                    (key, pt["date"], pt["value"]),
+                )
+                count += 1
+        conn.commit()
+        return count
+    finally:
+        conn.close()
 
 
 # ── Price ingestion ────────────────────────────────────────────────────────
