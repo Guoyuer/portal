@@ -1,6 +1,5 @@
 "use client";
 
-import { memo } from "react";
 import {
   Area,
   AreaChart,
@@ -133,7 +132,7 @@ function FlowTooltip({ active, payload, label }: TooltipContentProps) {
 
 // ── Stacked Bars: Expenses vs Savings ────────────────────────────────────
 
-export const IncomeExpensesChart = memo(function IncomeExpensesChart({
+export function IncomeExpensesChart({
   data,
   activeMonth,
 }: {
@@ -202,7 +201,7 @@ export const IncomeExpensesChart = memo(function IncomeExpensesChart({
       </BarChart>
     </ResponsiveContainer>
   );
-});
+}
 
 // ── Area: Net Worth Trend ──────────────────────────────────────────────────
 

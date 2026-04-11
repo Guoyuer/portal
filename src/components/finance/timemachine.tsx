@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useMemo, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import type { BundleState, CrossCheck } from "@/lib/use-bundle";
 import {
   Area,
@@ -28,7 +28,7 @@ const CAT_KEYS = ["safeNet", "crypto", "nonUsEquity", "usEquity"] as const;
 
 // ── TimemachineChart ──────────────────────────────────────────────────────
 
-export const TimemachineChart = memo(function TimemachineChart({
+export function TimemachineChart({
   daily,
   defaultStartIndex,
   defaultEndIndex,
@@ -114,12 +114,12 @@ export const TimemachineChart = memo(function TimemachineChart({
       </AreaChart>
     </ResponsiveContainer>
   );
-});
+}
 
 
 // ── TimemachineSummary ──────────────────────────────────────────────────
 
-export const TimemachineSummary = memo(function TimemachineSummary({
+export function TimemachineSummary({
   snapshot,
   cashflow,
   activity,
@@ -248,7 +248,7 @@ export const TimemachineSummary = memo(function TimemachineSummary({
       )}
     </div>
   );
-});
+}
 
 // ── TimemachineSection ──────────────────────────────────────────────────
 

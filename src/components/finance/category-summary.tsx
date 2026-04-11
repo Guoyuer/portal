@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useMemo } from "react";
 import type { ApiCategory, ApiTicker, CategoryData } from "@/lib/schema";
 import { fmtCurrency, fmtCurrencyShort, fmtPct } from "@/lib/format";
 import {
@@ -13,8 +13,6 @@ import {
 } from "@/components/ui/table";
 import { DeviationCell, SectionHeader, SectionBody, TOTAL_ROW_CLASS } from "@/components/finance/shared";
 import { AllocationDonut } from "@/components/finance/charts";
-import { tooltipStyle } from "@/lib/chart-styles";
-import { useIsDark } from "@/lib/hooks";
 
 // ── Equity categories for classification ──────────────────────────────────
 
@@ -80,28 +78,12 @@ function HoldingsList({ holdings }: { holdings: ApiTicker[] }) {
 }
 
 function GlassTooltip({ content, children }: { content: React.ReactNode; children: React.ReactNode }) {
-  const [show, setShow] = useState(false);
-  const isDark = useIsDark();
-
   return (
-    <span
-      className="relative"
-      onMouseEnter={() => setShow(true)}
-      onMouseLeave={() => setShow(false)}
-      onFocus={() => setShow(true)}
-      onBlur={() => setShow(false)}
-      tabIndex={0}
-    >
+    <span className="glass-tooltip" tabIndex={0}>
       {children}
-      {show && (
-        <div
-          className="absolute left-0 top-full z-50 mt-1 w-max max-w-sm text-xs pointer-events-none"
-          role="tooltip"
-          style={tooltipStyle(isDark)}
-        >
-          {content}
-        </div>
-      )}
+      <div className="glass-tooltip-content" role="tooltip">
+        {content}
+      </div>
     </span>
   );
 }

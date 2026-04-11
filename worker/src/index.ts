@@ -88,7 +88,7 @@ export default {
         {
           headers: {
             ...corsHeaders(origin),
-            "Cache-Control": "public, max-age=3600",
+            "Cache-Control": "no-cache",
           },
         },
       );
