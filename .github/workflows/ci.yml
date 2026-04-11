@@ -40,7 +40,7 @@ jobs:
           restore-keys: nextjs-${{ hashFiles('package-lock.json') }}-
       - run: npx next build
         env:
-          NEXT_PUBLIC_TIMELINE_URL: ${{ secrets.NEXT_PUBLIC_TIMELINE_URL }}
+          NEXT_PUBLIC_TIMELINE_URL: ${{ secrets.NEXT_PUBLIC_TIMELINE_URL || 'https://portal-worker.guoyuer.workers.dev/timeline' }}
 
       # ── Unit tests + coverage ──────────────────────────────────
       - run: npm run test:coverage
@@ -51,20 +51,22 @@ jobs:
           json-summary-path: coverage/coverage-summary.json
           json-final-path: coverage/coverage-final.json
 
-      # ── E2E tests ──────────────────────────────────────────────
+      # ── E2E tests (skipped for Dependabot — no access to secrets) ──
       - name: Cache Playwright browsers
+        if: github.actor != 'dependabot[bot]'
         id: playwright-cache
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ hashFiles('package-lock.json') }}
       - name: Install Playwright browsers
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        if: github.actor != 'dependabot[bot]' && steps.playwright-cache.outputs.cache-hit != 'true'
         run: npx playwright install chromium --with-deps
       - name: Install Playwright system deps
-        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        if: github.actor != 'dependabot[bot]' && steps.playwright-cache.outputs.cache-hit == 'true'
         run: npx playwright install-deps chromium
       - name: Run E2E tests
+        if: github.actor != 'dependabot[bot]'
         run: npx playwright test
 
       # Deploy only on main (not PRs)
