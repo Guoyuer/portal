@@ -166,11 +166,17 @@ Make ticker rows in TickerTable clickable. On click, expand to show `<TickerChar
 
 ## Data Edge Cases
 
-### 1. Stock splits — CRITICAL
+### 1. Stock splits — CRITICAL (existing bug, not just ticker chart)
 
-`prices.py` fetches with `auto_adjust=True`, so all historical prices are split-adjusted. But Fidelity transaction prices are **raw** (not adjusted). If AAPL split 4:1, a $400 buy would appear at $100 on the chart.
+`prices.py` fetches with `auto_adjust=True`, so all historical prices are split-adjusted. But Fidelity transaction quantities and prices are **raw** (not adjusted).
 
-**Fix**: Either store split-adjusted transaction prices in the pipeline, or use `auto_adjust=False` and adjust manually. Simplest: divide transaction price by the split ratio. yfinance provides split data via `ticker.splits`.
+**This affects the existing timemachine net worth calculation**, not just the future ticker chart. In `allocation.py:164-169`, portfolio value = `qty * price`. If a ticker splits:
+- Pre-split dates: qty is pre-split (e.g. 10 shares), price is split-adjusted (e.g. $100 instead of $400) → value = $1,000 instead of $4,000
+- Post-split dates: qty is post-split (40 shares), price is correct → value = $4,000 ✓
+
+Currently no held tickers (VTI, VOO, VXUS, etc.) have split during the holding period, so no visible impact yet. But any future split will cause a discontinuity in the historical net worth curve. A previous occurrence was fixed ad hoc by manually patching the database, but the code-level bug remains — it will resurface on next `build_timemachine_db.py` rebuild or new split event.
+
+**Fix**: Switch to `auto_adjust=False` (unadjusted prices). This keeps prices consistent with raw transaction records. For the chart, unadjusted prices are actually more intuitive — they show what you actually paid vs what the stock actually traded at. For returns/sparklines in market context, continue using adjusted prices (separate fetch).
 
 ### 2. Price history start date — no pre-buy context
 
