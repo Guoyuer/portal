@@ -31,19 +31,19 @@ const CAT_KEYS = ["safeNet", "crypto", "nonUsEquity", "usEquity"] as const;
 
 export function TimemachineChart({
   daily,
-  defaultStartIndex,
-  defaultEndIndex,
-  onBrushChange,
+  brushStart,
+  brushEnd,
 }: {
   daily: DailyPoint[];
-  defaultStartIndex: number;
-  defaultEndIndex: number;
-  onBrushChange: (state: { startIndex?: number; endIndex?: number }) => void;
+  brushStart: number;
+  brushEnd: number;
 }) {
   const isDark = useIsDark();
   const isMobile = useIsMobile();
 
-  const chartData = daily.map((d) => ({ ...d, ts: new Date(d.date).getTime() }));
+  // Slice to brush range so chart zooms with the brush
+  const sliced = daily.slice(brushStart, brushEnd + 1);
+  const chartData = sliced.map((d) => ({ ...d, ts: new Date(d.date).getTime() }));
 
   if (daily.length === 0) return null;
 
@@ -51,7 +51,7 @@ export function TimemachineChart({
     new Date(ts).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
 
   const MILESTONES = [100_000, 250_000, 500_000, 1_000_000];
-  const maxTotal = Math.max(...daily.map(d => d.total));
+  const maxTotal = Math.max(...sliced.map(d => d.total));
   const visibleMilestones = MILESTONES.filter(m => m <= maxTotal);
 
   return (
@@ -137,7 +137,6 @@ export function StickyBrush({
   onBrushChange: (state: { startIndex?: number; endIndex?: number }) => void;
 }) {
   const isDark = useIsDark();
-
   const chartData = daily.map((d) => ({ ...d, ts: new Date(d.date).getTime() }));
   if (daily.length === 0) return null;
 
@@ -151,6 +150,7 @@ export function StickyBrush({
           <AreaChart data={chartData} margin={{ top: 0, right: 20, left: 10, bottom: 0 }}>
             <XAxis dataKey="ts" hide />
             <YAxis hide />
+            <Area type="monotone" dataKey="total" stroke="none" fill={isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)"} isAnimationActive={false} />
             <Brush
               dataKey="ts"
               height={28}
@@ -326,9 +326,8 @@ export function TimemachineSection({
         <div className="mt-4">
           <TimemachineChart
             daily={tl.chartDaily}
-            defaultStartIndex={tl.defaultStartIndex}
-            defaultEndIndex={tl.defaultEndIndex}
-            onBrushChange={tl.onBrushChange}
+            brushStart={tl.brushStart}
+            brushEnd={tl.brushEnd}
           />
         </div>
       </div>

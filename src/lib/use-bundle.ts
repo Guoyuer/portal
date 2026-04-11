@@ -38,6 +38,8 @@ export interface BundleState {
   defaultEndIndex: number;
   snapshot: DailyPoint | null;
   startDate: string | null;
+  brushStart: number;
+  brushEnd: number;
   onBrushChange: (state: { startIndex?: number; endIndex?: number }) => void;
   loading: boolean;
   error: string | null;
@@ -124,6 +126,8 @@ export function useBundle(): BundleState {
     fidelityTxns: data?.fidelityTxns ?? [],
     defaultStartIndex,
     defaultEndIndex,
+    brushStart: fullRange.start,
+    brushEnd: fullRange.end,
     snapshot,
     startDate,
     onBrushChange,

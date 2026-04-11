@@ -222,8 +222,6 @@ export default function FinancePage() {
           daily={tl.chartDaily}
           defaultStartIndex={tl.defaultStartIndex}
           defaultEndIndex={tl.defaultEndIndex}
-          startDate={tl.startDate}
-          endDate={tl.endDate}
           onBrushChange={tl.onBrushChange}
         />
       )}
