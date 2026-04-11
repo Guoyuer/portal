@@ -336,7 +336,7 @@ export function TimemachineSection({
   }
 
   return (
-    <section id="timemachine" style={{ contentVisibility: "auto", containIntrinsicSize: "auto 400px" }}>
+    <div id="timemachine">
       <div className="liquid-glass p-4 sm:p-5">
         <TimemachineSummary
           snapshot={tl.snapshot}
@@ -353,6 +353,6 @@ export function TimemachineSection({
           />
         </div>
       </div>
-    </section>
+    </div>
   );
 }
