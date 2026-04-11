@@ -374,7 +374,7 @@ test.describe("Finance Report", () => {
       }
       await expect(tmSection.getByText("Income")).toBeVisible();
       await expect(tmSection.getByText("Expenses")).toBeVisible();
-      await expect(tmSection.getByText("Buys")).toBeVisible();
+      await expect(tmSection.getByText("Investments")).toBeVisible();
       await expect(tmSection.getByText("Dividends").first()).toBeVisible();
     });
 
