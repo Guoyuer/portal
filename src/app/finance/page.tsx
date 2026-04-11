@@ -80,10 +80,10 @@ export default function FinancePage() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto space-y-10 pb-16">
+    <div data-testid="finance-page" className="max-w-5xl mx-auto space-y-10 pb-16">
       {/* Header */}
       <div>
-        <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">
+        <h1 data-testid="page-title" className="text-xl sm:text-2xl font-semibold tracking-tight">
           Dashboard for Yuer
         </h1>
         {startDate && snapshotDate && (
@@ -203,7 +203,7 @@ export default function FinancePage() {
 
       {/* ── Market Context ──────────────────────────────────────────────── */}
       <ErrorBoundary fallback={<SectionError label="Market" />}>
-        <div id="market">
+        <div id="market" data-testid="market-section">
           {mkt ? (
             <MarketContext data={mkt} title={SECTION_LABELS["market"]} />
           ) : (

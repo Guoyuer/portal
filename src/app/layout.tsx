@@ -47,7 +47,7 @@ export default function RootLayout({
         </div>
         <script
           dangerouslySetInnerHTML={{
-            __html: `if("serviceWorker"in navigator)navigator.serviceWorker.register("/sw.js")`,
+            __html: `if("serviceWorker"in navigator&&location.hostname!=="localhost")navigator.serviceWorker.register("/sw.js")`,
           }}
         />
       </body>

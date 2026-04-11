@@ -10,7 +10,7 @@ async function waitForData(page: Page): Promise<boolean> {
   await page.goto("/finance");
   await page.waitForLoadState("networkidle");
   try {
-    await page.getByText("Dashboard for Yuer").waitFor({ timeout: 5000 });
+    await page.getByTestId("page-title").waitFor({ timeout: 5000 });
     return true;
   } catch {
     return false;
@@ -22,7 +22,7 @@ test.describe("Interactive Visual Check", () => {
     const loaded = await waitForData(page);
     test.skip(!loaded, "data not available");
     await page.screenshot({ path: `${SCREENSHOT_DIR}/01-full-page.png`, fullPage: true });
-    await expect(page.getByText("Dashboard for Yuer")).toBeVisible();
+    await expect(page.getByTestId("page-title")).toBeVisible();
     await expect(page.locator("[data-slot=card]").first()).toBeVisible();
   });
 
@@ -88,7 +88,7 @@ test.describe("Interactive Visual Check", () => {
 
   test("market section", async ({ page }) => {
     { const l = await waitForData(page); test.skip(!l, "data not available"); }
-    const mktSection = page.locator("#market");
+    const mktSection = page.getByTestId("market-section");
     await expect(mktSection).toBeVisible();
     await mktSection.screenshot({ path: `${SCREENSHOT_DIR}/07-market.png` });
     // Should show index names
@@ -131,7 +131,7 @@ test.describe("Interactive Visual Check", () => {
   test("savings rate card shows value", async ({ page }) => {
     { const l = await waitForData(page); test.skip(!l, "data not available"); }
     // Find savings rate card
-    const savingsCard = page.locator("[data-slot=card]").filter({ hasText: "Savings Rate" });
+    const savingsCard = page.getByTestId("savings-rate-card");
     if (await savingsCard.isVisible()) {
       await savingsCard.screenshot({ path: `${SCREENSHOT_DIR}/10-savings-rate.png` });
       // Should show a percentage
@@ -141,7 +141,7 @@ test.describe("Interactive Visual Check", () => {
 
   test("goal card shows progress", async ({ page }) => {
     { const l = await waitForData(page); test.skip(!l, "data not available"); }
-    const goalCard = page.locator("[data-slot=card]").filter({ hasText: "Goal" });
+    const goalCard = page.getByTestId("goal-card");
     if (await goalCard.isVisible()) {
       await goalCard.screenshot({ path: `${SCREENSHOT_DIR}/11-goal.png` });
       await expect(goalCard.getByText("%")).toBeVisible();

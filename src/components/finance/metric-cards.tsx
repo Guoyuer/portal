@@ -47,7 +47,7 @@ function SavingsRateCard({
   const colorMuted = srColorMuted(takehome);
 
   return (
-    <div data-slot="card" className="liquid-glass p-4 flex items-center gap-3">
+    <div data-slot="card" data-testid="savings-rate-card" className="liquid-glass p-4 flex items-center gap-3">
       <div className="flex-1 min-w-0">
         <p className="text-xs sm:text-sm text-muted-foreground">Savings Rate</p>
         {takehomeSavingsRate != null ? (
@@ -152,7 +152,7 @@ export function MetricCards({
   return (
     <div className="space-y-4">
       {/* Net Worth tile — expands to show allocation */}
-      <div data-slot="card" className="liquid-glass overflow-hidden">
+      <div data-slot="card" data-testid="net-worth-card" className="liquid-glass overflow-hidden">
         <button
           type="button"
           className="w-full p-4 text-left cursor-pointer"
@@ -217,7 +217,7 @@ export function MetricCards({
 
       <div className="grid grid-cols-3 gap-4">
         <SavingsRateCard savingsRate={savingsRate} takehomeSavingsRate={takehomeSavingsRate} />
-        <div data-slot="card" className="liquid-glass p-4 col-span-2">
+        <div data-slot="card" data-testid="goal-card" className="liquid-glass p-4 col-span-2">
           <p className="text-xs sm:text-sm text-muted-foreground">Goal</p>
           <p className="text-xl sm:text-2xl font-bold mt-1">
             {Math.round(goalPct)}%{" "}

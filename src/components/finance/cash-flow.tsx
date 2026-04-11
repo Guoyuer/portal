@@ -40,7 +40,7 @@ export function CashFlow({ data }: { data: CashflowResponse }) {
     <>
       <div className="grid md:grid-cols-2 gap-6 items-start">
         {/* Income */}
-        <div>
+        <div data-testid="income-table">
           <h3 className="font-semibold mb-2 text-foreground">Income</h3>
           <Table>
             <TableHeader>
@@ -77,7 +77,7 @@ export function CashFlow({ data }: { data: CashflowResponse }) {
         </div>
 
         {/* Expenses */}
-        <div>
+        <div data-testid="expense-table">
           <h3 className="font-semibold mb-2 text-foreground">Expenses</h3>
           <Table>
             <TableHeader>

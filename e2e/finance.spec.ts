@@ -3,7 +3,7 @@ import { test, expect, type Page } from "@playwright/test";
 /** Wait for data to load — returns false if page shows error/skeleton instead. */
 async function waitForData(page: Page): Promise<boolean> {
   try {
-    await page.getByText("Dashboard for Yuer").waitFor({ timeout: 5000 });
+    await page.getByTestId("page-title").waitFor({ timeout: 5000 });
     return true;
   } catch {
     return false;
@@ -25,20 +25,20 @@ test.describe("Finance Report", () => {
 
   test("shows metric cards with values", async ({ page }) => {
     // Wait for allocation API to load
-    await expect(page.getByText("Net Worth")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("net-worth-card")).toBeVisible({ timeout: 10000 });
     await expect(page.getByText(/Investment/)).toBeVisible();
     await expect(page.getByText(/\$\d+k/).first()).toBeVisible();
     // Savings Rate
-    await expect(page.getByText("Savings Rate").first()).toBeVisible();
+    await expect(page.getByTestId("savings-rate-card")).toBeVisible();
     // Goal
-    await expect(page.getByText("Goal")).toBeVisible();
+    await expect(page.getByTestId("goal-card")).toBeVisible();
   });
 
   test("shows all category groups", async ({ page }) => {
     // Wait for allocation data
-    await expect(page.getByText("Net Worth")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("net-worth-card")).toBeVisible({ timeout: 10000 });
     // Click Net Worth tile to expand allocation
-    await page.getByRole("button", { name: /Net Worth/ }).click();
+    await page.getByTestId("net-worth-card").getByRole("button").click();
     await page.waitForTimeout(600);
     await expect(page.getByRole("cell", { name: "US Equity", exact: true })).toBeVisible();
     await expect(page.getByRole("cell", { name: "Non-US Equity" })).toBeVisible();
@@ -47,24 +47,24 @@ test.describe("Finance Report", () => {
   });
 
   test("shows subtypes under equity categories", async ({ page }) => {
-    await expect(page.getByText("Net Worth")).toBeVisible({ timeout: 10000 });
-    await page.getByRole("button", { name: /Net Worth/ }).click();
+    await expect(page.getByTestId("net-worth-card")).toBeVisible({ timeout: 10000 });
+    await page.getByTestId("net-worth-card").getByRole("button").click();
     await page.waitForTimeout(600);
     await expect(page.getByText("broad").first()).toBeVisible();
     await expect(page.getByText("growth").first()).toBeVisible();
   });
 
   test("shows target and deviation columns", async ({ page }) => {
-    await expect(page.getByText("Net Worth")).toBeVisible({ timeout: 10000 });
-    await page.getByRole("button", { name: /Net Worth/ }).click();
+    await expect(page.getByTestId("net-worth-card")).toBeVisible({ timeout: 10000 });
+    await page.getByTestId("net-worth-card").getByRole("button").click();
     await page.waitForTimeout(600);
     await expect(page.getByRole("columnheader", { name: "Target" })).toBeVisible();
     await expect(page.getByRole("columnheader", { name: "Deviation" })).toBeVisible();
   });
 
   test("shows category deviations with correct colors", async ({ page }) => {
-    await expect(page.getByText("Net Worth")).toBeVisible({ timeout: 10000 });
-    await page.getByRole("button", { name: /Net Worth/ }).click();
+    await expect(page.getByTestId("net-worth-card")).toBeVisible({ timeout: 10000 });
+    await page.getByTestId("net-worth-card").getByRole("button").click();
     await page.waitForTimeout(600);
     // Deviation cells should have red or green colors
     const deviationCells = page.locator("td[class*='text-red-'], td[class*='text-green-'], td[class*='text-emerald-']");
@@ -72,8 +72,8 @@ test.describe("Finance Report", () => {
   });
 
   test("shows goal progress with bar", async ({ page }) => {
-    await expect(page.getByText("Goal")).toBeVisible({ timeout: 10000 });
-    const goalCard = page.locator("[data-slot='card']").filter({ hasText: "Goal" });
+    await expect(page.getByTestId("goal-card")).toBeVisible({ timeout: 10000 });
+    const goalCard = page.getByTestId("goal-card");
     const progressBar = goalCard.locator("[class*='bg-blue-']");
     await expect(progressBar).toBeVisible();
     const style = await progressBar.getAttribute("style");
@@ -175,9 +175,9 @@ test.describe("Finance Report", () => {
   // ── Charts ─────────────────────────────────────────────────────────────
 
   test("renders allocation donut chart", async ({ page }) => {
-    await expect(page.getByText("Net Worth")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("net-worth-card")).toBeVisible({ timeout: 10000 });
     // Click Net Worth tile to expand allocation
-    await page.getByRole("button", { name: /Net Worth/ }).click();
+    await page.getByTestId("net-worth-card").getByRole("button").click();
     await page.waitForTimeout(600);
     const donut = page.locator(".recharts-pie");
     await expect(donut).toBeVisible();
@@ -207,7 +207,7 @@ test.describe("Finance Report", () => {
   // ── Market ─────────────────────────────────────────────────────
 
   test("shows market context with index cards", async ({ page }) => {
-    const section = page.locator("#market");
+    const section = page.getByTestId("market-section");
     await expect(section).toBeAttached();
     // Market data may take time to load
     await page.waitForTimeout(5000);
@@ -216,7 +216,7 @@ test.describe("Finance Report", () => {
   });
 
   test("market section renders without macro when FRED unavailable", async ({ page }) => {
-    const section = page.locator("#market");
+    const section = page.getByTestId("market-section");
     await expect(section).toBeAttached();
     await page.waitForTimeout(5000);
     if ((await section.locator("[data-slot='card']").count()) === 0) return;
@@ -233,8 +233,8 @@ test.describe("Finance Report", () => {
   });
 
   test("savings rate has conditional color", async ({ page }) => {
-    await expect(page.getByText("Savings Rate").first()).toBeVisible({ timeout: 10000 });
-    const card = page.locator("[data-slot='card']").filter({ hasText: "Savings Rate" });
+    await expect(page.getByTestId("savings-rate-card")).toBeVisible({ timeout: 10000 });
+    const card = page.getByTestId("savings-rate-card");
     const rate = card.locator("p[class*='font-bold']").first();
     const className = await rate.getAttribute("class");
     // Should have one of the conditional colors (or N/A if no cashflow data)
@@ -262,8 +262,8 @@ test.describe("Finance Report", () => {
   // ── Savings Rate Card ──────────────────────────────────────────────────
 
   test("savings rate card shows rate", async ({ page }) => {
-    await expect(page.getByText("Savings Rate").first()).toBeVisible({ timeout: 10000 });
-    const card = page.locator("[data-slot='card']").filter({ hasText: "Savings Rate" });
+    await expect(page.getByTestId("savings-rate-card")).toBeVisible({ timeout: 10000 });
+    const card = page.getByTestId("savings-rate-card");
     // Rate (large) or N/A
     await expect(card.getByText(/\d+%|N\/A/).first()).toBeVisible();
   });
