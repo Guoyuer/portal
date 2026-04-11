@@ -1,5 +1,5 @@
 # Data sources
-yfinance==1.2.0
+yfinance==1.2.1
 fredapi>=0.5,<1
 
 # HTTP client (used by tests)
