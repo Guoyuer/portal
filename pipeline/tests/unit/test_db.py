@@ -33,6 +33,7 @@ EXPECTED_TABLES = frozenset({
     "computed_market_indicators",
     "computed_holdings_detail",
     "econ_series",
+    "replay_checkpoint",
 })
 
 

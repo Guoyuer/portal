@@ -142,6 +142,14 @@ CREATE TABLE IF NOT EXISTS econ_series (
     value REAL NOT NULL,
     PRIMARY KEY (key, date)
 );
+
+-- Replay checkpoint: cached positions/cash/cost_basis at a point in time
+CREATE TABLE IF NOT EXISTS replay_checkpoint (
+    date       TEXT PRIMARY KEY,
+    positions  TEXT NOT NULL,
+    cash       TEXT NOT NULL,
+    cost_basis TEXT NOT NULL
+);
 """
 
 _INDEXES = """

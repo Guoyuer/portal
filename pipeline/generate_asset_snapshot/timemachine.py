@@ -25,6 +25,8 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
+from .db import get_connection
+
 log = logging.getLogger(__name__)
 
 # ── Constants ─────────────────────────────────────────────────────────────────
@@ -189,6 +191,58 @@ def replay_from_db(db_path: Path, as_of: date | None = None) -> dict[str, Any]:
             if re.match(r"^[A-Z0-9]+$", acct)}
 
     return {"positions": positions, "cost_basis": cb_out, "cash": cash, "as_of": as_of, "txn_count": count}
+
+
+# ── Checkpoint save/load ──────────────────────────────────────────────────────
+
+
+def save_checkpoint(db_path: Path, replay_result: dict[str, Any]) -> None:
+    """Persist replay state as a checkpoint for future incremental builds."""
+    as_of = str(replay_result["as_of"])
+    # Serialize tuple keys: (account, symbol) → "account|symbol"
+    positions = {f"{k[0]}|{k[1]}": v for k, v in replay_result["positions"].items()}
+    cost_basis = {f"{k[0]}|{k[1]}": v for k, v in replay_result["cost_basis"].items()}
+    cash = dict(replay_result["cash"])  # already string keys
+
+    conn = get_connection(db_path)
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO replay_checkpoint (date, positions, cash, cost_basis) VALUES (?, ?, ?, ?)",
+            (as_of, json.dumps(positions), json.dumps(cash), json.dumps(cost_basis)),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def load_checkpoint(db_path: Path) -> dict[str, Any] | None:
+    """Load the latest replay checkpoint, or None if no checkpoint exists."""
+    conn = get_connection(db_path)
+    try:
+        row = conn.execute(
+            "SELECT date, positions, cash, cost_basis FROM replay_checkpoint ORDER BY date DESC LIMIT 1"
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if row is None:
+        return None
+
+    as_of_str, pos_json, cash_json, cb_json = row
+    # Deserialize: "account|symbol" → (account, symbol)
+    raw_positions = json.loads(pos_json)
+    positions = {tuple(k.split("|", 1)): v for k, v in raw_positions.items()}
+    raw_cb = json.loads(cb_json)
+    cost_basis = {tuple(k.split("|", 1)): v for k, v in raw_cb.items()}
+    cash = json.loads(cash_json)
+
+    return {
+        "positions": positions,
+        "cost_basis": cost_basis,
+        "cash": cash,
+        "as_of": date.fromisoformat(as_of_str),
+        "txn_count": 0,  # unknown from checkpoint
+    }
 
 
 # ── Qianji replay ─────────────────────────────────────────────────────────────
