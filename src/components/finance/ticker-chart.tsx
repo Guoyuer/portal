@@ -153,12 +153,14 @@ function TickerChartInner({ data, avgCost }: { data: TickerChartPoint[]; avgCost
           dataKey="buyPrice"
           fill="#009E73"
           shape="circle"
+          legendType="none"
           isAnimationActive={false}
         />
         <Scatter
           dataKey="sellPrice"
           fill="#E69F00"
-          shape="circle"
+          shape="diamond"
+          legendType="none"
           isAnimationActive={false}
         />
         {avgCost != null && (
