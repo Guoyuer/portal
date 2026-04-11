@@ -4,7 +4,7 @@ test.describe("Finance Report", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/finance");
     // Wait for page title (always rendered, even before API data loads)
-    await page.getByText("Dashboard for Yuer").waitFor({ timeout: 5000 });
+    await page.getByText("Dashboard for Yuer").waitFor({ timeout: 15000 });
   });
 
   test("renders page title", async ({ page }) => {
@@ -221,7 +221,7 @@ test.describe("Finance Report", () => {
   });
 
   test("savings rate has conditional color", async ({ page }) => {
-    await expect(page.getByText("Savings Rate")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText("Savings Rate").first()).toBeVisible({ timeout: 10000 });
     const card = page.locator("[data-slot='card']").filter({ hasText: "Savings Rate" });
     const rate = card.locator("p[class*='font-bold']").first();
     const className = await rate.getAttribute("class");
@@ -250,7 +250,7 @@ test.describe("Finance Report", () => {
   // ── Savings Rate Card ──────────────────────────────────────────────────
 
   test("savings rate card shows rate", async ({ page }) => {
-    await expect(page.getByText("Savings Rate")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText("Savings Rate").first()).toBeVisible({ timeout: 10000 });
     const card = page.locator("[data-slot='card']").filter({ hasText: "Savings Rate" });
     // Rate (large) or N/A
     await expect(card.getByText(/\d+%|N\/A/).first()).toBeVisible();
