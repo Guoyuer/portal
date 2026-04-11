@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { GOAL } from "@/lib/config";
 import { useBundle } from "@/lib/use-bundle";
 import { computeMonthlyFlows } from "@/lib/compute";
@@ -20,6 +20,20 @@ import { ErrorBoundary, SectionError } from "@/components/error-boundary";
 // ── Helpers ──────────────────────────────────────────────────────────
 
 const PAGE_LOAD_TIME = Date.now();
+
+function SyncStatus({ syncMeta }: { syncMeta: Record<string, string> | null }) {
+  const lastSync = syncMeta?.last_sync;
+  if (!lastSync) return null;
+  const syncDate = new Date(lastSync);
+  const daysAgo = Math.floor((PAGE_LOAD_TIME - syncDate.getTime()) / 86_400_000);
+  const stale = daysAgo > 3;
+  return (
+    <p className={`text-xs mt-0.5 ${stale ? "text-yellow-500" : "text-muted-foreground/60"}`}>
+      Data as of {syncDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+      {stale && ` (${daysAgo}d ago)`}
+    </p>
+  );
+}
 
 // ── Sections ─────────────────────────────────────────────────────────
 
@@ -49,24 +63,8 @@ export default function FinancePage() {
   const act = tl.activity;
   const mkt = tl.market;
 
-  const monthlyFlows = useMemo(
-    () => computeMonthlyFlows(tl.qianjiTxns, startDate, snapshotDate),
-    [tl.qianjiTxns, startDate, snapshotDate],
-  );
+  const monthlyFlows = computeMonthlyFlows(tl.qianjiTxns, startDate, snapshotDate);
 
-  const syncStale = useMemo(() => {
-    const lastSync = tl.syncMeta?.last_sync;
-    if (!lastSync) return null;
-    const syncDate = new Date(lastSync);
-    const daysAgo = Math.floor((PAGE_LOAD_TIME - syncDate.getTime()) / 86_400_000);
-    const stale = daysAgo > 3;
-    return (
-      <p className={`text-xs mt-0.5 ${stale ? "text-yellow-500" : "text-muted-foreground/60"}`}>
-        Data as of {syncDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-        {stale && ` (${daysAgo}d ago)`}
-      </p>
-    );
-  }, [tl.syncMeta]);
 
   // ── Loading state ─────────────────────────────────────────────────
   if (tl.loading) return <FinanceSkeleton />;
@@ -94,7 +92,7 @@ export default function FinancePage() {
             {fmtDateMedium(snapshotDate)}
           </p>
         )}
-        {syncStale}
+        <SyncStatus syncMeta={tl.syncMeta} />
       </div>
 
       {/* ── 1. Overview ─────────────────────────────────────────────────── */}

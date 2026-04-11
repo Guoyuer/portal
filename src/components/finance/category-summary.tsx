@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useState } from "react";
 import type { ApiCategory, ApiTicker, CategoryData } from "@/lib/schema";
 import { fmtCurrency, fmtCurrencyShort, fmtPct } from "@/lib/format";
 import {
@@ -125,7 +125,7 @@ export function CategorySummary({
   title: string;
   embedded?: boolean;
 }) {
-  const grouped = useMemo(() => groupTickers(categories, tickers, totalValue), [categories, tickers, totalValue]);
+  const grouped = groupTickers(categories, tickers, totalValue);
   const equityCats = grouped.filter((c) => c.isEquity);
   const nonEquityCats = grouped.filter((c) => !c.isEquity);
 

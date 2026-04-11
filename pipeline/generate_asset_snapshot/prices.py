@@ -138,13 +138,20 @@ def fetch_and_store_prices(
             syms = set(to_fetch.keys())
             print(f"Fetching prices for {len(syms)} symbols ({batch_start} -> {batch_end})...")
             tickers = " ".join(sorted(syms))
-            df = yf.download(
-                tickers,
-                start=batch_start.isoformat(),
-                end=(batch_end + timedelta(days=1)).isoformat(),
-                auto_adjust=True,
-                progress=False,
-            )
+            try:
+                df = yf.download(
+                    tickers,
+                    start=batch_start.isoformat(),
+                    end=(batch_end + timedelta(days=1)).isoformat(),
+                    auto_adjust=True,
+                    progress=False,
+                )
+            except Exception:  # noqa: BLE001
+                print(f"WARNING: yfinance download failed for {len(syms)} symbols, using cached data")
+                return
+            if df.empty:
+                print("WARNING: yfinance returned empty DataFrame, using cached data")
+                return
             if isinstance(df.columns, pd.MultiIndex):
                 close_df = df["Close"]
             elif len(syms) == 1:
@@ -183,13 +190,20 @@ def fetch_and_store_cny_rates(db_path: Path, start: date, end: date) -> None:
             cached_hi and cached_hi < end - timedelta(days=4)
         ):
             print(f"Fetching USD/CNY rates {start} -> {end}...")
-            df = yf.download(
-                sym,
-                start=start.isoformat(),
-                end=(end + timedelta(days=1)).isoformat(),
-                auto_adjust=True,
-                progress=False,
-            )
+            try:
+                df = yf.download(
+                    sym,
+                    start=start.isoformat(),
+                    end=(end + timedelta(days=1)).isoformat(),
+                    auto_adjust=True,
+                    progress=False,
+                )
+            except Exception:  # noqa: BLE001
+                print("WARNING: yfinance CNY rate download failed, using cached data")
+                return
+            if df.empty:
+                print("WARNING: yfinance returned empty CNY data, using cached data")
+                return
             if isinstance(df.columns, pd.MultiIndex):
                 close = df["Close"].iloc[:, 0]
             elif "Close" in df.columns:
