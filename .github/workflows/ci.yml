@@ -69,6 +69,13 @@ jobs:
         if: github.actor != 'dependabot[bot]'
         run: npx playwright test
 
+      # ── Rebuild for production deploy (real Worker URL) ────────
+      - name: Build for production
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: npx next build
+        env:
+          NEXT_PUBLIC_TIMELINE_URL: ${{ secrets.NEXT_PUBLIC_TIMELINE_URL || 'https://portal-worker.guoyuer.workers.dev/timeline' }}
+
       # Deploy only on main (not PRs)
       - name: Deploy to Cloudflare Pages
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
