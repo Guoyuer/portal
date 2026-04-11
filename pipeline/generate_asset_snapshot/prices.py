@@ -143,7 +143,7 @@ def fetch_and_store_prices(
                     tickers,
                     start=batch_start.isoformat(),
                     end=(batch_end + timedelta(days=1)).isoformat(),
-                    auto_adjust=True,
+                    auto_adjust=False,
                     progress=False,
                 )
             except Exception:
@@ -195,7 +195,7 @@ def fetch_and_store_cny_rates(db_path: Path, start: date, end: date) -> None:
                     sym,
                     start=start.isoformat(),
                     end=(end + timedelta(days=1)).isoformat(),
-                    auto_adjust=True,
+                    auto_adjust=False,
                     progress=False,
                 )
             except Exception:

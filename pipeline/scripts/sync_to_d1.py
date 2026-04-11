@@ -38,16 +38,18 @@ TABLES_TO_SYNC: list[str] = [
     "computed_market_indicators",
     "computed_holdings_detail",
     "econ_series",
+    "daily_close",
 ]
 
 # Column subsets to sync to D1.  None → all columns (SELECT *).
 _D1_COLUMNS: dict[str, list[str] | None] = {
-    "fidelity_transactions": ["run_date", "action_type", "symbol", "amount"],
+    "fidelity_transactions": ["run_date", "action_type", "symbol", "amount", "quantity", "price"],
     "qianji_transactions": ["date", "type", "category", "amount"],
+    "daily_close": ["symbol", "date", "close"],
 }
 
 # Tables that use INSERT OR IGNORE in diff mode (append-only, have date PK)
-_DIFF_TABLES: set[str] = {"computed_daily", "computed_daily_tickers"}
+_DIFF_TABLES: set[str] = {"computed_daily", "computed_daily_tickers", "daily_close"}
 
 # Tables that use range-replace in diff mode (delete after cutoff, reinsert).
 # Value is a SQL expression that yields a YYYY-MM-DD–sortable string for date comparison.

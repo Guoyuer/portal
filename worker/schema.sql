@@ -9,7 +9,16 @@ CREATE TABLE IF NOT EXISTS fidelity_transactions (
   run_date        TEXT NOT NULL,
   action_type     TEXT NOT NULL DEFAULT '',
   symbol          TEXT NOT NULL DEFAULT '',
+  quantity        REAL NOT NULL DEFAULT 0,
+  price           REAL NOT NULL DEFAULT 0,
   amount          REAL NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS daily_close (
+  symbol TEXT NOT NULL,
+  date   TEXT NOT NULL,
+  close  REAL NOT NULL,
+  PRIMARY KEY (symbol, date)
 );
 
 CREATE TABLE IF NOT EXISTS qianji_transactions (
@@ -77,6 +86,7 @@ CREATE TABLE IF NOT EXISTS econ_series (
 -- ── Indexes ───────────────────────────────────────────────────────────────────
 
 CREATE INDEX IF NOT EXISTS idx_fidelity_date     ON fidelity_transactions(run_date);
+CREATE INDEX IF NOT EXISTS idx_daily_close_date  ON daily_close(date);
 CREATE INDEX IF NOT EXISTS idx_daily_tickers_date ON computed_daily_tickers(date);
 CREATE INDEX IF NOT EXISTS idx_qianji_txn_date ON qianji_transactions(date);
 CREATE INDEX IF NOT EXISTS idx_econ_series_key ON econ_series(key);
@@ -100,7 +110,8 @@ SELECT date, ticker, value, category, subtype,
 FROM computed_daily_tickers ORDER BY date, value DESC;
 
 CREATE VIEW IF NOT EXISTS v_fidelity_txns AS
-SELECT run_date AS runDate, action_type AS actionType, symbol, amount
+SELECT run_date AS runDate, action_type AS actionType, symbol, amount,
+  quantity, price
 FROM fidelity_transactions ORDER BY id;
 
 CREATE VIEW IF NOT EXISTS v_qianji_txns AS

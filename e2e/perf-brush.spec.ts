@@ -33,7 +33,7 @@ async function measureBrushDrag(page: Page, label: string) {
     requestAnimationFrame(measure);
   });
 
-  const brush = page.locator("#timemachine .recharts-brush").first();
+  const brush = page.locator(".recharts-brush").first();
   await expect(brush).toBeVisible();
   const box = await brush.boundingBox();
   if (!box) throw new Error("Brush not found");

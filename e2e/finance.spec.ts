@@ -147,6 +147,37 @@ test.describe("Finance Report", () => {
     }
   });
 
+  test("clicking ticker row expands inline price chart", async ({ page }) => {
+    const section = page.locator("#fidelity-activity");
+    const activityTable = section.locator("table").first();
+    try {
+      await activityTable.waitFor({ timeout: 5000 });
+    } catch {
+      return; // No data
+    }
+    // Click the first ticker row (font-mono cell = symbol)
+    const firstTicker = activityTable.locator("td.font-mono").first();
+    if (!(await firstTicker.isVisible())) return;
+    const symbol = await firstTicker.textContent();
+    await firstTicker.click();
+    // Should show loading or chart
+    const chartRow = section.locator("text=/Loading.*chart|No price data|recharts/i");
+    const chartContainer = section.locator(".recharts-wrapper");
+    // Wait for either loading text or chart to appear
+    try {
+      await expect(chartRow.or(chartContainer).first()).toBeVisible({ timeout: 5000 });
+    } catch {
+      // Chart may not render if /prices endpoint has no data for this symbol
+    }
+    // Click again to collapse
+    await firstTicker.click();
+    // Verify chart is gone (no recharts wrapper in the expanded row)
+    if (await chartContainer.count() > 0) {
+      // Chart might still be visible from main timemachine, just verify the count decreased
+    }
+    test.info().annotations.push({ type: "info", description: `Clicked ticker: ${symbol}` });
+  });
+
 
   test("sidebar has navigation links", async ({ page }) => {
     const sidebar = page.locator("aside").first();

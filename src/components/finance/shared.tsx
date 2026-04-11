@@ -1,3 +1,6 @@
+"use client";
+
+import { useState } from "react";
 import { fmtCurrency, fmtPct } from "@/lib/format";
 import { valueColor } from "@/lib/style-helpers";
 import {
@@ -8,6 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { TickerChart } from "./ticker-chart";
 
 export const ACTIVITY_TOP_SYMBOLS = 5;
 
@@ -44,9 +48,13 @@ export function TickerTable({
   title: string;
   data: { symbol: string; count: number; total: number }[];
 }) {
+  const [expanded, setExpanded] = useState<string | null>(null);
   const top = data.slice(0, ACTIVITY_TOP_SYMBOLS);
   const rest = data.slice(ACTIVITY_TOP_SYMBOLS);
   const restTotal = rest.reduce((s, t) => s + t.total, 0);
+
+  const toggle = (sym: string) => setExpanded((prev) => (prev === sym ? null : sym));
+
   return (
     <div className="overflow-x-auto">
       <h3 className="font-semibold mb-2">{title}</h3>
@@ -60,13 +68,14 @@ export function TickerTable({
         </TableHeader>
         <TableBody>
           {top.map(({ symbol, count, total }) => (
-            <TableRow key={symbol} className="even:bg-muted/50">
-              <TableCell className="font-mono">{symbol}</TableCell>
-              <TableCell className="text-right">{count}</TableCell>
-              <TableCell className="text-right">
-                {fmtCurrency(total)}
-              </TableCell>
-            </TableRow>
+            <TickerRow
+              key={symbol}
+              symbol={symbol}
+              count={count}
+              total={total}
+              expanded={expanded === symbol}
+              onToggle={() => toggle(symbol)}
+            />
           ))}
           {rest.length > 0 && (
             <TableRow>
@@ -78,20 +87,14 @@ export function TickerTable({
                   <table className="w-full text-sm">
                     <tbody>
                       {rest.map(({ symbol, count, total }) => (
-                        <tr
+                        <RestTickerRow
                           key={symbol}
-                          className="border-b border-border even:bg-muted/50"
-                        >
-                          <td className="px-2 py-1.5 font-mono text-muted-foreground">
-                            {symbol}
-                          </td>
-                          <td className="px-2 py-1.5 text-right text-muted-foreground">
-                            {count}
-                          </td>
-                          <td className="px-2 py-1.5 text-right text-muted-foreground">
-                            {fmtCurrency(total)}
-                          </td>
-                        </tr>
+                          symbol={symbol}
+                          count={count}
+                          total={total}
+                          expanded={expanded === symbol}
+                          onToggle={() => toggle(symbol)}
+                        />
                       ))}
                     </tbody>
                   </table>
@@ -102,5 +105,75 @@ export function TickerTable({
         </TableBody>
       </Table>
     </div>
+  );
+}
+
+// ── Expandable ticker row ─────────────────────────────────────────────────
+
+function TickerRow({
+  symbol,
+  count,
+  total,
+  expanded,
+  onToggle,
+}: {
+  symbol: string;
+  count: number;
+  total: number;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <>
+      <TableRow
+        className="even:bg-muted/50 cursor-pointer hover:bg-muted/80"
+        onClick={onToggle}
+      >
+        <TableCell className="font-mono">{symbol}</TableCell>
+        <TableCell className="text-right">{count}</TableCell>
+        <TableCell className="text-right">{fmtCurrency(total)}</TableCell>
+      </TableRow>
+      {expanded && (
+        <TableRow>
+          <TableCell colSpan={3} className="p-2">
+            <TickerChart symbol={symbol} />
+          </TableCell>
+        </TableRow>
+      )}
+    </>
+  );
+}
+
+function RestTickerRow({
+  symbol,
+  count,
+  total,
+  expanded,
+  onToggle,
+}: {
+  symbol: string;
+  count: number;
+  total: number;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <>
+      <tr
+        className="border-b border-border even:bg-muted/50 cursor-pointer hover:bg-muted/80"
+        onClick={onToggle}
+      >
+        <td className="px-2 py-1.5 font-mono text-muted-foreground">{symbol}</td>
+        <td className="px-2 py-1.5 text-right text-muted-foreground">{count}</td>
+        <td className="px-2 py-1.5 text-right text-muted-foreground">{fmtCurrency(total)}</td>
+      </tr>
+      {expanded && (
+        <tr>
+          <td colSpan={3} className="px-2 py-2">
+            <TickerChart symbol={symbol} />
+          </td>
+        </tr>
+      )}
+    </>
   );
 }

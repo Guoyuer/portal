@@ -23,7 +23,7 @@ function mkDailyN(n: number): DailyPoint[] {
 }
 
 function mkFidelityTxn(overrides: Partial<FidelityTxn> = {}): FidelityTxn {
-  return { runDate: "01/15/2026", actionType: "buy", symbol: "VTI", amount: -500, ...overrides };
+  return { runDate: "01/15/2026", actionType: "buy", symbol: "VTI", amount: -500, quantity: 2, price: 250, ...overrides };
 }
 
 function mkQianjiTxn(overrides: Partial<QianjiTxn> = {}): QianjiTxn {
