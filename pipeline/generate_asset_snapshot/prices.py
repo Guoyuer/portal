@@ -109,6 +109,45 @@ def _cached_range(conn: sqlite3.Connection, symbol: str) -> tuple[date | None, d
     return None, None
 
 
+# ── Split adjustment reversal ──────────────────────────────────────────────
+
+
+def _build_split_factors(symbols: list[str]) -> dict[str, list[tuple[date, float]]]:
+    """Fetch split history for symbols and return {symbol: [(split_date, ratio), ...]}."""
+    result: dict[str, list[tuple[date, float]]] = {}
+    for sym in symbols:
+        try:
+            splits = yf.Ticker(sym).splits
+            if splits.empty:
+                continue
+            entries: list[tuple[date, float]] = []
+            for dt, ratio in splits.items():
+                d = dt.date() if hasattr(dt, "date") else dt
+                if hasattr(d, "date"):
+                    d = d.date()  # handle tz-aware Timestamp
+                entries.append((d, float(ratio)))
+            if entries:
+                result[sym] = sorted(entries)
+        except Exception:
+            continue
+    if result:
+        print(f"  Splits found: {', '.join(f'{s} ({len(v)})' for s, v in result.items())}")
+    return result
+
+
+def _reverse_split_factor(d: date, splits: list[tuple[date, float]]) -> float:
+    """Compute the cumulative factor to reverse Yahoo's retroactive split adjustment.
+
+    Yahoo adjusts all historical Close prices for splits. To recover the actual
+    market close, multiply by the product of all split ratios after the given date.
+    """
+    factor = 1.0
+    for split_date, ratio in splits:
+        if d < split_date:
+            factor *= ratio
+    return factor
+
+
 # ── Price fetching + storage ────────────────────────────────────────────────
 
 
@@ -159,17 +198,22 @@ def fetch_and_store_prices(
             else:
                 close_df = df.get("Close", pd.DataFrame())
 
+            # Fetch split data to reverse Yahoo's retroactive split adjustment
+            split_factors = _build_split_factors(sorted(syms))
+
             rows_inserted = 0
             for sym in close_df.columns:
                 hp_start, hp_end_raw = holding_periods.get(sym, (batch_start, None))
                 hp_end = hp_end_raw or end
+                factors = split_factors.get(sym, [])
                 for dt, price in close_df[sym].dropna().items():
                     d = dt.date() if hasattr(dt, "date") else dt
                     if d < hp_start or d > hp_end:
                         continue
+                    unadj = float(price) * _reverse_split_factor(d, factors)
                     conn.execute(
                         "INSERT OR REPLACE INTO daily_close (symbol, date, close) VALUES (?, ?, ?)",
-                        (sym, d.isoformat(), float(price)),
+                        (sym, d.isoformat(), unadj),
                     )
                     rows_inserted += 1
             conn.commit()
