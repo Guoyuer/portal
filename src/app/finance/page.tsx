@@ -14,6 +14,8 @@ import { MarketContext } from "@/components/finance/market-context";
 import { NetWorthGrowth } from "@/components/finance/net-worth-growth";
 import { BackToTop } from "@/components/layout/back-to-top";
 import { TimemachineSection } from "@/components/finance/timemachine";
+import { FinanceSkeleton } from "@/components/loading-skeleton";
+import { ErrorBoundary } from "@/components/error-boundary";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -67,13 +69,7 @@ export default function FinancePage() {
   }, [tl.syncMeta]);
 
   // ── Loading state ─────────────────────────────────────────────────
-  if (tl.loading) {
-    return (
-      <div className="max-w-5xl mx-auto py-20 text-center text-muted-foreground">
-        Loading...
-      </div>
-    );
-  }
+  if (tl.loading) return <FinanceSkeleton />;
 
   if (tl.error) {
     return (
@@ -85,6 +81,7 @@ export default function FinancePage() {
   }
 
   return (
+    <ErrorBoundary>
     <div className="max-w-5xl mx-auto space-y-10">
       {/* Header */}
       <div>
@@ -198,5 +195,6 @@ export default function FinancePage() {
 
       <BackToTop />
     </div>
+    </ErrorBoundary>
   );
 }

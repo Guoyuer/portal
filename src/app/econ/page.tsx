@@ -8,6 +8,8 @@ import { SectionHeader, SectionBody } from "@/components/finance/shared";
 import { MacroCards } from "@/components/econ/macro-cards";
 import { TimeSeriesChart, type LineConfig } from "@/components/econ/time-series-chart";
 import { BackToTop } from "@/components/layout/back-to-top";
+import { EconSkeleton } from "@/components/loading-skeleton";
+import { ErrorBoundary } from "@/components/error-boundary";
 
 // ── Range filter ─────────────────────────────────────────────────────
 
@@ -85,13 +87,7 @@ export default function EconPage() {
     [data, range],
   );
 
-  if (loading) {
-    return (
-      <div className="max-w-5xl mx-auto py-20 text-center text-muted-foreground">
-        Loading economic data...
-      </div>
-    );
-  }
+  if (loading) return <EconSkeleton />;
 
   if (error || !data) {
     return (
@@ -103,6 +99,7 @@ export default function EconPage() {
   }
 
   return (
+    <ErrorBoundary>
     <div className="max-w-5xl mx-auto space-y-10">
       {/* Header */}
       <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">
@@ -170,5 +167,6 @@ export default function EconPage() {
 
       <BackToTop />
     </div>
+    </ErrorBoundary>
   );
 }
