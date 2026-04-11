@@ -59,18 +59,19 @@ def _slim_table(name: str, create_stmt: str) -> str:
 
     kept: list[str] = []
     for line in lines:
-        # Match column definitions: starts with a column name
+        # Check for PRIMARY KEY constraint before column matching
+        if line.upper().startswith("PRIMARY KEY"):
+            pk_cols_m = re.search(r"\(([^)]+)\)", line)
+            if pk_cols_m:
+                pk_cols = [c.strip() for c in pk_cols_m.group(1).split(",")]
+                if all(c in cols or c == "id" for c in pk_cols):
+                    kept.append(line)
+            continue
         col_match = re.match(r"(\w+)\s", line)
         if not col_match:
-            # Could be a constraint like PRIMARY KEY — keep if relevant
-            if line.upper().startswith("PRIMARY KEY") and "id" in cols:
-                kept.append(line)
             continue
         col_name = col_match.group(1)
-        if col_name == "id":
-            kept.append(line)
-        elif col_name in cols:
-            # Strip NOT NULL DEFAULT ... to keep D1 schema lean
+        if col_name == "id" or col_name in cols:
             kept.append(line)
 
     # Build the new CREATE TABLE

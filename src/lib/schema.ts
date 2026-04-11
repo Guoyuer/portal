@@ -71,6 +71,8 @@ const FidelityTxnSchema = z.object({
   actionType: z.string(),
   symbol: z.string(),
   amount: z.number(),
+  quantity: z.number().default(0),
+  price: z.number().default(0),
 });
 
 const QianjiTxnSchema = z.object({
@@ -132,3 +134,9 @@ export type ActivityResponse = {
   sellsBySymbol: { symbol: string; count: number; total: number }[];
   dividendsBySymbol: { symbol: string; count: number; total: number }[];
 };
+
+// ── Ticker price endpoint (/prices/:symbol) ───────────────────────────
+
+export type TickerPricePoint = { date: string; close: number };
+export type TickerTransaction = { runDate: string; actionType: string; quantity: number; price: number; amount: number };
+export type TickerPriceResponse = { symbol: string; prices: TickerPricePoint[]; transactions: TickerTransaction[] };

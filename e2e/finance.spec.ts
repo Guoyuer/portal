@@ -147,6 +147,74 @@ test.describe("Finance Report", () => {
     }
   });
 
+  test("clicking ticker row expands inline price chart", async ({ page }) => {
+    const section = page.locator("#fidelity-activity");
+    const activityTable = section.locator("table").first();
+    try {
+      await activityTable.waitFor({ timeout: 5000 });
+    } catch {
+      return; // No data
+    }
+    const firstTicker = activityTable.locator("td.font-mono").first();
+    if (!(await firstTicker.isVisible())) return;
+    await firstTicker.click();
+    // Should show loading text, then chart or "no price data"
+    const chartOrFallback = section.locator("text=/Loading.*chart/i").or(section.locator(".recharts-wrapper")).or(section.locator("text=/No price data/i"));
+    await expect(chartOrFallback.first()).toBeVisible({ timeout: 8000 });
+    // Click again to collapse
+    await firstTicker.click();
+  });
+
+  test("ticker chart shows buy markers and avg cost line", async ({ page }) => {
+    const section = page.locator("#fidelity-activity");
+    const activityTable = section.locator("table").first();
+    try {
+      await activityTable.waitFor({ timeout: 5000 });
+    } catch {
+      return;
+    }
+    // Click the first ticker with trades
+    const firstTicker = activityTable.locator("td.font-mono").first();
+    if (!(await firstTicker.isVisible())) return;
+    await firstTicker.click();
+    const chart = section.locator(".recharts-wrapper").first();
+    if (!(await chart.isVisible({ timeout: 8000 }).catch(() => false))) return;
+    // Should have: price line, scatter series (buy/sell), reference line (avg cost)
+    await expect(chart.locator(".recharts-line")).toBeVisible();
+    expect(await chart.locator(".recharts-scatter").count()).toBeGreaterThanOrEqual(1);
+    await expect(chart.locator(".recharts-reference-line")).toBeVisible();
+    await firstTicker.click(); // collapse
+  });
+
+  test("ticker with no prices shows fallback message", async ({ page }) => {
+    const section = page.locator("#fidelity-activity");
+    const activityTable = section.locator("table").first();
+    try {
+      await activityTable.waitFor({ timeout: 5000 });
+    } catch {
+      return;
+    }
+    // Find SPAXX (money market fund, no daily close prices) — may be in top rows or "more" section
+    const allTickers = section.locator("td.font-mono");
+    let found = false;
+    for (let i = 0; i < await allTickers.count(); i++) {
+      const text = await allTickers.nth(i).textContent();
+      if (text?.includes("SPAXX")) {
+        // Expand "more" section if SPAXX is inside one
+        const details = allTickers.nth(i).locator("xpath=ancestor::details");
+        if (await details.count() > 0) {
+          await details.locator("summary").click();
+          await page.waitForTimeout(300);
+        }
+        await allTickers.nth(i).click();
+        found = true;
+        break;
+      }
+    }
+    if (!found) return;
+    await expect(page.getByText(/Money market fund/)).toBeVisible({ timeout: 5000 });
+  });
+
 
   test("sidebar has navigation links", async ({ page }) => {
     const sidebar = page.locator("aside").first();

@@ -67,6 +67,30 @@ export default {
       }
     }
 
+    // ── GET /prices/:symbol — on-demand daily close prices + transactions ────
+    const priceMatch = url.pathname.match(/^\/prices\/([A-Za-z0-9.^=-]+)$/);
+    if (priceMatch) {
+      const symbol = decodeURIComponent(priceMatch[1]).toUpperCase();
+      try {
+        const [priceRows, txnRows] = await Promise.all([
+          env.DB.prepare("SELECT date, close FROM daily_close WHERE symbol = ? ORDER BY date")
+            .bind(symbol).all(),
+          env.DB.prepare(
+            "SELECT run_date AS runDate, action_type AS actionType, quantity, price, amount FROM fidelity_transactions WHERE symbol = ? ORDER BY id"
+          ).bind(symbol).all(),
+        ]);
+        return Response.json(
+          { symbol, prices: priceRows.results, transactions: txnRows.results },
+          { headers: { ...corsHeaders(origin), "Cache-Control": "no-cache" } },
+        );
+      } catch (e) {
+        return Response.json(
+          { error: "Database query failed", detail: e instanceof Error ? e.message : "unknown" },
+          { status: 502, headers: corsHeaders(origin) },
+        );
+      }
+    }
+
     if (url.pathname !== "/timeline") {
       return new Response("Not found", { status: 404, headers: corsHeaders(origin) });
     }
