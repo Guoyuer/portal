@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Portal",
+  title: "Yuer's Dashboard",
   description: "Personal dashboard",
   robots: { index: false, follow: false },
 };

@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import type { BundleState, CrossCheck } from "@/lib/use-bundle";
 import {
   Area,
@@ -13,8 +13,9 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import type { TooltipContentProps } from "recharts/types/component/Tooltip";
 import type { DailyPoint, CashflowResponse, ActivityResponse } from "@/lib/schema";
-import { fmtCurrency, fmtCurrencyShort, fmtDateLong, fmtDateMonthYear } from "@/lib/format";
+import { fmtCurrency, fmtCurrencyShort, fmtDateLong, fmtDateMedium, fmtDateMonthYear } from "@/lib/format";
 import { useIsDark, useIsMobile } from "@/lib/hooks";
 import { tooltipStyle, gridStroke, axisProps, brushColors } from "@/lib/chart-styles";
 import { CATEGORIES, CAT_COLOR_BY_KEY } from "@/lib/compute";
@@ -24,6 +25,23 @@ import { CATEGORIES, CAT_COLOR_BY_KEY } from "@/lib/compute";
 const CAT_LABELS: Record<string, string> = Object.fromEntries(
   CATEGORIES.map((c) => [c.key, c.name]),
 );
+
+function AreaTooltip({ active, payload, label }: TooltipContentProps) {
+  if (!active || !payload?.length) return null;
+  const isDark = typeof document !== "undefined" && document.documentElement.classList.contains("dark");
+  const style = tooltipStyle(isDark);
+  const fmtLabel = new Date(Number(label)).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  return (
+    <div style={style}>
+      <p style={{ fontWeight: 600, marginBottom: 2 }}>{fmtLabel}</p>
+      {payload.map((entry, i) => (
+        <p key={i} style={{ color: entry.color, margin: 0 }}>
+          {CAT_LABELS[String(entry.name)] ?? String(entry.name)} : {fmtCurrency(Number(entry.value))}
+        </p>
+      ))}
+    </div>
+  );
+}
 
 const CAT_KEYS = ["safeNet", "crypto", "nonUsEquity", "usEquity"] as const;
 
@@ -57,6 +75,14 @@ export function TimemachineChart({
   return (
     <ResponsiveContainer width="100%" height={isMobile ? 240 : 280}>
       <AreaChart data={chartData} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
+        <defs>
+          {CAT_KEYS.map((key) => (
+            <linearGradient key={key} id={`tmGrad-${key}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={CAT_COLOR_BY_KEY[key]} stopOpacity={0.9} />
+              <stop offset="100%" stopColor={CAT_COLOR_BY_KEY[key]} stopOpacity={0.4} />
+            </linearGradient>
+          ))}
+        </defs>
         <CartesianGrid strokeDasharray="3 3" stroke={gridStroke(isDark)} vertical={false} />
         <XAxis
           dataKey="ts"
@@ -72,17 +98,7 @@ export function TimemachineChart({
           {...axisProps(isDark)}
           axisLine={false}
         />
-        <Tooltip
-          contentStyle={tooltipStyle(isDark)}
-          formatter={(value, name) => [fmtCurrency(Number(value)), CAT_LABELS[String(name)] ?? String(name)]}
-          labelFormatter={(ts) =>
-            new Date(Number(ts)).toLocaleDateString("en-US", {
-              month: "long",
-              day: "numeric",
-              year: "numeric",
-            })
-          }
-        />
+        <Tooltip content={AreaTooltip} />
         {CAT_KEYS.map((key) => (
           <Area
             key={key}
@@ -91,8 +107,8 @@ export function TimemachineChart({
             stackId="1"
             stroke="none"
             strokeWidth={0}
-            fill={CAT_COLOR_BY_KEY[key]}
-            fillOpacity={0.65}
+            fill={`url(#tmGrad-${key})`}
+            fillOpacity={1}
             isAnimationActive={false}
           />
         ))}
@@ -130,31 +146,41 @@ export function StickyBrush({
   onBrushChange: (state: { startIndex?: number; endIndex?: number }) => void;
 }) {
   const isDark = useIsDark();
+  const [range, setRange] = useState({ start: defaultStartIndex, end: defaultEndIndex });
   const chartData = daily.map((d) => ({ ...d, ts: new Date(d.date).getTime() }));
   if (daily.length === 0) return null;
 
-  const fmtTick = (ts: number) =>
-    new Date(ts).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+  const startLabel = fmtDateMedium(daily[range.start]?.date ?? daily[0].date);
+  const endLabel = fmtDateMedium(daily[range.end]?.date ?? daily[daily.length - 1].date);
+
+  const handleChange = (state: { startIndex?: number; endIndex?: number }) => {
+    setRange({ start: state.startIndex ?? range.start, end: state.endIndex ?? range.end });
+    onBrushChange(state);
+  };
 
   return (
     <div className="fixed bottom-0 left-0 right-0 md:left-56 z-40 bg-background/80 backdrop-blur-md border-t border-border px-4 py-2">
-      <div className="max-w-5xl mx-auto">
-        <ResponsiveContainer width="100%" height={34}>
-          <AreaChart data={chartData} margin={{ top: 0, right: 20, left: 10, bottom: 0 }}>
-            <XAxis dataKey="ts" hide />
-            <YAxis hide />
-            <Area type="monotone" dataKey="total" stroke="none" fill={isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)"} isAnimationActive={false} />
-            <Brush
-              dataKey="ts"
-              height={28}
-              {...brushColors(isDark)}
-              startIndex={defaultStartIndex}
-              endIndex={defaultEndIndex}
-              onChange={onBrushChange}
-              tickFormatter={fmtTick}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
+      <div className="max-w-5xl mx-auto flex items-center gap-3">
+        <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap w-[90px] text-right">{startLabel}</span>
+        <div className="flex-1 min-w-0">
+          <ResponsiveContainer width="100%" height={34}>
+            <AreaChart data={chartData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+              <XAxis dataKey="ts" hide />
+              <YAxis hide />
+              <Area type="monotone" dataKey="total" stroke="none" fill={isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)"} isAnimationActive={false} />
+              <Brush
+                dataKey="ts"
+                height={28}
+                {...brushColors(isDark)}
+                startIndex={defaultStartIndex}
+                endIndex={defaultEndIndex}
+                onChange={handleChange}
+                tickFormatter={() => ""}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+        <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap w-[90px]">{endLabel}</span>
       </div>
     </div>
   );
@@ -178,6 +204,7 @@ export function TimemachineSummary({
   if (!snapshot) return null;
 
   const total = snapshot.total;
+  const netWorth = total + snapshot.liabilities;
   const catEntries = CAT_KEYS.map((key) => ({
     key,
     value: snapshot[key],
@@ -186,15 +213,17 @@ export function TimemachineSummary({
 
   const rangeStats = (cashflow || activity)
     ? [
+        { label: "Net Savings", value: cashflow?.netCashflow ?? 0 },
+        { label: "Investments", value: activity?.buysBySymbol.reduce((s, b) => s + b.total, 0) ?? 0 },
+        { label: "CC Payments", value: cashflow?.ccPayments ?? 0 },
         { label: "Income", value: cashflow?.totalIncome ?? 0 },
         { label: "Expenses", value: cashflow?.totalExpenses ?? 0 },
-        { label: "Buys", value: activity?.buysBySymbol.reduce((s, b) => s + b.total, 0) ?? 0 },
         { label: "Dividends", value: activity?.dividendsBySymbol.reduce((s, d) => s + d.total, 0) ?? 0 },
       ]
     : [];
 
   const rangeLabel = startDate
-    ? `${fmtDateMonthYear(startDate)} — ${fmtDateMonthYear(snapshot.date)}`
+    ? `${fmtDateMedium(startDate)} — ${fmtDateMedium(snapshot.date)}`
     : "";
 
   return (
@@ -203,7 +232,7 @@ export function TimemachineSummary({
       <div className="flex items-baseline justify-between">
         <p className="text-sm text-muted-foreground" data-testid="tm-date">{fmtDateLong(snapshot.date)}</p>
         <p className="text-xl font-bold tabular-nums" data-testid="tm-total">
-          {fmtCurrency(total)}
+          {fmtCurrency(netWorth)}
         </p>
       </div>
 
@@ -246,7 +275,7 @@ export function TimemachineSummary({
           <div className="flex items-center justify-between text-xs mb-1">
             <p className="text-muted-foreground font-medium">{rangeLabel}</p>
           </div>
-          <div className="grid grid-cols-4 gap-2 text-xs">
+          <div className="grid grid-cols-3 gap-2 text-xs">
             {rangeStats.map(({ label, value }) => (
               <div key={label}>
                 <p className="text-muted-foreground">{label}</p>

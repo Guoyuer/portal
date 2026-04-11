@@ -156,7 +156,7 @@ export function CategorySummary({
               <TableHead className="text-right hidden sm:table-cell">Value</TableHead>
               <TableHead className="text-right">Actual</TableHead>
               <TableHead className="text-right">Target</TableHead>
-              <TableHead className="text-right">Deviation</TableHead>
+              <TableHead className="text-right hidden sm:table-cell">Dev</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -195,7 +195,7 @@ export function CategorySummary({
                       {fmtPct(sub.pct, false)}
                     </TableCell>
                     <TableCell />
-                    <TableCell />
+                    <TableCell className="hidden sm:table-cell" />
                   </TableRow>
                 ))}
               </Fragment>
@@ -237,7 +237,7 @@ export function CategorySummary({
                         {fmtPct(cat.pct, false)}
                       </TableCell>
                       <TableCell />
-                      <TableCell />
+                      <TableCell className="hidden sm:table-cell" />
                     </TableRow>
                   ))}
                 </Fragment>
