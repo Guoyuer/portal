@@ -146,12 +146,12 @@ def fetch_and_store_prices(
                     auto_adjust=True,
                     progress=False,
                 )
-            except Exception:  # noqa: BLE001
-                print(f"WARNING: yfinance download failed for {len(syms)} symbols, using cached data")
-                return
+            except Exception:
+                print(f"ERROR: yfinance download failed for {len(syms)} symbols")
+                raise
             if df.empty:
-                print("WARNING: yfinance returned empty DataFrame, using cached data")
-                return
+                msg = f"yfinance returned empty DataFrame for {len(syms)} symbols"
+                raise RuntimeError(msg)
             if isinstance(df.columns, pd.MultiIndex):
                 close_df = df["Close"]
             elif len(syms) == 1:
@@ -198,12 +198,12 @@ def fetch_and_store_cny_rates(db_path: Path, start: date, end: date) -> None:
                     auto_adjust=True,
                     progress=False,
                 )
-            except Exception:  # noqa: BLE001
-                print("WARNING: yfinance CNY rate download failed, using cached data")
-                return
+            except Exception:
+                print("ERROR: yfinance CNY rate download failed")
+                raise
             if df.empty:
-                print("WARNING: yfinance returned empty CNY data, using cached data")
-                return
+                msg = "yfinance returned empty CNY data"
+                raise RuntimeError(msg)
             if isinstance(df.columns, pd.MultiIndex):
                 close = df["Close"].iloc[:, 0]
             elif "Close" in df.columns:
