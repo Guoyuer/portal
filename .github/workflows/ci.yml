@@ -25,6 +25,7 @@ jobs:
     permissions:
       contents: read
       deployments: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -41,8 +42,14 @@ jobs:
         env:
           NEXT_PUBLIC_TIMELINE_URL: ${{ secrets.NEXT_PUBLIC_TIMELINE_URL }}
 
-      # ── Unit tests ──────────────────────────────────────────────
-      - run: npm test
+      # ── Unit tests + coverage ──────────────────────────────────
+      - run: npm run test:coverage
+      - name: Coverage report to PR
+        if: github.event_name == 'pull_request'
+        uses: davelosert/vitest-coverage-report-action@v2
+        with:
+          json-summary-path: coverage/coverage-summary.json
+          json-final-path: coverage/coverage-final.json
 
       # ── E2E tests ──────────────────────────────────────────────
       - name: Cache Playwright browsers

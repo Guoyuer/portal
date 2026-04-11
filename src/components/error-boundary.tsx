@@ -4,6 +4,7 @@ import { Component, type ReactNode } from "react";
 
 interface Props {
   children: ReactNode;
+  fallback?: ReactNode;
 }
 
 interface State {
@@ -19,6 +20,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
   render() {
     if (this.state.error) {
+      if (this.props.fallback) return this.props.fallback;
       return (
         <div className="max-w-5xl mx-auto py-20 text-center">
           <p className="text-red-500 mb-2">Something went wrong</p>
@@ -34,4 +36,13 @@ export class ErrorBoundary extends Component<Props, State> {
     }
     return this.props.children;
   }
+}
+
+/** Inline fallback for section-level error boundaries */
+export function SectionError({ label }: { label: string }) {
+  return (
+    <div className="liquid-glass p-4 text-center text-sm text-red-400">
+      {label} failed to render
+    </div>
+  );
 }
