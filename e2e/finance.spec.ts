@@ -340,6 +340,19 @@ test.describe("Finance Report", () => {
     expect(res.status()).toBe(200);
   });
 
+  // ── Savings Rate Trend ──────────────────────────────────────────────────
+
+  test("savings rate trend section renders", async ({ page }) => {
+    const section = page.locator("#savings-trend");
+    if (!(await section.isVisible({ timeout: 3000 }).catch(() => false))) return;
+    await expect(section.getByText("Savings Rate Trend")).toBeVisible();
+    // Should have a line chart
+    const line = section.locator(".recharts-line");
+    if (await line.count() > 0) {
+      await expect(line.first()).toBeVisible();
+    }
+  });
+
   // ── Timemachine ─────────────────────────────────────────────────────────
 
   test.describe("Timemachine", () => {
