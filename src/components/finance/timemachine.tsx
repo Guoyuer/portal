@@ -57,14 +57,6 @@ export function TimemachineChart({
   return (
     <ResponsiveContainer width="100%" height={isMobile ? 240 : 280}>
       <AreaChart data={chartData} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
-        <defs>
-          {CAT_KEYS.map((key) => (
-            <linearGradient key={key} id={`tm-${key}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={CAT_COLOR_BY_KEY[key]} stopOpacity={0.85} />
-              <stop offset="100%" stopColor={CAT_COLOR_BY_KEY[key]} stopOpacity={0.3} />
-            </linearGradient>
-          ))}
-        </defs>
         <CartesianGrid strokeDasharray="3 3" stroke={gridStroke(isDark)} vertical={false} />
         <XAxis
           dataKey="ts"
@@ -99,7 +91,8 @@ export function TimemachineChart({
             stackId="1"
             stroke="none"
             strokeWidth={0}
-            fill={`url(#tm-${key})`}
+            fill={CAT_COLOR_BY_KEY[key]}
+            fillOpacity={0.65}
             isAnimationActive={false}
           />
         ))}
