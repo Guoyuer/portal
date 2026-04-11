@@ -67,17 +67,19 @@ CREATE TABLE IF NOT EXISTS computed_holdings_detail (
     vs_high      REAL
 );
 
+CREATE TABLE IF NOT EXISTS econ_series (
+    key   TEXT NOT NULL,
+    date  TEXT NOT NULL,
+    value REAL NOT NULL,
+    PRIMARY KEY (key, date)
+);
+
 -- ── Indexes ───────────────────────────────────────────────────────────────────
 
 CREATE INDEX IF NOT EXISTS idx_fidelity_date     ON fidelity_transactions(run_date);
 CREATE INDEX IF NOT EXISTS idx_daily_tickers_date ON computed_daily_tickers(date);
 CREATE INDEX IF NOT EXISTS idx_qianji_txn_date ON qianji_transactions(date);
-
--- Sync metadata (last_sync timestamp, data coverage)
-CREATE TABLE IF NOT EXISTS sync_meta (
-    key   TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-);
+CREATE INDEX IF NOT EXISTS idx_econ_series_key ON econ_series(key);
 
 -- ── camelCase views (match TypeScript type contract) ──────────────────────────
 
@@ -111,3 +113,6 @@ CREATE VIEW IF NOT EXISTS v_holdings_detail AS
 SELECT ticker, month_return AS monthReturn, start_value AS startValue,
   end_value AS endValue, high_52w AS high52w, low_52w AS low52w, vs_high AS vsHigh
 FROM computed_holdings_detail ORDER BY month_return DESC;
+
+CREATE VIEW IF NOT EXISTS v_econ_series AS
+SELECT key, date, value FROM econ_series ORDER BY key, date;
