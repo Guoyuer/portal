@@ -150,6 +150,17 @@ CREATE TABLE IF NOT EXISTS replay_checkpoint (
     cash       TEXT NOT NULL,
     cost_basis TEXT NOT NULL
 );
+
+-- Calibration log: records drift between replay and positions CSV
+CREATE TABLE IF NOT EXISTS calibration_log (
+    date              TEXT PRIMARY KEY,
+    days_since_last   INTEGER,
+    total_cb_drift    REAL NOT NULL DEFAULT 0,
+    total_cb_pct      REAL NOT NULL DEFAULT 0,
+    positions_ok      INTEGER NOT NULL DEFAULT 0,
+    positions_total   INTEGER NOT NULL DEFAULT 0,
+    details           TEXT NOT NULL DEFAULT '[]'
+);
 """
 
 _INDEXES = """
