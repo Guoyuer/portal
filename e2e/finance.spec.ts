@@ -194,22 +194,25 @@ test.describe("Finance Report", () => {
     } catch {
       return;
     }
-    // Expand "more" and find SPAXX (money market, no daily close prices)
-    const moreBtn = section.locator("summary").filter({ hasText: /and \d+ more/ }).first();
-    if (!(await moreBtn.isVisible())) return;
-    await moreBtn.click();
-    const moreRows = section.locator("details").first().locator("tr");
+    // Find SPAXX (money market fund, no daily close prices) — may be in top rows or "more" section
+    const allTickers = section.locator("td.font-mono");
     let found = false;
-    for (let i = 0; i < await moreRows.count(); i++) {
-      const text = await moreRows.nth(i).textContent();
+    for (let i = 0; i < await allTickers.count(); i++) {
+      const text = await allTickers.nth(i).textContent();
       if (text?.includes("SPAXX")) {
-        await moreRows.nth(i).click();
+        // Expand "more" section if SPAXX is inside one
+        const details = allTickers.nth(i).locator("xpath=ancestor::details");
+        if (await details.count() > 0) {
+          await details.locator("summary").click();
+          await page.waitForTimeout(300);
+        }
+        await allTickers.nth(i).click();
         found = true;
         break;
       }
     }
     if (!found) return;
-    await expect(section.getByText("No price data for SPAXX")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(/Money market fund/)).toBeVisible({ timeout: 5000 });
   });
 
 

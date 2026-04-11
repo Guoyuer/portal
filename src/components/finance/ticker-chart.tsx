@@ -216,7 +216,11 @@ export function TickerChart({ symbol }: { symbol: string }) {
 
   if (error) return <p className="text-xs text-red-400 py-2">Failed to load chart: {error}</p>;
   if (!data) return <p className="text-xs text-muted-foreground py-2 animate-pulse">Loading {symbol} chart...</p>;
-  if (data.length === 0) return <p className="text-xs text-muted-foreground py-2">No price data for {symbol}</p>;
+  if (data.length === 0) {
+    const isMM = /^(SPAXX|FDRXX|FZFXX|FCASH)$/.test(symbol);
+    const msg = isMM ? "Money market fund \u2014 price fixed at $1.00" : `No price data for ${symbol}`;
+    return <p className="text-xs text-muted-foreground py-2">{msg}</p>;
+  }
 
   return <TickerChartInner data={data} avgCost={avgCost} />;
 }

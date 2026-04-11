@@ -43,17 +43,18 @@ const TIMELINE = {
     { date: d.date, ticker: "Chase", value: d.safeNet * 0.3, category: "Safe Net", subtype: "checking", costBasis: d.safeNet * 0.3, gainLoss: 0, gainLossPct: 0 },
   ]),
   fidelityTxns: [
-    { runDate: "01/15/2024", actionType: "deposit", symbol: "", amount: 5000 },
-    { runDate: "01/15/2024", actionType: "buy", symbol: "VOO", amount: -4000 },
-    { runDate: "02/15/2024", actionType: "deposit", symbol: "", amount: 5000 },
-    { runDate: "02/15/2024", actionType: "buy", symbol: "VOO", amount: -4000 },
-    { runDate: "03/15/2024", actionType: "dividend", symbol: "VOO", amount: 150 },
-    { runDate: "03/15/2024", actionType: "sell", symbol: "AAPL", amount: 2000 },
+    { runDate: "01/15/2024", actionType: "deposit", symbol: "", amount: 5000, quantity: 0, price: 0 },
+    { runDate: "01/15/2024", actionType: "buy", symbol: "VOO", amount: -4000, quantity: 8, price: 500 },
+    { runDate: "02/15/2024", actionType: "deposit", symbol: "", amount: 5000, quantity: 0, price: 0 },
+    { runDate: "02/15/2024", actionType: "buy", symbol: "VOO", amount: -4000, quantity: 7.5, price: 533 },
+    { runDate: "03/15/2024", actionType: "dividend", symbol: "VOO", amount: 150, quantity: 0, price: 0 },
+    { runDate: "03/15/2024", actionType: "sell", symbol: "AAPL", amount: 2000, quantity: -10, price: 200 },
     // Recent transactions (within default brush range)
-    { runDate: "01/15/2026", actionType: "deposit", symbol: "", amount: 5000 },
-    { runDate: "01/15/2026", actionType: "buy", symbol: "VOO", amount: -4000 },
-    { runDate: "02/15/2026", actionType: "buy", symbol: "SCHG", amount: -3000 },
-    { runDate: "03/15/2026", actionType: "dividend", symbol: "VOO", amount: 200 },
+    { runDate: "01/15/2026", actionType: "deposit", symbol: "", amount: 5000, quantity: 0, price: 0 },
+    { runDate: "01/15/2026", actionType: "buy", symbol: "VOO", amount: -4000, quantity: 6, price: 667 },
+    { runDate: "02/15/2026", actionType: "buy", symbol: "SCHG", amount: -3000, quantity: 10, price: 300 },
+    { runDate: "03/15/2026", actionType: "dividend", symbol: "VOO", amount: 200, quantity: 0, price: 0 },
+    { runDate: "01/15/2026", actionType: "buy", symbol: "SPAXX", amount: -100, quantity: 100, price: 1 },
   ],
   qianjiTxns: [
     { date: "2024-01-31", type: "income", category: "Salary", amount: 8000 },
@@ -126,6 +127,46 @@ const server = http.createServer((req, res) => {
   if (url.pathname === "/timeline") {
     res.writeHead(200, CORS);
     res.end(JSON.stringify(TIMELINE));
+    return;
+  }
+
+  // /prices/:symbol — mock price history for ticker chart E2E tests
+  const priceMatch = url.pathname.match(/^\/prices\/([A-Za-z0-9.^=-]+)$/);
+  if (priceMatch) {
+    const symbol = decodeURIComponent(priceMatch[1]).toUpperCase();
+    const txns = TIMELINE.fidelityTxns.filter((t) => t.symbol === symbol);
+
+    // Generate mock prices for known traded symbols
+    const tradedSymbols = new Set(TIMELINE.fidelityTxns.filter((t) => t.symbol).map((t) => t.symbol));
+    const moneyMarket = new Set(["SPAXX", "FDRXX", "FZFXX", "FCASH"]);
+    let prices: { date: string; close: number }[] = [];
+
+    if (tradedSymbols.has(symbol) && !moneyMarket.has(symbol)) {
+      // Generate 250 trading days of price data
+      const base = new Date("2024-01-02");
+      for (let i = 0; i < 600; i++) {
+        const d = new Date(base);
+        d.setDate(d.getDate() + i);
+        if (d.getDay() === 0 || d.getDay() === 6) continue;
+        prices.push({
+          date: d.toISOString().slice(0, 10),
+          close: 500 + Math.sin(i / 60) * 50 + i * 0.2,
+        });
+      }
+    }
+
+    res.writeHead(200, CORS);
+    res.end(JSON.stringify({
+      symbol,
+      prices,
+      transactions: txns.map((t) => ({
+        runDate: t.runDate,
+        actionType: t.actionType,
+        quantity: t.quantity,
+        price: t.price,
+        amount: t.amount,
+      })),
+    }));
     return;
   }
 
