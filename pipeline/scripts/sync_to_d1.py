@@ -187,7 +187,7 @@ def main() -> None:
 
     conn.close()
 
-    combined = "BEGIN;\n" + "\n\n".join(all_sql) + "\nCOMMIT;\n"
+    combined = "\n\n".join(all_sql) + "\n"
 
     if args.dry_run:
         print(f"\n[dry-run] Generated {total_rows} total rows, SQL not executed")
