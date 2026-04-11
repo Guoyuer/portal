@@ -74,18 +74,18 @@ CREATE TABLE IF NOT EXISTS econ_series (
     PRIMARY KEY (key, date)
 );
 
--- Sync metadata (last_sync timestamp, data coverage)
-CREATE TABLE IF NOT EXISTS sync_meta (
-    key   TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-);
-
 -- ── Indexes ───────────────────────────────────────────────────────────────────
 
 CREATE INDEX IF NOT EXISTS idx_fidelity_date     ON fidelity_transactions(run_date);
 CREATE INDEX IF NOT EXISTS idx_daily_tickers_date ON computed_daily_tickers(date);
 CREATE INDEX IF NOT EXISTS idx_qianji_txn_date ON qianji_transactions(date);
 CREATE INDEX IF NOT EXISTS idx_econ_series_key ON econ_series(key);
+
+-- Sync metadata (last_sync timestamp, data coverage)
+CREATE TABLE IF NOT EXISTS sync_meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 
 -- ── camelCase views (match TypeScript type contract) ──────────────────────────
 
