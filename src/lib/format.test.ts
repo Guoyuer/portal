@@ -8,20 +8,31 @@ describe("fmtCurrency", () => {
     expect(fmtCurrency(0)).toBe("$0.00");
   });
 
-  it("formats small values with 2 decimals", () => {
+  it("small values show 2 decimals", () => {
     expect(fmtCurrency(9.99)).toBe("$9.99");
     expect(fmtCurrency(0.01)).toBe("$0.01");
     expect(fmtCurrency(5)).toBe("$5.00");
   });
 
-  it("formats values >= 10 with 0 decimals", () => {
-    expect(fmtCurrency(10)).toBe("$10");
+  it("medium values show 2 decimals", () => {
+    expect(fmtCurrency(10.5)).toBe("$10.50");
+  });
+
+  it("values under 1000 show 2 decimals", () => {
+    expect(fmtCurrency(999.01)).toBe("$999.01");
+  });
+
+  it("values at 1000+ show 0 decimals", () => {
     expect(fmtCurrency(1234)).toBe("$1,234");
     expect(fmtCurrency(1234567)).toBe("$1,234,567");
   });
 
+  it("large values show 0 decimals", () => {
+    expect(fmtCurrency(50000)).toBe("$50,000");
+  });
+
   it("formats negative values", () => {
-    expect(fmtCurrency(-100)).toBe("-$100");
+    expect(fmtCurrency(-50.5)).toBe("-$50.50");
     expect(fmtCurrency(-5.5)).toBe("-$5.50");
     expect(fmtCurrency(-0.01)).toBe("-$0.01");
   });
@@ -50,7 +61,7 @@ describe("fmtCurrencyShort", () => {
   });
 
   it("falls through to fmtCurrency for small values", () => {
-    expect(fmtCurrencyShort(999)).toBe("$999");
+    expect(fmtCurrencyShort(999)).toBe("$999.00");
     expect(fmtCurrencyShort(5.5)).toBe("$5.50");
   });
 
@@ -64,7 +75,7 @@ describe("fmtCurrencyShort", () => {
   });
 
   it("formats small negatives via fmtCurrency", () => {
-    expect(fmtCurrencyShort(-500)).toBe("-$500");
+    expect(fmtCurrencyShort(-500)).toBe("-$500.00");
   });
 });
 

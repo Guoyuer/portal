@@ -7,6 +7,7 @@ import {
   AreaChart,
   Brush,
   CartesianGrid,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -49,6 +50,9 @@ export function TimemachineChart({
   const fmtTick = (ts: number) =>
     new Date(ts).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
 
+  const MILESTONES = [100_000, 250_000, 500_000, 1_000_000];
+  const maxTotal = Math.max(...daily.map(d => d.total));
+  const visibleMilestones = MILESTONES.filter(m => m <= maxTotal);
 
   return (
     <ResponsiveContainer width="100%" height={isMobile ? 240 : 280}>
@@ -97,6 +101,20 @@ export function TimemachineChart({
             strokeWidth={0}
             fill={`url(#tm-${key})`}
             isAnimationActive={false}
+          />
+        ))}
+        {visibleMilestones.map((m) => (
+          <ReferenceLine
+            key={m}
+            y={m}
+            stroke={isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)"}
+            strokeDasharray="4 4"
+            label={{
+              value: fmtCurrencyShort(m),
+              position: "right",
+              fill: isDark ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.3)",
+              fontSize: 10,
+            }}
           />
         ))}
       </AreaChart>

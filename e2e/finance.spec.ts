@@ -385,5 +385,16 @@ test.describe("Finance Report", () => {
       // Should show a dollar amount like "$412,883" or "$413k"
       await expect(tmSection.locator("text=/\\$\\d/").first()).toBeVisible();
     });
+
+    test("shows milestone reference lines on chart", async ({ page }) => {
+      const tmSection = page.locator("#timemachine");
+      if (!(await tmSection.isVisible().catch(() => false))) {
+        test.skip();
+        return;
+      }
+      // At least one milestone line should be visible (data crosses $100K)
+      const refLines = tmSection.locator(".recharts-reference-line");
+      expect(await refLines.count()).toBeGreaterThan(0);
+    });
   });
 });
