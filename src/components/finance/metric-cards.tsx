@@ -6,6 +6,111 @@ import { fmtCurrency, fmtCurrencyShort } from "@/lib/format";
 import { savingsRateColor } from "@/lib/style-helpers";
 import { CategorySummary } from "@/components/finance/category-summary";
 
+// ── Savings Rate Card with radial progress ──────────────────────────────
+
+const RING_SIZE = 64;
+const RING_STROKE = 6;
+const RING_R = (RING_SIZE - RING_STROKE) / 2;
+const RING_C = 2 * Math.PI * RING_R;
+
+// Vibrant FinTech palette — matches the cyan energy of Net Worth card
+const SR_GOOD = 30;
+const SR_WARN = 15;
+
+function srColor(rate: number): string {
+  if (rate >= SR_GOOD) return "#059669";
+  if (rate >= SR_WARN) return "#CA8A04";
+  return "#DC2626";
+}
+
+function srColorMuted(rate: number): string {
+  if (rate >= SR_GOOD) return "rgba(5, 150, 105, 0.3)";
+  if (rate >= SR_WARN) return "rgba(202, 138, 4, 0.3)";
+  return "rgba(220, 38, 38, 0.3)";
+}
+
+function SavingsRateCard({
+  savingsRate,
+  takehomeSavingsRate,
+}: {
+  savingsRate: number | null;
+  takehomeSavingsRate: number | null;
+}) {
+  const total = savingsRate ?? 0;
+  const takehome = takehomeSavingsRate ?? 0;
+  const pretax = Math.max(0, total - takehome);
+
+  const takehomeArc = RING_C * (Math.min(takehome, 100) / 100);
+  const pretaxArc = RING_C * (Math.min(pretax, 100) / 100);
+
+  const color = srColor(takehome);
+  const colorMuted = srColorMuted(takehome);
+
+  return (
+    <div data-slot="card" className="liquid-glass p-4 flex items-center gap-3">
+      <div className="flex-1 min-w-0">
+        <p className="text-xs sm:text-sm text-muted-foreground">Savings Rate</p>
+        {takehomeSavingsRate != null ? (
+          <p className="text-xl sm:text-2xl font-bold mt-1 tabular-nums" style={{ color }}>
+            {Math.round(takehomeSavingsRate)}%
+            <span className="text-[10px] font-normal text-muted-foreground ml-1">take-home</span>
+          </p>
+        ) : (
+          <p className="text-xl sm:text-2xl font-bold mt-1">N/A</p>
+        )}
+        <p className="text-xs mt-0.5 tabular-nums">
+          <span className="font-medium" style={{ color }}>
+            {savingsRate != null ? `${Math.round(savingsRate)}%` : "N/A"}
+          </span>
+          <span className="text-[10px] text-foreground/50 ml-1">total</span>
+          {pretax > 0 && (
+            <span className="text-[10px] text-foreground/50 ml-1">
+              ↑{Math.round(pretax)}% pre-tax
+            </span>
+          )}
+        </p>
+      </div>
+      {savingsRate != null && (
+        <svg width={RING_SIZE} height={RING_SIZE} className="flex-shrink-0 -rotate-90">
+          {/* Background track */}
+          <circle
+            cx={RING_SIZE / 2} cy={RING_SIZE / 2} r={RING_R}
+            fill="none" stroke="currentColor" strokeWidth={RING_STROKE}
+            className="text-black/5 dark:text-white/10"
+          />
+          {/* Take-home arc */}
+          <circle
+            cx={RING_SIZE / 2} cy={RING_SIZE / 2} r={RING_R}
+            fill="none" strokeWidth={RING_STROKE}
+            strokeDasharray={`${takehomeArc} ${RING_C}`}
+            strokeLinecap="round"
+            stroke={color}
+          />
+          {/* Pre-tax arc (muted, starts after take-home) */}
+          <circle
+            cx={RING_SIZE / 2} cy={RING_SIZE / 2} r={RING_R}
+            fill="none" strokeWidth={RING_STROKE}
+            strokeDasharray={`${pretaxArc} ${RING_C}`}
+            strokeDashoffset={-takehomeArc}
+            strokeLinecap="round"
+            stroke={colorMuted}
+          />
+          {/* Center text */}
+          <text
+            x={RING_SIZE / 2} y={RING_SIZE / 2}
+            textAnchor="middle" dominantBaseline="central"
+            className="fill-foreground text-[13px] font-bold rotate-90 origin-center"
+          >
+            {Math.round(total)}%
+          </text>
+        </svg>
+      )}
+    </div>
+  );
+}
+
+// ── MetricCards ──────────────────────────────────────────────────────────
+
 export function MetricCards({
   total,
   netWorth,
@@ -111,22 +216,7 @@ export function MetricCards({
       </div>
 
       <div className="grid grid-cols-3 gap-4">
-        <div data-slot="card" className="liquid-glass p-4">
-          <p className="text-xs sm:text-sm text-muted-foreground">Savings Rate</p>
-          {savingsRate != null ? (
-            <p className={`text-xl sm:text-2xl font-bold mt-1 ${savingsRateColor(savingsRate)}`}>
-              {Math.round(savingsRate)}%
-            </p>
-          ) : (
-            <p className="text-xl sm:text-2xl font-bold mt-1">N/A</p>
-          )}
-          <p className="text-xs text-muted-foreground mt-1">
-            Take-home{" "}
-            <span className={takehomeSavingsRate != null ? savingsRateColor(takehomeSavingsRate) : ""}>
-              {takehomeSavingsRate != null ? `${Math.round(takehomeSavingsRate)}%` : "N/A"}
-            </span>
-          </p>
-        </div>
+        <SavingsRateCard savingsRate={savingsRate} takehomeSavingsRate={takehomeSavingsRate} />
         <div data-slot="card" className="liquid-glass p-4 col-span-2">
           <p className="text-xs sm:text-sm text-muted-foreground">Goal</p>
           <p className="text-xl sm:text-2xl font-bold mt-1">

@@ -24,6 +24,9 @@ self.addEventListener("activate", (e) => {
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
 
+  // Skip caching in dev mode (Turbopack HMR, hot-reload)
+  if (url.hostname === "localhost") return;
+
   // API: stale-while-revalidate (same-origin only)
   if (url.pathname === "/timeline" && url.origin === self.location.origin) {
     e.respondWith(
