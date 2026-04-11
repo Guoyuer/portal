@@ -74,6 +74,12 @@ CREATE TABLE IF NOT EXISTS econ_series (
     PRIMARY KEY (key, date)
 );
 
+-- Sync metadata (last_sync timestamp, data coverage)
+CREATE TABLE IF NOT EXISTS sync_meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
 -- ── Indexes ───────────────────────────────────────────────────────────────────
 
 CREATE INDEX IF NOT EXISTS idx_fidelity_date     ON fidelity_transactions(run_date);
