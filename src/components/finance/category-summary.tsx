@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo } from "react";
+import { Fragment, useMemo, useState } from "react";
 import type { ApiCategory, ApiTicker, CategoryData } from "@/lib/schema";
 import { fmtCurrency, fmtCurrencyShort, fmtPct } from "@/lib/format";
 import {
@@ -78,12 +78,22 @@ function HoldingsList({ holdings }: { holdings: ApiTicker[] }) {
 }
 
 function GlassTooltip({ content, children }: { content: React.ReactNode; children: React.ReactNode }) {
+  const [show, setShow] = useState(false);
   return (
-    <span className="glass-tooltip" tabIndex={0}>
+    <span
+      className="glass-tooltip"
+      onMouseEnter={() => setShow(true)}
+      onMouseLeave={() => setShow(false)}
+      onFocus={() => setShow(true)}
+      onBlur={() => setShow(false)}
+      tabIndex={0}
+    >
       {children}
-      <div className="glass-tooltip-content" role="tooltip">
-        {content}
-      </div>
+      {show && (
+        <div className="glass-tooltip-content" role="tooltip" style={{ display: "block" }}>
+          {content}
+        </div>
+      )}
     </span>
   );
 }
