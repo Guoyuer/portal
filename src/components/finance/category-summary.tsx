@@ -13,8 +13,6 @@ import {
 } from "@/components/ui/table";
 import { DeviationCell, SectionHeader, SectionBody, TOTAL_ROW_CLASS } from "@/components/finance/shared";
 import { AllocationDonut } from "@/components/finance/charts";
-import { tooltipStyle } from "@/lib/chart-styles";
-import { useIsDark } from "@/lib/hooks";
 
 // ── Equity categories for classification ──────────────────────────────────
 
@@ -81,11 +79,9 @@ function HoldingsList({ holdings }: { holdings: ApiTicker[] }) {
 
 function GlassTooltip({ content, children }: { content: React.ReactNode; children: React.ReactNode }) {
   const [show, setShow] = useState(false);
-  const isDark = useIsDark();
-
   return (
     <span
-      className="relative"
+      className="glass-tooltip"
       onMouseEnter={() => setShow(true)}
       onMouseLeave={() => setShow(false)}
       onFocus={() => setShow(true)}
@@ -94,11 +90,7 @@ function GlassTooltip({ content, children }: { content: React.ReactNode; childre
     >
       {children}
       {show && (
-        <div
-          className="absolute left-0 top-full z-50 mt-1 w-max max-w-sm text-xs pointer-events-none"
-          role="tooltip"
-          style={tooltipStyle(isDark)}
-        >
+        <div className="glass-tooltip-content" role="tooltip" style={{ display: "block" }}>
           {content}
         </div>
       )}

@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Area, AreaChart, YAxis } from "recharts";
 import type { MarketData, IndexReturn } from "@/lib/schema";
 import { fmtPct } from "@/lib/format";
@@ -151,7 +151,7 @@ const INDICATOR_DEFS: { key: keyof MarketData; label: string; fmt: (v: number) =
   { key: "usdCny",       label: "USD/CNY",      fmt: (v) => v.toFixed(4) },
 ];
 
-export const MarketContext = memo(function MarketContext({ data: m, title }: { data: MarketData; title: string }) {
+export function MarketContext({ data: m, title }: { data: MarketData; title: string }) {
   const indicators = INDICATOR_DEFS
     .filter(({ key }) => m[key] != null)
     .map(({ key, label, fmt }) => ({ label, value: fmt(m[key] as number) }));
@@ -162,7 +162,7 @@ export const MarketContext = memo(function MarketContext({ data: m, title }: { d
 
       {/* Index Cards — directly on page background, no outer glass wrapper */}
       {m.indices.length > 0 ? (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="@container grid grid-cols-2 @md:grid-cols-4 gap-3">
           {m.indices.map((idx) => (
             <IndexCard key={idx.ticker} idx={idx} />
           ))}
@@ -173,11 +173,11 @@ export const MarketContext = memo(function MarketContext({ data: m, title }: { d
 
       {/* Macro Indicators */}
       {indicators.length > 0 ? (
-        <div className="liquid-glass p-3 sm:p-5 mt-4">
+        <div className="@container liquid-glass p-3 sm:p-5 mt-4">
           <h3 className="text-xs font-semibold text-foreground/50 uppercase tracking-wider mb-2">
             Macro
           </h3>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-1.5 text-sm">
+          <div className="grid grid-cols-2 @md:grid-cols-4 gap-x-6 gap-y-1.5 text-sm">
             {indicators.map((ind) => (
               <div
                 key={ind.label}
@@ -196,4 +196,4 @@ export const MarketContext = memo(function MarketContext({ data: m, title }: { d
       )}
     </section>
   );
-});
+}

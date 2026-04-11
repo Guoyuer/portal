@@ -19,19 +19,26 @@ graph TB
     end
 
     subgraph "GitHub Actions"
-        CI["CI + Deploy<br/>Python lint/test + Node build<br/>+ Pages + Worker deploy"]
+        CI["CI + Deploy<br/>Python lint/test + vitest + Playwright<br/>+ Pages + Worker deploy"]
     end
 
     subgraph "Cloudflare"
         ACCESS["Cloudflare Access<br/>Google login"]
-        PAGES["Cloudflare Pages<br/>static shell"]
+        PAGES["Cloudflare Pages<br/>static shell + PWA"]
+    end
+
+    subgraph "Browser"
+        SW["Service Worker<br/>offline cache"]
+        RC["React Compiler<br/>auto-memoization"]
+        COMPUTE["use-bundle.ts<br/>client-side compute"]
     end
 
     BUILD --> DB
     DB -->|sync_to_d1.py| D1
     D1 --> WORKER
     CI -->|static shell| PAGES
-    WORKER -->|"fetch /timeline"| PAGES
+    WORKER -->|"fetch /timeline"| SW
+    SW --> COMPUTE
     ACCESS -->|protects| PAGES
 
     style BUILD fill:#10b981,color:#fff
@@ -59,7 +66,7 @@ sequenceDiagram
     User->>Worker: fetch /timeline
     Worker->>D1: 7 SELECTs (views)
     D1->>Worker: rows
-    Worker->>User: JSON (1hr CDN cache)
+    Worker->>User: JSON (no-cache)
 ```
 
 ## Project Structure
@@ -189,17 +196,19 @@ graph LR
 
 | Layer | Choice | Why |
 |-------|--------|-----|
-| Frontend | Next.js 16 (App Router) | React 19, file-based routing |
-| Charts | Recharts 3 | Lightweight, React-native, ComposedChart for mixed bar+line |
-| Validation | Zod 4 | Runtime schema validation for API responses |
+| Frontend | Next.js 16 (App Router) + React Compiler | Auto-memoization, View Transitions |
+| Charts | Recharts 3 | SVG (accessible for colorblind), brush interaction |
+| Validation | Zod 4 | Runtime schema validation at API boundary |
 | Data | `use-bundle.ts` → Worker `/timeline` | Fetch once, compute locally, zero-lag brush |
-| Styling | Tailwind CSS v4 + shadcn/ui | Utility-first, dark mode support |
+| Styling | Tailwind CSS v4 + Container Queries | `@container`-based responsive cards |
+| Offline | Service Worker (PWA) | Cache-first static, stale-while-revalidate API |
 | Hosting | Cloudflare Pages + Workers | Edge CDN, D1 SQLite, free tier |
 | Storage | Cloudflare D1 | Structured data via Worker |
 | Auth | Cloudflare Access | Zero-trust, Google login |
 | Pipeline | Python 3.14 | Fidelity/Qianji/Robinhood/401k ingest, Yahoo Finance, FRED API |
-| CI/CD | GitHub Actions | Single workflow: test → build → deploy (Pages + Worker) |
-| Tests | Playwright (4 specs) + pytest (25 test files) + vitest | E2E browser + Python unit/contract + TS unit tests |
+| CI/CD | GitHub Actions | Python lint/test + vitest + Playwright E2E + deploy |
+| Tests | vitest (88) + Playwright (4 specs) + pytest (25 files) | Coverage thresholds, branch protection |
+| Errors | Sentry | Client-side error tracking in production |
 
 ## Development
 

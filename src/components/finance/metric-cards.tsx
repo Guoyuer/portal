@@ -1,12 +1,12 @@
 "use client";
 
-import { memo, useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect } from "react";
 import type { ApiCategory, ApiTicker } from "@/lib/schema";
 import { fmtCurrency, fmtCurrencyShort } from "@/lib/format";
 import { savingsRateColor } from "@/lib/style-helpers";
 import { CategorySummary } from "@/components/finance/category-summary";
 
-export const MetricCards = memo(function MetricCards({
+export function MetricCards({
   total,
   netWorth,
   categories,
@@ -143,4 +143,4 @@ export const MetricCards = memo(function MetricCards({
       </div>
     </div>
   );
-});
+}

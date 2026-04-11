@@ -1,8 +1,7 @@
-import { memo } from "react";
 import type { ActivityResponse } from "@/lib/schema";
 import { TickerTable } from "@/components/finance/shared";
 
-export const PortfolioActivity = memo(function PortfolioActivity({
+export function PortfolioActivity({
   activity,
 }: {
   activity: ActivityResponse;
@@ -13,4 +12,4 @@ export const PortfolioActivity = memo(function PortfolioActivity({
       <TickerTable title="Dividends by Symbol" data={activity.dividendsBySymbol} />
     </div>
   );
-});
+}

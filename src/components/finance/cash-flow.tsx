@@ -1,4 +1,3 @@
-import { memo } from "react";
 import type { CashflowResponse } from "@/lib/schema";
 import { fmtCurrency } from "@/lib/format";
 import { MAJOR_EXPENSE_THRESHOLD } from "@/lib/style-helpers";
@@ -26,7 +25,7 @@ function consolidateSmallItems(items: CashflowResponse["incomeItems"], threshold
   return [...big, { category: "Other", amount: extraAmt, count: extraCnt }];
 }
 
-export const CashFlow = memo(function CashFlow({ data }: { data: CashflowResponse }) {
+export function CashFlow({ data }: { data: CashflowResponse }) {
   const major = data.expenseItems.filter(
     (i) => i.amount >= MAJOR_EXPENSE_THRESHOLD
   );
@@ -147,7 +146,7 @@ export const CashFlow = memo(function CashFlow({ data }: { data: CashflowRespons
 
     </>
   );
-});
+}
 
 // ── Micro visuals ───────────────────────────────────────────────────────
 
@@ -193,7 +192,7 @@ function GlowEdge({ color }: { color: string }) {
 
 // ── Integrated stat bar (rendered as chart header in page.tsx) ───────────
 
-export const CashFlowStatBar = memo(function CashFlowStatBar({
+export function CashFlowStatBar({
   data,
   invested,
   period,
@@ -265,4 +264,4 @@ export const CashFlowStatBar = memo(function CashFlowStatBar({
       </div>
     </div>
   );
-});
+}

@@ -31,6 +31,8 @@ export default function RootLayout({
     >
       <head>
         <link rel="stylesheet" href="/glass.css" />
+        <link rel="manifest" href="/manifest.json" />
+        <meta name="theme-color" content="#0a0a0a" />
       </head>
       <body className="min-h-full tabular-nums">
         {/* Animated mesh gradient — gives liquid glass something to refract */}
@@ -43,6 +45,11 @@ export default function RootLayout({
             <main className="min-h-screen p-6 pt-14 md:pt-6">{children}</main>
           </div>
         </div>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `if("serviceWorker"in navigator)navigator.serviceWorker.register("/sw.js")`,
+          }}
+        />
       </body>
     </html>
   );
