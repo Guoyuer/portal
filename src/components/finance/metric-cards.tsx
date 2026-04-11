@@ -58,17 +58,6 @@ function SavingsRateCard({
         ) : (
           <p className="text-xl sm:text-2xl font-bold mt-1">N/A</p>
         )}
-        <p className="text-xs mt-0.5 tabular-nums">
-          <span className="font-medium" style={{ color }}>
-            {savingsRate != null ? `${Math.round(savingsRate)}%` : "N/A"}
-          </span>
-          <span className="text-[10px] text-foreground/50 ml-1">total</span>
-          {pretax > 0 && (
-            <span className="text-[10px] text-foreground/50 ml-1">
-              ↑{Math.round(pretax)}% pre-tax
-            </span>
-          )}
-        </p>
       </div>
       {savingsRate != null && (
         <svg width={RING_SIZE} height={RING_SIZE} className="flex-shrink-0 -rotate-90">

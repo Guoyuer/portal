@@ -57,7 +57,7 @@ describe("MetricCards", () => {
   it("shows N/A when savings rates are null", () => {
     render(<MetricCards {...BASE_PROPS} savingsRate={null} takehomeSavingsRate={null} />);
     const nas = screen.getAllByText("N/A");
-    expect(nas.length).toBe(2);
+    expect(nas.length).toBe(1);
   });
 
   it("calls onAllocationToggle when net worth tile is clicked", () => {
@@ -78,8 +78,7 @@ describe("MetricCards", () => {
     // Take-home (35%) is the big number
     expect(screen.getByText("35%")).toBeTruthy();
     expect(screen.getByText(/take-home/)).toBeTruthy();
-    // Total (42%) appears in text + ring
+    // Total (42%) appears in ring center
     expect(screen.getAllByText("42%").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText(/total/)).toBeTruthy();
   });
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { GOAL } from "@/lib/config";
 import { useBundle } from "@/lib/use-bundle";
 import { computeMonthlyFlows } from "@/lib/compute";
@@ -8,9 +8,8 @@ import { fmtDateMedium } from "@/lib/format";
 import { SectionHeader, SectionBody } from "@/components/finance/shared";
 import { IncomeExpensesChart } from "@/components/finance/charts";
 import { MetricCards } from "@/components/finance/metric-cards";
-import { CashFlow, CashFlowStatBar } from "@/components/finance/cash-flow";
+import { CashFlow } from "@/components/finance/cash-flow";
 import { PortfolioActivity } from "@/components/finance/portfolio-activity";
-import { SavingsTrend } from "@/components/finance/savings-trend";
 import { MarketContext } from "@/components/finance/market-context";
 import { NetWorthGrowth } from "@/components/finance/net-worth-growth";
 import { BackToTop } from "@/components/layout/back-to-top";
@@ -56,16 +55,24 @@ export default function FinancePage() {
   const snapshotDate = tl.snapshot?.date ?? null;
   const startDate = tl.startDate;
 
+  // ── Tab title with date range ─────────────────────────────────────
+  useEffect(() => {
+    if (startDate && snapshotDate) {
+      const fmt = (iso: string) => `${iso.slice(5, 7)}/${iso.slice(8, 10)}/${iso.slice(2, 4)}`;
+      document.title = `Dashboard · ${fmt(startDate)}-${fmt(snapshotDate)}`;
+    } else {
+      document.title = "Dashboard";
+    }
+  }, [startDate, snapshotDate]);
+
   // ── Derived values ────────────────────────────────────────────────
   const goalPct = tl.allocation ? (tl.allocation.total / GOAL) * 100 : 0;
-  const invested = tl.activity?.buysBySymbol.reduce((s, b) => s + b.total, 0) ?? 0;
   const alloc = tl.allocation;
   const cf = tl.cashflow;
   const act = tl.activity;
   const mkt = tl.market;
 
   const monthlyFlows = computeMonthlyFlows(tl.qianjiTxns, startDate, snapshotDate);
-  const allMonthlyFlows = computeMonthlyFlows(tl.qianjiTxns, tl.chartDaily[0]?.date ?? null, tl.chartDaily[tl.chartDaily.length - 1]?.date ?? null);
 
   // ── Loading state ─────────────────────────────────────────────────
   if (tl.loading) return <FinanceSkeleton />;
@@ -134,21 +141,16 @@ export default function FinancePage() {
                   <CashFlow data={cf} />
                 </SectionBody>
 
-                {/* Stat bar + chart -- single glass container, no internal borders */}
-                <div className="liquid-glass mt-4 overflow-hidden">
-                  <CashFlowStatBar data={cf} invested={invested} />
-                  <div className="mx-3 sm:mx-5 h-px bg-gradient-to-r from-transparent via-foreground/8 to-transparent" />
-                  {monthlyFlows.length > 0 ? (
+                {monthlyFlows.length > 0 && (
+                  <div className="liquid-glass mt-4 overflow-hidden">
                     <div className="px-3 sm:px-5 pb-3 sm:pb-5 pt-3">
                       <IncomeExpensesChart
                         data={monthlyFlows}
                         activeMonth={snapshotDate?.slice(0, 7)}
                       />
                     </div>
-                  ) : (
-                    <p className="text-sm text-red-400 px-4 pb-4">Monthly flow data unavailable</p>
-                  )}
-                </div>
+                  </div>
+                )}
               </>
             )
           ) : (
@@ -157,19 +159,6 @@ export default function FinancePage() {
         </section>
       </ErrorBoundary>
 
-      {/* ── 3.5 Savings Rate Trend ─────────────────────────────────── */}
-      <ErrorBoundary fallback={<SectionError label="Savings Trend" />}>
-        <section id="savings-trend" style={{ contentVisibility: "auto", containIntrinsicSize: "auto 400px" }}>
-          <SectionHeader>Savings Rate Trend</SectionHeader>
-          {allMonthlyFlows.length > 0 ? (
-            <SectionBody>
-              <SavingsTrend data={allMonthlyFlows} />
-            </SectionBody>
-          ) : (
-            <SectionBody><p className="text-sm text-muted-foreground">No data available</p></SectionBody>
-          )}
-        </section>
-      </ErrorBoundary>
 
       {/* ── 4. Portfolio Activity ───────────────────────────────────────── */}
       <ErrorBoundary fallback={<SectionError label="Fidelity Activity" />}>

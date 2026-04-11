@@ -127,10 +127,10 @@ function IndexCard({ idx }: { idx: IndexReturn }) {
           <ReturnBadge label="YTD" value={idx.ytdReturn} />
         </div>
       </div>
-      <p className="text-xl font-bold tabular-nums text-foreground mt-0.5">
+      <p className="text-xl font-bold tabular-nums text-foreground -mt-1.5">
         {pts}
       </p>
-      <div className="-mx-1 mt-1.5 h-[48px]">
+      <div className="-mx-1 -mt-0.5 h-[60px]">
         <Sparkline idx={idx} />
       </div>
       {idx.high52w != null && idx.low52w != null && (

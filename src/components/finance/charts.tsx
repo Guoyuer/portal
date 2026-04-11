@@ -5,7 +5,6 @@ import {
   AreaChart,
   Bar,
   BarChart,
-  Brush,
   CartesianGrid,
   Cell,
   LabelList,
@@ -25,9 +24,9 @@ import type {
   MonthlyFlowPoint,
   SnapshotPoint,
 } from "@/lib/schema";
-import { fmtCurrencyShort, fmtMonth, fmtMonthYear } from "@/lib/format";
+import { fmtCurrencyShort, fmtDateMonthYear, fmtMonth, fmtMonthYear } from "@/lib/format";
 import { useIsDark, useIsMobile } from "@/lib/hooks";
-import { tooltipStyle, gridStroke, axisProps, brushColors } from "@/lib/chart-styles";
+import { tooltipStyle, gridStroke, axisProps } from "@/lib/chart-styles";
 import { CAT_COLOR_BY_NAME } from "@/lib/compute";
 
 // ── Donut: Category Allocation ─────────────────────────────────────────────
@@ -39,6 +38,7 @@ export function AllocationDonut({
   categories: CategoryData[];
   total: number;
 }) {
+  const isDark = useIsDark();
   const data = categories.map((c) => ({ name: c.name, value: c.value, pct: c.pct }));
 
   return (
@@ -60,6 +60,7 @@ export function AllocationDonut({
             ))}
           </Pie>
           <Tooltip
+            contentStyle={tooltipStyle(isDark)}
             formatter={(value) => `$${Number(value).toLocaleString("en-US", { maximumFractionDigits: 0 })}`}
           />
         </PieChart>
@@ -114,7 +115,7 @@ function FlowTooltip({ active, payload, label }: TooltipContentProps) {
   const fmt = (v: number) => `$${v.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
   return (
     <div style={style}>
-      <p style={{ fontWeight: 600, marginBottom: 4 }}>{fmtMonthYear(String(label))}</p>
+      <p style={{ fontWeight: 600, marginBottom: 2 }}>{fmtDateMonthYear(String(label) + "-01")}</p>
       {row && <p style={{ color: isDark ? "#e5e7eb" : "#374151", margin: 0 }}>Income : {fmt(row.income)}</p>}
       {payload.map((entry, i) => (
         <p key={i} style={{ color: entry.color, margin: 0 }}>
@@ -190,14 +191,6 @@ export function IncomeExpensesChart({
           ))}
           <LabelList dataKey="savingsRate" content={SavingsLabel} />
         </Bar>
-        {stacked.length > 12 && (
-          <Brush
-            dataKey="month"
-            height={24}
-            {...brushColors(isDark)}
-            tickFormatter={fmtMonth}
-          />
-        )}
       </BarChart>
     </ResponsiveContainer>
   );
@@ -231,8 +224,6 @@ export function NetWorthTrendChart({
   const chartData = data.map((d) => ({ ...d, ts: new Date(d.date).getTime() }));
 
   const [yMin, yMax] = niceYDomain(data);
-  const nwEndIdx = chartData.length - 1;
-  const nwStartIdx = Math.max(0, nwEndIdx - 11);
   const fmtTick = (ts: number) =>
     new Date(ts).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
 
@@ -263,6 +254,8 @@ export function NetWorthTrendChart({
         />
         <Tooltip
           contentStyle={tooltipStyle(isDark)}
+          labelStyle={{ fontWeight: 600, marginBottom: 2 }}
+          itemStyle={{ margin: 0, padding: 0 }}
           formatter={(value) => `$${Number(value).toLocaleString("en-US", { maximumFractionDigits: 0 })}`}
           labelFormatter={(ts) => new Date(Number(ts)).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
         />
@@ -273,17 +266,6 @@ export function NetWorthTrendChart({
           fill="url(#nwGradient)"
           strokeWidth={2}
         />
-        {chartData.length > 12 && (
-          <Brush
-            key={`nw-brush-${chartData.length}`}
-            dataKey="ts"
-            height={28}
-            {...brushColors(isDark)}
-            startIndex={nwStartIdx}
-            endIndex={nwEndIdx}
-            tickFormatter={fmtTick}
-          />
-        )}
       </AreaChart>
     </ResponsiveContainer>
   );

@@ -30,7 +30,7 @@ export function SectionBody({ children }: { children: React.ReactNode }) {
 export function DeviationCell({ value }: { value: number }) {
   return (
     <TableCell
-      className={`text-right ${valueColor(value)}`}
+      className={`text-right hidden sm:table-cell ${valueColor(value)}`}
     >
       {fmtPct(value, true)}
     </TableCell>

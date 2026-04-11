@@ -26,7 +26,7 @@ test.describe("Finance Report", () => {
   test("shows metric cards with values", async ({ page }) => {
     // Wait for allocation API to load
     await expect(page.getByTestId("net-worth-card")).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText(/Investment/)).toBeVisible();
+    await expect(page.getByText(/Investment/).first()).toBeVisible();
     await expect(page.getByText(/\$\d+k/).first()).toBeVisible();
     // Savings Rate
     await expect(page.getByTestId("savings-rate-card")).toBeVisible();
@@ -56,7 +56,7 @@ test.describe("Finance Report", () => {
     await expect(page.getByTestId("net-worth-card")).toBeVisible({ timeout: 10000 });
     await page.getByTestId("net-worth-card").getByRole("button").click();
     await expect(page.getByRole("columnheader", { name: "Target" })).toBeVisible();
-    await expect(page.getByRole("columnheader", { name: "Deviation" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Dev" })).toBeVisible();
   });
 
   test("shows category deviations with correct colors", async ({ page }) => {
@@ -106,21 +106,16 @@ test.describe("Finance Report", () => {
   });
 
   test("shows cash flow summary metrics", async ({ page }) => {
-    // Wait for cashflow stat bar
-    const netSavings = page.getByText("Net Savings");
-    if (await netSavings.isVisible().catch(() => false)) {
-      await expect(page.getByText("Invested")).toBeVisible();
-      await expect(page.getByText("CC Payments")).toBeVisible();
-    }
+    // Net Savings, Investments, CC Payments now in timemachine range stats
+    const tm = page.locator("#timemachine");
+    if (!(await tm.isVisible({ timeout: 5000 }).catch(() => false))) return;
+    await expect(tm.getByText("Net Savings")).toBeVisible();
+    await expect(tm.getByText("Investments")).toBeVisible();
+    await expect(tm.getByText("CC Payments")).toBeVisible();
   });
 
   test("net savings uses correct color", async ({ page }) => {
-    const label = page.getByText("Net Savings");
-    if (!(await label.isVisible().catch(() => false))) return;
-    const container = label.locator("..");
-    const valueEl = container.locator("span.font-bold");
-    const className = await valueEl.getAttribute("class");
-    expect(className).toMatch(/text-cyan/);
+    // Net Savings is now plain text in timemachine range stats, no color coding
   });
 
   test("shows investment activity section", async ({ page }) => {
@@ -331,16 +326,7 @@ test.describe("Finance Report", () => {
   });
 
   test("stat bar metrics have color-coded values", async ({ page }) => {
-    // Net Savings — cyan color (only if cashflow data loaded)
-    const savingsLabel = page.getByText("Net Savings");
-    if (!(await savingsLabel.isVisible().catch(() => false))) return;
-    const savingsValue = savingsLabel.locator("..").locator("span.font-bold");
-    const savingsClass = await savingsValue.getAttribute("class");
-    expect(savingsClass).toMatch(/text-cyan/);
-    // Invested — blue color
-    const investedValue = page.getByText("Invested").locator("..").locator("span.font-bold");
-    const investedClass = await investedValue.getAttribute("class");
-    expect(investedClass).toMatch(/text-blue/);
+    // Stat bar removed — metrics consolidated into timemachine range stats
   });
 
   // ── Production URL ─────────────────────────────────────────────────────
@@ -353,14 +339,7 @@ test.describe("Finance Report", () => {
   // ── Savings Rate Trend ──────────────────────────────────────────────────
 
   test("savings rate trend section renders", async ({ page }) => {
-    const section = page.locator("#savings-trend");
-    if (!(await section.isVisible({ timeout: 3000 }).catch(() => false))) return;
-    await expect(section.getByText("Savings Rate Trend")).toBeVisible();
-    // Should have a line chart
-    const line = section.locator(".recharts-line");
-    if (await line.count() > 0) {
-      await expect(line.first()).toBeVisible();
-    }
+    // Savings rate trend section removed — consolidated into timemachine
   });
 
   // ── Timemachine ─────────────────────────────────────────────────────────
@@ -395,7 +374,7 @@ test.describe("Finance Report", () => {
       }
       await expect(tmSection.getByText("Income")).toBeVisible();
       await expect(tmSection.getByText("Expenses")).toBeVisible();
-      await expect(tmSection.getByText("Buys")).toBeVisible();
+      await expect(tmSection.getByText("Investments")).toBeVisible();
       await expect(tmSection.getByText("Dividends").first()).toBeVisible();
     });
 
