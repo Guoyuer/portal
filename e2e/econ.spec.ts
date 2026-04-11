@@ -18,4 +18,12 @@ test.describe("Economy Dashboard", () => {
     // Should link to /econ
     await expect(econLink).toHaveAttribute("href", "/econ");
   });
+
+  test("econ page loads or shows error within 15s", async ({ page }) => {
+    await page.goto("/econ");
+    // Either data loads or error state appears (not stuck on skeleton forever)
+    await expect(
+      page.getByText("Economy Dashboard").or(page.getByText("Retry"))
+    ).toBeVisible({ timeout: 15000 });
+  });
 });
