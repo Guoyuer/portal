@@ -27,9 +27,6 @@ const MarketDataSchema = z.object({
   vix: z.number().nullable().default(null),
   dxy: z.number().nullable().default(null),
   usdCny: z.number().nullable().default(null),
-  goldReturn: z.number().nullable().default(null),
-  btcReturn: z.number().nullable().default(null),
-  portfolioMonthReturn: z.number().nullable().default(null),
 });
 
 // ── Holdings Detail ──────────────────────────────────────────────────────
@@ -39,12 +36,9 @@ const StockDetailSchema = z.object({
   monthReturn: z.number(),
   startValue: z.number(),
   endValue: z.number(),
-  peRatio: z.number().nullable().default(null),
-  marketCap: z.number().nullable().default(null),
   high52w: z.number().nullable().default(null),
   low52w: z.number().nullable().default(null),
   vsHigh: z.number().nullable().default(null),
-  nextEarnings: z.string().nullable().default(null),
 });
 
 // ── Timemachine ─────────────────────────────────────────────────────────

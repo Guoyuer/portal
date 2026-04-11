@@ -40,7 +40,26 @@ jobs:
       - run: npx next build
         env:
           NEXT_PUBLIC_TIMELINE_URL: ${{ secrets.NEXT_PUBLIC_TIMELINE_URL }}
-      # e2e skipped — Playwright install too slow in CI
+
+      # ── Unit tests ──────────────────────────────────────────────
+      - run: npm test
+
+      # ── E2E tests ──────────────────────────────────────────────
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ hashFiles('package-lock.json') }}
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install chromium --with-deps
+      - name: Install Playwright system deps
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+      - name: Run E2E tests
+        run: npx playwright test
+
       # Deploy only on main (not PRs)
       - name: Deploy to Cloudflare Pages
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'

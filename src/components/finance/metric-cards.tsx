@@ -120,18 +120,14 @@ export const MetricCards = memo(function MetricCards({
           ) : (
             <p className="text-xl sm:text-2xl font-bold mt-1">N/A</p>
           )}
+          <p className="text-xs text-muted-foreground mt-1">
+            Take-home{" "}
+            <span className={takehomeSavingsRate != null ? savingsRateColor(takehomeSavingsRate) : ""}>
+              {takehomeSavingsRate != null ? `${Math.round(takehomeSavingsRate)}%` : "N/A"}
+            </span>
+          </p>
         </div>
-        <div data-slot="card" className="liquid-glass p-4">
-          <p className="text-xs sm:text-sm text-muted-foreground">Take-home Rate</p>
-          {takehomeSavingsRate != null ? (
-            <p className={`text-xl sm:text-2xl font-bold mt-1 ${savingsRateColor(takehomeSavingsRate)}`}>
-              {Math.round(takehomeSavingsRate)}%
-            </p>
-          ) : (
-            <p className="text-xl sm:text-2xl font-bold mt-1">N/A</p>
-          )}
-        </div>
-        <div data-slot="card" className="liquid-glass p-4">
+        <div data-slot="card" className="liquid-glass p-4 col-span-2">
           <p className="text-xs sm:text-sm text-muted-foreground">Goal</p>
           <p className="text-xl sm:text-2xl font-bold mt-1">
             {Math.round(goalPct)}%{" "}

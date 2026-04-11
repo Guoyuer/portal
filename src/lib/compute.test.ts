@@ -6,7 +6,6 @@ import {
   computeActivity,
   computeCrossCheck,
   computeMonthlyFlows,
-  downsample,
   buildDateIndex,
   buildTickerIndex,
   fidelityDateToSort,
@@ -323,45 +322,6 @@ describe("computeCrossCheck", () => {
     expect(cc.matchedCount).toBe(1);
     expect(cc.totalCount).toBe(2);
     expect(cc.ok).toBe(false);
-  });
-});
-
-// ── downsample ──────────────────────────────────────────────────────────
-
-describe("downsample", () => {
-  it("returns all points when fewer than target", () => {
-    const daily = mkDailyN(50);
-    const { sampled, toFull } = downsample(daily);
-    expect(sampled).toHaveLength(50);
-    expect(toFull).toEqual(Array.from({ length: 50 }, (_, i) => i));
-  });
-
-  it("downsamples large datasets", () => {
-    const daily = mkDailyN(500);
-    const { sampled, toFull } = downsample(daily);
-    expect(sampled.length).toBeLessThan(500);
-    expect(sampled.length).toBeGreaterThan(100);
-  });
-
-  it("always includes last point", () => {
-    const daily = mkDailyN(300);
-    const { toFull } = downsample(daily);
-    expect(toFull[toFull.length - 1]).toBe(299);
-  });
-
-  it("handles single point", () => {
-    const daily = mkDailyN(1);
-    const { sampled, toFull } = downsample(daily);
-    expect(sampled).toHaveLength(1);
-    expect(toFull).toEqual([0]);
-  });
-
-  it("handles exact target size", () => {
-    const daily = mkDailyN(150);
-    const result = downsample(daily);
-    // step = floor(150/150) = 1, so all points
-    expect(result.sampled).toHaveLength(150);
-    expect(result.toFull).toHaveLength(150);
   });
 });
 

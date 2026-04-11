@@ -19,10 +19,8 @@ import {
   computeCashflow,
   computeActivity,
   computeCrossCheck,
-  downsample,
   buildDateIndex,
   buildTickerIndex,
-  TARGET_CHART_POINTS,
   type CrossCheck,
 } from "@/lib/compute";
 
@@ -84,36 +82,31 @@ export function useBundle(): BundleState {
   const dateIndex = useMemo(() => data ? buildDateIndex(data.daily) : new Map<string, number>(), [data]);
   const tickerIndex = useMemo(() => data ? buildTickerIndex(data.dailyTickers) : new Map(), [data]);
 
-  // ── Downsampling ────────────────────────────────────────────────────
-  const { sampled: chartDaily, toFull } = useMemo(
-    () => data ? downsample(data.daily) : { sampled: [] as DailyPoint[], toFull: [] as number[] },
-    [data],
-  );
+  // ── Chart data (no downsampling — show every day) ───────────────────
+  const chartDaily = data?.daily ?? [];
 
   const defaultEndIndex = chartDaily.length > 0 ? chartDaily.length - 1 : 0;
   const defaultStartIndex = useMemo(() => {
     if (!data || chartDaily.length === 0) return 0;
-    const step = Math.max(1, Math.floor(data.daily.length / TARGET_CHART_POINTS));
-    return Math.max(0, defaultEndIndex - Math.floor(252 / step));
+    const TRADING_DAYS_PER_YEAR = 252;
+    return Math.max(0, defaultEndIndex - TRADING_DAYS_PER_YEAR);
   }, [data, chartDaily.length, defaultEndIndex]);
 
   useEffect(() => {
-    if (data && toFull.length > 0) {
-      const s = toFull[defaultStartIndex] ?? 0;
-      const e = toFull[defaultEndIndex] ?? 0;
+    if (data && chartDaily.length > 0) {
       brushRef.current = { start: defaultStartIndex, end: defaultEndIndex };
-      setFullRange({ start: s, end: e });
+      setFullRange({ start: defaultStartIndex, end: defaultEndIndex });
     }
-  }, [data, toFull, defaultStartIndex, defaultEndIndex]);
+  }, [data, chartDaily.length, defaultStartIndex, defaultEndIndex]);
 
   const onBrushChange = useCallback((state: { startIndex?: number; endIndex?: number }) => {
     if (state.startIndex !== undefined) brushRef.current.start = state.startIndex;
     if (state.endIndex !== undefined) brushRef.current.end = state.endIndex;
     setFullRange({
-      start: toFull[brushRef.current.start] ?? 0,
-      end: toFull[brushRef.current.end] ?? 0,
+      start: brushRef.current.start,
+      end: brushRef.current.end,
     });
-  }, [toFull]);
+  }, []);
 
   // ── Derived timeline state (instant — user sees these during drag) ──
   const snapshot = useMemo(() => data?.daily[fullRange.end] ?? null, [data, fullRange.end]);

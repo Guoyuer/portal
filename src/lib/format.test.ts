@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { fmtCurrency, fmtCurrencyShort, fmtPct, fmtMonth, fmtMonthYear } from "./format";
+import { fmtCurrency, fmtCurrencyShort, fmtPct, fmtMonth, fmtMonthYear, fmtDateLong, fmtDateMedium, fmtDateMonthYear } from "./format";
 
 // ── fmtCurrency ─────────────────────────────────────────────────────────
 
@@ -53,6 +53,19 @@ describe("fmtCurrencyShort", () => {
     expect(fmtCurrencyShort(999)).toBe("$999");
     expect(fmtCurrencyShort(5.5)).toBe("$5.50");
   });
+
+  it("formats negative thousands", () => {
+    expect(fmtCurrencyShort(-5000)).toBe("-$5k");
+    expect(fmtCurrencyShort(-50_000)).toBe("-$50k");
+  });
+
+  it("formats negative millions", () => {
+    expect(fmtCurrencyShort(-1_500_000)).toBe("-$1.5M");
+  });
+
+  it("formats small negatives via fmtCurrency", () => {
+    expect(fmtCurrencyShort(-500)).toBe("-$500");
+  });
 });
 
 // ── fmtPct ──────────────────────────────────────────────────────────────
@@ -103,5 +116,32 @@ describe("fmtMonthYear", () => {
 
   it("falls back for invalid month", () => {
     expect(fmtMonthYear("2026-13")).toBe("2026-13 26");
+  });
+});
+
+// ── fmtDateLong ────────────────────────────────────────────────────────
+
+describe("fmtDateLong", () => {
+  it("formats ISO date to long form", () => {
+    expect(fmtDateLong("2026-01-15")).toBe("January 15, 2026");
+    expect(fmtDateLong("2025-12-01")).toBe("December 1, 2025");
+  });
+});
+
+// ── fmtDateMedium ──────────────────────────────────────────────────────
+
+describe("fmtDateMedium", () => {
+  it("formats ISO date to short month form", () => {
+    expect(fmtDateMedium("2026-01-15")).toBe("Jan 15, 2026");
+    expect(fmtDateMedium("2025-12-31")).toBe("Dec 31, 2025");
+  });
+});
+
+// ── fmtDateMonthYear ───────────────────────────────────────────────────
+
+describe("fmtDateMonthYear", () => {
+  it("formats ISO date to month + year", () => {
+    expect(fmtDateMonthYear("2026-03-15")).toBe("Mar 2026");
+    expect(fmtDateMonthYear("2025-11-01")).toBe("Nov 2025");
   });
 });

@@ -141,34 +141,20 @@ function IndexCard({ idx }: { idx: IndexReturn }) {
 }
 
 // ── MarketContext ────────────────────────────────────────────────────────
+const INDICATOR_DEFS: { key: keyof MarketData; label: string; fmt: (v: number) => string }[] = [
+  { key: "fedRate",      label: "Fed Rate",     fmt: (v) => fmtPct(v, false) },
+  { key: "treasury10y",  label: "10Y Treasury", fmt: (v) => fmtPct(v, false) },
+  { key: "cpi",          label: "CPI",          fmt: (v) => fmtPct(v, false) },
+  { key: "unemployment", label: "Unemployment", fmt: (v) => fmtPct(v, false) },
+  { key: "vix",          label: "VIX",          fmt: (v) => v.toFixed(1) },
+  { key: "dxy",          label: "DXY",          fmt: (v) => v.toFixed(1) },
+  { key: "usdCny",       label: "USD/CNY",      fmt: (v) => v.toFixed(4) },
+];
+
 export const MarketContext = memo(function MarketContext({ data: m, title }: { data: MarketData; title: string }) {
-  const indicators: { label: string; value: string; color?: string }[] = [];
-  if (m.fedRate != null)
-    indicators.push({ label: "Fed Rate", value: fmtPct(m.fedRate, false) });
-  if (m.treasury10y != null)
-    indicators.push({ label: "10Y Treasury", value: fmtPct(m.treasury10y, false) });
-  if (m.cpi != null)
-    indicators.push({ label: "CPI", value: fmtPct(m.cpi, false) });
-  if (m.unemployment != null)
-    indicators.push({ label: "Unemployment", value: fmtPct(m.unemployment, false) });
-  if (m.vix != null)
-    indicators.push({ label: "VIX", value: m.vix.toFixed(1) });
-  if (m.dxy != null)
-    indicators.push({ label: "DXY", value: m.dxy.toFixed(1) });
-  if (m.usdCny != null)
-    indicators.push({ label: "USD/CNY", value: m.usdCny.toFixed(4) });
-  if (m.goldReturn != null)
-    indicators.push({
-      label: "Gold",
-      value: fmtPct(m.goldReturn, true),
-      color: valueColor(m.goldReturn),
-    });
-  if (m.btcReturn != null)
-    indicators.push({
-      label: "Bitcoin",
-      value: fmtPct(m.btcReturn, true),
-      color: valueColor(m.btcReturn),
-    });
+  const indicators = INDICATOR_DEFS
+    .filter(({ key }) => m[key] != null)
+    .map(({ key, label, fmt }) => ({ label, value: fmt(m[key] as number) }));
 
   return (
     <section>
@@ -198,7 +184,7 @@ export const MarketContext = memo(function MarketContext({ data: m, title }: { d
                 className="flex justify-between py-1 border-b border-foreground/5"
               >
                 <span className="text-muted-foreground text-xs">{ind.label}</span>
-                <span className={`font-medium text-xs tabular-nums ${ind.color ?? ""}`}>
+                <span className="font-medium text-xs tabular-nums">
                   {ind.value}
                 </span>
               </div>

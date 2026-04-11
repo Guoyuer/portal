@@ -19,6 +19,9 @@ if [ -d pipeline/generate_asset_snapshot ]; then
   fi
 fi
 
+# Unit tests (~1.5s)
+npm test > /dev/null 2>&1 || { echo "❌ unit tests failed"; exit 1; }
+
 # TypeScript build check (~2s)
 npx next build > /dev/null 2>&1 || { echo "❌ next build failed"; exit 1; }
 

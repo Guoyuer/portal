@@ -7,5 +7,15 @@ export default defineConfig({
   },
   test: {
     include: ["src/**/*.test.ts"],
+    coverage: {
+      provider: "v8",
+      include: ["src/lib/**"],
+      thresholds: {
+        statements: 70,
+        branches: 70,
+        functions: 70,
+        lines: 70,
+      },
+    },
   },
 });
