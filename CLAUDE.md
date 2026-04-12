@@ -1,6 +1,10 @@
-@AGENTS.md
-
 # Portal
+
+## This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
+
+
 
 Personal finance dashboard: Next.js 16 frontend + Cloudflare Worker/D1, deployed to Cloudflare Pages. Same Worker serves both local dev and production.
 
@@ -17,7 +21,7 @@ cd worker && npx wrangler dev --remote              # local proxy to remote D1 (
 cd worker && npx wrangler dev                       # local D1 (seed first with sync --local)
 
 # Python pipeline
-cd pipeline && .venv/bin/pytest -q                  # 25 test files
+cd pipeline && .venv/bin/pytest -q                  # 34 test files
 cd pipeline && .venv/bin/mypy etl/ --ignore-missing-imports
 cd pipeline && .venv/bin/ruff check .
 
@@ -27,7 +31,7 @@ cd pipeline && python3 scripts/sync_to_d1.py        # push to remote D1
 cd pipeline && python3 scripts/sync_to_d1.py --local # push to local D1
 
 # E2E (mock API on port 4444 — no real backend needed)
-npx playwright test                                   # 4 Playwright spec files
+npx playwright test                                   # 5 Playwright spec files
 ```
 
 ## Code style
@@ -38,7 +42,7 @@ npx playwright test                                   # 4 Playwright spec files
 
 ## Type contract
 
-Python `types.py` (snake_case) is source of truth → SQLite `timemachine.db` → D1 views (camelCase aliases) → Worker JSON → Zod `schema.ts` (camelCase mirror). Keep them in sync. D1 schema is auto-generated from `db.py` via `gen_schema_sql.py`.
+Python `types.py` (snake_case) is source of truth → SQLite `timemachine.db` → D1 views (camelCase aliases) → Worker JSON → Zod `src/lib/schemas/` (camelCase mirror, shared with Worker via `include` in `worker/tsconfig.json`). Keep them in sync. D1 schema is auto-generated from `etl/db.py` via `gen_schema_sql.py`.
 
 ## Architecture
 
@@ -46,7 +50,7 @@ Next.js static shell on Cloudflare Pages. Data served by Cloudflare Worker (`wor
 
 Frontend fetches all data in a single `GET /timeline` call (~4.6 MB JSON, ~385 KB gzipped by Cloudflare edge), then computes allocation, cashflow, activity, and reconciliation locally in `compute.ts` via `use-bundle.ts`. All daily data points are rendered directly (no downsampling). Brush drag is zero-latency (no network). Ticker charts fetch on-demand via `GET /prices/:symbol`.
 
-D1 schema: 7 tables + `daily_close` + `sync_meta` + 9 camelCase views (inc. `v_market_meta` pivot + `v_econ_snapshot`). Worker serves 3 endpoints: `GET /timeline`, `GET /econ`, `GET /prices/:symbol`. Worker is a thin adapter: `SELECT` → `Zod.safeParse` → JSON. All shape work lives in the views; the only transform in TypeScript is `JSON.parse(sparkline)`, done via a Zod transform shared with the client. All data flows through D1.
+D1 schema: 10 base tables (incl. `categories`) + 12 camelCase views (incl. `v_market_meta` pivot, `v_econ_snapshot`, `v_econ_series_grouped`, `v_categories`). Worker serves 3 endpoints: `GET /timeline`, `GET /econ`, `GET /prices/:symbol`. Worker is a thin adapter: `SELECT` → `Zod.safeParse` → JSON. All shape work lives in the views; the only transform in TypeScript is `JSON.parse(sparkline)`, done via a Zod transform shared with the client. All data flows through D1.
 
 `/timeline` is fail-open: the critical `v_daily` query returns 503 on failure, but optional sections (market, holdings, txns) degrade to `null` + a `errors: { market?, holdings?, txns? }` entry. Panels render explicit error cards — missing data never hides silently.
 

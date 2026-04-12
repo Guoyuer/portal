@@ -19,8 +19,10 @@ Blast legend: file count + rough import-site count.
 **Abandoned**:
 - ❌ Item **12** (CNY gap manual_rates.csv seed) — superseded by PR #98 invariant protection (\`INSERT OR IGNORE\` for historical rows in `daily_close`). Today's investigation showed Yahoo actually has full CNY=X history (back to 2001-06-25); the "gap" was transient API flakiness, not a permanent data absence. The seed file would have been treating a symptom. The invariant protects the root cause.
 
-**Deferred**:
-- Item **9** (rename `generate_asset_snapshot/` → `etl/` or similar) — large blast radius. Documented as R4 in `docs/todo-plan-2026-04.md`; needs its own focused PR when other work is quiet.
+**Deferred originally, now also executed**:
+- ✅ Item **9** — merged in PR #107 (`refactor/rename-package-etl`). Package renamed `generate_asset_snapshot/` → `etl/`; ~37 Python files + CI / hooks / docs updated in a single PR.
+
+**All items from this audit are now closed.**
 
 ---
 

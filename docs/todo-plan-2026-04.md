@@ -1,6 +1,6 @@
 # TODO & Plan — 2026-04
 
-Master tracking for outstanding work. Supersedes ad-hoc notes and `structural-cleanup-plan-2026-04.md` for scope/ordering. The structural plan doc stays as the detailed reference for items 1–11.
+Master tracking for outstanding work. Supersedes ad-hoc notes and `archive/structural-cleanup-plan-2026-04.md` for scope/ordering. The structural plan doc stays as the detailed reference for items 1–11.
 
 Current state (as of 2026-04-12, post-Batch-4):
 
@@ -74,7 +74,7 @@ Test counts on main: pytest **466**, vitest **115**. All typecheck + lint green.
 Ordered by dependency and risk. Each PR standalone; sub-agent-friendly or hand-written.
 
 ### PR-A — Structural quick wins
-From `structural-cleanup-plan-2026-04.md` items 1, 2, 3, 8, 10, 11 (header tweak).
+From `archive/structural-cleanup-plan-2026-04.md` items 1, 2, 3, 8, 10, 11 (header tweak).
 - Items 1 (test location), 2 (empty test dirs), 3 (screenshot scripts), 8 (flatten `core/reconcile.py`), 10 (config co-location), 11 (schema.sql header comment).
 - All XS effort, zero risk. Single PR with one commit per item.
 
@@ -107,7 +107,7 @@ Fix:
 ### PR-F — CLAUDE.md + structural-cleanup doc updates
 After all above land:
 - Update `CLAUDE.md` with the new structure.
-- Mark completed items in `structural-cleanup-plan-2026-04.md`.
+- Mark completed items in `archive/structural-cleanup-plan-2026-04.md`.
 - Strike item 12 (CNY seed file) — obsoleted by PR-X invariant protection. Write a short note why.
 
 ---
