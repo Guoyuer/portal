@@ -145,7 +145,7 @@ portal/
 │   │   ├── market/
 │   │   │   ├── yahoo.py               # Yahoo Finance: index returns, CNY rate
 │   │   │   └── fred.py                # FRED API: Fed rate, CPI, VIX, oil, etc.
-│   │   └── core/reconcile.py          # Qianji ↔ Fidelity cross-reconciliation
+│   │   └── reconcile.py               # Qianji ↔ Fidelity cross-reconciliation
 │   ├── scripts/
 │   │   ├── build_timemachine_db.py    # Main build: ingest → replay → precompute → SQLite
 │   │   ├── sync_to_d1.py             # Push timemachine.db tables to D1
