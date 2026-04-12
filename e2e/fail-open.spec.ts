@@ -3,7 +3,7 @@ import { test, expect } from "@playwright/test";
 // ── /timeline error-card scenarios ───────────────────────────────────────
 // When the Worker reports an optional section failure (market/holdings/txns),
 // the page must still render AND the affected section must show an explicit
-// error card. See docs/code-quality-review-2026-04.md finding #5.
+// error card. See docs/archive/code-quality-review-2026-04.md finding #5.
 
 test.describe("Timeline fail-open", () => {
   test("renders error card when market data fails", async ({ page }) => {

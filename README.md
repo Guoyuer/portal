@@ -93,7 +93,8 @@ portal/
 │   │   │   ├── theme-toggle.tsx       # Dark mode toggle
 │   │   │   └── back-to-top.tsx        # Floating scroll-to-top
 │   │   ├── finance/
-│   │   │   ├── shared.tsx             # SectionHeader, SectionBody, TickerTable
+│   │   │   ├── section.tsx            # SectionHeader + SectionBody layout primitives
+│   │   │   ├── ticker-table.tsx       # TickerTable + DeviationCell
 │   │   │   ├── charts.tsx             # Recharts (donut, bar+line, area)
 │   │   │   ├── timemachine.tsx        # Brush/traveller date-range selector
 │   │   │   ├── metric-cards.tsx       # Portfolio, Net Worth, Savings Rate, Goal
@@ -108,14 +109,14 @@ portal/
 │   │   └── ui/                        # shadcn/ui (Button, Table)
 │   └── lib/
 │       ├── use-bundle.ts              # Core data hook: fetch /timeline → local compute
-│       ├── schema.ts                  # Zod schemas for timeline API
-│       ├── econ-schema.ts             # Zod schemas for economy data
+│       ├── schemas/                   # Zod API schemas (timeline, econ, ticker) + index
+│       ├── computed-types.ts          # Client-computed TS types (not Zod-derived)
 │       ├── compute.ts                 # Pure computation (allocation, cashflow, activity)
 │       ├── config.ts                  # WORKER_BASE, TIMELINE_URL, ECON_URL, GOAL
 │       ├── format.ts                  # Currency/percent formatters
-│       ├── hooks.ts                   # Shared React hooks
+│       ├── hooks.ts                   # Shared React hooks (inc. getIsDark / useIsDark)
 │       ├── chart-styles.ts            # Recharts theming
-│       ├── style-helpers.ts           # CSS helpers
+│       ├── thresholds.ts              # Business thresholds + value coloring
 │       └── utils.ts                   # General utilities
 │
 ├── worker/                            # Cloudflare Worker (TypeScript)
@@ -213,7 +214,7 @@ graph LR
 | Auth | Cloudflare Access | Zero-trust, Google login |
 | Pipeline | Python 3.14 | Fidelity/Qianji/Robinhood/401k ingest, Yahoo Finance, FRED API |
 | CI/CD | GitHub Actions | Python lint/test + vitest + Playwright E2E + deploy |
-| Tests | vitest (101) + Playwright (4 specs, mock API) + pytest (374) | Coverage thresholds, branch protection |
+| Tests | vitest (115) + Playwright (5 specs, mock API) + pytest (466) | Coverage thresholds, branch protection |
 | Errors | Sentry | Client-side error tracking in production |
 
 ## Development
@@ -264,7 +265,7 @@ cd pipeline && python3 scripts/sync_to_d1.py
 
 ```
 src/app/{module}/page.tsx        ← route + UI
-src/lib/{module}-schema.ts       ← Zod schemas
+src/lib/schemas/{module}.ts      ← Zod schemas (re-exported from schemas/index.ts)
 src/components/{module}/         ← components
 e2e/{module}.spec.ts             ← tests
 pipeline/...                     ← data generation (if needed)

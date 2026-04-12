@@ -46,7 +46,7 @@ graph TB
     TEST --> DEPLOY --> PAGES & WORKER
 ```
 
-**Principles:** D1 is persistent store, local DB is disposable cache. Diff sync pushes only new rows. Worker is pure passthrough. Frontend computes everything locally after one fetch. Positions CSV calibration is optional.
+**Principles:** D1 is persistent store, local DB is disposable cache. Diff sync pushes only new rows. Worker is a thin adapter (shape work in D1 views, Zod validation at boundary). Frontend computes everything locally after one fetch. Positions CSV calibration is optional.
 
 ---
 
@@ -56,17 +56,22 @@ graph TB
 |-------|---------|---------------|
 | `computed_daily` | Daily totals + 4 categories + liabilities | INSERT OR IGNORE |
 | `computed_daily_tickers` | Per-day per-ticker value, cost basis | INSERT OR IGNORE |
-| `fidelity_transactions` | Classified records (runDate, actionType, symbol, amount) | Range replace |
-| `qianji_transactions` | Records (date, type, category, amount) | Range replace |
+| `fidelity_transactions` | Classified records (runDate ISO, actionType, symbol, amount) | Range replace |
+| `qianji_transactions` | Records (date, type, category, amount, isRetirement) | Range replace |
+| `categories` | Allocation metadata (key, name, displayOrder, targetPct) from `config.json` | Full replace |
 | `computed_market_indices` | Index returns + sparklines | Full replace |
 | `computed_market_indicators` | Scalar FRED indicators | Full replace |
 | `computed_holdings_detail` | Per-ticker performance | Full replace |
-| `econ_series` | FRED monthly time-series (9 keys, ~540 rows) | Full replace |
+| `econ_series` | FRED monthly time-series (~9 keys) | Full replace |
 | `sync_meta` | last_sync timestamp, last_date coverage | Full replace |
 | `replay_checkpoint` | Cached positions/cash/cost_basis (local only) | Not synced |
 | `calibration_log` | Drift between replay and positions CSV (local only) | Not synced |
 
-Worker endpoints: `GET /timeline` (7 parallel SELECTs → JSON, ~4.6 MB / ~385 KB gzip), `GET /econ` (econ_series → grouped by key), `GET /prices/:symbol` (daily close + transactions, on-demand per ticker click).
+D1 has 12 camelCase views (one per logical bundle — `v_daily`, `v_daily_tickers`, `v_fidelity_txns`, `v_qianji_txns`, `v_categories`, `v_market_indices`, `v_market_indicators`, `v_market_meta` pivot, `v_holdings_detail`, `v_econ_series`, `v_econ_series_grouped`, `v_econ_snapshot`).
+
+Worker endpoints: `GET /timeline` (parallel SELECTs across critical + optional views, ~4.6 MB / ~385 KB gzip), `GET /econ` (econ_series snapshot + grouped series), `GET /prices/:symbol` (daily close + transactions, on-demand per ticker click). All responses pass through `safeParse` at the Worker boundary — schema drift returns HTTP 500 with the Zod path instead of a silently garbage body.
+
+`/timeline` is fail-open: the critical `v_daily` query returns 503 on failure, but optional sections (market, holdings, txns) degrade to `null` + an `errors: { market?, holdings?, txns? }` entry. Frontend panels render explicit error cards — missing data never hides silently.
 
 ---
 
