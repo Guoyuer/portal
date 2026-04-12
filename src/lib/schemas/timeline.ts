@@ -95,8 +95,8 @@ const FidelityTxnSchema = z.object({
   actionType: z.string(),
   symbol: z.string(),
   amount: z.number(),
-  quantity: z.number().default(0),
-  price: z.number().default(0),
+  quantity: z.number(),
+  price: z.number(),
 });
 
 const QianjiTxnSchema = z.object({

@@ -47,10 +47,6 @@ jobs:
           path: .next/cache
           key: nextjs-${{ hashFiles('package-lock.json') }}-${{ hashFiles('src/**') }}
           restore-keys: nextjs-${{ hashFiles('package-lock.json') }}-
-      - run: npx next build
-        env:
-          NEXT_PUBLIC_TIMELINE_URL: http://localhost:4444/timeline
-
       # ── Unit tests + coverage ──────────────────────────────────
       - run: npm run test:coverage
       - name: Coverage report to PR
