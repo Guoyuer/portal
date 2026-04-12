@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 # ── Constants ───────────────────────────────────────────────────────────────
 
@@ -89,7 +89,8 @@ class Config(TypedDict):
     aliases: dict[str, str]
     goal: float
     qianji_accounts: QianjiAccountsConfig
-    fidelity_accounts: dict[str, str]  # account number -> money market fund ticker
+    # Optional: account number -> money market fund ticker. Unknown accounts fall back to FZFXX.
+    fidelity_accounts: NotRequired[dict[str, str]]
 
 
 class Portfolio(TypedDict):

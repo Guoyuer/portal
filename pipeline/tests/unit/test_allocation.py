@@ -233,6 +233,49 @@ class TestComputeDailyAllocation:
         assert vti["value"] == 2500.0  # 10 * 250
         assert vti["category"] == "US Equity"
 
+    def test_unknown_fidelity_account_falls_back_to_fzfxx(self, tmp_path: Path) -> None:
+        """Cash in a Fidelity account not listed in config.fidelity_accounts routes to FZFXX."""
+        db_path = tmp_path / "timemachine.db"
+        qj_path = tmp_path / "qianji.db"
+
+        # Empty qianji DB (schema only, no accounts) so only Fidelity cash drives the result
+        qj_conn = sqlite3.connect(str(qj_path))
+        qj_conn.execute("CREATE TABLE user_asset (name TEXT PRIMARY KEY, money REAL, currency TEXT, status INTEGER DEFAULT 0)")
+        qj_conn.execute("CREATE TABLE user_bill (time INTEGER, type INTEGER, money REAL, fromact TEXT, targetact TEXT, extra TEXT, status INTEGER DEFAULT 1)")
+        qj_conn.commit()
+        qj_conn.close()
+
+        # Seed a deposit in an UNKNOWN account number (not in fidelity_accounts)
+        init_db(db_path)
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(
+            "INSERT INTO fidelity_transactions"
+            " (run_date, account, account_number, action, action_type, symbol, lot_type, quantity, amount)"
+            " VALUES ('01/02/2025', 'Fidelity taxable', 'UNKNOWN999', 'DEPOSIT', 'deposit', '', '', 0, 1000)",
+        )
+        conn.execute("INSERT INTO daily_close (symbol, date, close) VALUES ('CNY=X', '2025-01-02', 7.25)")
+        conn.commit()
+        conn.close()
+
+        config = {
+            "assets": {"FZFXX": {"category": "Safe Net", "subtype": ""}},
+            "qianji_accounts": {
+                "fidelity_tracked": ["Fidelity taxable"],
+                "credit": [], "cny": [], "ticker_map": {},
+            },
+            "fidelity_accounts": {},  # empty → force fallback for all accounts
+        }
+
+        results = compute_daily_allocation(
+            db_path=db_path, qj_db=qj_path, config=config, k401_daily={},
+            start=date(2025, 1, 2), end=date(2025, 1, 2),
+        )
+
+        assert len(results) == 1
+        tickers = {t["ticker"]: t["value"] for t in results[0]["tickers"]}
+        assert "FZFXX" in tickers
+        assert tickers["FZFXX"] == 1000.0
+
     def test_401k_values_included(self, tmp_path: Path) -> None:
         """401k daily values are added to totals."""
         db_path = tmp_path / "timemachine.db"
