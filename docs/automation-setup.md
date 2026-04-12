@@ -1,6 +1,6 @@
 # Portal Automation — Setup Guide
 
-One-time steps to register `run_portal_sync.ps1` with Windows Task Scheduler and wire up cron-style observability via healthchecks.io. After this, a new Fidelity CSV dropped in `~/Downloads/` will be automatically ingested + synced to prod D1 on the next scheduled tick.
+One-time steps to register `run_portal_sync.ps1` with Windows Task Scheduler and wire up observability (healthchecks.io heartbeat + Gmail changelog emails). After this, a new Fidelity CSV dropped in `~/Downloads/` will be automatically ingested + synced to prod D1 on the next scheduled tick, and you'll get an email summarising what changed.
 
 **Prerequisites** (assumed already in place):
 - `pipeline/.venv` is set up with Python 3.14 + requirements
@@ -93,6 +93,53 @@ npx wrangler d1 execute portal-db --remote --command="SELECT * FROM sync_meta"
 
 Expected: `last_sync` timestamp is within the last few minutes.
 
+## 7. Email notifications (optional but recommended)
+
+Sends a changelog email whenever a sync detects real changes OR any gate fails. Silent no-change runs are never emailed (noise avoidance — `healthchecks.io` already tells you if the task stopped running).
+
+Uses Gmail SMTP + an app-specific password. No DNS setup, no paid service.
+
+1. On Gmail: **Account → Security → 2-Step Verification → App passwords**. Generate a password named `Portal Sync`. You'll get a 16-char code (shown once — save it now).
+
+2. Set the env vars at user scope so Task Scheduler inherits them:
+
+```cmd
+setx PORTAL_SMTP_USER "your-gmail@gmail.com"
+setx PORTAL_SMTP_PASSWORD "abcd efgh ijkl mnop"
+```
+
+The password can include the spaces as shown or be stripped — Gmail accepts both. Optional overrides:
+
+```cmd
+setx PORTAL_EMAIL_TO "alerts@example.com"
+setx PORTAL_SMTP_HOST "smtp.gmail.com"
+setx PORTAL_SMTP_PORT "587"
+```
+
+`PORTAL_EMAIL_FROM` / `PORTAL_EMAIL_TO` default to `PORTAL_SMTP_USER` (self-email).
+
+3. Open a new PowerShell (`setx` only affects future processes) and verify:
+
+```powershell
+echo $env:PORTAL_SMTP_USER
+```
+
+4. Test with a force sync:
+
+```powershell
+cd C:\Users\guoyu\Projects\portal
+powershell -NoProfile -ExecutionPolicy Bypass -File pipeline\scripts\run_portal_sync.ps1 --force
+```
+
+Check your inbox. Expected subject: `[Portal Sync] OK — N fidelity, M qianji, nw +$X`.
+
+**Email triggers**:
+- Sync detects changes (new fidelity/qianji/computed_daily/empower rows) → email with changelog
+- Any gate failure (exit code 1/2/3/4) → email with error + log path
+- Clean run with no changes → NO email
+
+**Security**: the app password lives only in env vars (never in code, logs, or commits). The orchestrator logs `Email reporting: enabled` or `disabled` — never the credential itself. SMTP failures are logged but never fail the sync (exit code is preserved).
+
 ---
 
 ## Exit code reference
@@ -106,6 +153,8 @@ Exit code from `run_automation.py` (propagated by PS1 shim to Task Scheduler):
 | `2` | Parity gate failed — local ↔ prod drift or local shrinkage | Run `verify_vs_prod.py --verbose` manually, investigate |
 | `3` | Sync failed | Check wrangler output in log; may be a transient Cloudflare issue, retry |
 | `4` | Positions gate failed — replay disagrees with a fresh `Portfolio_Positions_*.csv` | Run `verify_positions.py --positions <path>` manually, investigate share-count drift |
+
+The email notification is sent **after** the exit code is determined but before the script returns, so a failing run both emails you and exits non-zero for Task Scheduler / healthchecks to pick up.
 
 Healthchecks.io pings:
 - `/start` at each run begin
