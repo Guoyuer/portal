@@ -17,6 +17,45 @@ from .parsing import parse_us_date
 from .timemachine import MM_SYMBOLS, POSITION_PREFIXES, _load_raw_rows, _parse_date
 from .types import parse_float as _float
 
+# ── Daily-close write invariant ─────────────────────────────────────────────
+
+REFRESH_WINDOW_DAYS = 7
+"""Dates within this many days of ``end`` may be refreshed (Yahoo publishes late
+corrections for the most recent few sessions). Older dates are treated as
+immutable historical fact — once stored, ``_persist_close`` refuses to overwrite
+them. This protects the DB from future fetches that return partial or wrong
+data (observed: transient Yahoo flakiness; also guards against logic bugs in
+``_reverse_split_factor`` corrupting already-correct rows)."""
+
+
+def _persist_close(
+    conn: sqlite3.Connection,
+    symbol: str,
+    date_iso: str,
+    close: float,
+    refresh_cutoff_iso: str,
+) -> bool:
+    """Insert a daily_close row with the historical-immutability invariant.
+
+    - ``date_iso < refresh_cutoff_iso`` → INSERT OR IGNORE (preserve existing).
+    - ``date_iso >= refresh_cutoff_iso`` → INSERT OR REPLACE (allow refresh).
+
+    Returns True when the row was actually inserted/replaced; False when an
+    IGNORE skipped because the row already existed.
+    """
+    if date_iso < refresh_cutoff_iso:
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO daily_close (symbol, date, close) VALUES (?, ?, ?)",
+            (symbol, date_iso, close),
+        )
+        return cur.rowcount > 0
+    conn.execute(
+        "INSERT OR REPLACE INTO daily_close (symbol, date, close) VALUES (?, ?, ?)",
+        (symbol, date_iso, close),
+    )
+    return True
+
+
 # ── Symbol holding periods ──────────────────────────────────────────────────
 
 
@@ -200,7 +239,8 @@ def fetch_and_store_prices(
             # Fetch split data to reverse Yahoo's retroactive split adjustment
             split_factors = _build_split_factors(sorted(syms))
 
-            rows_inserted = 0
+            refresh_cutoff_iso = (end - timedelta(days=REFRESH_WINDOW_DAYS)).isoformat()
+            new_historical = refreshed_recent = 0
             for sym in close_df.columns:
                 hp_start, hp_end_raw = holding_periods.get(sym, (batch_start, None))
                 fetch_start = min(hp_start, global_start) if global_start else hp_start
@@ -211,13 +251,15 @@ def fetch_and_store_prices(
                     if d < fetch_start or d > hp_end:
                         continue
                     unadj = float(price) * _reverse_split_factor(d, factors)
-                    conn.execute(
-                        "INSERT OR REPLACE INTO daily_close (symbol, date, close) VALUES (?, ?, ?)",
-                        (sym, d.isoformat(), unadj),
-                    )
-                    rows_inserted += 1
+                    d_iso = d.isoformat()
+                    inserted = _persist_close(conn, sym, d_iso, unadj, refresh_cutoff_iso)
+                    if d_iso < refresh_cutoff_iso:
+                        if inserted:
+                            new_historical += 1
+                    else:
+                        refreshed_recent += 1
             conn.commit()
-            print(f"Cached {rows_inserted} price records")
+            print(f"Cached prices: {new_historical} new historical, {refreshed_recent} refreshed in window")
         else:
             print(f"All {len(holding_periods)} symbols cached")
     finally:
@@ -225,46 +267,49 @@ def fetch_and_store_prices(
 
 
 def fetch_and_store_cny_rates(db_path: Path, start: date, end: date) -> None:
-    """Fetch daily USD/CNY rate from yfinance and store in timemachine.db."""
+    """Fetch daily USD/CNY rate from yfinance and store in timemachine.db.
+
+    Writes go through ``_persist_close``: dates older than the refresh window
+    are never overwritten once stored. Re-runs are therefore idempotent — a
+    partial or wrong Yahoo response cannot corrupt already-captured history.
+    """
     sym = "CNY=X"
+    refresh_cutoff_iso = (end - timedelta(days=REFRESH_WINDOW_DAYS)).isoformat()
     conn = get_connection(db_path)
     try:
-        cached_lo, cached_hi = _cached_range(conn, sym)
-        if cached_lo is None or cached_lo > start or (
-            cached_hi and cached_hi < end - timedelta(days=4)
-        ):
-            print(f"Fetching USD/CNY rates {start} -> {end}...")
-            try:
-                df = yf.download(
-                    sym,
-                    start=start.isoformat(),
-                    end=(end + timedelta(days=1)).isoformat(),
-                    auto_adjust=False,
-                    progress=False,
-                )
-            except Exception:
-                print("ERROR: yfinance CNY rate download failed")
-                raise
-            if df.empty:
-                msg = "yfinance returned empty CNY data"
-                raise RuntimeError(msg)
-            if isinstance(df.columns, pd.MultiIndex):
-                close = df["Close"].iloc[:, 0]
-            elif "Close" in df.columns:
-                close = df["Close"]
+        print(f"Fetching USD/CNY rates {start} -> {end}...")
+        try:
+            df = yf.download(
+                sym,
+                start=start.isoformat(),
+                end=(end + timedelta(days=1)).isoformat(),
+                auto_adjust=False,
+                progress=False,
+            )
+        except Exception:
+            print("ERROR: yfinance CNY rate download failed")
+            raise
+        if df.empty:
+            msg = "yfinance returned empty CNY data"
+            raise RuntimeError(msg)
+        if isinstance(df.columns, pd.MultiIndex):
+            close = df["Close"].iloc[:, 0]
+        elif "Close" in df.columns:
+            close = df["Close"]
+        else:
+            close = df.iloc[:, 0]
+        new_historical = refreshed_recent = 0
+        for dt, rate in close.dropna().items():
+            d = dt.date() if hasattr(dt, "date") else dt
+            d_iso = d.isoformat() if hasattr(d, "isoformat") else str(d)
+            inserted = _persist_close(conn, sym, d_iso, float(rate), refresh_cutoff_iso)
+            if d_iso < refresh_cutoff_iso:
+                if inserted:
+                    new_historical += 1
             else:
-                close = df.iloc[:, 0]
-            cnt = 0
-            for dt, rate in close.dropna().items():
-                d = dt.date() if hasattr(dt, "date") else dt
-                d_str = d.isoformat() if hasattr(d, "isoformat") else str(d)
-                conn.execute(
-                    "INSERT OR REPLACE INTO daily_close (symbol, date, close) VALUES (?, ?, ?)",
-                    (sym, d_str, float(rate)),
-                )
-                cnt += 1
-            conn.commit()
-            print(f"Cached {cnt} CNY rate records")
+                refreshed_recent += 1
+        conn.commit()
+        print(f"CNY rates: {new_historical} new historical, {refreshed_recent} refreshed in window")
     finally:
         conn.close()
 

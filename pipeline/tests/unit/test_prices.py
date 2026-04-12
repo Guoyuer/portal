@@ -3,7 +3,9 @@ from __future__ import annotations
 
 from datetime import date
 from pathlib import Path
+from unittest.mock import patch
 
+import pandas as pd
 import pytest
 
 pytest.importorskip("yfinance", reason="yfinance required for prices module")
@@ -11,6 +13,8 @@ pytest.importorskip("yfinance", reason="yfinance required for prices module")
 from generate_asset_snapshot.db import get_connection, init_db  # noqa: E402
 from generate_asset_snapshot.prices import (  # noqa: E402
     _holding_periods_core,
+    fetch_and_store_cny_rates,
+    fetch_and_store_prices,
     load_cny_rates,
     load_prices,
     load_proxy_prices,
@@ -196,3 +200,130 @@ class TestHoldingPeriodsCore:
     def test_empty_rows(self) -> None:
         result = _holding_periods_core([])
         assert result == {}
+
+
+# ── Invariant: historical daily_close rows are immutable ───────────────────
+
+
+def _cny_df(rows: list[tuple[str, float]]) -> pd.DataFrame:
+    """Build a yfinance-style single-symbol DataFrame.
+
+    Shape matches what ``yf.download("CNY=X", ...)`` returns: a DataFrame
+    indexed by DatetimeIndex with a flat "Close" column.
+    """
+    return pd.DataFrame(
+        {"Close": [c for _, c in rows]},
+        index=pd.to_datetime([d for d, _ in rows]),
+    )
+
+
+class TestHistoricalImmutabilityCnyRates:
+    """`fetch_and_store_cny_rates` must never overwrite historical values.
+
+    Yahoo occasionally returns partial or revised data for past dates. Once a
+    rate is stored for a date older than the refresh window, it should be
+    treated as the authoritative historical value. Only recent dates (within
+    the refresh window) may be updated — Yahoo sometimes publishes late
+    corrections for the past few days.
+    """
+
+    def test_historical_row_preserved_when_yahoo_returns_different_value(
+        self, tmp_path: Path,
+    ) -> None:
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        _seed_prices(db_path, [("CNY=X", "2023-03-13", 6.9052)])
+
+        with patch("generate_asset_snapshot.prices.yf.download") as mock_dl:
+            mock_dl.return_value = _cny_df([("2023-03-13", 99.0)])
+            fetch_and_store_cny_rates(db_path, date(2023, 3, 13), date(2026, 4, 12))
+
+        # Historical row unchanged
+        conn = get_connection(db_path)
+        r = conn.execute(
+            "SELECT close FROM daily_close WHERE symbol='CNY=X' AND date='2023-03-13'",
+        ).fetchone()
+        conn.close()
+        assert r[0] == pytest.approx(6.9052)
+
+    def test_historical_gap_filled_without_touching_existing(
+        self, tmp_path: Path,
+    ) -> None:
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        _seed_prices(db_path, [
+            ("CNY=X", "2023-07-05", 7.2135),  # existing
+        ])
+
+        with patch("generate_asset_snapshot.prices.yf.download") as mock_dl:
+            # Yahoo returns BOTH the existing date (with different value) and a
+            # historical gap date.
+            mock_dl.return_value = _cny_df([
+                ("2023-03-13", 6.9052),  # new gap-fill
+                ("2023-07-05", 99.0),    # conflict; must be ignored
+            ])
+            fetch_and_store_cny_rates(db_path, date(2023, 3, 13), date(2026, 4, 12))
+
+        conn = get_connection(db_path)
+        existing = conn.execute(
+            "SELECT close FROM daily_close WHERE symbol='CNY=X' AND date='2023-07-05'",
+        ).fetchone()
+        gap = conn.execute(
+            "SELECT close FROM daily_close WHERE symbol='CNY=X' AND date='2023-03-13'",
+        ).fetchone()
+        conn.close()
+        assert existing[0] == pytest.approx(7.2135)  # preserved
+        assert gap[0] == pytest.approx(6.9052)       # filled
+
+    def test_recent_row_updated_within_refresh_window(
+        self, tmp_path: Path,
+    ) -> None:
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        # Build end is 2026-04-12; refresh window is 7 days → 2026-04-05 onward.
+        _seed_prices(db_path, [("CNY=X", "2026-04-10", 7.20)])
+
+        with patch("generate_asset_snapshot.prices.yf.download") as mock_dl:
+            mock_dl.return_value = _cny_df([("2026-04-10", 7.25)])  # Yahoo correction
+            fetch_and_store_cny_rates(db_path, date(2023, 3, 13), date(2026, 4, 12))
+
+        conn = get_connection(db_path)
+        r = conn.execute(
+            "SELECT close FROM daily_close WHERE symbol='CNY=X' AND date='2026-04-10'",
+        ).fetchone()
+        conn.close()
+        assert r[0] == pytest.approx(7.25)  # refreshed
+
+
+class TestHistoricalImmutabilityPrices:
+    """`fetch_and_store_prices` enforces the same invariant for per-symbol prices."""
+
+    def test_historical_price_preserved_when_yahoo_returns_different_value(
+        self, tmp_path: Path,
+    ) -> None:
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        _seed_prices(db_path, [("VOO", "2024-01-15", 440.50)])
+
+        # Open-ended holding period forces the cache check to consider the
+        # cache stale (cached_hi well before end - 4 days) → triggers fetch.
+        with patch("generate_asset_snapshot.prices.yf.download") as mock_dl, \
+             patch("generate_asset_snapshot.prices._build_split_factors", return_value={}):
+            mock_dl.return_value = pd.DataFrame(
+                {("Close", "VOO"): [999.0]},
+                index=pd.to_datetime(["2024-01-15"]),
+            )
+            fetch_and_store_prices(
+                db_path,
+                {"VOO": (date(2024, 1, 15), None)},  # still held → need_end = end
+                date(2026, 4, 12),
+            )
+            # Confirm fetch actually ran (otherwise the test is a no-op).
+            assert mock_dl.called
+
+        conn = get_connection(db_path)
+        r = conn.execute(
+            "SELECT close FROM daily_close WHERE symbol='VOO' AND date='2024-01-15'",
+        ).fetchone()
+        conn.close()
+        assert r[0] == pytest.approx(440.50)  # historical value preserved
