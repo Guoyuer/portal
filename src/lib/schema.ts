@@ -105,6 +105,12 @@ const QianjiTxnSchema = z.object({
   type: z.string(),
   category: z.string(),
   amount: z.number(),
+  // SQLite returns INTEGER; accept 0/1 and coerce to boolean. Mocks/tests may
+  // pass a bare boolean. Absent → false.
+  isRetirement: z
+    .union([z.boolean(), z.number()])
+    .optional()
+    .transform((v) => (v === undefined ? false : Boolean(v))),
 });
 
 // ── Category metadata (target weights + display order from pipeline) ────

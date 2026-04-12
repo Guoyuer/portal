@@ -45,7 +45,7 @@ TABLES_TO_SYNC: list[str] = [
 # Column subsets to sync to D1.  None → all columns (SELECT *).
 _D1_COLUMNS: dict[str, list[str] | None] = {
     "fidelity_transactions": ["run_date", "action_type", "symbol", "amount", "quantity", "price"],
-    "qianji_transactions": ["date", "type", "category", "amount"],
+    "qianji_transactions": ["date", "type", "category", "amount", "is_retirement"],
     "daily_close": ["symbol", "date", "close"],
 }
 

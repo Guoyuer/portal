@@ -23,10 +23,11 @@ CREATE TABLE IF NOT EXISTS daily_close (
 );
 
 CREATE TABLE IF NOT EXISTS qianji_transactions (
-  date     TEXT NOT NULL,
-  type     TEXT NOT NULL,
-  category TEXT NOT NULL DEFAULT '',
-  amount   REAL NOT NULL
+  date           TEXT NOT NULL,
+  type           TEXT NOT NULL,
+  category       TEXT NOT NULL DEFAULT '',
+  amount         REAL NOT NULL,
+  is_retirement  INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS computed_daily (
@@ -123,7 +124,8 @@ SELECT run_date AS runDate, action_type AS actionType, symbol, amount,
 FROM fidelity_transactions ORDER BY id;
 
 CREATE VIEW IF NOT EXISTS v_qianji_txns AS
-SELECT date, type, category, amount
+SELECT date, type, category, amount,
+  is_retirement AS isRetirement
 FROM qianji_transactions ORDER BY date;
 
 CREATE VIEW IF NOT EXISTS v_market_indices AS

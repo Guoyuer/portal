@@ -331,7 +331,10 @@ def _full_build(paths: BuildPaths, config, start, end, k401_daily, *, no_validat
     from generate_asset_snapshot.db import ingest_qianji_transactions
 
     qianji_records, _ = load_all_from_db(DEFAULT_QJ_DB)
-    qj_count = ingest_qianji_transactions(paths.db_path, qianji_records)
+    retirement_cats = config.get("retirement_income_categories", []) or []
+    qj_count = ingest_qianji_transactions(
+        paths.db_path, qianji_records, retirement_categories=list(retirement_cats)
+    )
     print(f"  {qj_count} Qianji transactions ingested")
 
     # Precompute market index data

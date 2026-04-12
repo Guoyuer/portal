@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import tempfile
 from datetime import UTC, datetime
+from pathlib import Path
 
+from generate_asset_snapshot.db import ingest_qianji_transactions, init_db
 from generate_asset_snapshot.ingest.qianji_db import _load_balances, _load_records, _parse_amount
 
 # ── _parse_amount ─────────────────────────────────────────────────────────────
@@ -208,3 +211,108 @@ class TestLoadBalances:
         conn.execute("INSERT INTO user_asset VALUES ('Old', 100, NULL, 0)")
         balances = _load_balances(conn)
         assert balances["Old"] == (100, "USD")
+
+
+# ── Retirement flag — ingest_qianji_transactions ──────────────────────────────
+
+
+def _fresh_db() -> Path:
+    tmp = Path(tempfile.mktemp(suffix=".db"))
+    init_db(tmp)
+    return tmp
+
+
+class TestIsRetirementFlag:
+    def _sample_records(self) -> list[dict]:
+        return [
+            {"date": "2026-01-28", "type": "income", "category": "Salary", "amount": 8000,
+             "account_from": "", "note": ""},
+            {"date": "2026-01-28", "type": "income", "category": "401K", "amount": 1600,
+             "account_from": "", "note": ""},
+            {"date": "2026-01-10", "type": "expense", "category": "Rent", "amount": 2000,
+             "account_from": "", "note": ""},
+        ]
+
+    def test_default_config_matches_401k_income(self) -> None:
+        """'401K' is the user's retirement income category — flag should be set."""
+        db = _fresh_db()
+        try:
+            ingest_qianji_transactions(
+                db,
+                self._sample_records(),
+                retirement_categories=["401K", "401k Match"],
+            )
+            conn = sqlite3.connect(db)
+            rows = conn.execute(
+                "SELECT category, type, is_retirement FROM qianji_transactions ORDER BY date, category"
+            ).fetchall()
+            conn.close()
+            assert ("401K", "income", 1) in rows
+            assert ("Salary", "income", 0) in rows
+            assert ("Rent", "expense", 0) in rows
+        finally:
+            db.unlink(missing_ok=True)
+
+    def test_retirement_expense_not_flagged(self) -> None:
+        """Flag only applies to income type — an expense in the list is not retirement."""
+        db = _fresh_db()
+        try:
+            records = [
+                {"date": "2026-01-01", "type": "expense", "category": "401K", "amount": 100,
+                 "account_from": "", "note": ""},
+            ]
+            ingest_qianji_transactions(db, records, retirement_categories=["401K"])
+            conn = sqlite3.connect(db)
+            flag = conn.execute("SELECT is_retirement FROM qianji_transactions").fetchone()[0]
+            conn.close()
+            assert flag == 0
+        finally:
+            db.unlink(missing_ok=True)
+
+    def test_empty_retirement_list_flags_nothing(self) -> None:
+        db = _fresh_db()
+        try:
+            ingest_qianji_transactions(db, self._sample_records(), retirement_categories=[])
+            conn = sqlite3.connect(db)
+            count = conn.execute(
+                "SELECT COUNT(*) FROM qianji_transactions WHERE is_retirement = 1"
+            ).fetchone()[0]
+            conn.close()
+            assert count == 0
+        finally:
+            db.unlink(missing_ok=True)
+
+    def test_case_sensitive_match(self) -> None:
+        """Category matching is exact (case-sensitive) — '401k' will not match '401K'."""
+        db = _fresh_db()
+        try:
+            records = [
+                {"date": "2026-01-01", "type": "income", "category": "401k",
+                 "amount": 1000, "account_from": "", "note": ""},
+            ]
+            ingest_qianji_transactions(db, records, retirement_categories=["401K"])
+            conn = sqlite3.connect(db)
+            flag = conn.execute("SELECT is_retirement FROM qianji_transactions").fetchone()[0]
+            conn.close()
+            assert flag == 0
+        finally:
+            db.unlink(missing_ok=True)
+
+
+class TestVQianjiTxnsExposesIsRetirement:
+    def test_view_aliases_camelcase(self) -> None:
+        db = _fresh_db()
+        try:
+            records = [
+                {"date": "2026-01-01", "type": "income", "category": "401K", "amount": 500,
+                 "account_from": "", "note": ""},
+            ]
+            ingest_qianji_transactions(db, records, retirement_categories=["401K"])
+            conn = sqlite3.connect(db)
+            row = conn.execute(
+                "SELECT date, type, category, amount, isRetirement FROM v_qianji_txns"
+            ).fetchone()
+            conn.close()
+            assert row == ("2026-01-01", "income", "401K", 500.0, 1)
+        finally:
+            db.unlink(missing_ok=True)

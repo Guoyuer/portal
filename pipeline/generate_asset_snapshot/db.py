@@ -67,12 +67,13 @@ CREATE TABLE IF NOT EXISTS qianji_balances (
 
 -- Qianji transaction rows (from Qianji app DB)
 CREATE TABLE IF NOT EXISTS qianji_transactions (
-    date     TEXT NOT NULL,
-    type     TEXT NOT NULL,
-    category TEXT NOT NULL DEFAULT '',
-    amount   REAL NOT NULL,
-    account  TEXT NOT NULL DEFAULT '',
-    note     TEXT NOT NULL DEFAULT ''
+    date           TEXT NOT NULL,
+    type           TEXT NOT NULL,
+    category       TEXT NOT NULL DEFAULT '',
+    amount         REAL NOT NULL,
+    account        TEXT NOT NULL DEFAULT '',
+    note           TEXT NOT NULL DEFAULT '',
+    is_retirement  INTEGER NOT NULL DEFAULT 0
 );
 
 -- Pre-computed daily point-in-time values
@@ -226,7 +227,8 @@ _VIEWS: dict[str, str] = {
     ),
     "v_qianji_txns": (
         "CREATE VIEW IF NOT EXISTS v_qianji_txns AS\n"
-        "SELECT date, type, category, amount\n"
+        "SELECT date, type, category, amount,\n"
+        "  is_retirement AS isRetirement\n"
         "FROM qianji_transactions ORDER BY date;"
     ),
     "v_market_indices": (
@@ -395,18 +397,31 @@ def ingest_fidelity_csv(db_path: Path, csv_path: Path) -> int:
 # ── Qianji transaction ingestion ──────────────────────────────────────────
 
 
-def ingest_qianji_transactions(db_path: Path, records: list[dict[str, Any]]) -> int:
+def ingest_qianji_transactions(
+    db_path: Path,
+    records: list[dict[str, Any]],
+    *,
+    retirement_categories: list[str] | None = None,
+) -> int:
     """Ingest Qianji transaction records into the database.
 
-    Clears and replaces all rows. Returns row count.
+    Clears and replaces all rows. An ``is_retirement`` flag is set on income
+    rows whose ``category`` (exact match, case-sensitive) appears in
+    ``retirement_categories`` — this is the canonical way for the frontend
+    to compute take-home savings rate without substring sniffing.
+
+    Returns row count.
     """
+    retirement_set = set(retirement_categories or [])
+
     conn = get_connection(db_path)
     try:
         conn.execute("DELETE FROM qianji_transactions")
         if records:
             conn.executemany(
-                "INSERT INTO qianji_transactions (date, type, category, amount, account, note)"
-                " VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO qianji_transactions"
+                " (date, type, category, amount, account, note, is_retirement)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
                 [
                     (
                         r["date"][:10],  # truncate datetime to date
@@ -415,6 +430,7 @@ def ingest_qianji_transactions(db_path: Path, records: list[dict[str, Any]]) -> 
                         r["amount"],
                         r.get("account_from", ""),
                         r.get("note", ""),
+                        1 if (r["type"] == "income" and r.get("category", "") in retirement_set) else 0,
                     )
                     for r in records
                 ],

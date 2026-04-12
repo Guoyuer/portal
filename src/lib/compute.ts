@@ -79,11 +79,15 @@ export function computeCashflow(qianjiTxns: QianjiTxn[], start: string, end: str
   const incomeMap = new Map<string, { count: number; total: number }>();
   const expenseMap = new Map<string, { count: number; total: number }>();
   let ccPayments = 0;
+  // Track retirement income separately so the take-home calculation is
+  // independent of category display names.
+  let retirementIncome = 0;
 
   for (const t of qianjiTxns) {
     if (t.date < start || t.date > end) continue;
     if (t.type === "income") {
       accum(incomeMap, t.category, t.amount);
+      if (t.isRetirement) retirementIncome += t.amount;
     } else if (t.type === "expense") {
       accum(expenseMap, t.category, t.amount);
     } else if (t.type === "repayment") {
@@ -103,8 +107,7 @@ export function computeCashflow(qianjiTxns: QianjiTxn[], start: string, end: str
   const totalExpenses = round(expenseItems.reduce((s, i) => s + i.amount, 0));
   const netCashflow = round(totalIncome - totalExpenses);
   const savingsRate = totalIncome ? round(((totalIncome - totalExpenses) / totalIncome) * 100) : 0;
-  const k401 = incomeItems.find((i) => i.category.toLowerCase().includes("401"))?.amount ?? 0;
-  const takehomeIncome = totalIncome - k401;
+  const takehomeIncome = totalIncome - round(retirementIncome);
   const takehomeSavingsRate = takehomeIncome ? round(((takehomeIncome - totalExpenses) / takehomeIncome) * 100) : 0;
 
   return { incomeItems, expenseItems, totalIncome, totalExpenses, netCashflow, ccPayments: round(ccPayments), savingsRate, takehomeSavingsRate };

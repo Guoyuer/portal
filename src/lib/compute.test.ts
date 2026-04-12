@@ -36,7 +36,7 @@ function mkFidelityTxn(overrides: Partial<FidelityTxn> = {}): FidelityTxn {
 }
 
 function mkQianjiTxn(overrides: Partial<QianjiTxn> = {}): QianjiTxn {
-  return { date: "2026-01-15", type: "income", category: "Salary", amount: 5000, ...overrides };
+  return { date: "2026-01-15", type: "income", category: "Salary", amount: 5000, isRetirement: false, ...overrides };
 }
 
 // ── buildDateIndex ──────────────────────────────────────────────────────
@@ -187,16 +187,40 @@ describe("computeCashflow", () => {
     expect(cf.takehomeSavingsRate).toBe(0);
   });
 
-  it("deducts 401k from take-home income", () => {
+  it("deducts retirement-flagged income from take-home", () => {
     const txns: QianjiTxn[] = [
       mkQianjiTxn({ type: "income", category: "Salary", amount: 8000 }),
-      mkQianjiTxn({ type: "income", category: "401k Match", amount: 2000 }),
+      mkQianjiTxn({ type: "income", category: "Employer Retirement Match", amount: 2000, isRetirement: true }),
       mkQianjiTxn({ type: "expense", category: "Rent", amount: 3000 }),
     ];
     const cf = computeCashflow(txns, "2026-01-01", "2026-01-31");
     expect(cf.totalIncome).toBe(10000);
     // takehome = 10000 - 2000 = 8000; rate = (8000-3000)/8000 = 62.5%
     expect(cf.takehomeSavingsRate).toBe(62.5);
+  });
+
+  it("ignores retirement flag on expense rows", () => {
+    const txns: QianjiTxn[] = [
+      mkQianjiTxn({ type: "income", category: "Salary", amount: 10000 }),
+      // isRetirement on an expense must not affect the income deduction
+      mkQianjiTxn({ type: "expense", category: "Random", amount: 3000, isRetirement: true }),
+    ];
+    const cf = computeCashflow(txns, "2026-01-01", "2026-01-31");
+    expect(cf.takehomeSavingsRate).toBe(70); // (10000-3000)/10000
+  });
+
+  it("does not match 401 via substring — only the flag counts", () => {
+    const txns: QianjiTxn[] = [
+      // Historic behavior relied on category name containing '401'.
+      // With the flag-based approach, an income tagged '401K' WITHOUT the
+      // isRetirement flag should be counted as take-home income.
+      mkQianjiTxn({ type: "income", category: "401K", amount: 2000 }),
+      mkQianjiTxn({ type: "income", category: "Salary", amount: 8000 }),
+      mkQianjiTxn({ type: "expense", category: "Rent", amount: 3000 }),
+    ];
+    const cf = computeCashflow(txns, "2026-01-01", "2026-01-31");
+    // No flag → includes '401K' in take-home: (10000-3000)/10000 = 70%
+    expect(cf.takehomeSavingsRate).toBe(70);
   });
 
   it("counts CC repayments", () => {

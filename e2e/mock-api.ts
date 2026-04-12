@@ -149,7 +149,7 @@ fidelityTxns.push({ runDate: "2025-09-15", actionType: "sell", symbol: "FBTC", a
 
 // ── Qianji transactions (realistic monthly pattern) ─────────────────────
 
-type MockQianji = { date: string; type: string; category: string; amount: number };
+type MockQianji = { date: string; type: string; category: string; amount: number; isRetirement?: boolean };
 const qianjiTxns: MockQianji[] = [];
 
 for (let m = 0; m < 28; m++) {
@@ -159,7 +159,7 @@ for (let m = 0; m < 28; m++) {
 
   // Income
   qianjiTxns.push({ date: `${ym}-28`, type: "income", category: "Salary", amount: 8000 });
-  qianjiTxns.push({ date: `${ym}-28`, type: "income", category: "401K", amount: 1600 });
+  qianjiTxns.push({ date: `${ym}-28`, type: "income", category: "401K", amount: 1600, isRetirement: true });
 
   // Fixed expenses
   qianjiTxns.push({ date: `${ym}-01`, type: "expense", category: "Rent", amount: 2200 });
