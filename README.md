@@ -275,18 +275,11 @@ e2e/{module}.spec.ts             ← tests
 pipeline/...                     ← data generation (if needed)
 ```
 
-## TODO
+## Roadmap
 
 - [ ] Gmail module — important email auto-triage
 - [ ] News aggregation — RSS feeds
-- [x] Economic indicators dashboard — FRED time series charts (`/econ`)
-- [x] FRED API integration — Fed rate, CPI, VIX, oil, unemployment, Treasury yields
-- [x] Timemachine — historical portfolio replay with brush navigation
-- [x] Cloudflare D1 + Workers migration — production backend
-- [x] Robinhood transaction ingestion
-- [x] Empower 401k QFX integration
 - [ ] AI-generated macro narrative — LLM summarizing economic conditions and cycle position
-- [x] Drop R2 legacy path — /econ now reads from D1 via Worker
 
 ## License
 

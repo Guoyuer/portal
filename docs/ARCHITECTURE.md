@@ -10,7 +10,7 @@ graph TB
         DETECT["run_automation.py — detect changes (Task Scheduler via run_portal_sync.ps1 shim)"]
         BUILD["build_timemachine_db.py --incremental"]
         VALIDATE["validate_build() — gate"]
-        DIFF["sync_to_d1.py --diff"]
+        DIFF["sync_to_d1.py (diff default)"]
     end
 
     subgraph Sources["Data sources"]
