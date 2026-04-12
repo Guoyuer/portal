@@ -10,6 +10,7 @@ from typing import Any
 
 from .empower_401k import Contribution, parse_qfx
 from .ingest.fidelity_history import _classify_action
+from .types import parse_float as _parse_float
 
 # ── Schema DDL ───────────────────────────────────────────────────────────────
 
@@ -194,14 +195,6 @@ def get_connection(path: Path) -> sqlite3.Connection:
 # ── Fidelity CSV ingestion ──────────────────────────────────────────────────
 
 _DATE_RE = re.compile(r"^\d{2}/\d{2}/\d{4}$")
-
-
-def _parse_float(value: str) -> float:
-    """Parse a dollar/numeric string: strip $, commas; treat empty as 0."""
-    cleaned = value.strip().replace("$", "").replace(",", "")
-    if not cleaned:
-        return 0.0
-    return float(cleaned)
 
 
 def _mmddyyyy_to_sort(date_str: str) -> str:

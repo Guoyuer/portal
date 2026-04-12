@@ -31,6 +31,9 @@ from ..types import (
     ACT_WITHDRAWAL,
     FidelityTransaction,
 )
+from ..types import (
+    parse_float as _parse_float,
+)
 
 log = logging.getLogger(__name__)
 
@@ -80,16 +83,6 @@ def _classify_action(raw_action: str) -> str:
 # ---------------------------------------------------------------------------
 # Numeric helpers
 # ---------------------------------------------------------------------------
-
-
-def _parse_float(value: str) -> float:
-    """Parse a numeric string, returning 0.0 for empty/missing values."""
-    if not value or not value.strip():
-        return 0.0
-    cleaned = value.strip().replace(",", "").replace("$", "")
-    if not cleaned:
-        return 0.0
-    return float(cleaned)
 
 
 # ---------------------------------------------------------------------------

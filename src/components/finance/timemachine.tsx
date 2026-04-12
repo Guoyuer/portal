@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useState } from "react";
+import type { ReactNode } from "react";
 import type { BundleState, CrossCheck } from "@/lib/use-bundle";
 import {
   Area,
@@ -14,9 +14,10 @@ import {
 } from "recharts";
 import type { TooltipContentProps } from "recharts/types/component/Tooltip";
 import type { DailyPoint, CashflowResponse, ActivityResponse } from "@/lib/schema";
-import { fmtCurrency, fmtCurrencyShort, fmtDateLong, fmtDateMedium, fmtDateMonthYear } from "@/lib/format";
+import { fmtCurrency, fmtCurrencyShort, fmtDateLong, fmtDateMedium, fmtDateMonthYear, fmtTick } from "@/lib/format";
 import { useIsDark, useIsMobile } from "@/lib/hooks";
 import { tooltipStyle, gridStroke, axisProps, brushColors } from "@/lib/chart-styles";
+import { getIsDark } from "@/lib/style-helpers";
 import { CATEGORIES, CAT_COLOR_BY_KEY } from "@/lib/compute";
 
 // ── Constants ─────────────────────────────────────────────────────────────
@@ -27,7 +28,7 @@ const CAT_LABELS: Record<string, string> = Object.fromEntries(
 
 function AreaTooltip({ active, payload, label }: TooltipContentProps) {
   if (!active || !payload?.length) return null;
-  const isDark = typeof document !== "undefined" && document.documentElement.classList.contains("dark");
+  const isDark = getIsDark();
   const style = tooltipStyle(isDark);
   const fmtLabel = new Date(Number(label)).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
   return (
@@ -35,7 +36,7 @@ function AreaTooltip({ active, payload, label }: TooltipContentProps) {
       <p style={{ fontWeight: 600, marginBottom: 2 }}>{fmtLabel}</p>
       {payload.map((entry, i) => (
         <p key={i} style={{ color: entry.color, margin: 0 }}>
-          {CAT_LABELS[String(entry.name)] ?? String(entry.name)} : {fmtCurrency(Number(entry.value))}
+          {CAT_LABELS[String(entry.name)]} : {fmtCurrency(Number(entry.value))}
         </p>
       ))}
     </div>
@@ -63,9 +64,6 @@ export function TimemachineChart({
   const chartData = sliced.map((d) => ({ ...d, ts: new Date(d.date).getTime() }));
 
   if (daily.length === 0) return null;
-
-  const fmtTick = (ts: number) =>
-    new Date(ts).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
 
   return (
     <ResponsiveContainer width="100%" height={isMobile ? 240 : 280}>
@@ -119,25 +117,23 @@ export function StickyBrush({
   daily,
   defaultStartIndex,
   defaultEndIndex,
+  brushStart,
+  brushEnd,
   onBrushChange,
 }: {
   daily: DailyPoint[];
   defaultStartIndex: number;
   defaultEndIndex: number;
+  brushStart: number;
+  brushEnd: number;
   onBrushChange: (state: { startIndex?: number; endIndex?: number }) => void;
 }) {
   const isDark = useIsDark();
-  const [range, setRange] = useState({ start: defaultStartIndex, end: defaultEndIndex });
   const chartData = daily.map((d) => ({ ...d, ts: new Date(d.date).getTime() }));
   if (daily.length === 0) return null;
 
-  const startLabel = fmtDateMedium(daily[range.start]?.date ?? daily[0].date);
-  const endLabel = fmtDateMedium(daily[range.end]?.date ?? daily[daily.length - 1].date);
-
-  const handleChange = (state: { startIndex?: number; endIndex?: number }) => {
-    setRange({ start: state.startIndex ?? range.start, end: state.endIndex ?? range.end });
-    onBrushChange(state);
-  };
+  const startLabel = fmtDateMedium(daily[brushStart].date);
+  const endLabel = fmtDateMedium(daily[brushEnd].date);
 
   return (
     <div className="fixed bottom-0 left-0 right-0 md:left-56 z-40 bg-background/80 backdrop-blur-md border-t border-border px-4 py-2">
@@ -155,7 +151,7 @@ export function StickyBrush({
                 {...brushColors(isDark)}
                 startIndex={defaultStartIndex}
                 endIndex={defaultEndIndex}
-                onChange={handleChange}
+                onChange={onBrushChange}
                 tickFormatter={() => ""}
               />
             </AreaChart>

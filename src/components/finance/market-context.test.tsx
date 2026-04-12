@@ -96,4 +96,13 @@ describe("MarketContext", () => {
     expect(screen.getByText("4,200")).toBeTruthy();
     expect(screen.getByText("5,800")).toBeTruthy();
   });
+
+  it("renders without chart when sparkline is null", () => {
+    // MARKET already has sparkline: null for both indices
+    const { container } = render(<MarketContext data={MARKET} title="Market" />);
+    // No AreaChart should be rendered (mocked to null, but data guard should prevent call)
+    expect(screen.getByText("S&P 500")).toBeTruthy();
+    // Verify the component doesn't crash and still shows index data
+    expect(container.querySelectorAll("[data-testid='sparkline-chart']").length).toBe(0);
+  });
 });

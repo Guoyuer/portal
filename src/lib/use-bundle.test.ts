@@ -129,4 +129,23 @@ describe("useBundle", () => {
     expect(result.current.activity!.buysBySymbol).toHaveLength(1);
     expect(result.current.activity!.buysBySymbol[0].symbol).toBe("VTI");
   });
+
+  it("computes monthlyFlows from qianjiTxns", async () => {
+    server.use(
+      http.get(TIMELINE_URL, () => HttpResponse.json({
+        ...VALID_PAYLOAD,
+        qianjiTxns: [
+          { date: "2026-01-02", type: "income", category: "Salary", amount: 5000 },
+          { date: "2026-01-03", type: "expense", category: "Rent", amount: 2000 },
+        ],
+      })),
+    );
+    const { result } = renderHook(() => useBundle());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.monthlyFlows).toHaveLength(1);
+    expect(result.current.monthlyFlows[0].month).toBe("2026-01");
+    expect(result.current.monthlyFlows[0].income).toBe(5000);
+    expect(result.current.monthlyFlows[0].expenses).toBe(2000);
+  });
 });

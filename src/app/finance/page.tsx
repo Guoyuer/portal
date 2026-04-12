@@ -3,13 +3,11 @@
 import { useEffect, useState } from "react";
 import { GOAL } from "@/lib/config";
 import { useBundle } from "@/lib/use-bundle";
-import { computeMonthlyFlows } from "@/lib/compute";
 import { fmtDateMedium } from "@/lib/format";
-import { SectionHeader, SectionBody } from "@/components/finance/shared";
+import { SectionHeader, SectionBody, TickerTable } from "@/components/finance/shared";
 import { IncomeExpensesChart } from "@/components/finance/charts";
 import { MetricCards } from "@/components/finance/metric-cards";
 import { CashFlow } from "@/components/finance/cash-flow";
-import { PortfolioActivity } from "@/components/finance/portfolio-activity";
 import { MarketContext } from "@/components/finance/market-context";
 import { NetWorthGrowth } from "@/components/finance/net-worth-growth";
 import { BackToTop } from "@/components/layout/back-to-top";
@@ -43,6 +41,37 @@ const SECTION_LABELS = {
   "market": "Market",
 } as const;
 
+type CashflowData = NonNullable<ReturnType<typeof useBundle>["cashflow"]>;
+
+function CashFlowContent({
+  cashflow,
+  monthlyFlows,
+  activeMonth,
+}: {
+  cashflow: CashflowData | null;
+  monthlyFlows: ReturnType<typeof useBundle>["monthlyFlows"];
+  activeMonth: string | undefined;
+}) {
+  if (!cashflow) {
+    return <SectionBody><p className="text-sm text-red-400">Cash flow data unavailable</p></SectionBody>;
+  }
+  if (cashflow.totalIncome === 0 && cashflow.totalExpenses === 0) {
+    return <SectionBody><p className="text-sm text-muted-foreground">No transactions in this period</p></SectionBody>;
+  }
+  return (
+    <>
+      <SectionBody><CashFlow data={cashflow} /></SectionBody>
+      {monthlyFlows.length > 0 && (
+        <div className="liquid-glass mt-4 overflow-hidden">
+          <div className="px-3 sm:px-5 pb-3 sm:pb-5 pt-3">
+            <IncomeExpensesChart data={monthlyFlows} activeMonth={activeMonth} />
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 // ── Finance Page ──────────────────────────────────────────────────────
 
 export default function FinancePage() {
@@ -64,15 +93,6 @@ export default function FinancePage() {
       document.title = "Dashboard";
     }
   }, [startDate, snapshotDate]);
-
-  // ── Derived values ────────────────────────────────────────────────
-  const goalPct = tl.allocation ? (tl.allocation.total / GOAL) * 100 : 0;
-  const alloc = tl.allocation;
-  const cf = tl.cashflow;
-  const act = tl.activity;
-  const mkt = tl.market;
-
-  const monthlyFlows = computeMonthlyFlows(tl.qianjiTxns, startDate, snapshotDate);
 
   // ── Loading state ─────────────────────────────────────────────────
   if (tl.loading) return <FinanceSkeleton />;
@@ -105,16 +125,12 @@ export default function FinancePage() {
 
       {/* ── 1. Overview ─────────────────────────────────────────────────── */}
       <ErrorBoundary fallback={<SectionError label="Allocation" />}>
-        {alloc ? (
+        {tl.allocation ? (
           <MetricCards
-            total={alloc.total}
-            netWorth={alloc.netWorth}
-            categories={alloc.categories}
-            tickers={alloc.tickers}
-            savingsRate={cf?.savingsRate ?? null}
-            takehomeSavingsRate={cf?.takehomeSavingsRate ?? null}
+            allocation={tl.allocation}
+            savingsRate={tl.cashflow?.savingsRate ?? null}
+            takehomeSavingsRate={tl.cashflow?.takehomeSavingsRate ?? null}
             goal={GOAL}
-            goalPct={goalPct}
             allocationOpen={allocOpen}
             onAllocationToggle={() => setAllocOpen((v) => !v)}
           />
@@ -132,30 +148,11 @@ export default function FinancePage() {
       <ErrorBoundary fallback={<SectionError label="Cash Flow" />}>
         <section id="cashflow">
           <SectionHeader>{SECTION_LABELS["cashflow"]}</SectionHeader>
-          {cf ? (
-            cf.totalIncome === 0 && cf.totalExpenses === 0 ? (
-              <SectionBody><p className="text-sm text-muted-foreground">No transactions in this period</p></SectionBody>
-            ) : (
-              <>
-                <SectionBody>
-                  <CashFlow data={cf} />
-                </SectionBody>
-
-                {monthlyFlows.length > 0 && (
-                  <div className="liquid-glass mt-4 overflow-hidden">
-                    <div className="px-3 sm:px-5 pb-3 sm:pb-5 pt-3">
-                      <IncomeExpensesChart
-                        data={monthlyFlows}
-                        activeMonth={snapshotDate?.slice(0, 7)}
-                      />
-                    </div>
-                  </div>
-                )}
-              </>
-            )
-          ) : (
-            <SectionBody><p className="text-sm text-red-400">Cash flow data unavailable</p></SectionBody>
-          )}
+          <CashFlowContent
+            cashflow={tl.cashflow}
+            monthlyFlows={tl.monthlyFlows}
+            activeMonth={snapshotDate?.slice(0, 7)}
+          />
         </section>
       </ErrorBoundary>
 
@@ -176,12 +173,15 @@ export default function FinancePage() {
               </span>
             )}
           </SectionHeader>
-          {act ? (
-            act.buysBySymbol.length === 0 && act.sellsBySymbol.length === 0 && act.dividendsBySymbol.length === 0 ? (
+          {tl.activity ? (
+            tl.activity.buysBySymbol.length === 0 && tl.activity.sellsBySymbol.length === 0 && tl.activity.dividendsBySymbol.length === 0 ? (
               <SectionBody><p className="text-sm text-muted-foreground">No activity in this period</p></SectionBody>
             ) : (
               <SectionBody>
-                <PortfolioActivity activity={act} startDate={startDate ?? undefined} endDate={snapshotDate ?? undefined} />
+                <div className="grid md:grid-cols-2 gap-6">
+                  <TickerTable title="Buys by Symbol" data={tl.activity.buysBySymbol} startDate={startDate ?? undefined} endDate={snapshotDate ?? undefined} />
+                  <TickerTable title="Dividends by Symbol" data={tl.activity.dividendsBySymbol} startDate={startDate ?? undefined} endDate={snapshotDate ?? undefined} />
+                </div>
               </SectionBody>
             )
           ) : (
@@ -193,8 +193,8 @@ export default function FinancePage() {
       {/* ── Market Context ──────────────────────────────────────────────── */}
       <ErrorBoundary fallback={<SectionError label="Market" />}>
         <div id="market" data-testid="market-section">
-          {mkt ? (
-            <MarketContext data={mkt} title={SECTION_LABELS["market"]} />
+          {tl.market ? (
+            <MarketContext data={tl.market} title={SECTION_LABELS["market"]} />
           ) : (
             <>
               <SectionHeader>{SECTION_LABELS["market"]}</SectionHeader>
@@ -211,6 +211,8 @@ export default function FinancePage() {
           daily={tl.chartDaily}
           defaultStartIndex={tl.defaultStartIndex}
           defaultEndIndex={tl.defaultEndIndex}
+          brushStart={tl.brushStart}
+          brushEnd={tl.brushEnd}
           onBrushChange={tl.onBrushChange}
         />
       )}

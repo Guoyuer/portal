@@ -26,8 +26,8 @@ cd pipeline && python3 scripts/build_timemachine_db.py
 cd pipeline && python3 scripts/sync_to_d1.py        # push to remote D1
 cd pipeline && python3 scripts/sync_to_d1.py --local # push to local D1
 
-# E2E (local only — skipped in CI)
-npx next build && npx playwright test               # 4 Playwright spec files
+# E2E (mock API on port 4444 — no real backend needed)
+npx playwright test                                   # 4 Playwright spec files
 ```
 
 ## Code style
@@ -44,11 +44,9 @@ Python `types.py` (snake_case) is source of truth → SQLite `timemachine.db` �
 
 Next.js static shell on Cloudflare Pages. Data served by Cloudflare Worker (`worker/src/index.ts`) reading from D1 — same code runs locally via `wrangler dev` and in production. Pipeline (Python) builds `timemachine.db` and syncs to D1.
 
-Frontend fetches all data in a single `GET /timeline` call (~4.6 MB JSON, ~385 KB gzipped by Cloudflare edge), then computes allocation, cashflow, activity, and reconciliation locally in `compute.ts` via `use-bundle.ts`. All daily data points are rendered directly (no downsampling). Brush drag is zero-latency (no network).
+Frontend fetches all data in a single `GET /timeline` call (~4.6 MB JSON, ~385 KB gzipped by Cloudflare edge), then computes allocation, cashflow, activity, and reconciliation locally in `compute.ts` via `use-bundle.ts`. All daily data points are rendered directly (no downsampling). Brush drag is zero-latency (no network). Ticker charts fetch on-demand via `GET /prices/:symbol`.
 
-D1 schema: 7 tables + `sync_meta` + 7 camelCase views. Worker is pure passthrough (SELECT → JSON). `computed_prefix` has been removed; frontend iterates raw transactions directly.
-
-R2 is legacy — only the `/econ` page still reads from R2 (`econ.json`). All other data flows through D1.
+D1 schema: 7 tables + `daily_close` + `sync_meta` + 7 camelCase views. Worker serves 3 endpoints: `GET /timeline`, `GET /econ`, `GET /prices/:symbol`. Worker is pure passthrough (SELECT → JSON). All data flows through D1.
 
 ## Accessibility
 

@@ -1,6 +1,4 @@
-// ── Pure computation functions ─────────────────────────────────────────────
-// Extracted from use-bundle.ts and finance/page.tsx so they can be unit tested.
-// No React dependencies — pure input → output.
+// ── Pure computation functions (no React dependencies) ────────────────────
 
 import type {
   AllocationResponse,
@@ -113,6 +111,11 @@ export function computeCashflow(qianjiTxns: QianjiTxn[], start: string, end: str
 
 // ── Fidelity date helpers ────────────────────────────────────────────────
 
+/** Convert fidelity "MM/DD/YYYY" to "YYYY-MM-DD" */
+export function fidelityDateToIso(runDate: string): string {
+  return `${runDate.slice(6, 10)}-${runDate.slice(0, 2)}-${runDate.slice(3, 5)}`;
+}
+
 /** Convert fidelity "MM/DD/YYYY" to sortable "YYYYMMDD" */
 export function fidelityDateToSort(runDate: string): string {
   return runDate.slice(6, 10) + runDate.slice(0, 2) + runDate.slice(3, 5);
@@ -120,7 +123,7 @@ export function fidelityDateToSort(runDate: string): string {
 
 /** Convert fidelity "MM/DD/YYYY" to epoch ms */
 export function fidelityDateToMs(runDate: string): number {
-  return new Date(`${runDate.slice(6, 10)}-${runDate.slice(0, 2)}-${runDate.slice(3, 5)}`).getTime();
+  return new Date(fidelityDateToIso(runDate)).getTime();
 }
 
 export const MATCH_WINDOW_MS = 7 * 86_400_000; // Qianji can lag Fidelity by up to 7 days

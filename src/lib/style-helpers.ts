@@ -1,5 +1,9 @@
 // ── Shared style helpers & constants ──────────────────────────────────────
-// Centralizes color logic and magic numbers used across finance components.
+
+/** Non-hook dark mode check for use outside React components (tooltip render functions). */
+export function getIsDark(): boolean {
+  return typeof document !== "undefined" && document.documentElement.classList.contains("dark");
+}
 
 // ── Value-based color classes ────────────────────────────────────────────
 
@@ -10,8 +14,8 @@ export function valueColor(val: number): string {
 
 // ── Savings rate thresholds ──────────────────────────────────────────────
 
-const SAVINGS_RATE_GOOD = 30;
-const SAVINGS_RATE_WARNING = 15;
+export const SAVINGS_RATE_GOOD = 30;
+export const SAVINGS_RATE_WARNING = 15;
 
 /** Green / yellow / red based on savings rate thresholds. */
 export function savingsRateColor(rate: number): string {

@@ -16,16 +16,16 @@ from __future__ import annotations
 import csv
 import json
 import logging
-import os
 import re
 import sqlite3
-import sys
 from collections import defaultdict
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
 from .db import get_connection
+from .ingest.qianji_db import DEFAULT_DB_PATH as DEFAULT_QJ_DB
+from .types import parse_float as _float
 
 log = logging.getLogger(__name__)
 
@@ -46,21 +46,10 @@ STORE_HEADER = (
     "Exchange Rate,Commission,Fees,Accrued Interest,Amount,Settlement Date"
 )
 
-# Qianji default DB paths
-_WIN_QJ_DB = Path(os.environ.get("APPDATA", "")) / "com.mutangtech.qianji.win/qianji_flutter/qianjiapp.db"
-_MAC_QJ_DB = Path.home() / "Library/Containers/com.mutangtech.qianji.fltios/Data/Documents/qianjiapp.db"
-DEFAULT_QJ_DB = _WIN_QJ_DB if sys.platform == "win32" else _MAC_QJ_DB
-
-
 # ── Parsing ───────────────────────────────────────────────────────────────────
 
 def _parse_date(mmddyyyy: str) -> date:
     return datetime.strptime(mmddyyyy.strip(), "%m/%d/%Y").date()
-
-
-def _float(val: str) -> float:
-    v = val.strip().replace(",", "").replace("$", "") if val else ""
-    return float(v) if v else 0.0
 
 
 def _load_raw_rows(path: Path) -> list[dict[str, str]]:
@@ -83,37 +72,26 @@ def _load_raw_rows(path: Path) -> list[dict[str, str]]:
 
 # ── Replay engine ─────────────────────────────────────────────────────────────
 
-def replay(store_path: Path, as_of: date | None = None) -> dict[str, Any]:
-    """Replay transactions up to as_of, return positions and cash.
+def _replay_core(
+    rows: list[tuple[str, str, str, str, str, float, float]],
+    as_of: date | None,
+) -> dict[str, Any]:
+    """Shared replay logic for both CSV and DB sources.
 
-    Returns:
-        {
-            "positions": {(account, symbol): quantity, ...},
-            "cash": {account: balance, ...},
-            "as_of": date,
-            "txn_count": int,
-        }
+    Each tuple: (run_date_str, acct, action, sym, lot_type, qty, amt).
+    Strings are already stripped; action is already uppercased.
     """
-    rows = _load_raw_rows(store_path)
-
     holdings: dict[tuple[str, str], float] = defaultdict(float)
     cost_basis: dict[tuple[str, str], float] = defaultdict(float)
     cash_flow: dict[str, float] = defaultdict(float)
     mm_drip: dict[str, float] = defaultdict(float)
     count = 0
 
-    for row in rows:
-        txn_date = _parse_date(row["Run Date"])
+    for run_date_str, acct, action, sym, lot_type, qty, amt in rows:
+        txn_date = _parse_date(run_date_str)
         if as_of and txn_date > as_of:
             continue
         count += 1
-
-        sym = (row.get("Symbol") or "").strip()
-        acct = (row.get("Account Number") or "").strip()
-        action = (row.get("Action") or "").upper()
-        lot_type = (row.get("Type") or "").strip()
-        qty = _float(row.get("Quantity", ""))
-        amt = _float(row.get("Amount", ""))
 
         # ── Positions (exclude money market) ──
         if sym and sym not in MM_SYMBOLS and qty != 0 and any(action.startswith(p) for p in POSITION_PREFIXES):
@@ -141,57 +119,49 @@ def replay(store_path: Path, as_of: date | None = None) -> dict[str, Any]:
     return {"positions": positions, "cost_basis": cb_out, "cash": cash, "as_of": as_of, "txn_count": count}
 
 
+def replay(store_path: Path, as_of: date | None = None) -> dict[str, Any]:
+    """Replay transactions up to as_of, return positions and cash."""
+    raw_rows = _load_raw_rows(store_path)
+    rows = [
+        (
+            row["Run Date"],
+            (row.get("Account Number") or "").strip(),
+            (row.get("Action") or "").upper(),
+            (row.get("Symbol") or "").strip(),
+            (row.get("Type") or "").strip(),
+            _float(row.get("Quantity", "")),
+            _float(row.get("Amount", "")),
+        )
+        for row in raw_rows
+    ]
+    return _replay_core(rows, as_of)
+
+
 def replay_from_db(db_path: Path, as_of: date | None = None) -> dict[str, Any]:
     """Like replay() but reads from fidelity_transactions table instead of CSV."""
     import sqlite3
 
     conn = sqlite3.connect(str(db_path))
-    rows = conn.execute(
+    db_rows = conn.execute(
         "SELECT run_date, account_number, action, symbol, lot_type, quantity, amount"
         " FROM fidelity_transactions"
         " ORDER BY substr(run_date,7,4)||substr(run_date,1,2)||substr(run_date,4,2), id"
     ).fetchall()
     conn.close()
 
-    holdings: dict[tuple[str, str], float] = defaultdict(float)
-    cost_basis: dict[tuple[str, str], float] = defaultdict(float)
-    cash_flow: dict[str, float] = defaultdict(float)
-    mm_drip: dict[str, float] = defaultdict(float)
-    count = 0
-
-    for run_date, acct, action, sym, lot_type, qty, amt in rows:
-        txn_date = _parse_date(run_date)
-        if as_of and txn_date > as_of:
-            continue
-        count += 1
-
-        sym = (sym or "").strip()
-        acct = (acct or "").strip()
-        action_upper = (action or "").upper()
-
-        # ── Positions (exclude money market) ──
-        if sym and sym not in MM_SYMBOLS and qty != 0 and any(action_upper.startswith(p) for p in POSITION_PREFIXES):
-            key = (acct, sym)
-            if action_upper.startswith("YOU SOLD") and holdings[key] > 0:
-                sold_fraction = min(abs(qty) / holdings[key], 1.0)
-                cost_basis[key] -= cost_basis[key] * sold_fraction
-            elif action_upper.startswith(("YOU BOUGHT", "REINVESTMENT")):
-                cost_basis[key] += abs(amt)
-            holdings[key] += qty
-
-        # ── Cash (exclude Type=Shares: stock distributions, lending, sweeps) ──
-        if acct and lot_type != "Shares":
-            cash_flow[acct] += amt
-            if sym in MM_SYMBOLS and "REINVESTMENT" in action_upper and qty != 0:
-                mm_drip[acct] += qty
-
-    positions = {k: round(v, 6) for k, v in holdings.items() if abs(v) > 0.001}
-    cb_out = {k: round(v, 2) for k, v in cost_basis.items() if abs(v) > 0.01}
-    cash = {acct: round(cash_flow[acct] + mm_drip.get(acct, 0.0), 2)
-            for acct in cash_flow
-            if re.match(r"^[A-Z0-9]+$", acct)}
-
-    return {"positions": positions, "cost_basis": cb_out, "cash": cash, "as_of": as_of, "txn_count": count}
+    rows = [
+        (
+            run_date,
+            (acct or "").strip(),
+            (action or "").upper(),
+            (sym or "").strip(),
+            lot_type or "",
+            qty,
+            amt,
+        )
+        for run_date, acct, action, sym, lot_type, qty, amt in db_rows
+    ]
+    return _replay_core(rows, as_of)
 
 
 # ── Checkpoint save/load ──────────────────────────────────────────────────────

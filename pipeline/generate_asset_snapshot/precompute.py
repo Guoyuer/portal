@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import sqlite3
 from datetime import date
 from pathlib import Path
 
@@ -53,16 +52,13 @@ _FRED_SNAPSHOT_KEYS: dict[str, str] = {
 
 
 def _compute_index_row(
-    conn: sqlite3.Connection, ticker: str, name: str,
+    ticker: str, name: str,
+    rows: list[tuple[str, float]],
 ) -> tuple[str, str, float, float, float, float, float, str] | None:
-    """Compute market stats for a single index ticker from daily_close.
+    """Compute market stats for a single index ticker from pre-fetched (date, close) rows.
 
     Returns a tuple ready for INSERT, or None if insufficient data.
     """
-    rows = conn.execute(
-        "SELECT date, close FROM daily_close WHERE symbol = ? ORDER BY date",
-        (ticker,),
-    ).fetchall()
     if len(rows) < 2:
         return None
 
@@ -108,9 +104,18 @@ def precompute_market(db_path: Path) -> None:
         conn.execute("DELETE FROM computed_market_indices")
         conn.execute("DELETE FROM computed_market_indicators")
 
-        # ── Index rows ──────────────────────────────────────────────────
+        # ── Index rows (batch-fetch all index prices) ─────────────────
+        index_tickers = list(_INDEX_NAMES.keys())
+        placeholders = ",".join("?" for _ in index_tickers)
+        index_data: dict[str, list[tuple[str, float]]] = {t: [] for t in index_tickers}
+        for sym, dt, close in conn.execute(
+            f"SELECT symbol, date, close FROM daily_close WHERE symbol IN ({placeholders}) ORDER BY symbol, date",
+            index_tickers,
+        ):
+            index_data[sym].append((dt, close))
+
         for ticker, name in _INDEX_NAMES.items():
-            row = _compute_index_row(conn, ticker, name)
+            row = _compute_index_row(ticker, name, index_data[ticker])
             if row is not None:
                 conn.execute(
                     "INSERT INTO computed_market_indices"
@@ -129,35 +134,32 @@ def precompute_market(db_path: Path) -> None:
                 ("usdCny", cny_row[0]),
             )
 
-        # ── FRED macro data ─────────────────────────────────────────────
+        # ── FRED macro data (fetch_fred_data returns None on API error) ──
         fred_key = os.environ.get("FRED_API_KEY", "")
         if fred_key:
-            try:
-                from .market.fred import fetch_fred_data
+            from .market.fred import fetch_fred_data
 
-                fred = fetch_fred_data(fred_key)
-                if fred and "snapshot" in fred:
-                    snap: dict[str, object] = fred["snapshot"]  # type: ignore[assignment]
-                    for src, dst in _FRED_SNAPSHOT_KEYS.items():
-                        if src in snap:
-                            conn.execute(
-                                "INSERT INTO computed_market_indicators (key, value) VALUES (?, ?)",
-                                (dst, float(snap[src])),  # type: ignore[arg-type]
-                            )
-                if fred and "series" in fred:
-                    conn.execute("DELETE FROM econ_series")
-                    econ_count = 0
-                    series: dict[str, list[dict[str, object]]] = fred["series"]  # type: ignore[assignment]
-                    for skey, points in series.items():
-                        for pt in points:
-                            conn.execute(
-                                "INSERT INTO econ_series (key, date, value) VALUES (?, ?, ?)",
-                                (skey, pt["date"], pt["value"]),
-                            )
-                            econ_count += 1
-                    log.info("Stored %d econ_series rows", econ_count)
-            except Exception:  # noqa: BLE001
-                log.warning("Failed to fetch FRED data for precompute_market", exc_info=True)
+            fred = fetch_fred_data(fred_key)
+            if fred and "snapshot" in fred:
+                snap: dict[str, object] = fred["snapshot"]  # type: ignore[assignment]
+                for src, dst in _FRED_SNAPSHOT_KEYS.items():
+                    if src in snap:
+                        conn.execute(
+                            "INSERT INTO computed_market_indicators (key, value) VALUES (?, ?)",
+                            (dst, float(snap[src])),  # type: ignore[arg-type]
+                        )
+            if fred and "series" in fred:
+                conn.execute("DELETE FROM econ_series")
+                econ_count = 0
+                series: dict[str, list[dict[str, object]]] = fred["series"]  # type: ignore[assignment]
+                for skey, points in series.items():
+                    for pt in points:
+                        conn.execute(
+                            "INSERT INTO econ_series (key, date, value) VALUES (?, ?, ?)",
+                            (skey, pt["date"], pt["value"]),
+                        )
+                        econ_count += 1
+                log.info("Stored %d econ_series rows", econ_count)
 
         conn.commit()
     finally:
@@ -202,16 +204,21 @@ def precompute_holdings_detail(db_path: Path) -> None:
             conn.commit()
             return
 
+        # Batch-fetch all prices in one query
+        placeholders = ",".join("?" for _ in real_tickers)
+        all_prices: dict[str, list[float]] = {t: [] for t in real_tickers}
+        for sym, close in conn.execute(
+            f"SELECT symbol, close FROM daily_close WHERE symbol IN ({placeholders}) ORDER BY symbol, date",
+            list(real_tickers.keys()),
+        ):
+            all_prices[sym].append(close)
+
         # Compute per-ticker stats
         insert_rows: list[tuple[str, float, float, float, float, float, float]] = []
         for ticker, value in real_tickers.items():
-            closes = conn.execute(
-                "SELECT close FROM daily_close WHERE symbol = ? ORDER BY date",
-                (ticker,),
-            ).fetchall()
-            if len(closes) < 2:
+            prices = all_prices[ticker]
+            if len(prices) < 2:
                 continue
-            prices = [r[0] for r in closes]
             current = prices[-1]
 
             # Month return (~22 trading days)

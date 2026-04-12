@@ -29,7 +29,7 @@ export default {
       try {
         const [seriesRows, syncMetaRows] = await Promise.all([
           env.DB.prepare("SELECT key, date, value FROM v_econ_series").all(),
-          env.DB.prepare("SELECT key, value FROM sync_meta").all().catch(() => ({ results: [] })),
+          env.DB.prepare("SELECT key, value FROM sync_meta").all(),
         ]);
 
         // Group rows into {key: [{date, value}]}
@@ -105,7 +105,7 @@ export default {
           env.DB.prepare("SELECT * FROM v_market_indices").all(),
           env.DB.prepare("SELECT * FROM v_market_indicators").all(),
           env.DB.prepare("SELECT * FROM v_holdings_detail").all(),
-          env.DB.prepare("SELECT key, value FROM sync_meta").all().catch(() => ({ results: [] })),
+          env.DB.prepare("SELECT key, value FROM sync_meta").all(),
         ]);
 
       if (!daily.results.length) {
@@ -115,16 +115,8 @@ export default {
         );
       }
 
-      // Indicators -> flat object
-      const meta: Record<string, number | null> = {
-        fedRate: null,
-        treasury10y: null,
-        cpi: null,
-        unemployment: null,
-        vix: null,
-        dxy: null,
-        usdCny: null,
-      };
+      // Indicators -> flat object (Zod fills missing keys with null via .nullable().default(null))
+      const meta: Record<string, number> = {};
       for (const r of indicators.results as { key: string; value: number }[]) {
         meta[r.key] = r.value;
       }
@@ -142,11 +134,10 @@ export default {
           fidelityTxns: fidelity.results,
           qianjiTxns: qianji.results,
           market: {
-            indices: (indices.results as Record<string, unknown>[]).map(r => {
-              let sparkline: number[] | null = null;
-              try { sparkline = JSON.parse(r.sparkline as string); } catch { /* malformed sparkline */ }
-              return { ...r, sparkline };
-            }),
+            indices: (indices.results as Record<string, unknown>[]).map(r => ({
+              ...r,
+              sparkline: JSON.parse(r.sparkline as string) as number[],
+            })),
             ...meta,
           },
           holdingsDetail: holdings.results,

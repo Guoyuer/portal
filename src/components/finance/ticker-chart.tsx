@@ -14,9 +14,11 @@ import {
 } from "recharts";
 import type { TooltipContentProps } from "recharts/types/component/Tooltip";
 import type { TickerPricePoint, TickerTransaction, TickerPriceResponse } from "@/lib/schema";
-import { fmtCurrency, fmtDateMedium } from "@/lib/format";
+import { fmtCurrency, fmtDateMedium, fmtTick } from "@/lib/format";
+import { fidelityDateToIso } from "@/lib/compute";
 import { useIsDark } from "@/lib/hooks";
 import { tooltipStyle, gridStroke, axisProps } from "@/lib/chart-styles";
+import { getIsDark } from "@/lib/style-helpers";
 
 // ── Data merging ──────────────────────────────────────────────────────────
 
@@ -32,10 +34,6 @@ export type TickerChartPoint = {
   sellAmount?: number;
 };
 
-/** Convert MM/DD/YYYY → YYYY-MM-DD */
-function runDateToIso(rd: string): string {
-  return `${rd.slice(6, 10)}-${rd.slice(0, 2)}-${rd.slice(3, 5)}`;
-}
 
 export function mergeTickerData(
   prices: TickerPricePoint[],
@@ -46,7 +44,7 @@ export function mergeTickerData(
   const sellMap = new Map<string, { price: number; qty: number; amount: number }>();
 
   for (const t of transactions) {
-    const iso = runDateToIso(t.runDate);
+    const iso = fidelityDateToIso(t.runDate);
     if (t.actionType === "buy" || t.actionType === "reinvestment") {
       const existing = buyMap.get(iso);
       if (existing) {
@@ -90,7 +88,7 @@ export function mergeTickerData(
 
 function PriceTooltip({ active, payload }: TooltipContentProps) {
   if (!active || !payload?.length) return null;
-  const isDark = typeof document !== "undefined" && document.documentElement.classList.contains("dark");
+  const isDark = getIsDark();
   const style = tooltipStyle(isDark);
   const d = payload[0]?.payload as TickerChartPoint | undefined;
   if (!d) return null;
@@ -101,12 +99,12 @@ function PriceTooltip({ active, payload }: TooltipContentProps) {
       <p style={{ margin: 0 }}>Close: {fmtCurrency(d.close)}</p>
       {d.buyPrice != null && (
         <p style={{ color: "#009E73", margin: 0 }}>
-          Buy: {d.buyQty} × {fmtCurrency(d.buyPrice)} = {fmtCurrency(d.buyAmount ?? 0)}
+          Buy: {d.buyQty} × {fmtCurrency(d.buyPrice)} = {fmtCurrency(d.buyAmount!)}
         </p>
       )}
       {d.sellPrice != null && (
         <p style={{ color: "#E69F00", margin: 0 }}>
-          Sell: {d.sellQty} × {fmtCurrency(d.sellPrice)} = {fmtCurrency(d.sellAmount ?? 0)}
+          Sell: {d.sellQty} × {fmtCurrency(d.sellPrice)} = {fmtCurrency(d.sellAmount!)}
         </p>
       )}
     </div>
@@ -117,9 +115,6 @@ function PriceTooltip({ active, payload }: TooltipContentProps) {
 
 function TickerChartInner({ data, avgCost }: { data: TickerChartPoint[]; avgCost: number | null }) {
   const isDark = useIsDark();
-
-  const fmtTick = (ts: number) =>
-    new Date(ts).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
 
   return (
     <ResponsiveContainer width="100%" height={200}>
@@ -183,7 +178,7 @@ function TickerChartInner({ data, avgCost }: { data: TickerChartPoint[]; avgCost
 
 // ── Fetching wrapper ──────────────────────────────────────────────────────
 
-const WORKER_URL = process.env.NEXT_PUBLIC_TIMELINE_URL?.replace(/\/timeline$/, "") ?? "";
+import { WORKER_BASE } from "@/lib/config";
 
 export function TickerChart({ symbol, startDate, endDate }: { symbol: string; startDate?: string; endDate?: string }) {
   const [data, setData] = useState<TickerChartPoint[] | null>(null);
@@ -194,7 +189,7 @@ export function TickerChart({ symbol, startDate, endDate }: { symbol: string; st
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`${WORKER_URL}/prices/${encodeURIComponent(symbol)}`);
+        const res = await fetch(`${WORKER_BASE}/prices/${encodeURIComponent(symbol)}`);
         if (!res.ok) throw new Error(`${res.status}`);
         const json = (await res.json()) as TickerPriceResponse;
         if (cancelled) return;

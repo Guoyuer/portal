@@ -13,33 +13,31 @@ import pandas as pd
 import yfinance as yf
 
 from .db import get_connection
-from .timemachine import MM_SYMBOLS, POSITION_PREFIXES, _float, _load_raw_rows, _parse_date
+from .timemachine import MM_SYMBOLS, POSITION_PREFIXES, _load_raw_rows, _parse_date
+from .types import parse_float as _float
 
 # ── Symbol holding periods ──────────────────────────────────────────────────
 
 
-def symbol_holding_periods(store_path: Path) -> dict[str, tuple[date, date | None]]:
-    """Return {symbol: (first_buy_date, last_sell_date_or_None)} from Fidelity CSV.
+def _holding_periods_core(
+    rows: list[tuple[str, str, str, float]],
+) -> dict[str, tuple[date, date | None]]:
+    """Shared holding-period logic for both CSV and DB sources.
 
-    last date is None if still held at end of data.
-    Only includes tradeable tickers (no CUSIPs like 912796CR8).
+    Each tuple: (run_date_str, sym, action, qty).
+    Strings are already stripped; action is already uppercased.
     """
-    rows = _load_raw_rows(store_path)
-
     holdings: dict[str, float] = {}
     first_held: dict[str, date] = {}
     last_zero: dict[str, date] = {}
 
-    for row in rows:
-        sym = (row.get("Symbol") or "").strip()
-        action = (row.get("Action") or "").upper()
-        qty = _float(row.get("Quantity", ""))
+    for run_date_str, sym, action, qty in rows:
         if not sym or sym in MM_SYMBOLS or qty == 0:
             continue
         if not any(action.startswith(p) for p in POSITION_PREFIXES):
             continue
 
-        txn_date = _parse_date(row["Run Date"])
+        txn_date = _parse_date(run_date_str)
         holdings[sym] = holdings.get(sym, 0) + qty
 
         if sym not in first_held:
@@ -59,43 +57,37 @@ def symbol_holding_periods(store_path: Path) -> dict[str, tuple[date, date | Non
     return result
 
 
+def symbol_holding_periods(store_path: Path) -> dict[str, tuple[date, date | None]]:
+    """Return {symbol: (first_buy_date, last_sell_date_or_None)} from Fidelity CSV."""
+    raw_rows = _load_raw_rows(store_path)
+    rows = [
+        (
+            row["Run Date"],
+            (row.get("Symbol") or "").strip(),
+            (row.get("Action") or "").upper(),
+            _float(row.get("Quantity", "")),
+        )
+        for row in raw_rows
+    ]
+    return _holding_periods_core(rows)
+
+
 def symbol_holding_periods_from_db(db_path: Path) -> dict[str, tuple[date, date | None]]:
     """Like symbol_holding_periods but reads from fidelity_transactions table."""
     conn = get_connection(db_path)
     try:
-        rows = conn.execute(
+        db_rows = conn.execute(
             "SELECT run_date, symbol, action, quantity FROM fidelity_transactions"
             " ORDER BY substr(run_date,7,4)||substr(run_date,1,2)||substr(run_date,4,2), id"
         ).fetchall()
     finally:
         conn.close()
 
-    holdings: dict[str, float] = {}
-    first_held: dict[str, date] = {}
-    last_zero: dict[str, date] = {}
-
-    for run_date, sym, action, qty in rows:
-        sym = sym.strip()
-        action_upper = action.upper()
-        if not sym or sym in MM_SYMBOLS or qty == 0:
-            continue
-        if not any(action_upper.startswith(p) for p in POSITION_PREFIXES):
-            continue
-        txn_date = _parse_date(run_date)
-        holdings[sym] = holdings.get(sym, 0) + qty
-        if sym not in first_held:
-            first_held[sym] = txn_date
-        if abs(holdings[sym]) < 0.001:
-            last_zero[sym] = txn_date
-
-    result: dict[str, tuple[date, date | None]] = {}
-    for sym in first_held:
-        if sym[0].isdigit():
-            continue
-        start = first_held[sym]
-        end = last_zero.get(sym) if abs(holdings.get(sym, 0)) < 0.001 else None
-        result[sym] = (start, end)
-    return result
+    rows = [
+        (run_date, sym.strip(), action.upper(), qty)
+        for run_date, sym, action, qty in db_rows
+    ]
+    return _holding_periods_core(rows)
 
 
 # ── Cache helpers ───────────────────────────────────────────────────────────

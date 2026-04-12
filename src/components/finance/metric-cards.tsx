@@ -3,7 +3,7 @@
 import { useRef, useState, useEffect } from "react";
 import type { ApiCategory, ApiTicker } from "@/lib/schema";
 import { fmtCurrency, fmtCurrencyShort } from "@/lib/format";
-import { savingsRateColor } from "@/lib/style-helpers";
+import { SAVINGS_RATE_GOOD, SAVINGS_RATE_WARNING } from "@/lib/style-helpers";
 import { CategorySummary } from "@/components/finance/category-summary";
 
 // ── Savings Rate Card with radial progress ──────────────────────────────
@@ -13,19 +13,20 @@ const RING_STROKE = 6;
 const RING_R = (RING_SIZE - RING_STROKE) / 2;
 const RING_C = 2 * Math.PI * RING_R;
 
-// Vibrant FinTech palette — matches the cyan energy of Net Worth card
-const SR_GOOD = 30;
-const SR_WARN = 15;
+// Tailwind-style semantic colors for the savings rate ring
+const SR_COLOR_GOOD = "#059669";     // emerald-600
+const SR_COLOR_WARNING = "#CA8A04";  // amber-600
+const SR_COLOR_BAD = "#DC2626";      // red-600
 
-function srColor(rate: number): string {
-  if (rate >= SR_GOOD) return "#059669";
-  if (rate >= SR_WARN) return "#CA8A04";
-  return "#DC2626";
+function savingsRateColor(rate: number): string {
+  if (rate >= SAVINGS_RATE_GOOD) return SR_COLOR_GOOD;
+  if (rate >= SAVINGS_RATE_WARNING) return SR_COLOR_WARNING;
+  return SR_COLOR_BAD;
 }
 
-function srColorMuted(rate: number): string {
-  if (rate >= SR_GOOD) return "rgba(5, 150, 105, 0.3)";
-  if (rate >= SR_WARN) return "rgba(202, 138, 4, 0.3)";
+function savingsRateColorMuted(rate: number): string {
+  if (rate >= SAVINGS_RATE_GOOD) return "rgba(5, 150, 105, 0.3)";
+  if (rate >= SAVINGS_RATE_WARNING) return "rgba(202, 138, 4, 0.3)";
   return "rgba(220, 38, 38, 0.3)";
 }
 
@@ -36,64 +37,66 @@ function SavingsRateCard({
   savingsRate: number | null;
   takehomeSavingsRate: number | null;
 }) {
-  const total = savingsRate ?? 0;
-  const takehome = takehomeSavingsRate ?? 0;
-  const pretax = Math.max(0, total - takehome);
+  // Both values come from the same cashflow compute — always null together
+  if (savingsRate == null || takehomeSavingsRate == null) {
+    return (
+      <div data-slot="card" data-testid="savings-rate-card" className="liquid-glass p-4 flex items-center gap-3">
+        <div className="flex-1 min-w-0">
+          <p className="text-xs sm:text-sm text-muted-foreground">Savings Rate</p>
+          <p className="text-xl sm:text-2xl font-bold mt-1">N/A</p>
+        </div>
+      </div>
+    );
+  }
 
-  const takehomeArc = RING_C * (Math.min(takehome, 100) / 100);
+  const pretax = Math.max(0, savingsRate - takehomeSavingsRate);
+  const takehomeArc = RING_C * (Math.min(takehomeSavingsRate, 100) / 100);
   const pretaxArc = RING_C * (Math.min(pretax, 100) / 100);
-
-  const color = srColor(takehome);
-  const colorMuted = srColorMuted(takehome);
+  const color = savingsRateColor(takehomeSavingsRate);
+  const colorMuted = savingsRateColorMuted(takehomeSavingsRate);
 
   return (
     <div data-slot="card" data-testid="savings-rate-card" className="liquid-glass p-4 flex items-center gap-3">
       <div className="flex-1 min-w-0">
         <p className="text-xs sm:text-sm text-muted-foreground">Savings Rate</p>
-        {takehomeSavingsRate != null ? (
-          <p className="text-xl sm:text-2xl font-bold mt-1 tabular-nums" style={{ color }}>
-            {Math.round(takehomeSavingsRate)}%
-            <span className="text-[10px] font-normal text-muted-foreground ml-1">take-home</span>
-          </p>
-        ) : (
-          <p className="text-xl sm:text-2xl font-bold mt-1">N/A</p>
-        )}
+        <p className="text-xl sm:text-2xl font-bold mt-1 tabular-nums" style={{ color }}>
+          {Math.round(takehomeSavingsRate)}%
+          <span className="text-[10px] font-normal text-muted-foreground ml-1">take-home</span>
+        </p>
       </div>
-      {savingsRate != null && (
-        <svg width={RING_SIZE} height={RING_SIZE} className="flex-shrink-0 -rotate-90">
-          {/* Background track */}
-          <circle
-            cx={RING_SIZE / 2} cy={RING_SIZE / 2} r={RING_R}
-            fill="none" stroke="currentColor" strokeWidth={RING_STROKE}
-            className="text-black/5 dark:text-white/10"
-          />
-          {/* Take-home arc */}
-          <circle
-            cx={RING_SIZE / 2} cy={RING_SIZE / 2} r={RING_R}
-            fill="none" strokeWidth={RING_STROKE}
-            strokeDasharray={`${takehomeArc} ${RING_C}`}
-            strokeLinecap="round"
-            stroke={color}
-          />
-          {/* Pre-tax arc (muted, starts after take-home) */}
-          <circle
-            cx={RING_SIZE / 2} cy={RING_SIZE / 2} r={RING_R}
-            fill="none" strokeWidth={RING_STROKE}
-            strokeDasharray={`${pretaxArc} ${RING_C}`}
-            strokeDashoffset={-takehomeArc}
-            strokeLinecap="round"
-            stroke={colorMuted}
-          />
-          {/* Center text */}
-          <text
-            x={RING_SIZE / 2} y={RING_SIZE / 2}
-            textAnchor="middle" dominantBaseline="central"
-            className="fill-foreground text-[13px] font-bold rotate-90 origin-center"
-          >
-            {Math.round(total)}%
-          </text>
-        </svg>
-      )}
+      <svg width={RING_SIZE} height={RING_SIZE} className="flex-shrink-0 -rotate-90">
+        {/* Background track */}
+        <circle
+          cx={RING_SIZE / 2} cy={RING_SIZE / 2} r={RING_R}
+          fill="none" stroke="currentColor" strokeWidth={RING_STROKE}
+          className="text-black/5 dark:text-white/10"
+        />
+        {/* Take-home arc */}
+        <circle
+          cx={RING_SIZE / 2} cy={RING_SIZE / 2} r={RING_R}
+          fill="none" strokeWidth={RING_STROKE}
+          strokeDasharray={`${takehomeArc} ${RING_C}`}
+          strokeLinecap="round"
+          stroke={color}
+        />
+        {/* Pre-tax arc (muted, starts after take-home) */}
+        <circle
+          cx={RING_SIZE / 2} cy={RING_SIZE / 2} r={RING_R}
+          fill="none" strokeWidth={RING_STROKE}
+          strokeDasharray={`${pretaxArc} ${RING_C}`}
+          strokeDashoffset={-takehomeArc}
+          strokeLinecap="round"
+          stroke={colorMuted}
+        />
+        {/* Center text */}
+        <text
+          x={RING_SIZE / 2} y={RING_SIZE / 2}
+          textAnchor="middle" dominantBaseline="central"
+          className="fill-foreground text-[13px] font-bold rotate-90 origin-center"
+        >
+          {Math.round(savingsRate)}%
+        </text>
+      </svg>
     </div>
   );
 }
@@ -101,28 +104,22 @@ function SavingsRateCard({
 // ── MetricCards ──────────────────────────────────────────────────────────
 
 export function MetricCards({
-  total,
-  netWorth,
-  categories,
-  tickers,
+  allocation,
   savingsRate,
   takehomeSavingsRate,
   goal,
-  goalPct,
   allocationOpen,
   onAllocationToggle,
 }: {
-  total: number;
-  netWorth: number;
-  categories: ApiCategory[];
-  tickers: ApiTicker[];
+  allocation: { total: number; netWorth: number; categories: ApiCategory[]; tickers: ApiTicker[] };
   savingsRate: number | null;
   takehomeSavingsRate: number | null;
   goal: number;
-  goalPct: number;
   allocationOpen: boolean;
   onAllocationToggle: () => void;
 }) {
+  const { total, netWorth, categories, tickers } = allocation;
+  const goalPct = (total / goal) * 100;
   const safeNetValue = categories.find((c) => c.name === "Safe Net")?.value ?? 0;
   const investmentValue = total - safeNetValue;
   const invPct = netWorth > 0 ? (investmentValue / netWorth) * 100 : 0;

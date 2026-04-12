@@ -54,3 +54,8 @@ export function fmtDateMonthYear(iso: string): string {
   const [y, m] = iso.split("-");
   return new Date(+y, +m - 1, 1).toLocaleDateString("en-US", { month: "short", year: "numeric" });
 }
+
+/** Format a timestamp for chart X-axis ticks: "Jan 26" */
+export function fmtTick(ts: number): string {
+  return new Date(ts).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+}

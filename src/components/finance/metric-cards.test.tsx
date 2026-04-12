@@ -27,15 +27,18 @@ const CATEGORIES: ApiCategory[] = [
   { name: "Safe Net", value: 27000, pct: 27, target: 27, deviation: 0 },
 ];
 
-const BASE_PROPS = {
+const ALLOCATION = {
   total: 100000,
   netWorth: 95000,
   categories: CATEGORIES,
   tickers: [] as ApiTicker[],
+};
+
+const BASE_PROPS = {
+  allocation: ALLOCATION,
   savingsRate: 42 as number | null,
   takehomeSavingsRate: 35 as number | null,
   goal: 2_000_000,
-  goalPct: 5,
   allocationOpen: false,
   onAllocationToggle: vi.fn(),
 };

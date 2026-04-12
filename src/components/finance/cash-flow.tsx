@@ -163,15 +163,15 @@ function MiniProgress({ pct, color, target }: { pct: number; color: string; targ
 }
 
 function MiniDonut({ pct, color }: { pct: number; color: string }) {
-  const r = 6;
-  const circ = 2 * Math.PI * r;
-  const filled = (Math.min(pct, 100) / 100) * circ;
+  const RADIUS = 6;
+  const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
+  const filledArc = (Math.min(pct, 100) / 100) * CIRCUMFERENCE;
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" className="shrink-0">
-      <circle cx="8" cy="8" r={r} fill="none" stroke="currentColor" strokeWidth="2" className="text-foreground/8" />
+      <circle cx="8" cy="8" r={RADIUS} fill="none" stroke="currentColor" strokeWidth="2" className="text-foreground/8" />
       <circle
-        cx="8" cy="8" r={r} fill="none" stroke={color} strokeWidth="2"
-        strokeDasharray={`${filled} ${circ}`}
+        cx="8" cy="8" r={RADIUS} fill="none" stroke={color} strokeWidth="2"
+        strokeDasharray={`${filledArc} ${CIRCUMFERENCE}`}
         strokeLinecap="round"
         transform="rotate(-90 8 8)"
       />
