@@ -42,12 +42,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File pipeline\scripts\run_portal_
 ```
 
 **Expected**:
-- Runs `[1]` → `[2]` (build) → `[3]` (verify vs prod) → `[4] Dry run — skipping sync`
+- Runs `[1]` → `[2]` (build) → `[3]` (verify vs prod) → `[3b]` (positions gate if a fresh `Portfolio_Positions_*.csv` is in Downloads) → `[4] Dry run — skipping sync`
 - Exits `0`
 - Log written to `%LOCALAPPDATA%\portal\logs\sync-YYYY-MM-DD.log`
 - If healthchecks is configured, dashboard shows one successful ping
 
-If `[3]` exits `2` (parity gate fail), investigate before proceeding — something real is off.
+If `[3]` exits `2` (parity gate fail) or `[3b]` exits `4` (positions gate fail), investigate before proceeding — something real is off.
 
 ## 4. Register Task Scheduler
 
@@ -105,6 +105,7 @@ Exit code from `run_automation.py` (propagated by PS1 shim to Task Scheduler):
 | `1` | Build failed | Check log for Python stack trace in `[2]` |
 | `2` | Parity gate failed — local ↔ prod drift or local shrinkage | Run `verify_vs_prod.py --verbose` manually, investigate |
 | `3` | Sync failed | Check wrangler output in log; may be a transient Cloudflare issue, retry |
+| `4` | Positions gate failed — replay disagrees with a fresh `Portfolio_Positions_*.csv` | Run `verify_positions.py --positions <path>` manually, investigate share-count drift |
 
 Healthchecks.io pings:
 - `/start` at each run begin
@@ -121,8 +122,9 @@ The script skips unless any of these are newer than `pipeline/data/.last_run`:
 - `Accounts_History*.csv` in Downloads (Fidelity)
 - `Bloomberg.Download*.qfx` in Downloads (Empower 401k)
 - `Robinhood_history.csv` in Downloads
+- `Portfolio_Positions_*.csv` in Downloads (Fidelity snapshot — drives the `[3b]` ground-truth gate)
 
-`Portfolio_Positions_*.csv` is intentionally NOT watched — those snapshots are rarely fresh in automation context (see `docs/archive/sync-design-audit-2026-04-12.md` Option A). Run `verify_positions.py --positions <path>` manually when you want that check.
+When a fresh `Portfolio_Positions_*.csv` is detected, step `[3b]` runs `verify_positions.py` against it and blocks the sync if replay disagrees (exit code 4). If no such CSV is present on a given run, `[3b]` is skipped (not failed).
 
 ---
 
