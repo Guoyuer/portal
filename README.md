@@ -15,7 +15,7 @@ graph TB
 
     subgraph "Cloudflare D1 + Workers"
         D1[(D1 portal-db)]
-        WORKER["Worker<br/>GET /timeline → JSON"]
+        WORKER["Worker<br/>GET /timeline · /econ · /prices/:sym"]
     end
 
     subgraph "GitHub Actions"
@@ -64,9 +64,15 @@ sequenceDiagram
 
     Note over User: Any time
     User->>Worker: fetch /timeline
-    Worker->>D1: 7 SELECTs (views)
+    Worker->>D1: SELECTs (views)
     D1->>Worker: rows
     Worker->>User: JSON (no-cache)
+
+    Note over User: On ticker click
+    User->>Worker: fetch /prices/:symbol
+    Worker->>D1: daily_close + fidelity_transactions
+    D1->>Worker: rows
+    Worker->>User: JSON
 ```
 
 ## Project Structure
@@ -93,7 +99,7 @@ portal/
 │   │   │   ├── metric-cards.tsx       # Portfolio, Net Worth, Savings Rate, Goal
 │   │   │   ├── category-summary.tsx   # Allocation table + donut
 │   │   │   ├── cash-flow.tsx          # Income/expenses + summary
-│   │   │   ├── portfolio-activity.tsx # Activity + ticker tables
+│   │   │   ├── ticker-chart.tsx       # Per-ticker price chart with buy/sell markers
 │   │   │   ├── market-context.tsx     # Index returns + macro indicators
 │   │   │   └── net-worth-growth.tsx   # MoM/YoY growth rates
 │   │   ├── econ/
@@ -105,7 +111,7 @@ portal/
 │       ├── schema.ts                  # Zod schemas for timeline API
 │       ├── econ-schema.ts             # Zod schemas for economy data
 │       ├── compute.ts                 # Pure computation (allocation, cashflow, activity)
-│       ├── config.ts                  # TIMELINE_URL, GOAL
+│       ├── config.ts                  # WORKER_BASE, TIMELINE_URL, ECON_URL, GOAL
 │       ├── format.ts                  # Currency/percent formatters
 │       ├── hooks.ts                   # Shared React hooks
 │       ├── chart-styles.ts            # Recharts theming
@@ -113,7 +119,7 @@ portal/
 │       └── utils.ts                   # General utilities
 │
 ├── worker/                            # Cloudflare Worker (TypeScript)
-│   ├── src/index.ts                   # GET /timeline → 7 D1 SELECTs → JSON
+│   ├── src/index.ts                   # GET /timeline, /econ, /prices/:symbol → D1 → JSON
 │   ├── schema.sql                     # D1 tables + camelCase views
 │   ├── wrangler.toml                  # D1 binding config
 │   ├── tsconfig.json
@@ -207,7 +213,7 @@ graph LR
 | Auth | Cloudflare Access | Zero-trust, Google login |
 | Pipeline | Python 3.14 | Fidelity/Qianji/Robinhood/401k ingest, Yahoo Finance, FRED API |
 | CI/CD | GitHub Actions | Python lint/test + vitest + Playwright E2E + deploy |
-| Tests | vitest (88) + Playwright (4 specs) + pytest (25 files) | Coverage thresholds, branch protection |
+| Tests | vitest (101) + Playwright (4 specs, mock API) + pytest (374) | Coverage thresholds, branch protection |
 | Errors | Sentry | Client-side error tracking in production |
 
 ## Development
@@ -235,7 +241,7 @@ npm run dev              # http://localhost:3000
 cd pipeline && .venv/bin/pytest -q                          # Python tests
 cd pipeline && .venv/bin/mypy generate_asset_snapshot/ --ignore-missing-imports
 cd pipeline && .venv/bin/ruff check .
-npx next build && npx playwright test                       # e2e tests
+npx playwright test                                          # e2e tests (mock API, no backend needed)
 
 # Build timemachine DB from raw data
 cd pipeline && python3 scripts/build_timemachine_db.py
@@ -275,7 +281,7 @@ pipeline/...                     ← data generation (if needed)
 - [x] Robinhood transaction ingestion
 - [x] Empower 401k QFX integration
 - [ ] AI-generated macro narrative — LLM summarizing economic conditions and cycle position
-- [ ] Drop R2 legacy path — migrate /econ page from R2 to D1
+- [x] Drop R2 legacy path — /econ now reads from D1 via Worker
 
 ## License
 

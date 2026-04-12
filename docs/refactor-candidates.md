@@ -1,6 +1,8 @@
 # Refactor Candidates — Deep Analysis
 
-6 items deferred from the code quality cleanup PR. Each analyzed for exact scope, risk, and whether it's worth doing.
+**Status: ALL COMPLETED** (PR #86)
+
+6 items deferred from the initial code quality review, then analyzed and executed.
 
 ---
 
@@ -166,11 +168,11 @@ const onBrushChange = (state: { startIndex?: number; endIndex?: number }) => {
 
 ## Execution order (recommended)
 
-| Priority | Item | Effort | Risk |
-|----------|------|--------|------|
-| 1 | MetricCards prop consolidation | LOW | LOW |
-| 2 | N+1 query batch | LOW | LOW |
-| 3 | `_parse_float` consolidation | MEDIUM | LOW |
-| 4 | TickerRow unification | MEDIUM | LOW |
-| 5 | brushRef removal | LOW | LOW |
-| 6 | StickyBrush state | MEDIUM | MEDIUM |
+| # | Item | Status |
+|---|------|--------|
+| 1 | TickerRow/RestTickerRow → single component with `plain` prop | Done |
+| 2 | MetricCards: pass AllocationResponse directly (10 → 7 props) | Done |
+| 3 | Batch N+1 queries in precompute.py | Done |
+| 4 | StickyBrush: use parent brushStart/brushEnd | Done |
+| 5 | Consolidate 4x `_parse_float` → `types.parse_float` | Done |
+| 6 | Remove brushRef → `setFullRange(prev => ...)` | Done |

@@ -28,7 +28,7 @@ graph TB
     end
 
     subgraph Frontend["Browser"]
-        FETCH["fetch /timeline + /econ"]
+        FETCH["fetch /timeline + /econ + /prices/:sym"]
         COMPUTE["compute.ts — allocation · cashflow · activity"]
         UI["React components"]
     end
@@ -66,7 +66,7 @@ graph TB
 | `replay_checkpoint` | Cached positions/cash/cost_basis (local only) | Not synced |
 | `calibration_log` | Drift between replay and positions CSV (local only) | Not synced |
 
-Worker endpoints: `GET /timeline` (7 parallel SELECTs → JSON, ~4.6 MB / ~385 KB gzip), `GET /econ` (econ_series → grouped by key).
+Worker endpoints: `GET /timeline` (7 parallel SELECTs → JSON, ~4.6 MB / ~385 KB gzip), `GET /econ` (econ_series → grouped by key), `GET /prices/:symbol` (daily close + transactions, on-demand per ticker click).
 
 ---
 
