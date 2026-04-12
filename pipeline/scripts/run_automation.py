@@ -9,6 +9,7 @@ Exit code taxonomy:
     1 — build failed
     2 — verify_vs_prod failed (local <-> prod parity drift — do NOT sync)
     3 — sync failed
+    4 — verify_positions failed (replay disagrees with Fidelity snapshot — do NOT sync)
 
 CLI (mirrors the previous PS1 flags):
     --force     Skip change detection
@@ -41,12 +42,15 @@ _PIPELINE_DIR = _SCRIPT_DIR.parent
 _DATA_DIR = _PIPELINE_DIR / "data"
 _MARKER = _DATA_DIR / ".last_run"
 
-# Patterns monitored for change detection. Portfolio_Positions is intentionally
-# EXCLUDED — those snapshots are rarely fresh in automation contexts (Option A).
+# Patterns monitored for change detection. Portfolio_Positions_*.csv IS watched
+# because a fresh snapshot is what triggers the [3b] ground-truth gate; the gate
+# is skipped (not failed) when no such file is present, so including it here is
+# safe for runs where only transactions changed.
 _WATCHED_PATTERNS = (
     "Accounts_History*.csv",
     "Bloomberg.Download*.qfx",
     "Robinhood_history.csv",
+    "Portfolio_Positions_*.csv",
 )
 
 # Exit codes
@@ -54,6 +58,7 @@ EXIT_OK = 0
 EXIT_BUILD_FAIL = 1
 EXIT_PARITY_FAIL = 2
 EXIT_SYNC_FAIL = 3
+EXIT_POSITIONS_FAIL = 4
 
 
 # ── Paths helpers (env-var aware) ─────────────────────────────────────────────
@@ -153,6 +158,26 @@ def changes_detected(
     return False
 
 
+# ── Positions CSV discovery ───────────────────────────────────────────────────
+
+def find_new_positions_csv(downloads: Path, marker: Path) -> Path | None:
+    """Return newest ``Portfolio_Positions_*.csv`` in downloads newer than marker.
+
+    Returns None if downloads is missing, no matching files exist, or (when the
+    marker is present) all matching files are older than the marker. This makes
+    the [3b] gate a no-op unless the user has actually dropped a fresh CSV.
+    """
+    if not downloads.exists():
+        return None
+    candidates = list(downloads.glob("Portfolio_Positions_*.csv"))
+    if marker.exists():
+        mtime = marker.stat().st_mtime
+        candidates = [p for p in candidates if p.stat().st_mtime > mtime]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda p: p.stat().st_mtime)
+
+
 # ── Subprocess runner ─────────────────────────────────────────────────────────
 
 def run_python_script(script: Path, *args: str) -> int:
@@ -237,6 +262,20 @@ def main(argv: list[str] | None = None) -> int:
             log.error("  PRE-SYNC GATE FAILED (exit=%d) — SYNC BLOCKED", rc)
             ping_healthcheck("fail")
             return EXIT_PARITY_FAIL
+
+    # [3b] Optional Portfolio_Positions ground-truth gate
+    if not args.local:
+        positions_csv = find_new_positions_csv(downloads, _MARKER)
+        if positions_csv:
+            log.info("[3b] Verifying share counts vs %s...", positions_csv.name)
+            rc = run_python_script(_SCRIPT_DIR / "verify_positions.py",
+                                   "--positions", str(positions_csv))
+            if rc != 0:
+                log.error("  POSITIONS CHECK FAILED (exit=%d) — SYNC BLOCKED", rc)
+                ping_healthcheck("fail")
+                return EXIT_POSITIONS_FAIL
+        else:
+            log.info("[3b] No new Portfolio_Positions CSV — skipping ground-truth check")
 
     # [4] Sync (skipped in dry-run)
     if args.dry_run:

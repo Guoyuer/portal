@@ -101,14 +101,13 @@ class TestChangesDetected:
         qianji_db_file.write_text("db")
         assert run_automation.changes_detected(marker, downloads, qianji_db_file) is True
 
-    def test_portfolio_positions_NOT_watched(self, marker, downloads):
-        """Option A: Portfolio_Positions_*.csv is intentionally excluded from change detection."""
-        marker.write_text("new")
+    def test_portfolio_positions_IS_watched(self, marker, downloads):
+        """Portfolio_Positions_*.csv IS watched (re-enabled in S5 to drive the [3b] gate)."""
+        marker.write_text("old")
         os.utime(marker, (time.time() - 3600,) * 2)
-        # Writing a fresh Portfolio_Positions_*.csv (newer than marker) should NOT trigger change.
         pp = downloads / "Portfolio_Positions_Apr-12-2026.csv"
         pp.write_text("positions")
-        assert run_automation.changes_detected(marker, downloads, None) is False
+        assert run_automation.changes_detected(marker, downloads, None) is True
 
     def test_missing_downloads_dir_returns_false(self, marker, tmp_path):
         marker.write_text("new")
@@ -161,12 +160,24 @@ class _FakeRun:
 
 
 class TestExitCodeMapping:
-    def _invoke(self, argv, codes, monkeypatch, tmp_path):
-        """Run main() with a fake run_python_script and isolated marker path."""
+    def _invoke(self, argv, codes, monkeypatch, tmp_path, downloads_seed=None):
+        """Run main() with a fake run_python_script and isolated marker path.
+
+        downloads_seed: iterable of filenames to create in the isolated Downloads
+        dir before invocation (used to simulate a fresh Portfolio_Positions CSV
+        for [3b] gate testing).
+        """
         fake = _FakeRun(codes)
         monkeypatch.setattr(run_automation, "run_python_script", fake)
         monkeypatch.setattr(run_automation, "_MARKER", tmp_path / ".last_run")
         monkeypatch.setattr(run_automation, "get_log_dir", lambda: tmp_path / "logs")
+        # Isolate from the real ~/Downloads so [3b] doesn't pick up real CSVs.
+        iso_downloads = tmp_path / "iso_downloads"
+        iso_downloads.mkdir(exist_ok=True)
+        for fname in downloads_seed or ():
+            (iso_downloads / fname).write_text("stub")
+        monkeypatch.setattr(run_automation, "get_downloads_dir", lambda: iso_downloads)
+        monkeypatch.setattr(run_automation, "get_qianji_db_path", lambda: None)
         # Ensure no network pings
         monkeypatch.delenv("PORTAL_HEALTHCHECK_URL", raising=False)
         # Force path so change detection is bypassed (we always pass --force)
@@ -233,6 +244,101 @@ class TestExitCodeMapping:
         rc = run_automation.main([])
         assert rc == run_automation.EXIT_OK
         assert fake.calls == []
+
+    def test_positions_gate_runs_when_fresh_csv_present(self, monkeypatch, tmp_path):
+        """[3b] runs verify_positions.py when a fresh Portfolio_Positions CSV is in Downloads."""
+        rc, fake = self._invoke(
+            ["--force"], [0, 0, 0, 0], monkeypatch, tmp_path,
+            downloads_seed=("Portfolio_Positions_Apr-07-2026.csv",),
+        )
+        assert rc == run_automation.EXIT_OK
+        names = [c[0].name for c in fake.calls]
+        assert names == [
+            "build_timemachine_db.py", "verify_vs_prod.py",
+            "verify_positions.py", "sync_to_d1.py",
+        ]
+        # verify_positions invoked with --positions <path>
+        verify_args = fake.calls[2][1]
+        assert verify_args[0] == "--positions"
+        assert verify_args[1].endswith("Portfolio_Positions_Apr-07-2026.csv")
+
+    def test_positions_gate_skipped_when_no_csv(self, monkeypatch, tmp_path):
+        """[3b] is skipped (not failed) when no Portfolio_Positions CSV is present."""
+        rc, fake = self._invoke(["--force"], [0, 0, 0], monkeypatch, tmp_path)
+        assert rc == run_automation.EXIT_OK
+        names = [c[0].name for c in fake.calls]
+        assert names == ["build_timemachine_db.py", "verify_vs_prod.py", "sync_to_d1.py"]
+
+    def test_positions_fail_returns_4(self, monkeypatch, tmp_path):
+        """verify_positions non-zero blocks sync with exit code 4."""
+        rc, fake = self._invoke(
+            ["--force"], [0, 0, 1], monkeypatch, tmp_path,
+            downloads_seed=("Portfolio_Positions_Apr-07-2026.csv",),
+        )
+        assert rc == run_automation.EXIT_POSITIONS_FAIL
+        names = [c[0].name for c in fake.calls]
+        assert names == ["build_timemachine_db.py", "verify_vs_prod.py", "verify_positions.py"]
+        # Sync must NOT have run.
+
+    def test_positions_gate_skipped_in_local_mode(self, monkeypatch, tmp_path):
+        """--local skips both [3] parity and [3b] positions gates."""
+        rc, fake = self._invoke(
+            ["--force", "--local"], [0, 0], monkeypatch, tmp_path,
+            downloads_seed=("Portfolio_Positions_Apr-07-2026.csv",),
+        )
+        assert rc == run_automation.EXIT_OK
+        names = [c[0].name for c in fake.calls]
+        assert names == ["build_timemachine_db.py", "sync_to_d1.py"]
+
+
+# ── find_new_positions_csv() ──────────────────────────────────────────────────
+
+class TestFindNewPositionsCSV:
+    def test_returns_none_when_downloads_missing(self, tmp_path):
+        downloads = tmp_path / "nope"
+        marker = tmp_path / ".last_run"
+        assert run_automation.find_new_positions_csv(downloads, marker) is None
+
+    def test_returns_none_when_no_matching_files(self, tmp_path):
+        downloads = tmp_path / "dl"
+        downloads.mkdir()
+        marker = tmp_path / ".last_run"
+        (downloads / "Accounts_History.csv").write_text("x")
+        assert run_automation.find_new_positions_csv(downloads, marker) is None
+
+    def test_returns_csv_when_marker_missing(self, tmp_path):
+        downloads = tmp_path / "dl"
+        downloads.mkdir()
+        marker = tmp_path / ".last_run"  # does not exist
+        f = downloads / "Portfolio_Positions_Apr-07-2026.csv"
+        f.write_text("x")
+        result = run_automation.find_new_positions_csv(downloads, marker)
+        assert result == f
+
+    def test_returns_none_when_csv_older_than_marker(self, tmp_path):
+        downloads = tmp_path / "dl"
+        downloads.mkdir()
+        marker = tmp_path / ".last_run"
+        f = downloads / "Portfolio_Positions_Apr-07-2026.csv"
+        f.write_text("x")
+        # Age the CSV into the past.
+        past = time.time() - 3600
+        os.utime(f, (past, past))
+        marker.write_text("fresh")
+        assert run_automation.find_new_positions_csv(downloads, marker) is None
+
+    def test_returns_newest_csv_when_multiple_fresh(self, tmp_path):
+        downloads = tmp_path / "dl"
+        downloads.mkdir()
+        marker = tmp_path / ".last_run"
+        marker.write_text("old")
+        os.utime(marker, (time.time() - 7200,) * 2)
+        older = downloads / "Portfolio_Positions_Apr-03-2026.csv"
+        newer = downloads / "Portfolio_Positions_Apr-07-2026.csv"
+        older.write_text("x")
+        os.utime(older, (time.time() - 1800,) * 2)
+        newer.write_text("x")  # mtime = now
+        assert run_automation.find_new_positions_csv(downloads, marker) == newer
 
 
 # ── ping_healthcheck() ────────────────────────────────────────────────────────
