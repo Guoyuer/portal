@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from generate_asset_snapshot.db import init_db
-from generate_asset_snapshot.timemachine import load_checkpoint, save_checkpoint
+from etl.db import init_db
+from etl.timemachine import load_checkpoint, save_checkpoint
 
 
 @pytest.fixture()

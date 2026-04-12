@@ -76,12 +76,12 @@ def _build_mock_fred() -> MagicMock:
 class TestFetchFredDataHappyPath:
     """fetch_fred_data returns properly structured data on success."""
 
-    @patch("generate_asset_snapshot.market.fred.Fred")
+    @patch("etl.market.fred.Fred")
     def test_returns_snapshot_and_series(self, mock_fred_cls: MagicMock) -> None:
         """Result contains both 'snapshot' and 'series' top-level keys."""
         mock_fred_cls.return_value = _build_mock_fred()
 
-        from generate_asset_snapshot.market.fred import fetch_fred_data
+        from etl.market.fred import fetch_fred_data
 
         result = fetch_fred_data("test_key")
 
@@ -89,12 +89,12 @@ class TestFetchFredDataHappyPath:
         assert "snapshot" in result
         assert "series" in result
 
-    @patch("generate_asset_snapshot.market.fred.Fred")
+    @patch("etl.market.fred.Fred")
     def test_snapshot_has_expected_fields(self, mock_fred_cls: MagicMock) -> None:
         """Snapshot contains camelCase keys for all indicator latest values."""
         mock_fred_cls.return_value = _build_mock_fred()
 
-        from generate_asset_snapshot.market.fred import fetch_fred_data
+        from etl.market.fred import fetch_fred_data
 
         result = fetch_fred_data("test_key")
         assert result is not None
@@ -108,12 +108,12 @@ class TestFetchFredDataHappyPath:
             f"Missing keys: {expected_keys - set(snap.keys())}"
         )
 
-    @patch("generate_asset_snapshot.market.fred.Fred")
+    @patch("etl.market.fred.Fred")
     def test_series_entries_have_date_value_format(self, mock_fred_cls: MagicMock) -> None:
         """Every series entry is a list of {date: 'YYYY-MM', value: number}."""
         mock_fred_cls.return_value = _build_mock_fred()
 
-        from generate_asset_snapshot.market.fred import fetch_fred_data
+        from etl.market.fred import fetch_fred_data
 
         result = fetch_fred_data("test_key")
         assert result is not None
@@ -128,12 +128,12 @@ class TestFetchFredDataHappyPath:
                 assert entry["date"][4] == "-", f"Bad date separator: {entry['date']}"
                 assert isinstance(entry["value"], (int, float)), f"Value should be numeric: {entry['value']}"
 
-    @patch("generate_asset_snapshot.market.fred.Fred")
+    @patch("etl.market.fred.Fred")
     def test_cpi_returned_as_yoy_percentage(self, mock_fred_cls: MagicMock) -> None:
         """CPI values are YoY percentage changes, not raw index values."""
         mock_fred_cls.return_value = _build_mock_fred()
 
-        from generate_asset_snapshot.market.fred import fetch_fred_data
+        from etl.market.fred import fetch_fred_data
 
         result = fetch_fred_data("test_key")
         assert result is not None
@@ -150,12 +150,12 @@ class TestFetchFredDataHappyPath:
         for entry in cpi_series:
             assert -10 < entry["value"] < 30, f"CPI series entry looks like raw index: {entry}"
 
-    @patch("generate_asset_snapshot.market.fred.Fred")
+    @patch("etl.market.fred.Fred")
     def test_2s10s_spread_is_computed(self, mock_fred_cls: MagicMock) -> None:
         """spread2s10s = treasury10y - treasury2y."""
         mock_fred_cls.return_value = _build_mock_fred()
 
-        from generate_asset_snapshot.market.fred import fetch_fred_data
+        from etl.market.fred import fetch_fred_data
 
         result = fetch_fred_data("test_key")
         assert result is not None
@@ -165,12 +165,12 @@ class TestFetchFredDataHappyPath:
         t2 = result["snapshot"]["treasury2y"]
         assert spread == pytest.approx(t10 - t2, abs=0.01)
 
-    @patch("generate_asset_snapshot.market.fred.Fred")
+    @patch("etl.market.fred.Fred")
     def test_series_has_expected_keys(self, mock_fred_cls: MagicMock) -> None:
         """Series dict contains keys for each indicator."""
         mock_fred_cls.return_value = _build_mock_fred()
 
-        from generate_asset_snapshot.market.fred import fetch_fred_data
+        from etl.market.fred import fetch_fred_data
 
         result = fetch_fred_data("test_key")
         assert result is not None
@@ -190,21 +190,21 @@ class TestFetchFredDataEdgeCases:
 
     def test_empty_api_key_returns_none(self) -> None:
         """Empty string API key returns None without calling FRED."""
-        from generate_asset_snapshot.market.fred import fetch_fred_data
+        from etl.market.fred import fetch_fred_data
 
         assert fetch_fred_data("") is None
 
-    @patch("generate_asset_snapshot.market.fred.Fred")
+    @patch("etl.market.fred.Fred")
     def test_api_failure_does_not_raise(self, mock_fred_cls: MagicMock) -> None:
         """Full API failure returns None, never raises."""
         mock_fred_cls.side_effect = Exception("auth error")
 
-        from generate_asset_snapshot.market.fred import fetch_fred_data
+        from etl.market.fred import fetch_fred_data
 
         result = fetch_fred_data("bad_key")
         assert result is None
 
-    @patch("generate_asset_snapshot.market.fred.Fred")
+    @patch("etl.market.fred.Fred")
     def test_partial_series_failure_still_returns_data(self, mock_fred_cls: MagicMock) -> None:
         """If one series fails, the rest are still returned."""
         mock_fred = _build_mock_fred()
@@ -223,7 +223,7 @@ class TestFetchFredDataEdgeCases:
         mock_fred.get_series = MagicMock(side_effect=_fail_first)
         mock_fred_cls.return_value = mock_fred
 
-        from generate_asset_snapshot.market.fred import fetch_fred_data
+        from etl.market.fred import fetch_fred_data
 
         result = fetch_fred_data("test_key")
 
@@ -232,12 +232,12 @@ class TestFetchFredDataEdgeCases:
         assert "snapshot" in result
         assert "series" in result
 
-    @patch("generate_asset_snapshot.market.fred.Fred")
+    @patch("etl.market.fred.Fred")
     def test_snapshot_values_are_floats(self, mock_fred_cls: MagicMock) -> None:
         """All snapshot values should be numeric (float)."""
         mock_fred_cls.return_value = _build_mock_fred()
 
-        from generate_asset_snapshot.market.fred import fetch_fred_data
+        from etl.market.fred import fetch_fred_data
 
         result = fetch_fred_data("test_key")
         assert result is not None

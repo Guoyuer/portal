@@ -8,11 +8,11 @@ from pathlib import Path
 
 import pytest
 
-from generate_asset_snapshot.categories import (
+from etl.categories import (
     CATEGORY_NAME_TO_KEY,
     ingest_categories,
 )
-from generate_asset_snapshot.db import init_db
+from etl.db import init_db
 
 
 def _make_db() -> Path:

@@ -7,7 +7,7 @@ set -e
 echo "Pre-commit: checking..."
 
 # Python lint (fast, ~0.5s)
-if [ -d pipeline/generate_asset_snapshot ]; then
+if [ -d pipeline/etl ]; then
   if [ -f pipeline/.venv/bin/ruff ]; then
     pipeline/.venv/bin/ruff check pipeline/ --quiet || { echo "❌ ruff failed"; exit 1; }
   elif [ -f pipeline/.venv/Scripts/ruff.exe ]; then

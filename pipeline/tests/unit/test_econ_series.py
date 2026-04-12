@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from generate_asset_snapshot.db import get_connection, ingest_econ_series, init_db
+from etl.db import get_connection, ingest_econ_series, init_db
 
 
 @pytest.fixture()

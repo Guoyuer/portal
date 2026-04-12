@@ -30,13 +30,13 @@ from pathlib import Path
 # Ensure the pipeline package is importable
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from generate_asset_snapshot.allocation import compute_daily_allocation
-from generate_asset_snapshot.categories import ingest_categories
-from generate_asset_snapshot.db import (
+from etl.allocation import compute_daily_allocation
+from etl.categories import ingest_categories
+from etl.db import (
     get_connection,
     init_db,
 )
-from generate_asset_snapshot.empower_401k import (
+from etl.empower_401k import (
     PROXY_TICKERS,
     Contribution,
     QuarterSnapshot,
@@ -44,25 +44,25 @@ from generate_asset_snapshot.empower_401k import (
     load_all_contributions,
     load_all_qfx,
 )
-from generate_asset_snapshot.incremental import append_daily, get_last_computed_date, verify_daily
-from generate_asset_snapshot.ingest.empower_401k import (
+from etl.incremental import append_daily, get_last_computed_date, verify_daily
+from etl.ingest.empower_401k import (
     ingest_empower_contributions,
     ingest_empower_qfx,
 )
-from generate_asset_snapshot.ingest.fidelity_history import ingest_fidelity_csv
-from generate_asset_snapshot.ingest.qianji_db import ingest_qianji_transactions, load_all_from_db
-from generate_asset_snapshot.precompute import (
+from etl.ingest.fidelity_history import ingest_fidelity_csv
+from etl.ingest.qianji_db import ingest_qianji_transactions, load_all_from_db
+from etl.precompute import (
     precompute_holdings_detail,
     precompute_market,
 )
-from generate_asset_snapshot.prices import (
+from etl.prices import (
     fetch_and_store_cny_rates,
     fetch_and_store_prices,
     load_proxy_prices,
     symbol_holding_periods_from_db,
 )
-from generate_asset_snapshot.timemachine import DEFAULT_QJ_DB
-from generate_asset_snapshot.validate import Severity, validate_build
+from etl.timemachine import DEFAULT_QJ_DB
+from etl.validate import Severity, validate_build
 
 # ── Paths ────────────────────────────────────────────────────────────────────
 
@@ -290,7 +290,7 @@ def _compute_holding_periods(
 
     # Add Robinhood symbols that aren't in Fidelity
     if paths.robinhood_csv.exists():
-        from generate_asset_snapshot.ingest.robinhood_history import load_robinhood_csv
+        from etl.ingest.robinhood_history import load_robinhood_csv
         rh_syms = {r["instrument"] for r in load_robinhood_csv(paths.robinhood_csv) if r["instrument"]}
         for sym in rh_syms - set(periods.keys()):
             periods[sym] = (earliest, None)

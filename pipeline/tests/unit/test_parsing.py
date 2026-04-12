@@ -1,4 +1,4 @@
-"""Tests for the consolidated US-date parser in generate_asset_snapshot.parsing.
+"""Tests for the consolidated US-date parser in etl.parsing.
 
 This module is the single entry point for converting Fidelity's
 ``MM/DD/YYYY`` and Robinhood's ``M/D/YYYY`` inputs to ISO ``YYYY-MM-DD``.
@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from generate_asset_snapshot.parsing import parse_us_date
+from etl.parsing import parse_us_date
 
 
 class TestParseUsDateStrict:

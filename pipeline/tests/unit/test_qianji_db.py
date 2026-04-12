@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from generate_asset_snapshot.db import init_db
-from generate_asset_snapshot.ingest.qianji_db import (
+from etl.db import init_db
+from etl.ingest.qianji_db import (
     _load_balances,
     _load_records,
     _parse_amount,

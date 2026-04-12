@@ -10,8 +10,8 @@ import pytest
 
 pytest.importorskip("yfinance", reason="yfinance required for prices module")
 
-from generate_asset_snapshot.db import get_connection, init_db  # noqa: E402
-from generate_asset_snapshot.prices import (  # noqa: E402
+from etl.db import get_connection, init_db  # noqa: E402
+from etl.prices import (  # noqa: E402
     _holding_periods_core,
     fetch_and_store_cny_rates,
     fetch_and_store_prices,
@@ -234,7 +234,7 @@ class TestHistoricalImmutabilityCnyRates:
         init_db(db_path)
         _seed_prices(db_path, [("CNY=X", "2023-03-13", 6.9052)])
 
-        with patch("generate_asset_snapshot.prices.yf.download") as mock_dl:
+        with patch("etl.prices.yf.download") as mock_dl:
             mock_dl.return_value = _cny_df([("2023-03-13", 99.0)])
             fetch_and_store_cny_rates(db_path, date(2023, 3, 13), date(2026, 4, 12))
 
@@ -255,7 +255,7 @@ class TestHistoricalImmutabilityCnyRates:
             ("CNY=X", "2023-07-05", 7.2135),  # existing
         ])
 
-        with patch("generate_asset_snapshot.prices.yf.download") as mock_dl:
+        with patch("etl.prices.yf.download") as mock_dl:
             # Yahoo returns BOTH the existing date (with different value) and a
             # historical gap date.
             mock_dl.return_value = _cny_df([
@@ -283,7 +283,7 @@ class TestHistoricalImmutabilityCnyRates:
         # Build end is 2026-04-12; refresh window is 7 days → 2026-04-05 onward.
         _seed_prices(db_path, [("CNY=X", "2026-04-10", 7.20)])
 
-        with patch("generate_asset_snapshot.prices.yf.download") as mock_dl:
+        with patch("etl.prices.yf.download") as mock_dl:
             mock_dl.return_value = _cny_df([("2026-04-10", 7.25)])  # Yahoo correction
             fetch_and_store_cny_rates(db_path, date(2023, 3, 13), date(2026, 4, 12))
 
@@ -307,8 +307,8 @@ class TestHistoricalImmutabilityPrices:
 
         # Open-ended holding period forces the cache check to consider the
         # cache stale (cached_hi well before end - 4 days) → triggers fetch.
-        with patch("generate_asset_snapshot.prices.yf.download") as mock_dl, \
-             patch("generate_asset_snapshot.prices._build_split_factors", return_value={}):
+        with patch("etl.prices.yf.download") as mock_dl, \
+             patch("etl.prices._build_split_factors", return_value={}):
             mock_dl.return_value = pd.DataFrame(
                 {("Close", "VOO"): [999.0]},
                 index=pd.to_datetime(["2024-01-15"]),

@@ -21,10 +21,10 @@ if "yfinance" not in sys.modules:
     _yf.download = MagicMock(return_value=MagicMock(empty=True))
     sys.modules["yfinance"] = _yf
 
-from generate_asset_snapshot.allocation import compute_daily_allocation  # noqa: E402
-from generate_asset_snapshot.db import init_db  # noqa: E402
-from generate_asset_snapshot.prices import symbol_holding_periods_from_db  # noqa: E402
-from generate_asset_snapshot.timemachine import replay_from_db  # noqa: E402
+from etl.allocation import compute_daily_allocation  # noqa: E402
+from etl.db import init_db  # noqa: E402
+from etl.prices import symbol_holding_periods_from_db  # noqa: E402
+from etl.timemachine import replay_from_db  # noqa: E402
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -250,7 +250,7 @@ class TestBug4MissingPriceWarning:
             },
         }
 
-        with caplog.at_level(logging.WARNING, logger="generate_asset_snapshot.allocation"):
+        with caplog.at_level(logging.WARNING, logger="etl.allocation"):
             compute_daily_allocation(db, qj, config, {}, date(2025, 1, 2), date(2025, 1, 2))
 
         # Must warn about SGOV having no price
@@ -276,7 +276,7 @@ class TestBug4MissingPriceWarning:
             "qianji_accounts": {"fidelity_tracked": [], "ticker_map": {}},
         }
 
-        with caplog.at_level(logging.WARNING, logger="generate_asset_snapshot.allocation"):
+        with caplog.at_level(logging.WARNING, logger="etl.allocation"):
             compute_daily_allocation(db, qj, config, {}, date(2025, 1, 2), date(2025, 1, 2))
 
         price_warnings = [r for r in caplog.records if "price" in r.message.lower()]
@@ -314,7 +314,7 @@ class TestBug5UnmappedQianjiWarning:
             },
         }
 
-        with caplog.at_level(logging.WARNING, logger="generate_asset_snapshot.allocation"):
+        with caplog.at_level(logging.WARNING, logger="etl.allocation"):
             compute_daily_allocation(db, qj, config, {}, date(2025, 1, 2), date(2025, 1, 2))
 
         hysa_warnings = [r for r in caplog.records if "Amex HYSA" in r.message]
@@ -342,7 +342,7 @@ class TestBug5UnmappedQianjiWarning:
             },
         }
 
-        with caplog.at_level(logging.WARNING, logger="generate_asset_snapshot.allocation"):
+        with caplog.at_level(logging.WARNING, logger="etl.allocation"):
             compute_daily_allocation(db, qj, config, {}, date(2025, 1, 2), date(2025, 1, 2))
 
         unmapped_warnings = [r for r in caplog.records if "ticker_map" in r.message.lower() or "unmapped" in r.message.lower()]
@@ -370,7 +370,7 @@ class TestBug5UnmappedQianjiWarning:
             },
         }
 
-        with caplog.at_level(logging.WARNING, logger="generate_asset_snapshot.allocation"):
+        with caplog.at_level(logging.WARNING, logger="etl.allocation"):
             compute_daily_allocation(db, qj, config, {}, date(2025, 1, 2), date(2025, 1, 2))
 
         # CNY accounts should NOT trigger unmapped warnings
@@ -458,7 +458,7 @@ class TestBug6TBillCusips:
             "qianji_accounts": {"fidelity_tracked": [], "ticker_map": {}},
         }
 
-        with caplog.at_level(logging.WARNING, logger="generate_asset_snapshot.allocation"):
+        with caplog.at_level(logging.WARNING, logger="etl.allocation"):
             compute_daily_allocation(db, qj, config, {}, date(2025, 1, 2), date(2025, 1, 2))
 
         cusip_warnings = [r for r in caplog.records if "912797" in r.message or "06428" in r.message]

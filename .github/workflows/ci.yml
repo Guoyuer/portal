@@ -17,7 +17,7 @@ jobs:
           cache-dependency-path: pipeline/requirements.txt
       - run: pip install -r pipeline/requirements.txt pytest mypy ruff
       - run: cd pipeline && python -m pytest -q
-      - run: cd pipeline && python -m mypy generate_asset_snapshot/ --ignore-missing-imports
+      - run: cd pipeline && python -m mypy etl/ --ignore-missing-imports
       - run: cd pipeline && python -m ruff check .
 
   frontend:

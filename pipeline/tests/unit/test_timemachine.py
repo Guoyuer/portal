@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from generate_asset_snapshot.timemachine import (
+from etl.timemachine import (
     _qj_target_value,
     _replay_core,
     replay_qianji,

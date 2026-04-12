@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from generate_asset_snapshot.db import get_connection, ingest_prices, init_db
-from generate_asset_snapshot.precompute import precompute_holdings_detail, precompute_market
+from etl.db import get_connection, ingest_prices, init_db
+from etl.precompute import precompute_holdings_detail, precompute_market
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 

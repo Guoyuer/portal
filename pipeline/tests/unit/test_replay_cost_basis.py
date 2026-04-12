@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from generate_asset_snapshot.timemachine import replay
+from etl.timemachine import replay
 
 
 def _write_csv(path: Path, rows: list[dict[str, str]]) -> None:

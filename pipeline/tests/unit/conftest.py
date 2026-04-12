@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from generate_asset_snapshot.config import load_config
-from generate_asset_snapshot.types import Config, Portfolio
+from etl.config import load_config
+from etl.types import Config, Portfolio
 
 MINIMAL_CONFIG_DATA = {
     "assets": {

@@ -5,8 +5,8 @@ from datetime import date
 
 import pytest
 
-from generate_asset_snapshot.db import get_connection, init_db
-from generate_asset_snapshot.incremental import (
+from etl.db import get_connection, init_db
+from etl.incremental import (
     append_daily,
     get_last_computed_date,
     verify_daily,

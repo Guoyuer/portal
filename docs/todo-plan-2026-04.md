@@ -158,8 +158,8 @@ Items C + D originally deferred from Batch 4 pending profiling:
 - D: use SQL window function for 52w high/low instead of Python loop.
 - Profile first. If `compute_daily_allocation` runtime is >10s, worth doing; if <5s, skip.
 
-**R4. Rename `generate_asset_snapshot/` package** (structural item 9)
-- Big blast radius (every import). Defer until other changes stable.
+**~~R4. Rename `generate_asset_snapshot/` → `etl/`~~ — DONE** (structural item 9)
+- Merged: renamed package + updated all imports, pyproject, CI, docs.
 
 ---
 

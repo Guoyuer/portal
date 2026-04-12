@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from generate_asset_snapshot.db import get_connection, init_db
-from generate_asset_snapshot.precompute import (
+from etl.db import get_connection, init_db
+from etl.precompute import (
     _compute_index_row,
     _precompute_cny,
     _precompute_fred,
@@ -234,7 +234,7 @@ class TestPrecomputeFred:
             },
         }
         monkeypatch.setattr(
-            "generate_asset_snapshot.market.fred.fetch_fred_data",
+            "etl.market.fred.fetch_fred_data",
             lambda _key: fake_fred,
         )
 
@@ -273,7 +273,7 @@ class TestPrecomputeFred:
         """fetch_fred_data returning None (total failure) should not insert or raise."""
         monkeypatch.setenv("FRED_API_KEY", "fake-key")
         monkeypatch.setattr(
-            "generate_asset_snapshot.market.fred.fetch_fred_data",
+            "etl.market.fred.fetch_fred_data",
             lambda _key: None,
         )
         db_path = tmp_path / "test.db"

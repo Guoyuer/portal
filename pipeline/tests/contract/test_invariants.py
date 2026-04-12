@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from generate_asset_snapshot.ingest.fidelity_history import load_transactions
-from generate_asset_snapshot.types import QianjiRecord
+from etl.ingest.fidelity_history import load_transactions
+from etl.types import QianjiRecord
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 

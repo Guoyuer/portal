@@ -1,7 +1,7 @@
 """Write Empower 401k snapshots and BUYMF contributions into the timemachine DB.
 
 Parsing and computation (QFX → ``QuarterSnapshot`` / ``Contribution``, daily
-interpolation from proxy prices) live in ``generate_asset_snapshot.empower_401k``
+interpolation from proxy prices) live in ``etl.empower_401k``
 at the package root. This module owns only the DB-write side of that pipeline
 so each source's ingest sits next to the rest of the ``ingest/`` subpackage.
 """

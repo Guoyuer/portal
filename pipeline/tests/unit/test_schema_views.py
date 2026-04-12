@@ -14,28 +14,28 @@ import pytest
 
 
 def test_views_is_non_empty_dict() -> None:
-    from generate_asset_snapshot.db import _VIEWS
+    from etl.db import _VIEWS
 
     assert isinstance(_VIEWS, dict)
     assert len(_VIEWS) > 0
 
 
 def test_every_view_name_starts_with_v_prefix() -> None:
-    from generate_asset_snapshot.db import _VIEWS
+    from etl.db import _VIEWS
 
     for name in _VIEWS:
         assert name.startswith("v_"), f"view name must start with 'v_': {name}"
 
 
 def test_every_view_sql_contains_from() -> None:
-    from generate_asset_snapshot.db import _VIEWS
+    from etl.db import _VIEWS
 
     for name, sql in _VIEWS.items():
         assert re.search(r"\bFROM\b", sql, re.IGNORECASE), f"view {name} missing FROM"
 
 
 def test_every_view_sql_contains_create_view_if_not_exists() -> None:
-    from generate_asset_snapshot.db import _VIEWS
+    from etl.db import _VIEWS
 
     for name, sql in _VIEWS.items():
         # Each DDL statement must use CREATE VIEW IF NOT EXISTS and reference its own name.
@@ -45,7 +45,7 @@ def test_every_view_sql_contains_create_view_if_not_exists() -> None:
 
 
 def test_required_views_present() -> None:
-    from generate_asset_snapshot.db import _VIEWS
+    from etl.db import _VIEWS
 
     required = {
         "v_daily",
@@ -63,7 +63,7 @@ def test_required_views_present() -> None:
 
 
 def test_market_meta_keys_is_non_empty_list() -> None:
-    from generate_asset_snapshot.types import MARKET_META_KEYS
+    from etl.types import MARKET_META_KEYS
 
     assert isinstance(MARKET_META_KEYS, list)
     assert len(MARKET_META_KEYS) > 0
@@ -72,8 +72,8 @@ def test_market_meta_keys_is_non_empty_list() -> None:
 
 def test_v_market_meta_contains_every_market_meta_key() -> None:
     """v_market_meta SQL must reference every key in MARKET_META_KEYS, and no other pivot keys."""
-    from generate_asset_snapshot.db import _VIEWS
-    from generate_asset_snapshot.types import MARKET_META_KEYS
+    from etl.db import _VIEWS
+    from etl.types import MARKET_META_KEYS
 
     sql = _VIEWS["v_market_meta"]
     # Extract pivot keys from CASE WHEN clauses
@@ -85,8 +85,8 @@ def test_v_market_meta_contains_every_market_meta_key() -> None:
 
 def test_v_market_meta_sql_aliases_each_key() -> None:
     """Each MARKET_META_KEYS entry must appear as an ``AS <key>`` alias in v_market_meta."""
-    from generate_asset_snapshot.db import _VIEWS
-    from generate_asset_snapshot.types import MARKET_META_KEYS
+    from etl.db import _VIEWS
+    from etl.types import MARKET_META_KEYS
 
     sql = _VIEWS["v_market_meta"]
     for key in MARKET_META_KEYS:
@@ -95,8 +95,8 @@ def test_v_market_meta_sql_aliases_each_key() -> None:
 
 def test_fred_snapshot_keys_subset_of_market_meta_keys() -> None:
     """Every key emitted by _precompute_fred must have a pivot column in v_market_meta."""
-    from generate_asset_snapshot.precompute import _FRED_SNAPSHOT_KEYS
-    from generate_asset_snapshot.types import MARKET_META_KEYS
+    from etl.precompute import _FRED_SNAPSHOT_KEYS
+    from etl.types import MARKET_META_KEYS
 
     fred_dst_keys = set(_FRED_SNAPSHOT_KEYS.values())
     mm_keys = set(MARKET_META_KEYS)
@@ -106,7 +106,7 @@ def test_fred_snapshot_keys_subset_of_market_meta_keys() -> None:
 
 def test_usd_cny_in_market_meta_keys() -> None:
     """usdCny comes from _precompute_cny (not FRED) — must still be in the pivot."""
-    from generate_asset_snapshot.types import MARKET_META_KEYS
+    from etl.types import MARKET_META_KEYS
 
     assert "usdCny" in MARKET_META_KEYS
 
@@ -117,7 +117,7 @@ def test_init_db_creates_all_views() -> None:
     import tempfile
     from pathlib import Path
 
-    from generate_asset_snapshot.db import _VIEWS, init_db
+    from etl.db import _VIEWS, init_db
 
     tmp = Path(tempfile.mktemp(suffix=".db"))
     try:
@@ -143,7 +143,7 @@ def test_gen_schema_sql_output_contains_every_view() -> None:
 
     schema_path = Path(__file__).resolve().parents[3] / "worker" / "schema.sql"
     text = schema_path.read_text(encoding="utf-8")
-    from generate_asset_snapshot.db import _VIEWS
+    from etl.db import _VIEWS
 
     for name in _VIEWS:
         assert f"CREATE VIEW IF NOT EXISTS {name}" in text, (

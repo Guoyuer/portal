@@ -126,7 +126,7 @@ portal/
 │   └── package.json
 │
 ├── pipeline/                          # Data pipeline (Python)
-│   ├── generate_asset_snapshot/       # Core package
+│   ├── etl/       # Core package
 │   │   ├── db.py                      # SQLite schema + connection helpers
 │   │   ├── timemachine.py             # Historical replay engine
 │   │   ├── allocation.py              # Compute daily per-asset allocation
@@ -239,7 +239,7 @@ npm run dev              # http://localhost:3000
 
 # Run tests
 cd pipeline && .venv/bin/pytest -q                          # Python tests
-cd pipeline && .venv/bin/mypy generate_asset_snapshot/ --ignore-missing-imports
+cd pipeline && .venv/bin/mypy etl/ --ignore-missing-imports
 cd pipeline && .venv/bin/ruff check .
 npx playwright test                                          # e2e tests (mock API, no backend needed)
 

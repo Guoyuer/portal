@@ -17,7 +17,7 @@ from pathlib import Path
 # Allow importing from the pipeline package
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from generate_asset_snapshot.db import _INDEXES, _TABLES, _VIEWS  # noqa: E402, I001
+from etl.db import _INDEXES, _TABLES, _VIEWS  # noqa: E402, I001
 from scripts.sync_to_d1 import TABLES_TO_SYNC, _D1_COLUMNS  # noqa: E402, I001
 
 # ── Configuration ──────────────────────────────────────────────────────────────
@@ -26,7 +26,7 @@ _SCHEMA_PATH = Path(__file__).resolve().parent.parent.parent / "worker" / "schem
 
 _HEADER = """\
 -- GENERATED FILE — DO NOT EDIT.
--- Source of truth: pipeline/generate_asset_snapshot/db.py (_TABLES, _INDEXES, _VIEWS)
+-- Source of truth: pipeline/etl/db.py (_TABLES, _INDEXES, _VIEWS)
 -- Regenerate:      cd pipeline && python3 scripts/gen_schema_sql.py
 -- (Views expose camelCase column names matching the TypeScript type contract.)
 """

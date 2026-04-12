@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from generate_asset_snapshot.ingest.robinhood_history import (
+from etl.ingest.robinhood_history import (
     _parse_amount,
     load_robinhood_csv,
     replay_robinhood,
