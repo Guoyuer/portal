@@ -1,33 +1,42 @@
 """Sync local timemachine.db tables to Cloudflare D1.
 
-Dumps the 7 tables the Worker needs from the local SQLite database into a SQL
-file (DELETE + INSERT), then executes it against D1 via wrangler CLI.
+Dumps the tables the Worker needs from the local SQLite database into a SQL
+file, then executes it against D1 via wrangler CLI.
+
+Default mode is **diff** (safe): INSERT OR IGNORE for append-only tables and
+range-replace (delete-after-cutoff + re-insert) for fidelity/qianji. The
+destructive full-replace path requires the explicit ``--full`` flag.
 
 Requires: wrangler CLI authenticated (`wrangler login`)
 
 Usage:
-    python scripts/sync_to_d1.py                      # full sync to remote D1
-    python scripts/sync_to_d1.py --local               # full sync to local D1
-    python scripts/sync_to_d1.py --dry-run              # generate SQL but don't execute
-    python scripts/sync_to_d1.py --diff                 # diff sync: INSERT OR IGNORE for append-only tables
-    python scripts/sync_to_d1.py --diff --since 2025-01-01  # diff sync with range-replace cutoff
+    python scripts/sync_to_d1.py                          # diff sync to remote D1 (safe default)
+    python scripts/sync_to_d1.py --full                   # DESTRUCTIVE full-replace
+    python scripts/sync_to_d1.py --since 2025-01-01       # diff sync with explicit cutoff
+    python scripts/sync_to_d1.py --local                  # sync to local D1 (wrangler dev)
+    python scripts/sync_to_d1.py --dry-run                # generate SQL but don't execute
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 import sqlite3
 import subprocess
 import sys
 import tempfile
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 # ── Configuration ──────────────────────────────────────────────────────────────
 
 _PROJECT_DIR = Path(__file__).resolve().parent.parent
-_DB_PATH = _PROJECT_DIR / "data" / "timemachine.db"
+_DB_PATH = Path(os.environ.get("PORTAL_DB_PATH", str(_PROJECT_DIR / "data" / "timemachine.db")))
 _WORKER_DIR = _PROJECT_DIR.parent / "worker"
+
+# When --since is not supplied, derive cutoff as (latest fidelity run_date - N days).
+# 60 days comfortably exceeds Fidelity's typical CSV export window.
+_AUTO_SINCE_LOOKBACK_DAYS = 60
 
 TABLES_TO_SYNC: list[str] = [
     "computed_daily",
@@ -134,12 +143,37 @@ def _dump_table_range(conn: sqlite3.Connection, table: str, date_expr: str, sinc
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Sync timemachine.db tables to Cloudflare D1")
+    parser = argparse.ArgumentParser(
+        description="Sync timemachine.db tables to Cloudflare D1 (default: diff mode)"
+    )
     parser.add_argument("--local", action="store_true", help="Sync to local D1 (wrangler dev)")
     parser.add_argument("--dry-run", action="store_true", help="Generate SQL but don't execute")
-    parser.add_argument("--diff", action="store_true", help="Diff sync: only new rows for computed tables")
-    parser.add_argument("--since", type=str, default=None, help="Cutoff date for range-replace tables (YYYY-MM-DD)")
+    parser.add_argument(
+        "--full",
+        action="store_true",
+        help="DESTRUCTIVE: full replace all tables (default is diff)",
+    )
+    parser.add_argument(
+        "--since",
+        type=str,
+        default=None,
+        help="Cutoff date for range-replace (YYYY-MM-DD). Auto-derived from local data if omitted.",
+    )
     return parser.parse_args()
+
+
+def _auto_derive_since(conn: sqlite3.Connection) -> str:
+    """Derive a safe --since cutoff: latest fidelity run_date minus 60 days.
+
+    This guarantees the range-replace window covers any realistic Fidelity
+    CSV export period, so a newly-ingested CSV's date range is fully covered.
+    """
+    row = conn.execute("SELECT MAX(run_date) FROM fidelity_transactions").fetchone()
+    if row and row[0]:
+        latest = date.fromisoformat(row[0])
+    else:
+        latest = date.today()
+    return (latest - timedelta(days=_AUTO_SINCE_LOOKBACK_DAYS)).isoformat()
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
@@ -159,22 +193,28 @@ def main() -> None:
     conn = sqlite3.connect(str(_DB_PATH))
     conn.row_factory = None  # ensure tuples
 
+    mode = "full" if args.full else "diff"
+    since = args.since
+    if mode == "diff" and since is None:
+        since = _auto_derive_since(conn)
+        print(f"  Auto-derived --since={since} (fidelity MAX(run_date) - {_AUTO_SINCE_LOOKBACK_DAYS} days)")
+
+    print(f"  Sync mode: {mode}")
+
     all_sql: list[str] = []
     total_rows = 0
 
     for table in TABLES_TO_SYNC:
-        if args.diff and table in _DIFF_TABLES:
+        if mode == "diff" and table in _DIFF_TABLES:
             sql, count = _dump_table_diff(conn, table)
-            print(f"  {table}: {count} rows (diff: INSERT OR IGNORE)")
-        elif args.diff and table in _RANGE_TABLES:
-            if not args.since:
-                print("Error: --diff requires --since for range-replace tables", file=sys.stderr)
-                sys.exit(1)
-            sql, count = _dump_table_range(conn, table, _RANGE_TABLES[table], args.since)
-            print(f"  {table}: {count} rows (range-replace since {args.since})")
+            print(f"  {table}: {count} rows (INSERT OR IGNORE)")
+        elif mode == "diff" and table in _RANGE_TABLES:
+            sql, count = _dump_table_range(conn, table, _RANGE_TABLES[table], since)
+            print(f"  {table}: {count} rows (range-replace > {since})")
         else:
             sql, count = _dump_table(conn, table)
-            print(f"  {table}: {count} rows")
+            label = "full replace" if mode == "full" else "full replace (metadata table)"
+            print(f"  {table}: {count} rows ({label})")
         all_sql.append(sql)
         total_rows += count
 
@@ -195,6 +235,8 @@ def main() -> None:
     if args.dry_run:
         print(f"\n[dry-run] Generated {total_rows} total rows, SQL not executed")
         print(f"[dry-run] SQL size: {len(combined):,} bytes")
+        print("[dry-run] --- SQL preview ---")
+        print(combined)
         return
 
     # Write to temp file and execute via wrangler
