@@ -36,7 +36,6 @@ from generate_asset_snapshot.db import (
     get_connection,
     ingest_empower_contributions,
     ingest_empower_qfx,
-    ingest_fidelity_csv,
     init_db,
 )
 from generate_asset_snapshot.empower_401k import (
@@ -47,6 +46,7 @@ from generate_asset_snapshot.empower_401k import (
     load_all_qfx,
 )
 from generate_asset_snapshot.incremental import append_daily, get_last_computed_date, verify_daily
+from generate_asset_snapshot.ingest.fidelity_history import ingest_fidelity_csv
 from generate_asset_snapshot.ingest.qianji_db import load_all_from_db
 from generate_asset_snapshot.precompute import (
     precompute_holdings_detail,
