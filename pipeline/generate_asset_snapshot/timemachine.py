@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from .db import get_connection
+from .types import parse_float as _float
 
 log = logging.getLogger(__name__)
 
@@ -56,11 +57,6 @@ DEFAULT_QJ_DB = _WIN_QJ_DB if sys.platform == "win32" else _MAC_QJ_DB
 
 def _parse_date(mmddyyyy: str) -> date:
     return datetime.strptime(mmddyyyy.strip(), "%m/%d/%Y").date()
-
-
-def _float(val: str) -> float:
-    v = val.strip().replace(",", "").replace("$", "") if val else ""
-    return float(v) if v else 0.0
 
 
 def _load_raw_rows(path: Path) -> list[dict[str, str]]:

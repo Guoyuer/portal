@@ -97,28 +97,22 @@ function SavingsRateCard({
 // ── MetricCards ──────────────────────────────────────────────────────────
 
 export function MetricCards({
-  total,
-  netWorth,
-  categories,
-  tickers,
+  allocation,
   savingsRate,
   takehomeSavingsRate,
   goal,
-  goalPct,
   allocationOpen,
   onAllocationToggle,
 }: {
-  total: number;
-  netWorth: number;
-  categories: ApiCategory[];
-  tickers: ApiTicker[];
+  allocation: { total: number; netWorth: number; categories: ApiCategory[]; tickers: ApiTicker[] };
   savingsRate: number | null;
   takehomeSavingsRate: number | null;
   goal: number;
-  goalPct: number;
   allocationOpen: boolean;
   onAllocationToggle: () => void;
 }) {
+  const { total, netWorth, categories, tickers } = allocation;
+  const goalPct = (total / goal) * 100;
   const safeNetValue = categories.find((c) => c.name === "Safe Net")?.value ?? 0;
   const investmentValue = total - safeNetValue;
   const invPct = netWorth > 0 ? (investmentValue / netWorth) * 100 : 0;

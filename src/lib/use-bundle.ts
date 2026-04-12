@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { TIMELINE_URL } from "@/lib/config";
 import {
   TimelineDataSchema,
@@ -61,7 +61,6 @@ export function useBundle(): BundleState {
   const [error, setError] = useState<string | null>(null);
 
   const [fullRange, setFullRange] = useState({ start: 0, end: 0 });
-  const brushRef = useRef({ start: 0, end: 0 });
 
   // ── Fetch once ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -98,18 +97,15 @@ export function useBundle(): BundleState {
 
   useEffect(() => {
     if (data && chartDaily.length > 0) {
-      brushRef.current = { start: defaultStartIndex, end: defaultEndIndex };
       setFullRange({ start: defaultStartIndex, end: defaultEndIndex });
     }
   }, [data, chartDaily.length, defaultStartIndex, defaultEndIndex]);
 
   const onBrushChange = (state: { startIndex?: number; endIndex?: number }) => {
-    if (state.startIndex !== undefined) brushRef.current.start = state.startIndex;
-    if (state.endIndex !== undefined) brushRef.current.end = state.endIndex;
-    setFullRange({
-      start: brushRef.current.start,
-      end: brushRef.current.end,
-    });
+    setFullRange((prev) => ({
+      start: state.startIndex ?? prev.start,
+      end: state.endIndex ?? prev.end,
+    }));
   };
 
   // ── Derived timeline state (instant — user sees these during drag) ──

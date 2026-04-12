@@ -13,7 +13,8 @@ import pandas as pd
 import yfinance as yf
 
 from .db import get_connection
-from .timemachine import MM_SYMBOLS, POSITION_PREFIXES, _float, _load_raw_rows, _parse_date
+from .timemachine import MM_SYMBOLS, POSITION_PREFIXES, _load_raw_rows, _parse_date
+from .types import parse_float as _float
 
 # ── Symbol holding periods ──────────────────────────────────────────────────
 

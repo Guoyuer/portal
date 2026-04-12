@@ -40,30 +40,17 @@ def _seed_tickers(db_path: Path, tickers: list[tuple[str, str, float]]) -> None:
 
 
 class TestComputeIndexRow:
-    def test_returns_none_for_insufficient_data(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
-        _seed_prices(db_path, "^GSPC", [("2025-01-02", 5000.0)])
-        conn = get_connection(db_path)
-        assert _compute_index_row(conn, "^GSPC", "S&P 500") is None
-        conn.close()
+    def test_returns_none_for_insufficient_data(self) -> None:
+        rows = [("2025-01-02", 5000.0)]
+        assert _compute_index_row("^GSPC", "S&P 500", rows) is None
 
-    def test_returns_none_for_missing_ticker(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
-        conn = get_connection(db_path)
-        assert _compute_index_row(conn, "MISSING", "Missing Index") is None
-        conn.close()
+    def test_returns_none_for_missing_ticker(self) -> None:
+        assert _compute_index_row("MISSING", "Missing Index", []) is None
 
-    def test_computes_returns_for_valid_data(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
+    def test_computes_returns_for_valid_data(self) -> None:
         # 30 trading days of steadily rising prices
         prices = [(f"2025-01-{d:02d}", 5000.0 + d * 10) for d in range(2, 32)]
-        _seed_prices(db_path, "^GSPC", prices)
-        conn = get_connection(db_path)
-        row = _compute_index_row(conn, "^GSPC", "S&P 500")
-        conn.close()
+        row = _compute_index_row("^GSPC", "S&P 500", prices)
         assert row is not None
         ticker, name, current, month_ret, ytd_ret, high, low, sparkline = row
         assert ticker == "^GSPC"

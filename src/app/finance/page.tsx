@@ -63,9 +63,6 @@ export default function FinancePage() {
     }
   }, [startDate, snapshotDate]);
 
-  // ── Derived values ────────────────────────────────────────────────
-  const goalPct = tl.allocation ? (tl.allocation.total / GOAL) * 100 : 0;
-
   // ── Loading state ─────────────────────────────────────────────────
   if (tl.loading) return <FinanceSkeleton />;
 
@@ -99,14 +96,10 @@ export default function FinancePage() {
       <ErrorBoundary fallback={<SectionError label="Allocation" />}>
         {tl.allocation ? (
           <MetricCards
-            total={tl.allocation.total}
-            netWorth={tl.allocation.netWorth}
-            categories={tl.allocation.categories}
-            tickers={tl.allocation.tickers}
+            allocation={tl.allocation}
             savingsRate={tl.cashflow?.savingsRate ?? null}
             takehomeSavingsRate={tl.cashflow?.takehomeSavingsRate ?? null}
             goal={GOAL}
-            goalPct={goalPct}
             allocationOpen={allocOpen}
             onAllocationToggle={() => setAllocOpen((v) => !v)}
           />
@@ -206,6 +199,8 @@ export default function FinancePage() {
           daily={tl.chartDaily}
           defaultStartIndex={tl.defaultStartIndex}
           defaultEndIndex={tl.defaultEndIndex}
+          brushStart={tl.brushStart}
+          brushEnd={tl.brushEnd}
           onBrushChange={tl.onBrushChange}
         />
       )}

@@ -93,7 +93,7 @@ export function TickerTable({
                   <table className="w-full text-sm">
                     <tbody>
                       {rest.map(({ symbol, count, total }) => (
-                        <RestTickerRow
+                        <TickerRow
                           key={symbol}
                           symbol={symbol}
                           count={count}
@@ -102,6 +102,7 @@ export function TickerTable({
                           onToggle={() => toggle(symbol)}
                           startDate={startDate}
                           endDate={endDate}
+                          plain
                         />
                       ))}
                     </tbody>
@@ -126,6 +127,7 @@ function TickerRow({
   onToggle,
   startDate,
   endDate,
+  plain,
 }: {
   symbol: string;
   count: number;
@@ -134,67 +136,33 @@ function TickerRow({
   onToggle: () => void;
   startDate?: string;
   endDate?: string;
+  plain?: boolean;
 }) {
-  return (
-    <>
-      <TableRow
-        className="even:bg-muted/50 cursor-pointer hover:bg-muted/80 group"
-        onClick={onToggle}
-      >
-        <TableCell className="font-mono">
-          <span className={`inline-block w-3 text-[10px] text-muted-foreground transition-transform ${expanded ? "rotate-90" : ""}`}>&#9654;</span>
-          {symbol}
-        </TableCell>
-        <TableCell className="text-right">{count}</TableCell>
-        <TableCell className="text-right">{fmtCurrency(total)}</TableCell>
-      </TableRow>
-      {expanded && (
-        <TableRow>
-          <TableCell colSpan={3} className="p-2">
-            <TickerChart symbol={symbol} startDate={startDate} endDate={endDate} />
-          </TableCell>
-        </TableRow>
-      )}
-    </>
-  );
-}
+  const Row = plain ? "tr" : TableRow;
+  const Cell = plain ? "td" : TableCell;
+  const rowClass = plain
+    ? "border-b border-border even:bg-muted/50 cursor-pointer hover:bg-muted/80"
+    : "even:bg-muted/50 cursor-pointer hover:bg-muted/80 group";
+  const cellClass = plain ? "px-2 py-1.5 font-mono text-muted-foreground" : "font-mono";
+  const numClass = plain ? "px-2 py-1.5 text-right text-muted-foreground" : "text-right";
+  const chartCellClass = plain ? "px-2 py-2" : "p-2";
 
-function RestTickerRow({
-  symbol,
-  count,
-  total,
-  expanded,
-  onToggle,
-  startDate,
-  endDate,
-}: {
-  symbol: string;
-  count: number;
-  total: number;
-  expanded: boolean;
-  onToggle: () => void;
-  startDate?: string;
-  endDate?: string;
-}) {
   return (
     <>
-      <tr
-        className="border-b border-border even:bg-muted/50 cursor-pointer hover:bg-muted/80"
-        onClick={onToggle}
-      >
-        <td className="px-2 py-1.5 font-mono text-muted-foreground">
-          <span className={`inline-block w-3 text-[10px] transition-transform ${expanded ? "rotate-90" : ""}`}>&#9654;</span>
+      <Row className={rowClass} onClick={onToggle}>
+        <Cell className={cellClass}>
+          <span className={`inline-block w-3 text-[10px] ${plain ? "" : "text-muted-foreground "}transition-transform ${expanded ? "rotate-90" : ""}`}>&#9654;</span>
           {symbol}
-        </td>
-        <td className="px-2 py-1.5 text-right text-muted-foreground">{count}</td>
-        <td className="px-2 py-1.5 text-right text-muted-foreground">{fmtCurrency(total)}</td>
-      </tr>
+        </Cell>
+        <Cell className={numClass}>{count}</Cell>
+        <Cell className={numClass}>{fmtCurrency(total)}</Cell>
+      </Row>
       {expanded && (
-        <tr>
-          <td colSpan={3} className="px-2 py-2">
+        <Row>
+          <Cell colSpan={3} className={chartCellClass}>
             <TickerChart symbol={symbol} startDate={startDate} endDate={endDate} />
-          </td>
-        </tr>
+          </Cell>
+        </Row>
       )}
     </>
   );

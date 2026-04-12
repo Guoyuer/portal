@@ -21,6 +21,8 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
+from ..types import parse_float as _parse_float
+
 
 def _parse_date(s: str) -> date:
     """Parse M/D/YYYY or MM/DD/YYYY."""
@@ -35,12 +37,6 @@ def _parse_amount(s: str) -> float:
     if cleaned.startswith("(") and cleaned.endswith(")"):
         return -float(cleaned[1:-1])
     return float(cleaned)
-
-
-def _parse_float(s: str) -> float:
-    """Parse numeric string, return 0 if empty."""
-    cleaned = s.strip().replace("$", "").replace(",", "") if s else ""
-    return float(cleaned) if cleaned else 0.0
 
 
 def load_robinhood_csv(csv_path: Path) -> list[dict[str, Any]]:

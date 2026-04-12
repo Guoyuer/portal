@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useState } from "react";
+import type { ReactNode } from "react";
 import type { BundleState, CrossCheck } from "@/lib/use-bundle";
 import {
   Area,
@@ -117,25 +117,23 @@ export function StickyBrush({
   daily,
   defaultStartIndex,
   defaultEndIndex,
+  brushStart,
+  brushEnd,
   onBrushChange,
 }: {
   daily: DailyPoint[];
   defaultStartIndex: number;
   defaultEndIndex: number;
+  brushStart: number;
+  brushEnd: number;
   onBrushChange: (state: { startIndex?: number; endIndex?: number }) => void;
 }) {
   const isDark = useIsDark();
-  const [range, setRange] = useState({ start: defaultStartIndex, end: defaultEndIndex });
   const chartData = daily.map((d) => ({ ...d, ts: new Date(d.date).getTime() }));
   if (daily.length === 0) return null;
 
-  const startLabel = fmtDateMedium(daily[range.start]?.date ?? daily[0].date);
-  const endLabel = fmtDateMedium(daily[range.end]?.date ?? daily[daily.length - 1].date);
-
-  const handleChange = (state: { startIndex?: number; endIndex?: number }) => {
-    setRange({ start: state.startIndex ?? range.start, end: state.endIndex ?? range.end });
-    onBrushChange(state);
-  };
+  const startLabel = fmtDateMedium(daily[brushStart]?.date ?? daily[0].date);
+  const endLabel = fmtDateMedium(daily[brushEnd]?.date ?? daily[daily.length - 1].date);
 
   return (
     <div className="fixed bottom-0 left-0 right-0 md:left-56 z-40 bg-background/80 backdrop-blur-md border-t border-border px-4 py-2">
@@ -153,7 +151,7 @@ export function StickyBrush({
                 {...brushColors(isDark)}
                 startIndex={defaultStartIndex}
                 endIndex={defaultEndIndex}
-                onChange={handleChange}
+                onChange={onBrushChange}
                 tickFormatter={() => ""}
               />
             </AreaChart>
