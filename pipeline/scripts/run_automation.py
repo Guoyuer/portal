@@ -229,12 +229,12 @@ def main(argv: list[str] | None = None) -> int:
         ping_healthcheck("fail")
         return EXIT_BUILD_FAIL
 
-    # [3] Parity check vs prod (skipped when syncing to local)
+    # [3] Pre-sync gate: guard against local data loss + historical drift
     if not args.local:
-        log.info("[3] Verifying local vs prod D1...")
+        log.info("[3] Verifying historical immutability + no local data loss vs prod D1...")
         rc = run_python_script(_SCRIPT_DIR / "verify_vs_prod.py")
         if rc != 0:
-            log.error("  PARITY CHECK FAILED (exit=%d) — SYNC BLOCKED", rc)
+            log.error("  PRE-SYNC GATE FAILED (exit=%d) — SYNC BLOCKED", rc)
             ping_healthcheck("fail")
             return EXIT_PARITY_FAIL
 
