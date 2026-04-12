@@ -6,9 +6,9 @@ Verified against Portfolio_Positions_Apr-07-2026.csv:
   - Qianji balances: reverse-replay from current state, spot-checked
 
 Usage:
-  python -m generate_asset_snapshot.timemachine 2024-06-15
-  python -m generate_asset_snapshot.timemachine 2024-06-15 --verify path/to/positions.csv
-  python -m generate_asset_snapshot.timemachine --ingest path/to/new_export.csv
+  python -m etl.timemachine 2024-06-15
+  python -m etl.timemachine 2024-06-15 --verify path/to/positions.csv
+  python -m etl.timemachine --ingest path/to/new_export.csv
 """
 
 from __future__ import annotations

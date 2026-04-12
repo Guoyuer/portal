@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from generate_asset_snapshot.precompute import compute_daily_series
+from etl.precompute import compute_daily_series
 
 
 class TestComputeDailySeries:

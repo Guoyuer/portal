@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from generate_asset_snapshot.db import init_db
-from generate_asset_snapshot.ingest.fidelity_history import ingest_fidelity_csv, load_transactions
-from generate_asset_snapshot.parsing import parse_us_date
+from etl.db import init_db
+from etl.ingest.fidelity_history import ingest_fidelity_csv, load_transactions
+from etl.parsing import parse_us_date
 
 
 class TestLoadTransactions:

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from generate_asset_snapshot.config import load_config, validate_config
-from generate_asset_snapshot.types import ConfigError
+from etl.config import load_config, validate_config
+from etl.types import ConfigError
 
 from .conftest import load_test_config
 

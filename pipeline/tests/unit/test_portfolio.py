@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from generate_asset_snapshot.portfolio import load_portfolio
-from generate_asset_snapshot.types import PortfolioError
+from etl.portfolio import load_portfolio
+from etl.types import PortfolioError
 
 from .conftest import ALL_TICKERS_ROWS, load_test_config, write_csv
 

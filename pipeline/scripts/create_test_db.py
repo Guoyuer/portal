@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from generate_asset_snapshot.db import get_connection, init_db
+from etl.db import get_connection, init_db
 
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "timemachine.db"
 

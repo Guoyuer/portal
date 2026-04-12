@@ -10,7 +10,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from generate_asset_snapshot.db import get_connection, init_db
+from etl.db import get_connection, init_db
 from scripts.sync_to_d1 import _dump_table, _dump_table_diff, _dump_table_range, _escape
 
 

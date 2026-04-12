@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from generate_asset_snapshot.empower_401k import (
+from etl.empower_401k import (
     Contribution,
     FundSnapshot,
     QuarterSnapshot,

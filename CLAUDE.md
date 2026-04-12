@@ -18,7 +18,7 @@ cd worker && npx wrangler dev                       # local D1 (seed first with 
 
 # Python pipeline
 cd pipeline && .venv/bin/pytest -q                  # 25 test files
-cd pipeline && .venv/bin/mypy generate_asset_snapshot/ --ignore-missing-imports
+cd pipeline && .venv/bin/mypy etl/ --ignore-missing-imports
 cd pipeline && .venv/bin/ruff check .
 
 # Build timemachine DB + sync

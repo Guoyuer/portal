@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from generate_asset_snapshot.db import get_connection, init_db
-from generate_asset_snapshot.validate import Severity, validate_build
+from etl.db import get_connection, init_db
+from etl.validate import Severity, validate_build
 
 
 def _seed_clean_db(db_path: Path) -> None:

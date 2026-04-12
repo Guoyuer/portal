@@ -14,9 +14,9 @@ import pandas as pd  # noqa: E402
 
 
 class TestFetchIndexReturns:
-    """Tests for generate_asset_snapshot.market.yahoo.fetch_index_returns."""
+    """Tests for etl.market.yahoo.fetch_index_returns."""
 
-    @patch("generate_asset_snapshot.market.yahoo.yf.download")
+    @patch("etl.market.yahoo.yf.download")
     def test_returns_data_for_spy_qqq(self, mock_download: MagicMock) -> None:
         """Returns return_pct, current, previous for each ticker."""
         # Build a multi-ticker DataFrame that yfinance.download returns.
@@ -28,7 +28,7 @@ class TestFetchIndexReturns:
         data.columns = pd.MultiIndex.from_product([["Close"], ["SPY", "QQQ"]])
         mock_download.return_value = data
 
-        from generate_asset_snapshot.market.yahoo import fetch_index_returns
+        from etl.market.yahoo import fetch_index_returns
 
         result = fetch_index_returns(["SPY", "QQQ"], period="1mo")
 
@@ -45,22 +45,22 @@ class TestFetchIndexReturns:
 
         assert result["QQQ"]["return_pct"] == pytest.approx(5.0)  # (420-400)/400*100
 
-    @patch("generate_asset_snapshot.market.yahoo.yf.download")
+    @patch("etl.market.yahoo.yf.download")
     def test_empty_ticker_list(self, mock_download: MagicMock) -> None:
         """Empty ticker list returns empty dict immediately."""
         result = __import__(
-            "generate_asset_snapshot.market.yahoo", fromlist=["fetch_index_returns"]
+            "etl.market.yahoo", fromlist=["fetch_index_returns"]
         ).fetch_index_returns([])
 
         assert result == {}
         mock_download.assert_not_called()
 
-    @patch("generate_asset_snapshot.market.yahoo.yf.download")
+    @patch("etl.market.yahoo.yf.download")
     def test_api_failure_returns_empty_dict(self, mock_download: MagicMock) -> None:
         """Exception from yfinance.download is caught; returns empty dict."""
         mock_download.side_effect = Exception("network error")
 
-        from generate_asset_snapshot.market.yahoo import fetch_index_returns
+        from etl.market.yahoo import fetch_index_returns
 
         result = fetch_index_returns(["SPY"])
         assert result == {}

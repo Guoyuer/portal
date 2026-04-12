@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from generate_asset_snapshot.db import (
+from etl.db import (
     get_connection,
     ingest_prices,
     init_db,

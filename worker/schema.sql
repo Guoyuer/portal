@@ -1,5 +1,5 @@
 -- GENERATED FILE — DO NOT EDIT.
--- Source of truth: pipeline/generate_asset_snapshot/db.py (_TABLES, _INDEXES, _VIEWS)
+-- Source of truth: pipeline/etl/db.py (_TABLES, _INDEXES, _VIEWS)
 -- Regenerate:      cd pipeline && python3 scripts/gen_schema_sql.py
 -- (Views expose camelCase column names matching the TypeScript type contract.)
 

@@ -21,7 +21,7 @@ if "yfinance" not in sys.modules:
     _yf.download = MagicMock(return_value=MagicMock(empty=True))
     sys.modules["yfinance"] = _yf
 
-from generate_asset_snapshot.allocation import (  # noqa: E402
+from etl.allocation import (  # noqa: E402
     _add_401k,
     _add_fidelity_cash,
     _add_fidelity_positions,
@@ -33,7 +33,7 @@ from generate_asset_snapshot.allocation import (  # noqa: E402
     _resolve_date_windows,
     compute_daily_allocation,
 )
-from generate_asset_snapshot.db import init_db  # noqa: E402
+from etl.db import init_db  # noqa: E402
 
 # ── Fixtures ────────────────────────────────────────────────────────────────
 
