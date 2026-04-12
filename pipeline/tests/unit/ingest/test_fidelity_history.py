@@ -330,11 +330,32 @@ class TestIngestFidelityNaturalKey:
     def test_init_db_migrates_pre_existing_duplicates(self, tmp_path: Path) -> None:
         """Any DB created before the unique index existed may have duplicates on the
         natural key. init_db must clean them up idempotently so the unique index can
-        be created, keeping the smallest-id row per natural key."""
-        db_path = tmp_path / "legacy.db"
-        init_db(db_path)
+        be created, keeping the smallest-id row per natural key.
 
+        Simulates a "legacy DB" by building the fidelity_transactions table by hand
+        (no unique index), seeding duplicates, then invoking init_db to trigger the
+        in-place migration.
+        """
+        db_path = tmp_path / "legacy.db"
         conn = sqlite3.connect(str(db_path))
+        # Legacy schema: just the table, no natural-key unique index.
+        conn.execute(
+            """CREATE TABLE fidelity_transactions (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_date        TEXT NOT NULL,
+                account         TEXT NOT NULL,
+                account_number  TEXT NOT NULL,
+                action          TEXT NOT NULL,
+                action_type     TEXT NOT NULL DEFAULT '',
+                symbol          TEXT NOT NULL DEFAULT '',
+                description     TEXT NOT NULL DEFAULT '',
+                lot_type        TEXT NOT NULL DEFAULT '',
+                quantity        REAL NOT NULL DEFAULT 0,
+                price           REAL NOT NULL DEFAULT 0,
+                amount          REAL NOT NULL DEFAULT 0,
+                settlement_date TEXT NOT NULL DEFAULT ''
+            )"""
+        )
         # Seed two rows with an identical natural key but different descriptions —
         # the "old" row has a smaller id and must be the survivor.
         conn.execute(
@@ -356,7 +377,7 @@ class TestIngestFidelityNaturalKey:
         conn.close()
         assert pre == 2  # sanity: seed really inserted two rows
 
-        # Re-running init_db must clean up duplicates so the unique index is creatable.
+        # init_db must clean up duplicates before the unique index gets created.
         init_db(db_path)
 
         conn = sqlite3.connect(str(db_path))
@@ -367,11 +388,18 @@ class TestIngestFidelityNaturalKey:
                 "SELECT description FROM fidelity_transactions WHERE symbol='AAPL'"
             )
         ]
+        # Verify the unique index now exists (migration completed end-to-end).
+        idx_names = [
+            r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='fidelity_transactions'"
+            )
+        ]
         conn.close()
 
         assert post == 1, "migration must collapse duplicates to a single row"
         # First-inserted (smaller id) wins — deterministic tie-break for observability.
         assert descriptions == ["APPLE INC"]
+        assert "idx_fidelity_natural_key" in idx_names, "unique index must exist after migration"
 
     def test_init_db_is_idempotent_on_clean_db(self, tmp_path: Path) -> None:
         """init_db must be safe to re-run on a DB that already has the unique index
