@@ -304,14 +304,29 @@ def _fetch_all_prices(
     earliest: date,
     end: date,
 ) -> None:
-    """Bulk-fetch + persist ticker prices and CNY rates for the given periods."""
-    # Use computed_daily start as global_start so ticker charts cover the full brush range
+    """Bulk-fetch + persist ticker prices and CNY rates for the given periods.
+
+    ``earliest`` is the earliest first-held date across symbols (from
+    ``symbol_holding_periods_from_db``), which is the appropriate bound for
+    ticker-price fetching. CNY=X is needed earlier — from the first Fidelity
+    transaction overall (e.g. a cash deposit that happens before any buy) —
+    because allocation converts CNY-denominated balances from day one. We
+    therefore derive the CNY start from ``MIN(run_date)`` directly.
+    """
     _conn = get_connection(paths.db_path)
+    # Use computed_daily start as global_start so ticker charts cover the full brush range
     cd_start_row = _conn.execute("SELECT MIN(date) FROM computed_daily").fetchone()
+    # First Fidelity transaction (not just first buy) — drives CNY fetch lower bound.
+    first_txn_row = _conn.execute("SELECT MIN(run_date) FROM fidelity_transactions").fetchone()
     _conn.close()
     global_start = date.fromisoformat(cd_start_row[0]) if cd_start_row and cd_start_row[0] else earliest
+    cny_start = (
+        date.fromisoformat(first_txn_row[0])
+        if first_txn_row and first_txn_row[0]
+        else earliest
+    )
     fetch_and_store_prices(paths.db_path, periods, end, global_start=global_start)
-    fetch_and_store_cny_rates(paths.db_path, earliest, end)
+    fetch_and_store_cny_rates(paths.db_path, cny_start, end)
 
 
 def _compute_401k_daily(
