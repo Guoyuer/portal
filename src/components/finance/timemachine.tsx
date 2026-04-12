@@ -36,7 +36,7 @@ function AreaTooltip({ active, payload, label }: TooltipContentProps) {
       <p style={{ fontWeight: 600, marginBottom: 2 }}>{fmtLabel}</p>
       {payload.map((entry, i) => (
         <p key={i} style={{ color: entry.color, margin: 0 }}>
-          {CAT_LABELS[String(entry.name)] ?? String(entry.name)} : {fmtCurrency(Number(entry.value))}
+          {CAT_LABELS[String(entry.name)]} : {fmtCurrency(Number(entry.value))}
         </p>
       ))}
     </div>
@@ -132,8 +132,8 @@ export function StickyBrush({
   const chartData = daily.map((d) => ({ ...d, ts: new Date(d.date).getTime() }));
   if (daily.length === 0) return null;
 
-  const startLabel = fmtDateMedium(daily[brushStart]?.date ?? daily[0].date);
-  const endLabel = fmtDateMedium(daily[brushEnd]?.date ?? daily[daily.length - 1].date);
+  const startLabel = fmtDateMedium(daily[brushStart].date);
+  const endLabel = fmtDateMedium(daily[brushEnd].date);
 
   return (
     <div className="fixed bottom-0 left-0 right-0 md:left-56 z-40 bg-background/80 backdrop-blur-md border-t border-border px-4 py-2">

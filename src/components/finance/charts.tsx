@@ -57,7 +57,7 @@ export function AllocationDonut({
             strokeWidth={1}
           >
             {data.map((d, i) => (
-              <Cell key={i} fill={CAT_COLOR_BY_NAME[d.name] ?? "#888888"} />
+              <Cell key={i} fill={CAT_COLOR_BY_NAME[d.name]} />
             ))}
           </Pie>
           <Tooltip
@@ -75,7 +75,7 @@ export function AllocationDonut({
       <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2 text-sm">
         {data.map((d, i) => (
           <div key={d.name} className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: CAT_COLOR_BY_NAME[d.name] ?? "#888888" }} />
+            <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: CAT_COLOR_BY_NAME[d.name] }} />
             <span className="text-muted-foreground">{d.name} {d.pct.toFixed(0)}%</span>
           </div>
         ))}

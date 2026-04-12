@@ -99,12 +99,12 @@ function PriceTooltip({ active, payload }: TooltipContentProps) {
       <p style={{ margin: 0 }}>Close: {fmtCurrency(d.close)}</p>
       {d.buyPrice != null && (
         <p style={{ color: "#009E73", margin: 0 }}>
-          Buy: {d.buyQty} × {fmtCurrency(d.buyPrice)} = {fmtCurrency(d.buyAmount ?? 0)}
+          Buy: {d.buyQty} × {fmtCurrency(d.buyPrice)} = {fmtCurrency(d.buyAmount!)}
         </p>
       )}
       {d.sellPrice != null && (
         <p style={{ color: "#E69F00", margin: 0 }}>
-          Sell: {d.sellQty} × {fmtCurrency(d.sellPrice)} = {fmtCurrency(d.sellAmount ?? 0)}
+          Sell: {d.sellQty} × {fmtCurrency(d.sellPrice)} = {fmtCurrency(d.sellAmount!)}
         </p>
       )}
     </div>
