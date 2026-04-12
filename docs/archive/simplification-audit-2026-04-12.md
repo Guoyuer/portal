@@ -1,5 +1,7 @@
 # Simplification Audit — 2026-04-12
 
+> **ARCHIVED 2026-04-12**: findings executed via PRs #115 (S2), #116 (S3), #117 (S4), #118 (S1). Kept for historical reference.
+
 **Scope:** Whole-codebase LOC reduction scan. Three parallel Explore agents covered (1) `pipeline/etl/` + `pipeline/scripts/`, (2) `worker/src/` + `src/lib/`, (3) `docs/` + config files. Findings below are **vetted** — agent suggestions verified by grep/read before inclusion. Ones that failed verification are marked and explained.
 
 **Recently completed** (already simplified, NOT revisited):
