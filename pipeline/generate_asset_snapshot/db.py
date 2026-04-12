@@ -294,54 +294,6 @@ def get_connection(path: Path) -> sqlite3.Connection:
     return conn
 
 
-# ── Qianji transaction ingestion ──────────────────────────────────────────
-
-
-def ingest_qianji_transactions(
-    db_path: Path,
-    records: list[dict[str, Any]],
-    *,
-    retirement_categories: list[str] | None = None,
-) -> int:
-    """Ingest Qianji transaction records into the database.
-
-    Clears and replaces all rows. An ``is_retirement`` flag is set on income
-    rows whose ``category`` (exact match, case-sensitive) appears in
-    ``retirement_categories`` — this is the canonical way for the frontend
-    to compute take-home savings rate without substring sniffing.
-
-    Returns row count.
-    """
-    retirement_set = set(retirement_categories or [])
-
-    conn = get_connection(db_path)
-    try:
-        conn.execute("DELETE FROM qianji_transactions")
-        if records:
-            conn.executemany(
-                "INSERT INTO qianji_transactions"
-                " (date, type, category, amount, account, note, is_retirement)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?)",
-                [
-                    (
-                        r["date"][:10],  # truncate datetime to date
-                        r["type"],
-                        r.get("category", ""),
-                        r["amount"],
-                        r.get("account_from", ""),
-                        r.get("note", ""),
-                        1 if (r["type"] == "income" and r.get("category", "") in retirement_set) else 0,
-                    )
-                    for r in records
-                ],
-            )
-        conn.commit()
-        count: int = conn.execute("SELECT COUNT(*) FROM qianji_transactions").fetchone()[0]
-    finally:
-        conn.close()
-    return count
-
-
 # ── Econ series ingestion ──────────────────────────────────────────────────
 
 

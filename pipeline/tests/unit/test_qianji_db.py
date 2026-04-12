@@ -1,4 +1,4 @@
-"""Unit tests for qianji_db ingest — _parse_amount, _load_records, _load_balances."""
+"""Unit tests for qianji_db ingest — _parse_amount, _load_records, _load_balances, ingest_qianji_transactions."""
 
 from __future__ import annotations
 
@@ -8,8 +8,15 @@ import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
-from generate_asset_snapshot.db import ingest_qianji_transactions, init_db
-from generate_asset_snapshot.ingest.qianji_db import _load_balances, _load_records, _parse_amount
+import pytest
+
+from generate_asset_snapshot.db import init_db
+from generate_asset_snapshot.ingest.qianji_db import (
+    _load_balances,
+    _load_records,
+    _parse_amount,
+    ingest_qianji_transactions,
+)
 
 # ── _parse_amount ─────────────────────────────────────────────────────────────
 
@@ -213,13 +220,43 @@ class TestLoadBalances:
         assert balances["Old"] == (100, "USD")
 
 
-# ── Retirement flag — ingest_qianji_transactions ──────────────────────────────
+# ── ingest_qianji_transactions — DB writes ────────────────────────────────────
 
 
 def _fresh_db() -> Path:
     tmp = Path(tempfile.mktemp(suffix=".db"))
     init_db(tmp)
     return tmp
+
+
+class TestIngestQianjiTransactions:
+    @pytest.fixture()
+    def db_path(self, tmp_path: Path) -> Path:
+        p = tmp_path / "test.db"
+        init_db(p)
+        return p
+
+    def test_ingest_records(self, db_path: Path) -> None:
+        records = [
+            {"date": "2025-03-01", "type": "income", "category": "Salary", "amount": 5000.0, "account_from": "Checking", "note": ""},
+            {"date": "2025-03-05", "type": "expense", "category": "Rent", "amount": 1500.0, "account_from": "Checking", "note": ""},
+        ]
+        count = ingest_qianji_transactions(db_path, records)
+        assert count == 2
+
+    def test_clears_and_replaces(self, db_path: Path) -> None:
+        records = [{"date": "2025-03-01", "type": "income", "category": "Salary", "amount": 5000.0, "account_from": "Checking", "note": ""}]
+        ingest_qianji_transactions(db_path, records)
+        new_records = [{"date": "2025-04-01", "type": "expense", "category": "Food", "amount": 100.0, "account_from": "Checking", "note": ""}]
+        count = ingest_qianji_transactions(db_path, new_records)
+        assert count == 1  # old rows cleared
+
+    def test_empty_records(self, db_path: Path) -> None:
+        count = ingest_qianji_transactions(db_path, [])
+        assert count == 0
+
+
+# ── Retirement flag — ingest_qianji_transactions ──────────────────────────────
 
 
 class TestIsRetirementFlag:
