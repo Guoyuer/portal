@@ -11,6 +11,11 @@ Exit code taxonomy:
     3 — sync failed
     4 — verify_positions failed (replay disagrees with Fidelity snapshot — do NOT sync)
 
+Email notifications (optional): set ``PORTAL_SMTP_USER`` + ``PORTAL_SMTP_PASSWORD``
+and the orchestrator sends a changelog email on every run that detected real
+changes, and on every failure. Silent no-change runs never email. See
+``docs/automation-setup.md`` for Gmail app-password setup.
+
 CLI (mirrors the previous PS1 flags):
     --force     Skip change detection
     --dry-run   Run build + verify but skip the sync step
@@ -20,6 +25,12 @@ Environment variables:
     PORTAL_HEALTHCHECK_URL   Healthchecks.io base URL (optional; silent if unset)
     PORTAL_DOWNLOADS         Downloads dir (default: %USERPROFILE%\\Downloads)
     PORTAL_DB_PATH           timemachine.db path (default: pipeline/data/timemachine.db)
+    PORTAL_SMTP_USER         Gmail address to send from (required for email)
+    PORTAL_SMTP_PASSWORD     Gmail app password (required for email)
+    PORTAL_SMTP_HOST         Default smtp.gmail.com
+    PORTAL_SMTP_PORT         Default 587
+    PORTAL_EMAIL_FROM        Default same as SMTP_USER
+    PORTAL_EMAIL_TO          Default same as SMTP_USER
     APPDATA                  Qianji DB root on Windows
     LOCALAPPDATA             Log dir root on Windows
 """
@@ -28,6 +39,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import re
 import subprocess
 import sys
 import urllib.error
@@ -35,12 +47,33 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from etl.changelog import (  # noqa: E402
+    SyncChangelog,
+    SyncSnapshot,
+    build_subject,
+    capture,
+    diff,
+    empty_changelog,
+    format_html,
+    format_text,
+)
+from etl.email_report import EmailConfig, send  # noqa: E402
+
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
 _PIPELINE_DIR = _SCRIPT_DIR.parent
 _DATA_DIR = _PIPELINE_DIR / "data"
 _MARKER = _DATA_DIR / ".last_run"
+
+
+def get_db_path() -> Path:
+    """timemachine.db location. Overridable via PORTAL_DB_PATH (used in tests)."""
+    override = os.environ.get("PORTAL_DB_PATH")
+    if override:
+        return Path(override)
+    return _DATA_DIR / "timemachine.db"
 
 # Patterns monitored for change detection. Portfolio_Positions_*.csv IS watched
 # because a fresh snapshot is what triggers the [3b] ground-truth gate; the gate
@@ -201,6 +234,118 @@ def run_python_script(script: Path, *args: str) -> int:
     return proc.returncode
 
 
+# ── Email reporting ───────────────────────────────────────────────────────────
+
+_STATUS_LABELS = {
+    EXIT_OK: "OK",
+    EXIT_BUILD_FAIL: "BUILD FAILED",
+    EXIT_PARITY_FAIL: "PARITY GATE FAILED",
+    EXIT_SYNC_FAIL: "SYNC FAILED",
+    EXIT_POSITIONS_FAIL: "POSITIONS GATE FAILED",
+}
+
+
+def extract_validation_warnings(log_file: Path) -> list[str]:
+    """Scan the current day's log for ``validate_build`` WARNING lines.
+
+    Matches the warning format emitted by ``etl/validate.py`` via
+    ``build_timemachine_db.py`` — lines containing ``"WARNING"`` followed by a
+    colon. Returns an empty list if the log is missing or unreadable.
+    """
+    if not log_file.exists():
+        return []
+    warnings: list[str] = []
+    try:
+        with log_file.open("r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                # Match "WARNING: day_over_day" or "WARNING  date_gaps" etc.
+                m = re.search(r"WARNING[: ]\s*(.+)", line)
+                if m:
+                    msg = m.group(1).strip()
+                    # Skip healthcheck-ignored lines and misc INFO noise
+                    if msg and "healthcheck ping failed" not in msg:
+                        warnings.append(msg)
+    except OSError:
+        return []
+    return warnings
+
+
+def _build_context(
+    changelog: SyncChangelog,
+    exit_code: int,
+    log_file: Path,
+    snapshot_before: SyncSnapshot,
+    snapshot_after: SyncSnapshot | None,
+    error: str | None,
+    warnings: list[str] | None,
+) -> dict[str, object]:
+    """Assemble the template context dict consumed by format_text / format_html."""
+    before_dates = sorted(snapshot_before.computed_daily.keys()) if snapshot_before.computed_daily else []
+    after_dates: list[str] = []
+    econ_keys: list[str] = []
+    if snapshot_after is not None:
+        after_dates = sorted(snapshot_after.computed_daily.keys())
+        econ_keys = sorted(snapshot_after.econ_series_keys)
+    return {
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "status_label": _STATUS_LABELS.get(exit_code, f"EXIT {exit_code}"),
+        "exit_code": exit_code,
+        "log_file": str(log_file),
+        "error": error,
+        "warnings": warnings or [],
+        "before_dates": before_dates,
+        "after_dates": after_dates,
+        "econ_keys": econ_keys,
+    }
+
+
+def _send_report_email(
+    config: EmailConfig | None,
+    log: logging.Logger,
+    snapshot_before: SyncSnapshot,
+    snapshot_after: SyncSnapshot | None,
+    exit_code: int,
+    log_file: Path,
+    error: str | None = None,
+    validation_warnings: list[str] | None = None,
+) -> None:
+    """Build a changelog, decide whether to send, send if yes.
+
+    Policy:
+        exit_code != 0                                 -> always send
+        exit_code == 0 and has_meaningful_changes      -> send
+        exit_code == 0 and no meaningful changes       -> skip
+
+    Errors during SMTP are logged and swallowed — email must never affect the
+    sync exit code.
+    """
+    if config is None:
+        return
+
+    if snapshot_after is not None:
+        changelog = diff(snapshot_before, snapshot_after)
+    else:
+        changelog = empty_changelog()
+
+    should_send = exit_code != 0 or changelog.has_meaningful_changes()
+    if not should_send:
+        log.info("  Email skipped (no meaningful changes)")
+        return
+
+    context = _build_context(
+        changelog, exit_code, log_file, snapshot_before, snapshot_after, error, validation_warnings,
+    )
+    subject = build_subject(changelog, exit_code)
+    html = format_html(changelog, context)
+    text = format_text(changelog, context)
+
+    try:
+        send(subject, html, text, config)
+        log.info("  Email sent to %s", config.email_to)
+    except Exception as e:  # noqa: BLE001 — email failure must not abort sync
+        log.error("  Email send FAILED (not fatal): %s", e)
+
+
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -227,6 +372,7 @@ def main(argv: list[str] | None = None) -> int:
 
     downloads = get_downloads_dir()
     qianji_db = get_qianji_db_path()
+    db_path = get_db_path()
 
     hostname = os.environ.get("COMPUTERNAME") or os.environ.get("HOSTNAME") or "?"
     log.info("=" * 60)
@@ -234,7 +380,16 @@ def main(argv: list[str] | None = None) -> int:
     log.info("  host=%s log=%s", hostname, log_file)
     log.info("=" * 60)
 
+    email_config = EmailConfig.from_env()
+    log.info(
+        "  Email reporting: %s",
+        "enabled" if email_config else "disabled (no PORTAL_SMTP_USER/PASSWORD)",
+    )
+
     ping_healthcheck("start")
+
+    # Snapshot BEFORE build so we can diff regardless of which exit branch fires.
+    snapshot_before = capture(db_path)
 
     # [1] Change detection
     if not args.force:
@@ -242,6 +397,7 @@ def main(argv: list[str] | None = None) -> int:
         if not changes_detected(_MARKER, downloads, qianji_db):
             log.info("  No changes detected. Use --force to override.")
             ping_healthcheck()  # no-change is a valid success outcome
+            # No-change is a silent success — never email.
             return EXIT_OK
     else:
         log.info("[1] Force mode — skipping change detection")
@@ -252,6 +408,12 @@ def main(argv: list[str] | None = None) -> int:
     if rc != 0:
         log.error("  BUILD FAILED (exit=%d)", rc)
         ping_healthcheck("fail")
+        _send_report_email(
+            email_config, log, snapshot_before, None,
+            EXIT_BUILD_FAIL, log_file,
+            error=f"build_timemachine_db.py exited with code {rc}",
+            validation_warnings=extract_validation_warnings(log_file),
+        )
         return EXIT_BUILD_FAIL
 
     # [3] Pre-sync gate: guard against local data loss + historical drift
@@ -261,6 +423,12 @@ def main(argv: list[str] | None = None) -> int:
         if rc != 0:
             log.error("  PRE-SYNC GATE FAILED (exit=%d) — SYNC BLOCKED", rc)
             ping_healthcheck("fail")
+            _send_report_email(
+                email_config, log, snapshot_before, capture(db_path),
+                EXIT_PARITY_FAIL, log_file,
+                error=f"verify_vs_prod.py exited with code {rc}",
+                validation_warnings=extract_validation_warnings(log_file),
+            )
             return EXIT_PARITY_FAIL
 
     # [3b] Optional Portfolio_Positions ground-truth gate
@@ -273,6 +441,12 @@ def main(argv: list[str] | None = None) -> int:
             if rc != 0:
                 log.error("  POSITIONS CHECK FAILED (exit=%d) — SYNC BLOCKED", rc)
                 ping_healthcheck("fail")
+                _send_report_email(
+                    email_config, log, snapshot_before, capture(db_path),
+                    EXIT_POSITIONS_FAIL, log_file,
+                    error=f"verify_positions.py exited with code {rc}",
+                    validation_warnings=extract_validation_warnings(log_file),
+                )
                 return EXIT_POSITIONS_FAIL
         else:
             log.info("[3b] No new Portfolio_Positions CSV — skipping ground-truth check")
@@ -287,6 +461,12 @@ def main(argv: list[str] | None = None) -> int:
         if rc != 0:
             log.error("  SYNC FAILED (exit=%d)", rc)
             ping_healthcheck("fail")
+            _send_report_email(
+                email_config, log, snapshot_before, capture(db_path),
+                EXIT_SYNC_FAIL, log_file,
+                error=f"sync_to_d1.py exited with code {rc}",
+                validation_warnings=extract_validation_warnings(log_file),
+            )
             return EXIT_SYNC_FAIL
 
     # Success: update marker
@@ -296,6 +476,11 @@ def main(argv: list[str] | None = None) -> int:
     log.info("  Done")
     log.info("=" * 60)
     ping_healthcheck()
+    _send_report_email(
+        email_config, log, snapshot_before, capture(db_path),
+        EXIT_OK, log_file,
+        validation_warnings=extract_validation_warnings(log_file),
+    )
     return EXIT_OK
 
 
