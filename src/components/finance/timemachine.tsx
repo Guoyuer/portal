@@ -16,9 +16,8 @@ import type { TooltipContentProps } from "recharts/types/component/Tooltip";
 import type { CategoryMeta, DailyPoint } from "@/lib/schemas";
 import type { CashflowResponse, ActivityResponse } from "@/lib/computed-types";
 import { fmtCurrency, fmtCurrencyShort, fmtDateLong, fmtDateMedium, fmtDateMonthYear, fmtTick } from "@/lib/format";
-import { useIsDark, useIsMobile } from "@/lib/hooks";
+import { getIsDark, useIsDark, useIsMobile } from "@/lib/hooks";
 import { tooltipStyle, gridStroke, axisProps, brushColors } from "@/lib/chart-styles";
-import { getIsDark } from "@/lib/style-helpers";
 import { CAT_COLOR_BY_KEY } from "@/lib/compute";
 
 // ── Constants ─────────────────────────────────────────────────────────────

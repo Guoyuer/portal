@@ -1,6 +1,6 @@
 import type { CashflowResponse } from "@/lib/computed-types";
 import { fmtCurrency } from "@/lib/format";
-import { MAJOR_EXPENSE_THRESHOLD } from "@/lib/style-helpers";
+import { MAJOR_EXPENSE_THRESHOLD } from "@/lib/thresholds";
 import { TOTAL_ROW_CLASS } from "@/components/finance/ticker-table";
 import {
   Table,

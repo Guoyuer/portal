@@ -1,6 +1,6 @@
 import type { SnapshotPoint } from "@/lib/computed-types";
 import { fmtCurrency, fmtPct } from "@/lib/format";
-import { valueColor } from "@/lib/style-helpers";
+import { valueColor } from "@/lib/thresholds";
 import { SectionBody } from "@/components/finance/section";
 import { NetWorthTrendChart } from "@/components/finance/charts";
 

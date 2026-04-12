@@ -1,11 +1,4 @@
-// ── Shared style helpers & constants ──────────────────────────────────────
-
-/** Non-hook dark mode check for use outside React components (tooltip render functions). */
-export function getIsDark(): boolean {
-  return typeof document !== "undefined" && document.documentElement.classList.contains("dark");
-}
-
-// ── Value-based color classes ────────────────────────────────────────────
+// ── Business thresholds + value-based color helpers ──────────────────────
 
 /** Green for positive, red for negative values (gain/loss, returns, etc.) */
 export function valueColor(val: number): string {
