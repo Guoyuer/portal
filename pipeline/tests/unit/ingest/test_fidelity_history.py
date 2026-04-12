@@ -4,7 +4,10 @@ from pathlib import Path
 
 import pytest
 
-from generate_asset_snapshot.ingest.fidelity_history import load_transactions
+from generate_asset_snapshot.ingest.fidelity_history import (
+    load_transactions,
+    normalize_fidelity_date,
+)
 
 
 class TestLoadTransactions:
@@ -43,8 +46,17 @@ class TestLoadTransactions:
     def test_skips_blank_lines_before_header(self, transactions: list[dict]) -> None:
         """The CSV has 2 blank lines before the header; parser should not choke."""
         assert len(transactions) > 0
-        # First record should be the 04/02/2026 EFT deposit
-        assert transactions[0]["date"] == "04/02/2026"
+        # First record should be the 04/02/2026 EFT deposit, normalized to ISO
+        assert transactions[0]["date"] == "2026-04-02"
+
+    # -- date normalization --
+
+    def test_all_dates_are_iso(self, transactions: list[dict]) -> None:
+        """Run dates are normalized from MM/DD/YYYY to ISO YYYY-MM-DD at ingestion."""
+        import re
+        iso_re = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+        for txn in transactions:
+            assert iso_re.match(txn["date"]), f"Non-ISO date: {txn['date']!r}"
 
     # -- deposit --
 
@@ -141,3 +153,38 @@ class TestLoadTransactions:
     def test_account_uses_number_not_name(self, transactions: list[dict]) -> None:
         roth_txns = [t for t in transactions if t["account"] == "238986483"]
         assert len(roth_txns) == 2  # SVIX buy and sell in ROTH IRA
+
+
+class TestNormalizeFidelityDate:
+    """Tests for normalize_fidelity_date() — strict MM/DD/YYYY → ISO conversion."""
+
+    def test_happy_path(self) -> None:
+        assert normalize_fidelity_date("01/15/2026") == "2026-01-15"
+
+    def test_preserves_leading_zeros(self) -> None:
+        assert normalize_fidelity_date("09/04/2026") == "2026-09-04"
+
+    def test_end_of_year(self) -> None:
+        assert normalize_fidelity_date("12/31/2025") == "2025-12-31"
+
+    def test_rejects_empty_string(self) -> None:
+        with pytest.raises(ValueError, match="Invalid Fidelity Run Date"):
+            normalize_fidelity_date("")
+
+    def test_rejects_one_digit_month(self) -> None:
+        """Fidelity exports use zero-padded months; reject single digits."""
+        with pytest.raises(ValueError, match="Invalid Fidelity Run Date"):
+            normalize_fidelity_date("1/15/2026")
+
+    def test_rejects_iso_date(self) -> None:
+        """ISO format must be rejected at the Fidelity boundary."""
+        with pytest.raises(ValueError, match="Invalid Fidelity Run Date"):
+            normalize_fidelity_date("2026-01-15")
+
+    def test_rejects_garbage(self) -> None:
+        with pytest.raises(ValueError, match="Invalid Fidelity Run Date"):
+            normalize_fidelity_date("abc")
+
+    def test_error_message_includes_row_context(self) -> None:
+        with pytest.raises(ValueError, match=r"Accounts_History\.csv row 42"):
+            normalize_fidelity_date("bad", row_context="Accounts_History.csv row 42")

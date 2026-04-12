@@ -54,7 +54,7 @@ _DIFF_TABLES: set[str] = {"computed_daily", "computed_daily_tickers", "daily_clo
 # Tables that use range-replace in diff mode (delete after cutoff, reinsert).
 # Value is a SQL expression that yields a YYYY-MM-DD–sortable string for date comparison.
 _RANGE_TABLES: dict[str, str] = {
-    "fidelity_transactions": "substr(run_date,7,4)||substr(run_date,1,2)||substr(run_date,4,2)",
+    "fidelity_transactions": "run_date",
     "qianji_transactions": "date",
 }
 

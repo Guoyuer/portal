@@ -139,7 +139,9 @@ def _ingest_fidelity_csvs(paths: BuildPaths) -> None:
         print(f"  ERROR: No Accounts_History CSVs found in {paths.downloads}")
         sys.exit(1)
 
-    # Sort by earliest date in each file (chronological ingestion)
+    # Sort by earliest date in each file (chronological ingestion).
+    # Raw Fidelity CSVs carry MM/DD/YYYY; convert to YYYYMMDD for a
+    # lexicographically sortable key.
     def _csv_start_date(path: Path) -> str:
         """Return earliest YYYYMMDD date in a CSV for sorting."""
         text = path.read_text(encoding="utf-8-sig")
@@ -207,12 +209,11 @@ def _run_validation(paths: BuildPaths) -> None:
 
 
 def _derive_start_date(paths: BuildPaths, fallback: date) -> date:
-    """Derive build start date from earliest Fidelity transaction (MM/DD/YYYY run_date)."""
+    """Derive build start date from earliest Fidelity transaction (ISO run_date)."""
     conn = get_connection(paths.db_path)
     try:
         row = conn.execute(
-            "SELECT MIN(substr(run_date,7,4)||'-'||substr(run_date,1,2)||'-'||substr(run_date,4,2))"
-            " FROM fidelity_transactions"
+            "SELECT MIN(run_date) FROM fidelity_transactions"
         ).fetchone()
     finally:
         conn.close()

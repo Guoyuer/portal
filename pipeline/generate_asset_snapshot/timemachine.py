@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from .db import get_connection
+from .ingest.fidelity_history import _FIDELITY_DATE_RE, normalize_fidelity_date
 from .ingest.qianji_db import DEFAULT_DB_PATH as DEFAULT_QJ_DB
 from .types import parse_float as _float
 
@@ -48,12 +49,21 @@ STORE_HEADER = (
 
 # ── Parsing ───────────────────────────────────────────────────────────────────
 
-def _parse_date(mmddyyyy: str) -> date:
-    return datetime.strptime(mmddyyyy.strip(), "%m/%d/%Y").date()
+def _parse_date(iso: str) -> date:
+    """Parse an ISO ``YYYY-MM-DD`` run_date. Inputs from raw Fidelity CSVs
+    must be normalized via :func:`normalize_fidelity_date` first.
+    """
+    return date.fromisoformat(iso.strip())
 
 
 def _load_raw_rows(path: Path) -> list[dict[str, str]]:
-    """Load a Fidelity CSV (raw export or merged store) into row dicts."""
+    """Load a Fidelity CSV (raw export or merged store) into row dicts.
+
+    Run Dates are left in Fidelity's native ``MM/DD/YYYY`` so the rows can
+    round-trip through :func:`_write_store` without changing the on-disk
+    format. Callers that need a ``date`` object must pass ``Run Date``
+    through :func:`normalize_fidelity_date` first.
+    """
     text = path.read_text(encoding="utf-8-sig")
     lines = text.splitlines(keepends=True)
     # Skip leading blanks
@@ -64,7 +74,7 @@ def _load_raw_rows(path: Path) -> list[dict[str, str]]:
     rows = []
     for row in csv.DictReader(csv_text.splitlines()):
         run_date = (row.get("Run Date") or "").strip()
-        if not run_date or not re.match(r"\d{2}/\d{2}/\d{4}", run_date):
+        if not run_date or not _FIDELITY_DATE_RE.match(run_date):
             continue
         rows.append(row)
     return rows
@@ -124,7 +134,7 @@ def replay(store_path: Path, as_of: date | None = None) -> dict[str, Any]:
     raw_rows = _load_raw_rows(store_path)
     rows = [
         (
-            row["Run Date"],
+            normalize_fidelity_date(row["Run Date"], row_context=f"{store_path.name}"),
             (row.get("Account Number") or "").strip(),
             (row.get("Action") or "").upper(),
             (row.get("Symbol") or "").strip(),
@@ -145,7 +155,7 @@ def replay_from_db(db_path: Path, as_of: date | None = None) -> dict[str, Any]:
     db_rows = conn.execute(
         "SELECT run_date, account_number, action, symbol, lot_type, quantity, amount"
         " FROM fidelity_transactions"
-        " ORDER BY substr(run_date,7,4)||substr(run_date,1,2)||substr(run_date,4,2), id"
+        " ORDER BY run_date, id"
     ).fetchall()
     conn.close()
 
@@ -451,13 +461,20 @@ def ingest(csv_path: Path, store_path: Path) -> int:
 
     For overlapping date ranges the new file replaces existing data.
     Returns total row count after merge.
+
+    The on-disk store keeps Fidelity's native ``MM/DD/YYYY`` format so we
+    normalize to ISO only for date arithmetic here.
     """
     new_rows = _load_raw_rows(csv_path)
     if not new_rows:
         log.warning("No transaction rows found in %s", csv_path)
         return 0
 
-    new_dates = {_parse_date(r["Run Date"]) for r in new_rows}
+    def _row_date(row: dict[str, str], source: Path) -> date:
+        iso = normalize_fidelity_date(row["Run Date"], row_context=source.name)
+        return date.fromisoformat(iso)
+
+    new_dates = {_row_date(r, csv_path) for r in new_rows}
     lo, hi = min(new_dates), max(new_dates)
     log.info("Ingesting %d rows from %s (%s → %s)", len(new_rows), csv_path.name, lo, hi)
 
@@ -467,10 +484,10 @@ def ingest(csv_path: Path, store_path: Path) -> int:
 
     # Keep existing rows outside the new file's date range
     kept = [r for r in existing
-            if _parse_date(r["Run Date"]) < lo or _parse_date(r["Run Date"]) > hi]
+            if _row_date(r, store_path) < lo or _row_date(r, store_path) > hi]
 
     merged = kept + new_rows
-    merged.sort(key=lambda r: _parse_date(r["Run Date"]))
+    merged.sort(key=lambda r: _row_date(r, store_path))
 
     _write_store(merged, store_path)
     log.info("Store now has %d rows (%s)", len(merged), store_path)

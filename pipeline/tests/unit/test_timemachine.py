@@ -382,11 +382,11 @@ class TestVerify:
 # ── _replay_core ───────────────────────────────────────────────────────────
 
 class TestReplayCore:
-    """Test the shared replay engine with pre-normalized tuples."""
+    """Test the shared replay engine with pre-normalized (ISO-date) tuples."""
 
     def test_buy_creates_position(self) -> None:
         rows = [
-            ("01/02/2025", "Z123", "YOU BOUGHT X", "VOO", "Cash", 10.0, -5000.0),
+            ("2025-01-02", "Z123", "YOU BOUGHT X", "VOO", "Cash", 10.0, -5000.0),
         ]
         result = _replay_core(rows, as_of=None)
         assert result["positions"][("Z123", "VOO")] == pytest.approx(10.0)
@@ -395,8 +395,8 @@ class TestReplayCore:
 
     def test_sell_reduces_position_and_cost_basis(self) -> None:
         rows = [
-            ("01/02/2025", "Z123", "YOU BOUGHT X", "VOO", "Cash", 10.0, -5000.0),
-            ("01/05/2025", "Z123", "YOU SOLD X", "VOO", "Cash", -4.0, 2200.0),
+            ("2025-01-02", "Z123", "YOU BOUGHT X", "VOO", "Cash", 10.0, -5000.0),
+            ("2025-01-05", "Z123", "YOU SOLD X", "VOO", "Cash", -4.0, 2200.0),
         ]
         result = _replay_core(rows, as_of=None)
         assert result["positions"][("Z123", "VOO")] == pytest.approx(6.0)
@@ -405,23 +405,23 @@ class TestReplayCore:
 
     def test_money_market_excluded_from_positions(self) -> None:
         rows = [
-            ("01/02/2025", "Z123", "REINVESTMENT", "SPAXX", "Cash", 100.0, 0.0),
+            ("2025-01-02", "Z123", "REINVESTMENT", "SPAXX", "Cash", 100.0, 0.0),
         ]
         result = _replay_core(rows, as_of=None)
         assert ("Z123", "SPAXX") not in result["positions"]
 
     def test_cash_tracking(self) -> None:
         rows = [
-            ("01/02/2025", "Z123", "YOU BOUGHT X", "VOO", "Cash", 10.0, -5000.0),
-            ("01/05/2025", "Z123", "DIVIDEND", "VOO", "Cash", 0.0, 50.0),
+            ("2025-01-02", "Z123", "YOU BOUGHT X", "VOO", "Cash", 10.0, -5000.0),
+            ("2025-01-05", "Z123", "DIVIDEND", "VOO", "Cash", 0.0, 50.0),
         ]
         result = _replay_core(rows, as_of=None)
         assert result["cash"]["Z123"] == pytest.approx(-4950.0)
 
     def test_as_of_filters_future(self) -> None:
         rows = [
-            ("01/02/2025", "Z123", "YOU BOUGHT X", "VOO", "Cash", 10.0, -5000.0),
-            ("03/15/2025", "Z123", "YOU BOUGHT X", "VOO", "Cash", 5.0, -2500.0),
+            ("2025-01-02", "Z123", "YOU BOUGHT X", "VOO", "Cash", 10.0, -5000.0),
+            ("2025-03-15", "Z123", "YOU BOUGHT X", "VOO", "Cash", 5.0, -2500.0),
         ]
         result = _replay_core(rows, as_of=date(2025, 2, 1))
         assert result["positions"][("Z123", "VOO")] == pytest.approx(10.0)
@@ -429,7 +429,7 @@ class TestReplayCore:
 
     def test_shares_type_excluded_from_cash(self) -> None:
         rows = [
-            ("01/02/2025", "Z123", "DISTRIBUTION", "VOO", "Shares", 0.5, 250.0),
+            ("2025-01-02", "Z123", "DISTRIBUTION", "VOO", "Shares", 0.5, 250.0),
         ]
         result = _replay_core(rows, as_of=None)
         # Type=Shares should not affect cash
@@ -437,7 +437,7 @@ class TestReplayCore:
 
     def test_reinvestment_adds_position(self) -> None:
         rows = [
-            ("01/02/2025", "Z123", "REINVESTMENT", "VOO", "Cash", 0.5, -250.0),
+            ("2025-01-02", "Z123", "REINVESTMENT", "VOO", "Cash", 0.5, -250.0),
         ]
         result = _replay_core(rows, as_of=None)
         assert result["positions"][("Z123", "VOO")] == pytest.approx(0.5)

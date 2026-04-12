@@ -25,7 +25,7 @@ describe("mergeTickerData", () => {
 
   it("merges buy transactions onto matching dates", () => {
     const txns = [
-      { runDate: "10/02/2025", actionType: "buy", quantity: 5, price: 104, amount: -520 },
+      { runDate: "2025-10-02", actionType: "buy", quantity: 5, price: 104, amount: -520 },
     ];
     const points = mergeTickerData(prices, txns);
     const oct2 = points.find(p => p.date === "2025-10-02")!;
@@ -35,7 +35,7 @@ describe("mergeTickerData", () => {
 
   it("merges sell transactions onto matching dates", () => {
     const txns = [
-      { runDate: "10/03/2025", actionType: "sell", quantity: -3, price: 103, amount: 309 },
+      { runDate: "2025-10-03", actionType: "sell", quantity: -3, price: 103, amount: 309 },
     ];
     const points = mergeTickerData(prices, txns);
     const oct3 = points.find(p => p.date === "2025-10-03")!;
@@ -45,7 +45,7 @@ describe("mergeTickerData", () => {
 
   it("treats reinvestment as buy", () => {
     const txns = [
-      { runDate: "10/01/2025", actionType: "reinvestment", quantity: 1, price: 99, amount: -99 },
+      { runDate: "2025-10-01", actionType: "reinvestment", quantity: 1, price: 99, amount: -99 },
     ];
     const points = mergeTickerData(prices, txns);
     const oct1 = points.find(p => p.date === "2025-10-01")!;
@@ -54,7 +54,7 @@ describe("mergeTickerData", () => {
 
   it("ignores non-buy/sell/reinvestment actions", () => {
     const txns = [
-      { runDate: "10/01/2025", actionType: "dividend", quantity: 0, price: 0, amount: 50 },
+      { runDate: "2025-10-01", actionType: "dividend", quantity: 0, price: 0, amount: 50 },
     ];
     const points = mergeTickerData(prices, txns);
     const oct1 = points.find(p => p.date === "2025-10-01")!;
@@ -65,7 +65,7 @@ describe("mergeTickerData", () => {
   it("handles transactions on non-trading days (no matching price)", () => {
     // 10/04 is a weekend, no price row
     const txns = [
-      { runDate: "10/04/2025", actionType: "buy", quantity: 2, price: 101, amount: -202 },
+      { runDate: "2025-10-04", actionType: "buy", quantity: 2, price: 101, amount: -202 },
     ];
     const points = mergeTickerData(prices, txns);
     // Should still have only 3 price points, no crash

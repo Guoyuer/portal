@@ -8,8 +8,6 @@ import {
   computeMonthlyFlows,
   buildDateIndex,
   buildTickerIndex,
-  fidelityDateToSort,
-  fidelityDateToMs,
 } from "./compute";
 
 // ── Helpers ─────────────────────────────────────────────────────────────
@@ -23,27 +21,12 @@ function mkDailyN(n: number): DailyPoint[] {
 }
 
 function mkFidelityTxn(overrides: Partial<FidelityTxn> = {}): FidelityTxn {
-  return { runDate: "01/15/2026", actionType: "buy", symbol: "VTI", amount: -500, quantity: 2, price: 250, ...overrides };
+  return { runDate: "2026-01-15", actionType: "buy", symbol: "VTI", amount: -500, quantity: 2, price: 250, ...overrides };
 }
 
 function mkQianjiTxn(overrides: Partial<QianjiTxn> = {}): QianjiTxn {
   return { date: "2026-01-15", type: "income", category: "Salary", amount: 5000, ...overrides };
 }
-
-// ── fidelityDateToSort ──────────────────────────────────────────────────
-
-describe("fidelityDateToSort", () => {
-  it("converts MM/DD/YYYY to YYYYMMDD", () => {
-    expect(fidelityDateToSort("01/15/2026")).toBe("20260115");
-    expect(fidelityDateToSort("12/31/2025")).toBe("20251231");
-  });
-});
-
-describe("fidelityDateToMs", () => {
-  it("converts MM/DD/YYYY to epoch ms", () => {
-    expect(fidelityDateToMs("01/01/2026")).toBe(new Date("2026-01-01").getTime());
-  });
-});
 
 // ── buildDateIndex ──────────────────────────────────────────────────────
 
@@ -245,9 +228,9 @@ describe("computeActivity", () => {
 
   it("filters by date range", () => {
     const txns: FidelityTxn[] = [
-      mkFidelityTxn({ runDate: "12/31/2025", actionType: "buy", symbol: "VTI", amount: -999 }),
-      mkFidelityTxn({ runDate: "01/15/2026", actionType: "buy", symbol: "VTI", amount: -500 }),
-      mkFidelityTxn({ runDate: "02/01/2026", actionType: "buy", symbol: "VTI", amount: -999 }),
+      mkFidelityTxn({ runDate: "2025-12-31", actionType: "buy", symbol: "VTI", amount: -999 }),
+      mkFidelityTxn({ runDate: "2026-01-15", actionType: "buy", symbol: "VTI", amount: -500 }),
+      mkFidelityTxn({ runDate: "2026-02-01", actionType: "buy", symbol: "VTI", amount: -999 }),
     ];
     const act = computeActivity(txns, "2026-01-01", "2026-01-31");
     expect(act.buysBySymbol[0].total).toBe(500);
@@ -266,7 +249,7 @@ describe("computeActivity", () => {
 describe("computeCrossCheck", () => {
   it("matches deposit to transfer within 7-day window", () => {
     const fTxns: FidelityTxn[] = [
-      mkFidelityTxn({ runDate: "01/15/2026", actionType: "deposit", symbol: "", amount: 1000 }),
+      mkFidelityTxn({ runDate: "2026-01-15", actionType: "deposit", symbol: "", amount: 1000 }),
     ];
     const qTxns: QianjiTxn[] = [
       mkQianjiTxn({ date: "2026-01-16", type: "transfer", amount: 1000 }),
@@ -281,7 +264,7 @@ describe("computeCrossCheck", () => {
 
   it("fails match when transfer is outside 7-day window", () => {
     const fTxns: FidelityTxn[] = [
-      mkFidelityTxn({ runDate: "01/01/2026", actionType: "deposit", symbol: "", amount: 1000 }),
+      mkFidelityTxn({ runDate: "2026-01-01", actionType: "deposit", symbol: "", amount: 1000 }),
     ];
     const qTxns: QianjiTxn[] = [
       mkQianjiTxn({ date: "2026-01-15", type: "transfer", amount: 1000 }), // 14 days later
@@ -294,7 +277,7 @@ describe("computeCrossCheck", () => {
 
   it("fails match when amounts differ", () => {
     const fTxns: FidelityTxn[] = [
-      mkFidelityTxn({ runDate: "01/15/2026", actionType: "deposit", symbol: "", amount: 1000 }),
+      mkFidelityTxn({ runDate: "2026-01-15", actionType: "deposit", symbol: "", amount: 1000 }),
     ];
     const qTxns: QianjiTxn[] = [
       mkQianjiTxn({ date: "2026-01-15", type: "transfer", amount: 999.99 }),
@@ -312,8 +295,8 @@ describe("computeCrossCheck", () => {
 
   it("does not reuse a transfer for two deposits", () => {
     const fTxns: FidelityTxn[] = [
-      mkFidelityTxn({ runDate: "01/10/2026", actionType: "deposit", symbol: "", amount: 500 }),
-      mkFidelityTxn({ runDate: "01/11/2026", actionType: "deposit", symbol: "", amount: 500 }),
+      mkFidelityTxn({ runDate: "2026-01-10", actionType: "deposit", symbol: "", amount: 500 }),
+      mkFidelityTxn({ runDate: "2026-01-11", actionType: "deposit", symbol: "", amount: 500 }),
     ];
     const qTxns: QianjiTxn[] = [
       mkQianjiTxn({ date: "2026-01-10", type: "transfer", amount: 500 }),

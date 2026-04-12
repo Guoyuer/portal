@@ -27,10 +27,6 @@ function priceSeries(dates: string[], base: number, drift: number, vol: number):
   });
 }
 
-function mmdd(iso: string): string {
-  return `${iso.slice(5, 7)}/${iso.slice(8, 10)}/${iso.slice(0, 4)}`;
-}
-
 // ── Fixture dates ───────────────────────────────────────────────────────
 
 const ALL_DATES = tradingDays("2024-01-02", 600);
@@ -101,7 +97,7 @@ for (let m = 0; m < 28; m++) {
   if (d.getDay() === 0) d.setDate(d.getDate() + 1);
   if (d.getDay() === 6) d.setDate(d.getDate() + 2);
   const iso = d.toISOString().slice(0, 10);
-  const rd = mmdd(iso);
+  const rd = iso;
 
   // Deposits
   fidelityTxns.push({ runDate: rd, actionType: "deposit", symbol: "", amount: 5000, quantity: 0, price: 0 });
@@ -147,9 +143,9 @@ for (let m = 0; m < 28; m++) {
 }
 
 // A few sells
-fidelityTxns.push({ runDate: "03/15/2025", actionType: "sell", symbol: "AAPL", amount: 2000, quantity: -10, price: 200 });
-fidelityTxns.push({ runDate: "06/15/2025", actionType: "sell", symbol: "NVDA", amount: 3500, quantity: -5, price: 700 });
-fidelityTxns.push({ runDate: "09/15/2025", actionType: "sell", symbol: "FBTC", amount: 1200, quantity: -15, price: 80 });
+fidelityTxns.push({ runDate: "2025-03-15", actionType: "sell", symbol: "AAPL", amount: 2000, quantity: -10, price: 200 });
+fidelityTxns.push({ runDate: "2025-06-15", actionType: "sell", symbol: "NVDA", amount: 3500, quantity: -5, price: 700 });
+fidelityTxns.push({ runDate: "2025-09-15", actionType: "sell", symbol: "FBTC", amount: 1200, quantity: -15, price: 80 });
 
 // ── Qianji transactions (realistic monthly pattern) ─────────────────────
 

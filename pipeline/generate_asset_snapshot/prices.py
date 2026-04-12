@@ -13,6 +13,7 @@ import pandas as pd
 import yfinance as yf
 
 from .db import get_connection
+from .ingest.fidelity_history import normalize_fidelity_date
 from .timemachine import MM_SYMBOLS, POSITION_PREFIXES, _load_raw_rows, _parse_date
 from .types import parse_float as _float
 
@@ -62,7 +63,7 @@ def symbol_holding_periods(store_path: Path) -> dict[str, tuple[date, date | Non
     raw_rows = _load_raw_rows(store_path)
     rows = [
         (
-            row["Run Date"],
+            normalize_fidelity_date(row["Run Date"], row_context=store_path.name),
             (row.get("Symbol") or "").strip(),
             (row.get("Action") or "").upper(),
             _float(row.get("Quantity", "")),
@@ -78,7 +79,7 @@ def symbol_holding_periods_from_db(db_path: Path) -> dict[str, tuple[date, date 
     try:
         db_rows = conn.execute(
             "SELECT run_date, symbol, action, quantity FROM fidelity_transactions"
-            " ORDER BY substr(run_date,7,4)||substr(run_date,1,2)||substr(run_date,4,2), id"
+            " ORDER BY run_date, id"
         ).fetchall()
     finally:
         conn.close()
