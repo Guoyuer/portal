@@ -259,12 +259,15 @@ _ROW_EFT = (
 )
 
 
-class TestIngestFidelityNaturalKey:
-    """Natural-key dedup invariants for ingest_fidelity_csv.
+class TestIngestFidelityRangeReplace:
+    """Range-replace semantics for ingest_fidelity_csv.
 
-    Replaces the old range-replace semantics (DELETE WHERE run_date BETWEEN ...; INSERT)
-    which could silently drop rows when a newer CSV was a date-range subset of an older one.
-    Natural key = (run_date, action, symbol, quantity, price, amount).
+    Each Fidelity CSV export is an authoritative snapshot of its date range.
+    Re-ingesting a CSV replaces any existing rows in that range with the new
+    CSV's rows — no row-level dedup, because intra-day duplicate trades are
+    legitimate and CSV alone cannot distinguish them from literal duplicates.
+    Share-count correctness is verified out-of-band via
+    ``scripts/verify_positions.py`` against Fidelity's Portfolio_Positions CSV.
     """
 
     @pytest.fixture()
@@ -273,28 +276,8 @@ class TestIngestFidelityNaturalKey:
         init_db(p)
         return p
 
-    def test_subset_csv_preserves_missing_rows(self, db_path: Path, tmp_path: Path) -> None:
-        """If a later CSV is a subset of an earlier one (Fidelity drops a row), the
-        missing row must be preserved — never silently wiped by a range DELETE."""
-        full_csv = _write_csv(tmp_path / "full.csv", [_ROW_AAPL, _ROW_GLDM, _ROW_EFT])
-        subset_csv = _write_csv(tmp_path / "subset.csv", [_ROW_AAPL, _ROW_GLDM])  # missing EFT
-
-        count1 = ingest_fidelity_csv(db_path, full_csv)
-        assert count1 == 3
-
-        count2 = ingest_fidelity_csv(db_path, subset_csv)
-
-        conn = sqlite3.connect(str(db_path))
-        rows = conn.execute("SELECT COUNT(*) FROM fidelity_transactions").fetchone()[0]
-        symbols = {r[0] for r in conn.execute("SELECT symbol FROM fidelity_transactions")}
-        conn.close()
-
-        assert rows == 3, "subset ingest must not delete rows missing from the new CSV"
-        assert count2 == 3
-        assert symbols == {"AAPL", "GLDM", ""}, "the EFT row (empty symbol) must still be present"
-
-    def test_duplicate_ingest_is_noop(self, db_path: Path, history_sample_csv: Path) -> None:
-        """Ingesting the same CSV twice must not create duplicate rows and must not error."""
+    def test_same_csv_ingest_is_idempotent(self, db_path: Path, history_sample_csv: Path) -> None:
+        """Re-ingesting the same CSV produces the same row set — DELETE wipes the range, INSERT rebuilds it."""
         count1 = ingest_fidelity_csv(db_path, history_sample_csv)
         count2 = ingest_fidelity_csv(db_path, history_sample_csv)
         assert count1 == count2
@@ -303,111 +286,67 @@ class TestIngestFidelityNaturalKey:
         conn.close()
         assert rows == count1
 
-    def test_different_quantity_is_separate_row(self, db_path: Path, tmp_path: Path) -> None:
-        """Two rows with the same date/action/symbol/price/amount but different quantity
-        are different natural keys → both preserved."""
-        row_qty10 = (
-            '04/02/2026,"Taxable","Z29133576","YOU BOUGHT APPLE INC (AAPL) (Cash)",AAPL,'
-            '"APPLE INC",Cash,0,,USD,252.56,10,0,,,,-757.68,04/06/2026'
-        )
-        row_qty11 = (
-            '04/02/2026,"Taxable","Z29133576","YOU BOUGHT APPLE INC (AAPL) (Cash)",AAPL,'
-            '"APPLE INC",Cash,0,,USD,252.56,11,0,,,,-757.68,04/06/2026'
-        )
-        csv1 = _write_csv(tmp_path / "a.csv", [row_qty10])
-        csv2 = _write_csv(tmp_path / "b.csv", [row_qty11])
+    def test_subset_csv_replaces_range(self, db_path: Path, tmp_path: Path) -> None:
+        """A newer CSV covering the same date range supersedes the older CSV within that range.
 
-        ingest_fidelity_csv(db_path, csv1)
-        ingest_fidelity_csv(db_path, csv2)
-
-        conn = sqlite3.connect(str(db_path))
-        qtys = sorted(r[0] for r in conn.execute(
-            "SELECT quantity FROM fidelity_transactions WHERE symbol='AAPL'"
-        ))
-        conn.close()
-        assert qtys == [10.0, 11.0], "different quantities produce different natural keys"
-
-    def test_init_db_migrates_pre_existing_duplicates(self, tmp_path: Path) -> None:
-        """Any DB created before the unique index existed may have duplicates on the
-        natural key. init_db must clean them up idempotently so the unique index can
-        be created, keeping the smallest-id row per natural key.
-
-        Simulates a "legacy DB" by building the fidelity_transactions table by hand
-        (no unique index), seeding duplicates, then invoking init_db to trigger the
-        in-place migration.
+        Fidelity's CSV export is authoritative for its range. If a re-export drops a row,
+        the current truth is "that row no longer exists in Fidelity's records" — the DB
+        must reflect this, not cling to stale data. Share-count divergence would be caught
+        by verify_positions.py against the latest Portfolio_Positions snapshot.
         """
-        db_path = tmp_path / "legacy.db"
-        conn = sqlite3.connect(str(db_path))
-        # Legacy schema: just the table, no natural-key unique index.
-        conn.execute(
-            """CREATE TABLE fidelity_transactions (
-                id              INTEGER PRIMARY KEY AUTOINCREMENT,
-                run_date        TEXT NOT NULL,
-                account         TEXT NOT NULL,
-                account_number  TEXT NOT NULL,
-                action          TEXT NOT NULL,
-                action_type     TEXT NOT NULL DEFAULT '',
-                symbol          TEXT NOT NULL DEFAULT '',
-                description     TEXT NOT NULL DEFAULT '',
-                lot_type        TEXT NOT NULL DEFAULT '',
-                quantity        REAL NOT NULL DEFAULT 0,
-                price           REAL NOT NULL DEFAULT 0,
-                amount          REAL NOT NULL DEFAULT 0,
-                settlement_date TEXT NOT NULL DEFAULT ''
-            )"""
-        )
-        # Seed two rows with an identical natural key but different descriptions —
-        # the "old" row has a smaller id and must be the survivor.
-        conn.execute(
-            """INSERT INTO fidelity_transactions
-               (run_date, account, account_number, action, action_type, symbol,
-                description, lot_type, quantity, price, amount, settlement_date)
-               VALUES ('2026-04-02','Taxable','Z29133576','YOU BOUGHT APPLE INC (AAPL) (Cash)',
-                       'buy','AAPL','APPLE INC','Cash',3.0,252.56,-757.68,'2026-04-06')""",
-        )
-        conn.execute(
-            """INSERT INTO fidelity_transactions
-               (run_date, account, account_number, action, action_type, symbol,
-                description, lot_type, quantity, price, amount, settlement_date)
-               VALUES ('2026-04-02','Taxable','Z29133576','YOU BOUGHT APPLE INC (AAPL) (Cash)',
-                       'buy','AAPL','APPLE INC (DUPE)','Cash',3.0,252.56,-757.68,'2026-04-06')""",
-        )
-        conn.commit()
-        pre = conn.execute("SELECT COUNT(*) FROM fidelity_transactions").fetchone()[0]
-        conn.close()
-        assert pre == 2  # sanity: seed really inserted two rows
+        full_csv = _write_csv(tmp_path / "full.csv", [_ROW_AAPL, _ROW_GLDM, _ROW_EFT])
+        subset_csv = _write_csv(tmp_path / "subset.csv", [_ROW_AAPL, _ROW_GLDM])
 
-        # init_db must clean up duplicates before the unique index gets created.
-        init_db(db_path)
+        ingest_fidelity_csv(db_path, full_csv)
+        ingest_fidelity_csv(db_path, subset_csv)
 
         conn = sqlite3.connect(str(db_path))
-        post = conn.execute("SELECT COUNT(*) FROM fidelity_transactions").fetchone()[0]
-        descriptions = [
-            r[0]
-            for r in conn.execute(
-                "SELECT description FROM fidelity_transactions WHERE symbol='AAPL'"
-            )
-        ]
-        # Verify the unique index now exists (migration completed end-to-end).
-        idx_names = [
-            r[0] for r in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='fidelity_transactions'"
-            )
-        ]
+        count = conn.execute("SELECT COUNT(*) FROM fidelity_transactions").fetchone()[0]
+        symbols = {r[0] for r in conn.execute("SELECT symbol FROM fidelity_transactions")}
         conn.close()
 
-        assert post == 1, "migration must collapse duplicates to a single row"
-        # First-inserted (smaller id) wins — deterministic tie-break for observability.
-        assert descriptions == ["APPLE INC"]
-        assert "idx_fidelity_natural_key" in idx_names, "unique index must exist after migration"
+        assert count == 2, "subset CSV is the latest authoritative snapshot for its range"
+        assert symbols == {"AAPL", "GLDM"}
 
-    def test_init_db_is_idempotent_on_clean_db(self, tmp_path: Path) -> None:
-        """init_db must be safe to re-run on a DB that already has the unique index
-        and no duplicates."""
+    def test_intra_day_duplicate_trades_preserved(self, db_path: Path, tmp_path: Path) -> None:
+        """Two identical CSV rows (same date/action/symbol/qty/price/amount) represent two
+        real trades and must both be ingested. Row-level dedup would silently erase one."""
+        csv = _write_csv(tmp_path / "dup.csv", [_ROW_AAPL, _ROW_AAPL])
+
+        ingest_fidelity_csv(db_path, csv)
+
+        conn = sqlite3.connect(str(db_path))
+        aapl_rows = conn.execute(
+            "SELECT COUNT(*) FROM fidelity_transactions WHERE symbol='AAPL'"
+        ).fetchone()[0]
+        conn.close()
+        assert aapl_rows == 2, "intra-day duplicate trades must both be stored"
+
+    def test_different_date_csvs_coexist(self, db_path: Path, tmp_path: Path) -> None:
+        """Two CSVs covering disjoint date ranges both populate the DB — DELETE BETWEEN is
+        bounded by each CSV's own min/max date."""
+        row_apr = _ROW_AAPL  # 04/02/2026
+        row_may = (
+            '05/02/2026,"Taxable","Z29133576","YOU BOUGHT APPLE INC (AAPL) (Cash)",AAPL,'
+            '"APPLE INC",Cash,0,,USD,260.00,2,0,,,,-520.00,05/06/2026'
+        )
+        csv_apr = _write_csv(tmp_path / "apr.csv", [row_apr])
+        csv_may = _write_csv(tmp_path / "may.csv", [row_may])
+
+        ingest_fidelity_csv(db_path, csv_apr)
+        ingest_fidelity_csv(db_path, csv_may)
+
+        conn = sqlite3.connect(str(db_path))
+        dates = sorted(r[0] for r in conn.execute("SELECT run_date FROM fidelity_transactions"))
+        conn.close()
+        assert dates == ["2026-04-02", "2026-05-02"], "disjoint CSVs both survive"
+
+    def test_init_db_is_idempotent(self, tmp_path: Path) -> None:
+        """init_db is safe to call on an existing DB — all CREATE statements use IF NOT EXISTS."""
         db_path = tmp_path / "clean.db"
         init_db(db_path)
-        init_db(db_path)  # must not raise
-        init_db(db_path)  # third time for good measure
+        init_db(db_path)
+        init_db(db_path)
 
         conn = sqlite3.connect(str(db_path))
         rows = conn.execute("SELECT COUNT(*) FROM fidelity_transactions").fetchone()[0]

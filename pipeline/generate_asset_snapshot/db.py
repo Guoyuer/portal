@@ -174,12 +174,6 @@ CREATE TABLE IF NOT EXISTS categories (
 _INDEXES = """
 CREATE INDEX IF NOT EXISTS idx_fidelity_date     ON fidelity_transactions(run_date);
 CREATE INDEX IF NOT EXISTS idx_fidelity_acct_sym ON fidelity_transactions(account_number, symbol);
--- Natural-key uniqueness for fidelity_transactions: enforces idempotent ingest
--- (INSERT OR IGNORE) and prevents silent data loss from subset-CSV re-imports.
--- Local-only: 'action' is not in the D1 column subset, so gen_schema_sql.py
--- correctly skips this index when generating worker/schema.sql.
-CREATE UNIQUE INDEX IF NOT EXISTS idx_fidelity_natural_key
-  ON fidelity_transactions(run_date, action, symbol, quantity, price, amount);
 CREATE INDEX IF NOT EXISTS idx_daily_close_date  ON daily_close(date);
 CREATE INDEX IF NOT EXISTS idx_daily_tickers_date ON computed_daily_tickers(date);
 CREATE INDEX IF NOT EXISTS idx_qianji_txn_date ON qianji_transactions(date);
@@ -282,42 +276,10 @@ _VIEWS: dict[str, str] = {
 # ── Public API ───────────────────────────────────────────────────────────────
 
 
-def _migrate_fidelity_dedup(conn: sqlite3.Connection) -> int:
-    """One-time dedup pass on fidelity_transactions before the unique index lands.
-
-    Earlier builds used range-replace ingest (DELETE WHERE run_date BETWEEN ...;
-    INSERT) which could leave behind duplicate rows sharing the same natural key
-    (run_date, action, symbol, quantity, price, amount). The new unique index
-    refuses to be created over those duplicates, so this migration collapses
-    each dup cluster to its smallest-id row first.
-
-    Idempotent: on a clean DB (no duplicates) this deletes zero rows.
-    Returns the number of rows deleted so callers can log the cleanup.
-    """
-    # fidelity_transactions may not exist yet if init_db is being called on a
-    # brand-new file — _TABLES created it above, so it always exists here.
-    cur = conn.execute(
-        """
-        DELETE FROM fidelity_transactions
-         WHERE id NOT IN (
-             SELECT MIN(id) FROM fidelity_transactions
-              GROUP BY run_date, action, symbol, quantity, price, amount
-         )
-        """
-    )
-    return cur.rowcount
-
-
 def init_db(path: Path) -> None:
-    """Create the timemachine SQLite database with all tables, indexes, and views.
-
-    Runs the fidelity_transactions natural-key dedup migration before indexes
-    are created so legacy DBs with pre-PR duplicates can still be upgraded in
-    place.
-    """
+    """Create the timemachine SQLite database with all tables, indexes, and views."""
     conn = sqlite3.connect(path)
     conn.executescript(_TABLES)
-    _migrate_fidelity_dedup(conn)
     conn.executescript(_INDEXES)
     for view_sql in _VIEWS.values():
         conn.execute(view_sql)
