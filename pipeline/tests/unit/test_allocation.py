@@ -105,6 +105,11 @@ def _make_config() -> dict:
             "cny": ["Alipay"],
             "ticker_map": {"HYSA": "HYSA"},
         },
+        "fidelity_accounts": {
+            "Z29133576": "FZFXX",
+            "238986483": "FDRXX",
+            "Z29276228": "SPAXX",
+        },
     }
 
 

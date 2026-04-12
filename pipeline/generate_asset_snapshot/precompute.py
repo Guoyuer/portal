@@ -7,6 +7,8 @@ import os
 from datetime import date
 from pathlib import Path
 
+from .types import TRADING_DAYS_MONTH, TRADING_DAYS_YEAR
+
 _ASSET_KEY_MAP: dict[str, str] = {
     "US Equity": "usEquity",
     "Non-US Equity": "nonUsEquity",
@@ -67,7 +69,7 @@ def _compute_index_row(
     current = closes[-1]
 
     # Month return (~22 trading days back)
-    month_idx = max(0, len(closes) - 23)
+    month_idx = max(0, len(closes) - TRADING_DAYS_MONTH)
     month_return = round((current / closes[month_idx] - 1) * 100, 2)
 
     # YTD return (first trading day of current year)
@@ -78,12 +80,12 @@ def _compute_index_row(
     )
     ytd_return = round((current / ytd_start - 1) * 100, 2)
 
-    # 52-week high/low (~252 trading days)
-    year_closes = closes[-252:]
+    # 52-week high/low
+    year_closes = closes[-TRADING_DAYS_YEAR:]
     high_52w = max(year_closes)
     low_52w = min(year_closes)
 
-    # Sparkline: last 252 closes
+    # Sparkline: last ~1 year of closes
     sparkline = json.dumps(year_closes)
 
     return (ticker, name, current, month_return, ytd_return, high_52w, low_52w, sparkline)
@@ -222,12 +224,12 @@ def precompute_holdings_detail(db_path: Path) -> None:
             current = prices[-1]
 
             # Month return (~22 trading days)
-            month_idx = max(0, len(prices) - 23)
+            month_idx = max(0, len(prices) - TRADING_DAYS_MONTH)
             month_ret = round((current / prices[month_idx] - 1) * 100, 2)
             start_value = round(value / (1 + month_ret / 100), 2) if month_ret != -100 else 0.0
 
-            # 52-week high/low (~252 trading days)
-            year_prices = prices[-252:]
+            # 52-week high/low
+            year_prices = prices[-TRADING_DAYS_YEAR:]
             high = max(year_prices)
             low = min(year_prices)
             vs_high = round((current / high - 1) * 100, 2)

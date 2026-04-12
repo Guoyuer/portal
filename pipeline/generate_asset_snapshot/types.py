@@ -16,6 +16,10 @@ SUBTYPE_ORDER = ["broad", "growth", "other"]
 
 MIN_RECORDS_FOR_COMPLETE_MONTH = 25  # fewer records → likely partial month
 
+# Trading-day lookback windows (US equity market)
+TRADING_DAYS_MONTH = 23  # index offset for ~22 trading days back (~1 month)
+TRADING_DAYS_YEAR = 252  # ~1 year of US trading days (used for 52-week windows & sparklines)
+
 # Fidelity transaction action types (used in fidelity_history.py, report.py, reconcile.py)
 ACT_DEPOSIT = "deposit"
 ACT_BUY = "buy"
@@ -85,6 +89,7 @@ class Config(TypedDict):
     aliases: dict[str, str]
     goal: float
     qianji_accounts: QianjiAccountsConfig
+    fidelity_accounts: dict[str, str]  # account number -> money market fund ticker
 
 
 class Portfolio(TypedDict):

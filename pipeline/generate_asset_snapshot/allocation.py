@@ -118,6 +118,8 @@ def compute_daily_allocation(
     qj_accounts: dict[str, object] = config.get("qianji_accounts", {})  # type: ignore[assignment]
     ticker_map: dict[str, str] = qj_accounts.get("ticker_map", {})  # type: ignore[assignment]
     ticker_map.setdefault("401k", "401k sp500")
+    # Per-Fidelity-account money market fund ticker (cash sweep vehicle)
+    fidelity_accounts: dict[str, str] = config.get("fidelity_accounts", {})  # type: ignore[assignment]
     currencies = replay_qianji_currencies(qj_db)
 
     # ── Robinhood replay (optional) ──
@@ -209,14 +211,9 @@ def compute_daily_allocation(
             else:
                 log.warning("No price for %s on %s (holding %.3f shares) — excluded from allocation", sym, p_date, qty)
 
-        # Fidelity cash -> per-account money market ticker
-        acct_mm: dict[str, str] = {
-            "Z29133576": "FZFXX",    # Taxable
-            "238986483": "FDRXX",    # ROTH IRA
-            "Z29276228": "SPAXX",    # Cash Management
-        }
+        # Fidelity cash -> per-account money market ticker (from config)
         for acct_num, bal in fidelity_cash.items():
-            mm_ticker = acct_mm.get(acct_num, "FZFXX")
+            mm_ticker = fidelity_accounts.get(acct_num, "FZFXX")
             ticker_values[mm_ticker] = ticker_values.get(mm_ticker, 0) + bal
 
         # Qianji balances -> mapped tickers (including liabilities)
