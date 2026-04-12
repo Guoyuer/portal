@@ -137,27 +137,33 @@ export function StickyBrush({
 
   return (
     <div className="fixed bottom-0 left-0 right-0 md:left-56 z-40 bg-background/80 backdrop-blur-md border-t border-border px-4 py-2">
-      <div className="max-w-5xl mx-auto flex items-center gap-3">
-        <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap w-[90px] text-right">{startLabel}</span>
-        <div className="flex-1 min-w-0">
-          <ResponsiveContainer width="100%" height={34}>
-            <AreaChart data={chartData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
-              <XAxis dataKey="ts" hide />
-              <YAxis hide />
-              <Area type="monotone" dataKey="total" stroke="none" fill={isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)"} isAnimationActive={false} />
-              <Brush
-                dataKey="ts"
-                height={28}
-                {...brushColors(isDark)}
-                startIndex={defaultStartIndex}
-                endIndex={defaultEndIndex}
-                onChange={onBrushChange}
-                tickFormatter={() => ""}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
+      <div className="max-w-5xl mx-auto">
+        <div className="flex justify-between text-xs text-muted-foreground tabular-nums mb-1 md:hidden">
+          <span>{startLabel}</span>
+          <span>{endLabel}</span>
         </div>
-        <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap w-[90px]">{endLabel}</span>
+        <div className="flex items-center gap-3">
+          <span className="hidden md:inline text-xs text-muted-foreground tabular-nums whitespace-nowrap w-[90px] text-right">{startLabel}</span>
+          <div className="flex-1 min-w-0">
+            <ResponsiveContainer width="100%" height={34}>
+              <AreaChart data={chartData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                <XAxis dataKey="ts" hide />
+                <YAxis hide />
+                <Area type="monotone" dataKey="total" stroke="none" fill={isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)"} isAnimationActive={false} />
+                <Brush
+                  dataKey="ts"
+                  height={28}
+                  {...brushColors(isDark)}
+                  startIndex={defaultStartIndex}
+                  endIndex={defaultEndIndex}
+                  onChange={onBrushChange}
+                  tickFormatter={() => ""}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+          <span className="hidden md:inline text-xs text-muted-foreground tabular-nums whitespace-nowrap w-[90px]">{endLabel}</span>
+        </div>
       </div>
     </div>
   );
