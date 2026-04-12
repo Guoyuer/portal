@@ -16,6 +16,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from .ingest.robinhood_history import replay_robinhood
+from .prices import load_cny_rates, load_prices
 from .timemachine import (
     _parse_date,
     replay_from_db,
@@ -273,8 +275,6 @@ def compute_daily_allocation(
         list of {date, total, safe_net, safe_net_pct, us_equity_pct,
                  non_us_equity_pct, crypto_pct}.
     """
-    from .prices import load_cny_rates, load_prices
-
     # ── Load prices + CNY from DB ──
     prices = load_prices(db_path)
     cny_rates = load_cny_rates(db_path)
@@ -288,10 +288,9 @@ def compute_daily_allocation(
     currencies = replay_qianji_currencies(qj_db)
 
     # ── Robinhood replay (optional) ──
-    rh_replay_fn: Callable[..., dict[str, object]] | None = None
-    if robinhood_csv and robinhood_csv.exists():
-        from .ingest.robinhood_history import replay_robinhood
-        rh_replay_fn = replay_robinhood
+    rh_replay_fn: Callable[..., dict[str, object]] | None = (
+        replay_robinhood if robinhood_csv and robinhood_csv.exists() else None
+    )
 
     # ── Account exclusion sets ──
     skip_qj_accounts = _FIDELITY_REPLAY_ACCOUNTS | {"401k"}
