@@ -93,7 +93,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def _resolve_paths(args: argparse.Namespace) -> BuildPaths:
     """Resolve all file paths from parsed args and environment variables."""
     data_dir = args.data_dir or Path(os.environ.get("PORTAL_DATA_DIR", PIPELINE_DIR / "data"))
-    config = args.config or Path(os.environ.get("PORTAL_CONFIG", PIPELINE_DIR.parent / "data" / "config.json"))
+    config = args.config or Path(os.environ.get("PORTAL_CONFIG", PIPELINE_DIR / "config.json"))
     downloads = args.downloads or Path(os.environ.get("PORTAL_DOWNLOADS", Path.home() / "Downloads"))
     return BuildPaths(
         data_dir=data_dir,

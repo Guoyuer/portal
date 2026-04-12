@@ -2,7 +2,7 @@
 
 import pytest
 
-from generate_asset_snapshot.core.reconcile import (
+from generate_asset_snapshot.reconcile import (
     CrossReconciliationData,
     ReconciliationData,
     cross_reconcile,
