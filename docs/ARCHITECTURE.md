@@ -7,7 +7,7 @@ Personal finance dashboard: Next.js 16 static shell + Cloudflare Worker/D1.
 ```mermaid
 graph TB
     subgraph Local["Local machine"]
-        DETECT["run_portal_sync.ps1 — detect changes"]
+        DETECT["run_automation.py — detect changes (Task Scheduler via run_portal_sync.ps1 shim)"]
         BUILD["build_timemachine_db.py --incremental"]
         VALIDATE["validate_build() — gate"]
         DIFF["sync_to_d1.py --diff"]
@@ -121,8 +121,12 @@ python scripts/sync_to_d1.py --since 2026-04-01
 # Sync to D1 (DESTRUCTIVE full-replace — requires explicit flag)
 python scripts/sync_to_d1.py --full
 
-# Automated pipeline (Windows — detect changes → build → verify → sync)
-powershell -ExecutionPolicy Bypass -File pipeline\scripts\run_portal_sync.ps1
+# Automated pipeline (detect changes → build → verify → sync)
+# Orchestration lives in run_automation.py. Task Scheduler invokes the PS1 shim,
+# which just forwards args to this script.
+python scripts/run_automation.py                # default (live D1)
+python scripts/run_automation.py --dry-run      # build + verify, skip sync
+python scripts/run_automation.py --force --local  # bypass change detection, push to local D1
 ```
 
 CLI flags: `--data-dir`, `--config`, `--downloads`, `--no-validate`, `--csv <path>`.

@@ -30,13 +30,12 @@ cd pipeline && python3 scripts/build_timemachine_db.py
 cd pipeline && python3 scripts/sync_to_d1.py        # push to remote D1 (diff, default)
 cd pipeline && python3 scripts/sync_to_d1.py --local # push to local D1
 
-# Automated pipeline (Windows, manual run)
-powershell -ExecutionPolicy Bypass -File pipeline\scripts\run_portal_sync.ps1
+# Automated pipeline (orchestration in run_automation.py; PS1 is a thin Task Scheduler shim)
+cd pipeline && .venv/Scripts/python.exe scripts/run_automation.py            # detect-changes → build → verify → sync
+cd pipeline && .venv/Scripts/python.exe scripts/run_automation.py --dry-run   # build + verify, skip sync
+cd pipeline && .venv/Scripts/python.exe scripts/run_automation.py --force --local  # bypass change-detection, push to local D1
 
-# Dry run (build + verify, no sync)
-powershell -ExecutionPolicy Bypass -File pipeline\scripts\run_portal_sync.ps1 -DryRun
-
-# Register with Task Scheduler (daily 06:00)
+# Register with Task Scheduler (daily 06:00) — schtasks still points at the PS1 shim
 schtasks /create /tn "PortalSync" /tr "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Users\guoyu\Projects\portal\pipeline\scripts\run_portal_sync.ps1" /sc daily /st 06:00
 
 # E2E (mock API on port 4444 — no real backend needed)
