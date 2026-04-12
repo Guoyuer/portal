@@ -17,16 +17,12 @@ from __future__ import annotations
 
 import csv
 import re
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from typing import Any
 
+from ..timemachine import _parse_date
 from ..types import parse_float as _parse_float
-
-
-def _parse_date(s: str) -> date:
-    """Parse M/D/YYYY or MM/DD/YYYY."""
-    return datetime.strptime(s.strip(), "%m/%d/%Y").date()
 
 
 def _parse_amount(s: str) -> float:

@@ -16,16 +16,15 @@ from __future__ import annotations
 import csv
 import json
 import logging
-import os
 import re
 import sqlite3
-import sys
 from collections import defaultdict
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
 from .db import get_connection
+from .ingest.qianji_db import DEFAULT_DB_PATH as DEFAULT_QJ_DB
 from .types import parse_float as _float
 
 log = logging.getLogger(__name__)
@@ -46,12 +45,6 @@ STORE_HEADER = (
     "Type,Exchange Quantity,Exchange Currency,Currency,Price,Quantity,"
     "Exchange Rate,Commission,Fees,Accrued Interest,Amount,Settlement Date"
 )
-
-# Qianji default DB paths
-_WIN_QJ_DB = Path(os.environ.get("APPDATA", "")) / "com.mutangtech.qianji.win/qianji_flutter/qianjiapp.db"
-_MAC_QJ_DB = Path.home() / "Library/Containers/com.mutangtech.qianji.fltios/Data/Documents/qianjiapp.db"
-DEFAULT_QJ_DB = _WIN_QJ_DB if sys.platform == "win32" else _MAC_QJ_DB
-
 
 # ── Parsing ───────────────────────────────────────────────────────────────────
 

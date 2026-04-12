@@ -15,6 +15,7 @@ import {
 import type { TooltipContentProps } from "recharts/types/component/Tooltip";
 import type { TickerPricePoint, TickerTransaction, TickerPriceResponse } from "@/lib/schema";
 import { fmtCurrency, fmtDateMedium, fmtTick } from "@/lib/format";
+import { fidelityDateToIso } from "@/lib/compute";
 import { useIsDark } from "@/lib/hooks";
 import { tooltipStyle, gridStroke, axisProps } from "@/lib/chart-styles";
 import { getIsDark } from "@/lib/style-helpers";
@@ -33,10 +34,6 @@ export type TickerChartPoint = {
   sellAmount?: number;
 };
 
-/** Convert MM/DD/YYYY → YYYY-MM-DD */
-function runDateToIso(rd: string): string {
-  return `${rd.slice(6, 10)}-${rd.slice(0, 2)}-${rd.slice(3, 5)}`;
-}
 
 export function mergeTickerData(
   prices: TickerPricePoint[],
@@ -47,7 +44,7 @@ export function mergeTickerData(
   const sellMap = new Map<string, { price: number; qty: number; amount: number }>();
 
   for (const t of transactions) {
-    const iso = runDateToIso(t.runDate);
+    const iso = fidelityDateToIso(t.runDate);
     if (t.actionType === "buy" || t.actionType === "reinvestment") {
       const existing = buyMap.get(iso);
       if (existing) {
