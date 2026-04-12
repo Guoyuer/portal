@@ -1,11 +1,36 @@
-"""Pre-sync parity check: compare local timemachine.db against prod D1.
+"""Pre-sync gate: guard against local data loss and historical value drift.
 
-Exits 0 on match (sync is safe). Exits 1 on any drift (STOP, investigate).
+Exits 0 when sync is safe. Exits 1 on any real failure (STOP, investigate).
+
+The daily incremental flow ALWAYS produces local > prod (Yahoo fetches new
+prices before sync), so an "exact match" gate would block every automated run.
+Instead, this gate checks the only two things that actually matter:
+
+    1. Local data loss / partial rebuild — local MUST NOT have FEWER rows
+       than prod for any tracked table. If it does (e.g. DB deleted and
+       rebuilt from a subset of CSVs), sync would range-replace with the
+       subset and prod would lose data. FAIL.
+
+    2. Historical value drift — rows present in BOTH local and prod with
+       different values for immutable windows:
+         - daily_close: rows with date <= today - 7 must match to 4 decimals
+           (recent prices can be legitimately re-fetched; newer-than-7-day
+           drift is normal)
+         - computed_daily: recent 7 days present in both sides must agree
+           within $1 (this table is INSERT OR IGNORE so prod values are
+           frozen; drift implies a logic change that would desync)
+
+What this gate intentionally IGNORES:
+    - local > prod on row counts (the pre-sync normal; sync closes the gap)
+    - rows only in local, not prod (sync will propagate them)
+    - recent (< 7 days) daily_close value differences
 
 Samples (by default):
     - 10 random (symbol, date) rows from daily_close → compare `close`
-    - Last 7 days of computed_daily.total → compare within $1
-    - Row counts for 4 core tables
+      (rows from the recent 7-day window are filtered out before compare)
+    - Last 7 days of computed_daily.total → compare within $1 where both
+      sides have the date
+    - Row counts for 4 core tables (direction check: local >= prod)
 
 Requires: wrangler CLI authenticated, running from anywhere (uses worker dir).
 
@@ -24,6 +49,7 @@ import sqlite3
 import subprocess
 import sys
 from dataclasses import dataclass
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -69,24 +95,54 @@ def _query_prod(sql: str) -> list[dict[str, Any]]:
 # ── Comparisons ────────────────────────────────────────────────────────────
 
 def compare_row_counts(table: str, local: int, prod: int) -> CheckResult:
+    """OK when local >= prod. FAIL only when local is SHORT (data loss risk)."""
     if local == prod:
-        return CheckResult(ok=True, table=table, detail=f"{local} rows")
-    return CheckResult(ok=False, table=table, detail=f"local={local} prod={prod} diff={local - prod}")
+        return CheckResult(ok=True, table=table, detail=f"{local} rows (match)")
+    if local > prod:
+        return CheckResult(
+            ok=True, table=table,
+            detail=f"local={local} prod={prod} (local ahead by {local - prod} — will sync)",
+        )
+    return CheckResult(
+        ok=False, table=table,
+        detail=f"local={local} prod={prod} (local SHORT by {prod - local} — DATA LOSS RISK)",
+    )
 
 
 def compare_daily_close_samples(
     local: list[dict[str, Any]],
     prod: list[dict[str, Any]],
     tolerance: float = _CLOSE_TOLERANCE,
+    today: date | None = None,
 ) -> list[CheckResult]:
+    """Compare historical (date <= today - 7) rows only.
+
+    Recent prices can legitimately be re-fetched and differ, so they are
+    excluded from the comparison. Rows present only in local are ignored
+    (sync will propagate them). If every sampled row is within the recent
+    window, return a single informational OK result (don't fail the gate).
+    """
+    cutoff = ((today or date.today()) - timedelta(days=7)).isoformat()
+    historical = [r for r in local if r["date"] <= cutoff]
+    if not historical:
+        return [CheckResult(
+            ok=True, table="daily_close",
+            detail=f"sample was all within recent window (> {cutoff}) — skipped",
+        )]
+
     prod_map = {(r["symbol"], r["date"]): r["close"] for r in prod}
     results: list[CheckResult] = []
-    for r in local:
+    for r in historical:
         key = (r["symbol"], r["date"])
         lv = float(r["close"])
         pv = prod_map.get(key)
         if pv is None:
-            results.append(CheckResult(ok=False, table="daily_close", detail=f"{key} missing in prod"))
+            # Historical row missing in prod is unusual but not a drift failure.
+            # Sync will insert it; real data loss would be caught by row-count check.
+            results.append(CheckResult(
+                ok=True, table="daily_close",
+                detail=f"{key} only in local (will sync)",
+            ))
             continue
         if abs(lv - float(pv)) > tolerance:
             results.append(CheckResult(ok=False, table="daily_close", detail=f"{key} local={lv} prod={pv}"))
@@ -100,6 +156,13 @@ def compare_recent_totals(
     prod: list[dict[str, Any]],
     tolerance_dollars: float = _TOTAL_TOLERANCE_DOLLARS,
 ) -> list[CheckResult]:
+    """Compare only dates present in BOTH sides.
+
+    Dates only in local are skipped (sync will propagate them — normal).
+    `computed_daily` is INSERT OR IGNORE, so prod rows are frozen; any
+    value drift for a shared date implies a logic change that would
+    desync downstream consumers. FAIL in that case.
+    """
     prod_map = {r["date"]: float(r["total"]) for r in prod}
     results: list[CheckResult] = []
     for r in local:
@@ -107,7 +170,11 @@ def compare_recent_totals(
         lv = float(r["total"])
         pv = prod_map.get(d)
         if pv is None:
-            results.append(CheckResult(ok=False, table="computed_daily", detail=f"{d} missing in prod"))
+            # Only in local — sync will insert. Not a drift failure.
+            results.append(CheckResult(
+                ok=True, table="computed_daily",
+                detail=f"{d} only in local (will sync)",
+            ))
             continue
         if abs(lv - pv) > tolerance_dollars:
             results.append(CheckResult(ok=False, table="computed_daily",

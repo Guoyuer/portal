@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import date
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
@@ -28,33 +29,89 @@ def test_parse_wrangler_json_empty_results():
     assert parse_wrangler_json(raw) == []
 
 
+# ── Row counts: new semantics (local >= prod is OK) ────────────────────────
+
 def test_compare_row_counts_match():
+    """Exact match is OK."""
     result = compare_row_counts("fidelity_transactions", local=1765, prod=1765)
     assert result.ok is True
-    assert result.table == "fidelity_transactions"
+    assert "match" in result.detail
 
 
-def test_compare_row_counts_mismatch():
+def test_compare_row_counts_local_ahead_ok():
+    """Local > prod is the normal pre-sync state — must PASS."""
+    result = compare_row_counts("daily_close", local=52009, prod=46197)
+    assert result.ok is True
+    assert "5812" in result.detail
+    assert "ahead" in result.detail
+
+
+def test_compare_row_counts_local_short_fails():
+    """Local < prod means partial rebuild / data loss risk — must FAIL."""
     result = compare_row_counts("fidelity_transactions", local=1765, prod=1800)
     assert result.ok is False
-    assert "-35" in result.detail or "35" in result.detail
+    assert "SHORT" in result.detail
+    assert "35" in result.detail
 
+
+# ── daily_close samples: historical-only compare ───────────────────────────
 
 def test_compare_daily_close_tolerance():
-    """Within 0.0001 is OK."""
+    """Historical rows within 0.0001 are OK."""
     local = [{"symbol": "SCHD", "date": "2024-10-01", "close": 84.4800}]
     prod = [{"symbol": "SCHD", "date": "2024-10-01", "close": 84.4801}]
-    results = compare_daily_close_samples(local, prod, tolerance=0.0001)
+    results = compare_daily_close_samples(local, prod, tolerance=0.0001, today=date(2026, 4, 12))
     assert all(r.ok for r in results)
 
 
 def test_compare_daily_close_mismatch():
-    """Beyond tolerance is not OK."""
+    """Historical row beyond tolerance must FAIL."""
     local = [{"symbol": "SCHD", "date": "2024-10-01", "close": 84.48}]
     prod = [{"symbol": "SCHD", "date": "2024-10-01", "close": 26.62}]  # Adj Close era
-    results = compare_daily_close_samples(local, prod, tolerance=0.0001)
+    results = compare_daily_close_samples(local, prod, tolerance=0.0001, today=date(2026, 4, 12))
     assert any(not r.ok for r in results)
 
+
+def test_compare_daily_close_ignores_recent():
+    """Rows within the (today - 7, today] window must be skipped.
+
+    Recent prices can legitimately be re-fetched and differ; they should
+    not be compared or trigger a failure.
+    """
+    today = date(2026, 4, 12)
+    # 2026-04-10 is within the 7-day window (today - 7 = 2026-04-05)
+    local = [{"symbol": "SCHD", "date": "2026-04-10", "close": 100.00}]
+    prod = [{"symbol": "SCHD", "date": "2026-04-10", "close": 99.00}]  # $1 different
+    results = compare_daily_close_samples(local, prod, tolerance=0.0001, today=today)
+    # All results should be OK (sample skipped, not failed)
+    assert all(r.ok for r in results)
+    assert len(results) == 1
+    assert "skipped" in results[0].detail.lower()
+
+
+def test_compare_daily_close_cutoff_boundary():
+    """Date exactly at today - 7 is historical (<=) and must be compared."""
+    today = date(2026, 4, 12)
+    # 2026-04-05 is exactly today - 7 → historical → compared
+    local = [{"symbol": "SCHD", "date": "2026-04-05", "close": 100.00}]
+    prod = [{"symbol": "SCHD", "date": "2026-04-05", "close": 200.00}]  # big drift
+    results = compare_daily_close_samples(local, prod, tolerance=0.0001, today=today)
+    assert any(not r.ok for r in results)
+
+
+def test_compare_daily_close_missing_in_prod_ok():
+    """Historical row only in local (not in prod) is not a drift failure.
+
+    The row-count check catches real data loss; this is just sync lag.
+    """
+    today = date(2026, 4, 12)
+    local = [{"symbol": "SCHD", "date": "2024-10-01", "close": 84.48}]
+    prod: list[dict] = []
+    results = compare_daily_close_samples(local, prod, tolerance=0.0001, today=today)
+    assert all(r.ok for r in results)
+
+
+# ── computed_daily totals: shared-date compare only ────────────────────────
 
 def test_compare_recent_totals_within_dollar():
     local = [{"date": "2026-04-12", "total": 422369.00}]
@@ -64,7 +121,34 @@ def test_compare_recent_totals_within_dollar():
 
 
 def test_compare_recent_totals_big_drift():
+    """Shared date with big drift must FAIL (INSERT OR IGNORE → prod frozen)."""
     local = [{"date": "2026-04-12", "total": 422369.00}]
     prod = [{"date": "2026-04-12", "total": 411000.00}]
     results = compare_recent_totals(local, prod, tolerance_dollars=1.0)
     assert any(not r.ok for r in results)
+
+
+def test_compare_recent_totals_missing_in_prod_skipped():
+    """Date only in local is normal pre-sync state — must NOT be a failure."""
+    local = [{"date": "2026-04-12", "total": 422369.00}]
+    prod: list[dict] = []  # today's value hasn't been synced yet
+    results = compare_recent_totals(local, prod, tolerance_dollars=1.0)
+    assert all(r.ok for r in results)
+    assert any("only in local" in r.detail for r in results)
+
+
+def test_compare_recent_totals_mixed_shared_and_local_only():
+    """Shared dates are compared; local-only dates are skipped.
+
+    Together they reflect the real automation state: newest date only in
+    local (ok), older date in both (must match).
+    """
+    local = [
+        {"date": "2026-04-12", "total": 422369.00},  # only in local
+        {"date": "2026-04-11", "total": 421000.00},  # shared, matches
+    ]
+    prod = [
+        {"date": "2026-04-11", "total": 421000.50},
+    ]
+    results = compare_recent_totals(local, prod, tolerance_dollars=1.0)
+    assert all(r.ok for r in results)
