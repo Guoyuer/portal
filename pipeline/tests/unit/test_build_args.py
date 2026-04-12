@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 import sys
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-from scripts.build_timemachine_db import _parse_args, _resolve_paths
+from scripts.build_timemachine_db import BuildPaths, _parse_args, _resolve_paths
 
 
 class TestParseArgs:
@@ -102,3 +103,14 @@ class TestResolvePaths:
             args = _parse_args([])
             paths = _resolve_paths(args)
             assert paths.data_dir == tmp_path
+
+    def test_returns_build_paths(self):
+        args = _parse_args([])
+        paths = _resolve_paths(args)
+        assert isinstance(paths, BuildPaths)
+
+    def test_build_paths_is_frozen(self, tmp_path):
+        args = _parse_args([])
+        paths = _resolve_paths(args)
+        with pytest.raises(FrozenInstanceError):
+            paths.db_path = tmp_path / "hacked.db"  # type: ignore[misc]
