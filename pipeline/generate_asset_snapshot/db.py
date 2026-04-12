@@ -8,11 +8,8 @@ from pathlib import Path
 from typing import Any
 
 from .empower_401k import Contribution, parse_qfx
-from .ingest.fidelity_history import (
-    _FIDELITY_DATE_RE,
-    _classify_action,
-    normalize_fidelity_date,
-)
+from .ingest.fidelity_history import _classify_action
+from .parsing import STRICT_US_DATE_RE, parse_us_date
 from .types import MARKET_META_KEYS
 from .types import parse_float as _parse_float
 
@@ -308,11 +305,12 @@ def ingest_fidelity_csv(db_path: Path, csv_path: Path) -> int:
         run_date_raw = record.get("Run Date", "").strip()
         # Skip blank rows and footer/disclaimer text; only rows shaped like a
         # Fidelity date participate in ingestion.
-        if not _FIDELITY_DATE_RE.match(run_date_raw):
+        if not STRICT_US_DATE_RE.match(run_date_raw):
             continue
 
-        iso_date = normalize_fidelity_date(
+        iso_date = parse_us_date(
             run_date_raw,
+            strict=True,
             row_context=f"{csv_path.name} line {header_idx + 2 + offset}",
         )
 

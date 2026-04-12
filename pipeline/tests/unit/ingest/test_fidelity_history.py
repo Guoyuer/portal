@@ -4,10 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from generate_asset_snapshot.ingest.fidelity_history import (
-    load_transactions,
-    normalize_fidelity_date,
-)
+from generate_asset_snapshot.ingest.fidelity_history import load_transactions
+from generate_asset_snapshot.parsing import parse_us_date
 
 
 class TestLoadTransactions:
@@ -155,36 +153,36 @@ class TestLoadTransactions:
         assert len(roth_txns) == 2  # SVIX buy and sell in ROTH IRA
 
 
-class TestNormalizeFidelityDate:
-    """Tests for normalize_fidelity_date() — strict MM/DD/YYYY → ISO conversion."""
+class TestFidelityDateParse:
+    """Tests for Fidelity's strict MM/DD/YYYY → ISO conversion via parse_us_date."""
 
     def test_happy_path(self) -> None:
-        assert normalize_fidelity_date("01/15/2026") == "2026-01-15"
+        assert parse_us_date("01/15/2026", strict=True) == "2026-01-15"
 
     def test_preserves_leading_zeros(self) -> None:
-        assert normalize_fidelity_date("09/04/2026") == "2026-09-04"
+        assert parse_us_date("09/04/2026", strict=True) == "2026-09-04"
 
     def test_end_of_year(self) -> None:
-        assert normalize_fidelity_date("12/31/2025") == "2025-12-31"
+        assert parse_us_date("12/31/2025", strict=True) == "2025-12-31"
 
     def test_rejects_empty_string(self) -> None:
-        with pytest.raises(ValueError, match="Invalid Fidelity Run Date"):
-            normalize_fidelity_date("")
+        with pytest.raises(ValueError, match="Invalid"):
+            parse_us_date("", strict=True)
 
     def test_rejects_one_digit_month(self) -> None:
         """Fidelity exports use zero-padded months; reject single digits."""
-        with pytest.raises(ValueError, match="Invalid Fidelity Run Date"):
-            normalize_fidelity_date("1/15/2026")
+        with pytest.raises(ValueError, match="Invalid"):
+            parse_us_date("1/15/2026", strict=True)
 
     def test_rejects_iso_date(self) -> None:
         """ISO format must be rejected at the Fidelity boundary."""
-        with pytest.raises(ValueError, match="Invalid Fidelity Run Date"):
-            normalize_fidelity_date("2026-01-15")
+        with pytest.raises(ValueError, match="Invalid"):
+            parse_us_date("2026-01-15", strict=True)
 
     def test_rejects_garbage(self) -> None:
-        with pytest.raises(ValueError, match="Invalid Fidelity Run Date"):
-            normalize_fidelity_date("abc")
+        with pytest.raises(ValueError, match="Invalid"):
+            parse_us_date("abc", strict=True)
 
     def test_error_message_includes_row_context(self) -> None:
         with pytest.raises(ValueError, match=r"Accounts_History\.csv row 42"):
-            normalize_fidelity_date("bad", row_context="Accounts_History.csv row 42")
+            parse_us_date("bad", strict=True, row_context="Accounts_History.csv row 42")

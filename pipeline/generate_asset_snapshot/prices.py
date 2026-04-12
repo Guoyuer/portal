@@ -13,7 +13,7 @@ import pandas as pd
 import yfinance as yf
 
 from .db import get_connection
-from .ingest.fidelity_history import normalize_fidelity_date
+from .parsing import parse_us_date
 from .timemachine import MM_SYMBOLS, POSITION_PREFIXES, _load_raw_rows, _parse_date
 from .types import parse_float as _float
 
@@ -63,7 +63,7 @@ def symbol_holding_periods(store_path: Path) -> dict[str, tuple[date, date | Non
     raw_rows = _load_raw_rows(store_path)
     rows = [
         (
-            normalize_fidelity_date(row["Run Date"], row_context=store_path.name),
+            parse_us_date(row["Run Date"], strict=True, row_context=store_path.name),
             (row.get("Symbol") or "").strip(),
             (row.get("Action") or "").upper(),
             _float(row.get("Quantity", "")),

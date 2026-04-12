@@ -17,16 +17,12 @@ from __future__ import annotations
 
 import csv
 import re
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from typing import Any
 
+from ..parsing import parse_us_date
 from ..types import parse_float as _parse_float
-
-
-def _parse_rh_date(activity_date: str) -> date:
-    """Parse a Robinhood Activity Date: ``M/D/YYYY`` (may be non-zero-padded)."""
-    return datetime.strptime(activity_date.strip(), "%m/%d/%Y").date()
 
 
 def _parse_amount(s: str) -> float:
@@ -55,7 +51,7 @@ def load_robinhood_csv(csv_path: Path) -> list[dict[str, Any]]:
             continue
 
         rows.append({
-            "date": _parse_rh_date(activity_date),
+            "date": date.fromisoformat(parse_us_date(activity_date.strip())),
             "instrument": (record.get("Instrument") or "").strip(),
             "trans_code": (record.get("Trans Code") or "").strip(),
             "quantity": _parse_float(record.get("Quantity", "")),

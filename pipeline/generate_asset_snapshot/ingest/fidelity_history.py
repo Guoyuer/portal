@@ -13,9 +13,9 @@ from __future__ import annotations
 
 import csv
 import logging
-import re
 from pathlib import Path
 
+from ..parsing import STRICT_US_DATE_RE, parse_us_date
 from ..types import (
     ACT_BUY,
     ACT_COLLATERAL,
@@ -41,31 +41,6 @@ from ..types import (
 )
 
 log = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Date normalization
-# ---------------------------------------------------------------------------
-
-_FIDELITY_DATE_RE = re.compile(r"^(\d{2})/(\d{2})/(\d{4})$")
-
-
-def normalize_fidelity_date(raw: str, *, row_context: str = "") -> str:
-    """Normalize a Fidelity CSV ``Run Date`` (``MM/DD/YYYY``) to ISO ``YYYY-MM-DD``.
-
-    Raises ``ValueError`` for anything that does not match the strict
-    ``MM/DD/YYYY`` pattern. The caller is responsible for skipping blank
-    run_date lines and footer/disclaimer rows before calling this helper.
-
-    ``row_context`` is appended to the error message (e.g. row number, file
-    name) so malformed input can be traced back to the source.
-    """
-    match = _FIDELITY_DATE_RE.match(raw)
-    if match is None:
-        suffix = f" ({row_context})" if row_context else ""
-        msg = f"Invalid Fidelity Run Date {raw!r}: expected MM/DD/YYYY{suffix}"
-        raise ValueError(msg)
-    month, day, year = match.groups()
-    return f"{year}-{month}-{day}"
 
 # ---------------------------------------------------------------------------
 # Action classification
@@ -143,10 +118,10 @@ def _parse_csv_text(text: str, *, source: str = "CSV text") -> list[FidelityTran
             continue
         # Skip footer/disclaimer rows — anything that doesn't look like a
         # date is assumed to be narrative text and is dropped silently.
-        if not _FIDELITY_DATE_RE.match(run_date):
+        if not STRICT_US_DATE_RE.match(run_date):
             continue
 
-        iso_date = normalize_fidelity_date(run_date, row_context=f"{source} row {row_num}")
+        iso_date = parse_us_date(run_date, strict=True, row_context=f"{source} row {row_num}")
 
         raw_action = (row.get("Action") or "").strip()
         symbol = (row.get("Symbol") or "").strip()
