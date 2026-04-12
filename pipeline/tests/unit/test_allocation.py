@@ -22,6 +22,8 @@ if "yfinance" not in sys.modules:
     sys.modules["yfinance"] = _yf
 
 from generate_asset_snapshot.allocation import (  # noqa: E402
+    _categorize_ticker,
+    _find_price_date,
     _qianji_transaction_dates,
     compute_daily_allocation,
 )
@@ -363,3 +365,66 @@ class TestComputeDailyAllocation:
         # All should have same positions → similar totals
         totals = [r["total"] for r in results]
         assert all(t > 0 for t in totals)
+
+
+# ── _find_price_date ───────────────────────────────────────────────────────
+
+import pandas as pd  # noqa: E402
+
+
+class TestFindPriceDate:
+    def _prices(self, dates: list[str]) -> pd.DataFrame:
+        return pd.DataFrame(index=pd.to_datetime(dates).date, data={"VOO": [100.0] * len(dates)})
+
+    def test_exact_match_returns_target(self) -> None:
+        prices = self._prices(["2025-01-02", "2025-01-03"])
+        assert _find_price_date(prices, date(2025, 1, 3), date(2025, 1, 1)) == date(2025, 1, 3)
+
+    def test_walks_back_to_prior_trading_day(self) -> None:
+        # Saturday → walk back to Friday
+        prices = self._prices(["2025-01-03"])  # Friday
+        assert _find_price_date(prices, date(2025, 1, 4), date(2025, 1, 1)) == date(2025, 1, 3)
+
+    def test_stops_at_floor(self) -> None:
+        # No prices exist, should stop at floor
+        prices = self._prices(["2025-06-01"])
+        result = _find_price_date(prices, date(2025, 1, 5), date(2025, 1, 2))
+        assert result == date(2025, 1, 2)  # floor, not in prices
+
+
+# ── _categorize_ticker ──────────────────────────────────────────────────────
+
+class TestCategorizeTicker:
+    ASSETS = {
+        "VOO": {"category": "US Equity", "subtype": "broad"},
+        "VXUS": {"category": "Non-US Equity", "subtype": "broad"},
+    }
+
+    def test_positive_value_with_cost_basis(self) -> None:
+        row = _categorize_ticker("VOO", 5500.0, self.ASSETS, {"VOO": 5000.0})
+        assert row == {
+            "ticker": "VOO", "value": 5500.0,
+            "category": "US Equity", "subtype": "broad",
+            "cost_basis": 5000.0, "gain_loss": 500.0, "gain_loss_pct": 10.0,
+        }
+
+    def test_positive_value_without_cost_basis(self) -> None:
+        row = _categorize_ticker("VOO", 5500.0, self.ASSETS, {})
+        assert row["gain_loss"] == 0
+        assert row["gain_loss_pct"] == 0
+
+    def test_negative_value_becomes_liability(self) -> None:
+        row = _categorize_ticker("Chase CC", -2000.0, self.ASSETS, {})
+        assert row["category"] == "Liability"
+        assert row["subtype"] == ""
+        assert row["value"] == -2000.0
+
+    def test_missing_asset_raises(self) -> None:
+        import pytest as _pytest
+        with _pytest.raises(KeyError, match="not in config.assets"):
+            _categorize_ticker("UNKNOWN", 100.0, self.ASSETS, {})
+
+    def test_missing_category_raises(self) -> None:
+        import pytest as _pytest
+        with _pytest.raises(KeyError, match="no 'category'"):
+            _categorize_ticker("X", 100.0, {"X": {"subtype": "foo"}}, {})

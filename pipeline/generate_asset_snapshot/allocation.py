@@ -39,6 +39,44 @@ def _qianji_transaction_dates(db_path: Path) -> list[date]:
     return sorted(dates)
 
 
+def _find_price_date(prices: pd.DataFrame, target: date, floor: date) -> date:
+    """Find the latest date ≤ target that has prices, walking back to ``floor``."""
+    d = target
+    while d not in prices.index and d > floor:
+        d -= timedelta(days=1)
+    return d
+
+
+def _categorize_ticker(
+    ticker: str,
+    value: float,
+    assets: dict[str, object],
+    cost_basis_by_ticker: dict[str, float],
+) -> dict[str, object]:
+    """Classify a single ticker into a detail row with category/subtype/gain-loss."""
+    if value < 0:
+        return {
+            "ticker": ticker, "value": round(value, 2),
+            "category": "Liability", "subtype": "",
+            "cost_basis": 0, "gain_loss": 0, "gain_loss_pct": 0,
+        }
+    asset_entry = assets.get(ticker)
+    if not isinstance(asset_entry, dict):
+        raise KeyError(f"Ticker {ticker!r} not in config.assets — add it to config.json to classify this holding")
+    cat = asset_entry.get("category", "")
+    sub = asset_entry.get("subtype", "")
+    if not cat:
+        raise KeyError(f"Ticker {ticker!r} has no 'category' in config.assets")
+    cb = cost_basis_by_ticker.get(ticker, 0)
+    gl = round(value - cb, 2) if cb > 0 else 0
+    gl_pct = round(gl / cb * 100, 2) if cb > 0 else 0
+    return {
+        "ticker": ticker, "value": round(value, 2),
+        "category": cat, "subtype": sub,
+        "cost_basis": round(cb, 2), "gain_loss": gl, "gain_loss_pct": gl_pct,
+    }
+
+
 # ── Daily allocation ───────────────────────────────────────────────────────
 
 
@@ -140,12 +178,8 @@ def compute_daily_allocation(
         fidelity_cash = cached_cash or {}
         qj_balances = cached_qj or {}
 
-        # ── Find nearest price date ──
-        price_date = current
-        while price_date not in prices.index and price_date > start:
-            price_date -= timedelta(days=1)
-
-        # ── Historical CNY rate (forward-fill) ──
+        # ── Find nearest price date + CNY rate (forward-fill) ──
+        price_date = _find_price_date(prices, current, start)
         cny_date = current
         while cny_date not in cny_rates and cny_date > start:
             cny_date -= timedelta(days=1)
@@ -159,9 +193,7 @@ def compute_daily_allocation(
         # yfinance labels mutual fund NAV with date T but it's actually T+1's NAV.
         # Use T-1 price for mutual funds to align with the correct trading day.
         mutual_funds = frozenset({"FXAIX", "FSSNX", "FNJHX"})
-        mf_price_date = price_date - timedelta(days=1)
-        while mf_price_date not in prices.index and mf_price_date > start:
-            mf_price_date -= timedelta(days=1)
+        mf_price_date = _find_price_date(prices, price_date - timedelta(days=1), start)
 
         # Fidelity positions x price
         for (_acct, sym), qty in positions.items():
@@ -235,33 +267,16 @@ def compute_daily_allocation(
             cost_basis_by_ticker[sym] = cost_basis_by_ticker.get(sym, 0) + cb
 
         for ticker, value in ticker_values.items():
+            if value == 0:
+                continue
+            row = _categorize_ticker(ticker, value, assets, cost_basis_by_ticker)
+            ticker_detail.append(row)
             if value < 0:
                 liabilities += value
-                ticker_detail.append({
-                    "ticker": ticker, "value": round(value, 2),
-                    "category": "Liability", "subtype": "",
-                    "cost_basis": 0, "gain_loss": 0, "gain_loss_pct": 0,
-                })
-                continue
-            if value <= 0:
-                continue
-            asset_entry = assets.get(ticker)
-            if not isinstance(asset_entry, dict):
-                raise KeyError(f"Ticker {ticker!r} not in config.assets — add it to config.json to classify this holding")
-            cat = asset_entry.get("category", "")
-            sub = asset_entry.get("subtype", "")
-            if not cat:
-                raise KeyError(f"Ticker {ticker!r} has no 'category' in config.assets")
-            category_totals[cat] = category_totals.get(cat, 0) + value
-            total += value
-            cb = cost_basis_by_ticker.get(ticker, 0)
-            gl = round(value - cb, 2) if cb > 0 else 0
-            gl_pct = round(gl / cb * 100, 2) if cb > 0 else 0
-            ticker_detail.append({
-                "ticker": ticker, "value": round(value, 2),
-                "category": cat, "subtype": sub,
-                "cost_basis": round(cb, 2), "gain_loss": gl, "gain_loss_pct": gl_pct,
-            })
+            else:
+                cat_key = str(row["category"])
+                category_totals[cat_key] = category_totals.get(cat_key, 0) + value
+                total += value
 
         safe_net = category_totals.get("Safe Net", 0)
 

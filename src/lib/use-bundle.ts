@@ -90,6 +90,7 @@ export function useBundle(): BundleState {
   const chartDaily = data?.daily ?? [];
 
   const defaultEndIndex = chartDaily.length > 0 ? chartDaily.length - 1 : 0;
+  // Default brush range shows ~1 year (252 US trading days per calendar year)
   const TRADING_DAYS_PER_YEAR = 252;
   const defaultStartIndex = (!data || chartDaily.length === 0)
     ? 0

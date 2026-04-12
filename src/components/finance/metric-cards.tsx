@@ -13,13 +13,18 @@ const RING_STROKE = 6;
 const RING_R = (RING_SIZE - RING_STROKE) / 2;
 const RING_C = 2 * Math.PI * RING_R;
 
-function srColor(rate: number): string {
-  if (rate >= SAVINGS_RATE_GOOD) return "#059669";
-  if (rate >= SAVINGS_RATE_WARNING) return "#CA8A04";
-  return "#DC2626";
+// Tailwind-style semantic colors for the savings rate ring
+const SR_COLOR_GOOD = "#059669";     // emerald-600
+const SR_COLOR_WARNING = "#CA8A04";  // amber-600
+const SR_COLOR_BAD = "#DC2626";      // red-600
+
+function savingsRateColor(rate: number): string {
+  if (rate >= SAVINGS_RATE_GOOD) return SR_COLOR_GOOD;
+  if (rate >= SAVINGS_RATE_WARNING) return SR_COLOR_WARNING;
+  return SR_COLOR_BAD;
 }
 
-function srColorMuted(rate: number): string {
+function savingsRateColorMuted(rate: number): string {
   if (rate >= SAVINGS_RATE_GOOD) return "rgba(5, 150, 105, 0.3)";
   if (rate >= SAVINGS_RATE_WARNING) return "rgba(202, 138, 4, 0.3)";
   return "rgba(220, 38, 38, 0.3)";
@@ -47,8 +52,8 @@ function SavingsRateCard({
   const pretax = Math.max(0, savingsRate - takehomeSavingsRate);
   const takehomeArc = RING_C * (Math.min(takehomeSavingsRate, 100) / 100);
   const pretaxArc = RING_C * (Math.min(pretax, 100) / 100);
-  const color = srColor(takehomeSavingsRate);
-  const colorMuted = srColorMuted(takehomeSavingsRate);
+  const color = savingsRateColor(takehomeSavingsRate);
+  const colorMuted = savingsRateColorMuted(takehomeSavingsRate);
 
   return (
     <div data-slot="card" data-testid="savings-rate-card" className="liquid-glass p-4 flex items-center gap-3">

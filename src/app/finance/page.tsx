@@ -41,6 +41,37 @@ const SECTION_LABELS = {
   "market": "Market",
 } as const;
 
+type CashflowData = NonNullable<ReturnType<typeof useBundle>["cashflow"]>;
+
+function CashFlowContent({
+  cashflow,
+  monthlyFlows,
+  activeMonth,
+}: {
+  cashflow: CashflowData | null;
+  monthlyFlows: ReturnType<typeof useBundle>["monthlyFlows"];
+  activeMonth: string | undefined;
+}) {
+  if (!cashflow) {
+    return <SectionBody><p className="text-sm text-red-400">Cash flow data unavailable</p></SectionBody>;
+  }
+  if (cashflow.totalIncome === 0 && cashflow.totalExpenses === 0) {
+    return <SectionBody><p className="text-sm text-muted-foreground">No transactions in this period</p></SectionBody>;
+  }
+  return (
+    <>
+      <SectionBody><CashFlow data={cashflow} /></SectionBody>
+      {monthlyFlows.length > 0 && (
+        <div className="liquid-glass mt-4 overflow-hidden">
+          <div className="px-3 sm:px-5 pb-3 sm:pb-5 pt-3">
+            <IncomeExpensesChart data={monthlyFlows} activeMonth={activeMonth} />
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 // ── Finance Page ──────────────────────────────────────────────────────
 
 export default function FinancePage() {
@@ -117,30 +148,11 @@ export default function FinancePage() {
       <ErrorBoundary fallback={<SectionError label="Cash Flow" />}>
         <section id="cashflow">
           <SectionHeader>{SECTION_LABELS["cashflow"]}</SectionHeader>
-          {tl.cashflow ? (
-            tl.cashflow.totalIncome === 0 && tl.cashflow.totalExpenses === 0 ? (
-              <SectionBody><p className="text-sm text-muted-foreground">No transactions in this period</p></SectionBody>
-            ) : (
-              <>
-                <SectionBody>
-                  <CashFlow data={tl.cashflow} />
-                </SectionBody>
-
-                {tl.monthlyFlows.length > 0 && (
-                  <div className="liquid-glass mt-4 overflow-hidden">
-                    <div className="px-3 sm:px-5 pb-3 sm:pb-5 pt-3">
-                      <IncomeExpensesChart
-                        data={tl.monthlyFlows}
-                        activeMonth={snapshotDate?.slice(0, 7)}
-                      />
-                    </div>
-                  </div>
-                )}
-              </>
-            )
-          ) : (
-            <SectionBody><p className="text-sm text-red-400">Cash flow data unavailable</p></SectionBody>
-          )}
+          <CashFlowContent
+            cashflow={tl.cashflow}
+            monthlyFlows={tl.monthlyFlows}
+            activeMonth={snapshotDate?.slice(0, 7)}
+          />
         </section>
       </ErrorBoundary>
 
