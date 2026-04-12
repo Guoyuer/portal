@@ -210,6 +210,83 @@ class TestPrecomputeFred:
             conn.close()
         assert rows == []
 
+    def test_inserts_snapshot_and_series_when_api_returns_data(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """Snapshot keys are remapped per _FRED_SNAPSHOT_KEYS; series rows land in econ_series."""
+        monkeypatch.setenv("FRED_API_KEY", "fake-key")
+        fake_fred = {
+            "snapshot": {
+                "fedFundsRate": 5.25,
+                "treasury10y": 4.50,
+                "cpiYoy": 3.20,
+                "unemployment": 3.70,
+                "vix": 14.50,
+            },
+            "series": {
+                "fedRate": [
+                    {"date": "2025-01-01", "value": 5.25},
+                    {"date": "2025-02-01", "value": 5.00},
+                ],
+                "cpi": [
+                    {"date": "2025-01-01", "value": 3.20},
+                ],
+            },
+        }
+        monkeypatch.setattr(
+            "generate_asset_snapshot.market.fred.fetch_fred_data",
+            lambda _key: fake_fred,
+        )
+
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        conn = get_connection(db_path)
+        try:
+            _precompute_fred(conn)
+            conn.commit()
+
+            indicators = dict(
+                conn.execute("SELECT key, value FROM computed_market_indicators")
+            )
+            series_rows = conn.execute(
+                "SELECT key, date, value FROM econ_series ORDER BY key, date"
+            ).fetchall()
+        finally:
+            conn.close()
+
+        # Snapshot keys get remapped per _FRED_SNAPSHOT_KEYS
+        assert indicators == {
+            "fedRate": 5.25,
+            "treasury10y": 4.50,
+            "cpi": 3.20,
+            "unemployment": 3.70,
+            "vix": 14.50,
+        }
+        # Series rows persist 1:1 (no remapping)
+        assert series_rows == [
+            ("cpi", "2025-01-01", 3.20),
+            ("fedRate", "2025-01-01", 5.25),
+            ("fedRate", "2025-02-01", 5.00),
+        ]
+
+    def test_none_from_api_is_noop(self, tmp_path: Path, monkeypatch) -> None:
+        """fetch_fred_data returning None (total failure) should not insert or raise."""
+        monkeypatch.setenv("FRED_API_KEY", "fake-key")
+        monkeypatch.setattr(
+            "generate_asset_snapshot.market.fred.fetch_fred_data",
+            lambda _key: None,
+        )
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        conn = get_connection(db_path)
+        try:
+            _precompute_fred(conn)
+            conn.commit()
+            rows = conn.execute("SELECT * FROM computed_market_indicators").fetchall()
+        finally:
+            conn.close()
+        assert rows == []
+
 
 # ── precompute_holdings_detail ─────────────────────────────────────────────
 
