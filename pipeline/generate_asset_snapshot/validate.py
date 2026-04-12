@@ -108,8 +108,19 @@ def _check_holdings_have_prices(db_path: Path) -> list[CheckResult]:
             (latest_date,),
         ).fetchall()
 
+        # Tickers valued from Qianji balances, Fidelity cash, or face value — no daily_close needed
+        non_price_tickers = frozenset({
+            "SPAXX", "FZFXX", "FDRXX",  # money market (cash)
+            "Debit Cash", "I Bonds", "CNY Assets", "Gift Card", "Cash",  # Qianji book-value
+            "Amex HYSA", "Amex Saving", "USDC", "T-Bills",  # Qianji + CUSIPs
+            "Robinhood",  # Qianji book-value
+            "401k sp500", "401k ex-us", "401k tech",  # Empower proxy
+            "Alipay Funds", "Managed Fund", "蓝天宇代管",  # CNY assets
+        })
         missing: list[str] = []
         for (ticker,) in tickers:
+            if ticker in non_price_tickers:
+                continue
             price_row = conn.execute(
                 "SELECT 1 FROM daily_close WHERE symbol = ? LIMIT 1",
                 (ticker,),
