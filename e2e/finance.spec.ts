@@ -1,22 +1,9 @@
-import { test, expect, type Page } from "@playwright/test";
-
-/** Wait for data to load — returns false if page shows error/skeleton instead. */
-async function waitForData(page: Page): Promise<boolean> {
-  try {
-    await page.getByTestId("page-title").waitFor({ timeout: 5000 });
-    return true;
-  } catch {
-    return false;
-  }
-}
+import { test, expect } from "@playwright/test";
 
 test.describe("Finance Report", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/finance");
-    await page.waitForLoadState("networkidle");
-    // Wait for data — skip entire test if mock/API didn't respond
-    const loaded = await waitForData(page);
-    test.skip(!loaded, "data not available — mock API may not be running");
+    await page.getByTestId("page-title").waitFor({ timeout: 10_000 });
   });
 
   test("renders page title", async ({ page }) => {
@@ -397,12 +384,6 @@ test.describe("Finance Report", () => {
     // Stat bar removed — metrics consolidated into timemachine range stats
   });
 
-  // ── Production URL ─────────────────────────────────────────────────────
-
-  test("production site is accessible", async ({ page }) => {
-    const res = await page.request.get("https://portal-bf8.pages.dev/finance");
-    expect(res.status()).toBe(200);
-  });
 
   // ── Savings Rate Trend ──────────────────────────────────────────────────
 

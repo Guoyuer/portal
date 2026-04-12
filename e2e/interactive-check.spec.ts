@@ -6,28 +6,21 @@ import { test, expect, Page } from "@playwright/test";
 
 const SCREENSHOT_DIR = "test-results/screenshots";
 
-async function waitForData(page: Page): Promise<boolean> {
+async function loadFinance(page: Page): Promise<void> {
   await page.goto("/finance");
-  await page.waitForLoadState("networkidle");
-  try {
-    await page.getByTestId("page-title").waitFor({ timeout: 5000 });
-    return true;
-  } catch {
-    return false;
-  }
+  await page.getByTestId("page-title").waitFor({ timeout: 10_000 });
 }
 
 test.describe("Interactive Visual Check", () => {
   test("full page screenshot", async ({ page }) => {
-    const loaded = await waitForData(page);
-    test.skip(!loaded, "data not available");
+    await loadFinance(page);
     await page.screenshot({ path: `${SCREENSHOT_DIR}/01-full-page.png`, fullPage: true });
     await expect(page.getByTestId("page-title")).toBeVisible();
     await expect(page.locator("[data-slot=card]").first()).toBeVisible();
   });
 
   test("metric cards section", async ({ page }) => {
-    { const l = await waitForData(page); test.skip(!l, "data not available"); }
+    await loadFinance(page);
     // Net Worth card
     const netWorthCard = page.locator("[data-slot=card]").first();
     await expect(netWorthCard).toBeVisible();
@@ -40,7 +33,7 @@ test.describe("Interactive Visual Check", () => {
   });
 
   test("expand allocation table", async ({ page }) => {
-    { const l = await waitForData(page); test.skip(!l, "data not available"); }
+    await loadFinance(page);
     // Click net worth card to expand allocation
     const netWorthCard = page.locator("[data-slot=card]").first();
     await netWorthCard.click();
@@ -55,7 +48,7 @@ test.describe("Interactive Visual Check", () => {
   });
 
   test("timemachine chart loads", async ({ page }) => {
-    { const l = await waitForData(page); test.skip(!l, "data not available"); }
+    await loadFinance(page);
     const tmSection = page.locator("#timemachine");
     await expect(tmSection).toBeVisible();
     await tmSection.screenshot({ path: `${SCREENSHOT_DIR}/04-timemachine.png` });
@@ -68,7 +61,7 @@ test.describe("Interactive Visual Check", () => {
   });
 
   test("cash flow section", async ({ page }) => {
-    { const l = await waitForData(page); test.skip(!l, "data not available"); }
+    await loadFinance(page);
     const cfSection = page.locator("#cashflow");
     await expect(cfSection).toBeVisible();
     await cfSection.screenshot({ path: `${SCREENSHOT_DIR}/05-cashflow.png` });
@@ -77,7 +70,7 @@ test.describe("Interactive Visual Check", () => {
   });
 
   test("activity section", async ({ page }) => {
-    { const l = await waitForData(page); test.skip(!l, "data not available"); }
+    await loadFinance(page);
     const actSection = page.locator("#fidelity-activity");
     await expect(actSection).toBeVisible();
     await actSection.screenshot({ path: `${SCREENSHOT_DIR}/06-activity.png` });
@@ -86,7 +79,7 @@ test.describe("Interactive Visual Check", () => {
   });
 
   test("market section", async ({ page }) => {
-    { const l = await waitForData(page); test.skip(!l, "data not available"); }
+    await loadFinance(page);
     const mktSection = page.getByTestId("market-section");
     await expect(mktSection).toBeVisible();
     await mktSection.screenshot({ path: `${SCREENSHOT_DIR}/07-market.png` });
@@ -95,7 +88,7 @@ test.describe("Interactive Visual Check", () => {
   });
 
   test("brush drag updates summary", async ({ page }) => {
-    { const l = await waitForData(page); test.skip(!l, "data not available"); }
+    await loadFinance(page);
     const tmSection = page.locator("#timemachine");
     await expect(tmSection).toBeVisible();
 
@@ -115,21 +108,18 @@ test.describe("Interactive Visual Check", () => {
         await page.mouse.down();
         await page.mouse.move(startX + 100, startY, { steps: 20 });
         await page.mouse.up();
-        await page.waitForLoadState("networkidle");
 
         await tmSection.screenshot({ path: `${SCREENSHOT_DIR}/09-after-brush.png` });
 
         // The date should have changed
         const newTotal = await tmSection.getByTestId("tm-total").textContent();
-        // They might be different (brush moved to a different date)
         console.log(`Brush test: initial="${initialTotal}" → after="${newTotal}"`);
       }
     }
   });
 
   test("savings rate card shows value", async ({ page }) => {
-    { const l = await waitForData(page); test.skip(!l, "data not available"); }
-    // Find savings rate card
+    await loadFinance(page);
     const savingsCard = page.getByTestId("savings-rate-card");
     if (await savingsCard.isVisible()) {
       await savingsCard.screenshot({ path: `${SCREENSHOT_DIR}/10-savings-rate.png` });
@@ -139,7 +129,7 @@ test.describe("Interactive Visual Check", () => {
   });
 
   test("goal card shows progress", async ({ page }) => {
-    { const l = await waitForData(page); test.skip(!l, "data not available"); }
+    await loadFinance(page);
     const goalCard = page.getByTestId("goal-card");
     if (await goalCard.isVisible()) {
       await goalCard.screenshot({ path: `${SCREENSHOT_DIR}/11-goal.png` });
