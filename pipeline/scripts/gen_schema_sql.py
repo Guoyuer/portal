@@ -145,8 +145,11 @@ def main() -> None:
     parts.append("")
 
     parts.append("-- ── camelCase views (match TypeScript type contract) ──────────────────────────")
+    parts.append("-- Views use DROP + CREATE to make schema application idempotent — re-running")
+    parts.append("-- wrangler d1 execute --file=schema.sql picks up definition changes.")
     parts.append("")
-    for _name, view_sql in _VIEWS.items():
+    for name, view_sql in _VIEWS.items():
+        parts.append(f"DROP VIEW IF EXISTS {name};")
         parts.append(view_sql)
         parts.append("")
 

@@ -107,35 +107,44 @@ CREATE TABLE IF NOT EXISTS sync_meta (
 );
 
 -- ── camelCase views (match TypeScript type contract) ──────────────────────────
+-- Views use DROP + CREATE to make schema application idempotent — re-running
+-- wrangler d1 execute --file=schema.sql picks up definition changes.
 
+DROP VIEW IF EXISTS v_daily;
 CREATE VIEW IF NOT EXISTS v_daily AS
 SELECT date, total, us_equity AS usEquity, non_us_equity AS nonUsEquity,
   crypto, safe_net AS safeNet, liabilities
 FROM computed_daily ORDER BY date;
 
+DROP VIEW IF EXISTS v_daily_tickers;
 CREATE VIEW IF NOT EXISTS v_daily_tickers AS
 SELECT date, ticker, value, category, subtype,
   cost_basis AS costBasis, gain_loss AS gainLoss, gain_loss_pct AS gainLossPct
 FROM computed_daily_tickers ORDER BY date, value DESC;
 
+DROP VIEW IF EXISTS v_fidelity_txns;
 CREATE VIEW IF NOT EXISTS v_fidelity_txns AS
 SELECT run_date AS runDate, action_type AS actionType, symbol, amount,
   quantity, price
 FROM fidelity_transactions ORDER BY id;
 
+DROP VIEW IF EXISTS v_qianji_txns;
 CREATE VIEW IF NOT EXISTS v_qianji_txns AS
 SELECT date, type, category, amount,
   is_retirement AS isRetirement
 FROM qianji_transactions ORDER BY date;
 
+DROP VIEW IF EXISTS v_market_indices;
 CREATE VIEW IF NOT EXISTS v_market_indices AS
 SELECT ticker, name, current, month_return AS monthReturn,
   ytd_return AS ytdReturn, high_52w AS high52w, low_52w AS low52w, sparkline
 FROM computed_market_indices ORDER BY ticker;
 
+DROP VIEW IF EXISTS v_market_indicators;
 CREATE VIEW IF NOT EXISTS v_market_indicators AS
 SELECT key, value FROM computed_market_indicators;
 
+DROP VIEW IF EXISTS v_market_meta;
 CREATE VIEW IF NOT EXISTS v_market_meta AS
 SELECT
   MAX(CASE WHEN key = 'fedRate' THEN value END) AS fedRate,
@@ -147,25 +156,30 @@ SELECT
   MAX(CASE WHEN key = 'usdCny' THEN value END) AS usdCny
 FROM computed_market_indicators;
 
+DROP VIEW IF EXISTS v_holdings_detail;
 CREATE VIEW IF NOT EXISTS v_holdings_detail AS
 SELECT ticker, month_return AS monthReturn, start_value AS startValue,
   end_value AS endValue, high_52w AS high52w, low_52w AS low52w, vs_high AS vsHigh
 FROM computed_holdings_detail ORDER BY month_return DESC;
 
+DROP VIEW IF EXISTS v_econ_series;
 CREATE VIEW IF NOT EXISTS v_econ_series AS
 SELECT key, date, value FROM econ_series ORDER BY key, date;
 
+DROP VIEW IF EXISTS v_econ_series_grouped;
 CREATE VIEW IF NOT EXISTS v_econ_series_grouped AS
 SELECT key,
   json_group_array(json_object('date', date, 'value', value)) AS points
 FROM (SELECT key, date, value FROM econ_series ORDER BY key, date)
 GROUP BY key ORDER BY key;
 
+DROP VIEW IF EXISTS v_econ_snapshot;
 CREATE VIEW IF NOT EXISTS v_econ_snapshot AS
 SELECT key, value
 FROM econ_series t1
 WHERE date = (SELECT MAX(date) FROM econ_series t2 WHERE t2.key = t1.key);
 
+DROP VIEW IF EXISTS v_categories;
 CREATE VIEW IF NOT EXISTS v_categories AS
 SELECT key, name,
   display_order AS displayOrder,
