@@ -156,21 +156,26 @@ def fetch_and_store_prices(
     db_path: Path,
     holding_periods: dict[str, tuple[date, date | None]],
     end: date,
+    global_start: date | None = None,
 ) -> None:
     """Fetch daily close prices via yfinance and store in timemachine.db.daily_close.
 
     Only fetches symbols/ranges not already cached.
+    If global_start is provided, fetches from the earlier of global_start
+    and first_buy_date so the ticker chart can display price history before
+    the first buy within the global brush range.
     """
     conn = get_connection(db_path)
     try:
         to_fetch: dict[str, tuple[date, date]] = {}
         for sym, (hp_start, hp_end) in holding_periods.items():
+            fetch_start = min(hp_start, global_start) if global_start else hp_start
             need_end = hp_end or end
             cached_lo, cached_hi = _cached_range(conn, sym)
-            if cached_lo is None or cached_lo > hp_start or (
+            if cached_lo is None or cached_lo > fetch_start or (
                 cached_hi and cached_hi < need_end - timedelta(days=4)
             ):
-                to_fetch[sym] = (hp_start, need_end)
+                to_fetch[sym] = (fetch_start, need_end)
 
         if to_fetch:
             batch_start = min(s for s, _ in to_fetch.values())
@@ -205,11 +210,12 @@ def fetch_and_store_prices(
             rows_inserted = 0
             for sym in close_df.columns:
                 hp_start, hp_end_raw = holding_periods.get(sym, (batch_start, None))
+                fetch_start = min(hp_start, global_start) if global_start else hp_start
                 hp_end = hp_end_raw or end
                 factors = split_factors.get(sym, [])
                 for dt, price in close_df[sym].dropna().items():
                     d = dt.date() if hasattr(dt, "date") else dt
-                    if d < hp_start or d > hp_end:
+                    if d < fetch_start or d > hp_end:
                         continue
                     unadj = float(price) * _reverse_split_factor(d, factors)
                     conn.execute(

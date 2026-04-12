@@ -185,7 +185,7 @@ function TickerChartInner({ data, avgCost }: { data: TickerChartPoint[]; avgCost
 
 const WORKER_URL = process.env.NEXT_PUBLIC_TIMELINE_URL?.replace(/\/timeline$/, "") ?? "";
 
-export function TickerChart({ symbol }: { symbol: string }) {
+export function TickerChart({ symbol, startDate, endDate }: { symbol: string; startDate?: string; endDate?: string }) {
   const [data, setData] = useState<TickerChartPoint[] | null>(null);
   const [avgCost, setAvgCost] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -224,5 +224,14 @@ export function TickerChart({ symbol }: { symbol: string }) {
     return <p className="text-xs text-muted-foreground py-2">{msg}</p>;
   }
 
-  return <TickerChartInner data={data} avgCost={avgCost} />;
+  // Filter to global brush range
+  const filtered = (startDate && endDate)
+    ? data.filter((p) => p.date >= startDate && p.date <= endDate)
+    : data;
+
+  if (filtered.length === 0) {
+    return <p className="text-xs text-muted-foreground py-2">No price data for {symbol} in selected range</p>;
+  }
+
+  return <TickerChartInner data={filtered} avgCost={avgCost} />;
 }

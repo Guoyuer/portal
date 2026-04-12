@@ -181,7 +181,7 @@ export default function FinancePage() {
               <SectionBody><p className="text-sm text-muted-foreground">No activity in this period</p></SectionBody>
             ) : (
               <SectionBody>
-                <PortfolioActivity activity={act} />
+                <PortfolioActivity activity={act} startDate={startDate ?? undefined} endDate={snapshotDate ?? undefined} />
               </SectionBody>
             )
           ) : (

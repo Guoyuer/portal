@@ -44,9 +44,13 @@ export function DeviationCell({ value }: { value: number }) {
 export function TickerTable({
   title,
   data,
+  startDate,
+  endDate,
 }: {
   title: string;
   data: { symbol: string; count: number; total: number }[];
+  startDate?: string;
+  endDate?: string;
 }) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const top = data.slice(0, ACTIVITY_TOP_SYMBOLS);
@@ -75,6 +79,8 @@ export function TickerTable({
               total={total}
               expanded={expanded === symbol}
               onToggle={() => toggle(symbol)}
+              startDate={startDate}
+              endDate={endDate}
             />
           ))}
           {rest.length > 0 && (
@@ -94,6 +100,8 @@ export function TickerTable({
                           total={total}
                           expanded={expanded === symbol}
                           onToggle={() => toggle(symbol)}
+                          startDate={startDate}
+                          endDate={endDate}
                         />
                       ))}
                     </tbody>
@@ -116,12 +124,16 @@ function TickerRow({
   total,
   expanded,
   onToggle,
+  startDate,
+  endDate,
 }: {
   symbol: string;
   count: number;
   total: number;
   expanded: boolean;
   onToggle: () => void;
+  startDate?: string;
+  endDate?: string;
 }) {
   return (
     <>
@@ -139,7 +151,7 @@ function TickerRow({
       {expanded && (
         <TableRow>
           <TableCell colSpan={3} className="p-2">
-            <TickerChart symbol={symbol} />
+            <TickerChart symbol={symbol} startDate={startDate} endDate={endDate} />
           </TableCell>
         </TableRow>
       )}
@@ -153,12 +165,16 @@ function RestTickerRow({
   total,
   expanded,
   onToggle,
+  startDate,
+  endDate,
 }: {
   symbol: string;
   count: number;
   total: number;
   expanded: boolean;
   onToggle: () => void;
+  startDate?: string;
+  endDate?: string;
 }) {
   return (
     <>
@@ -176,7 +192,7 @@ function RestTickerRow({
       {expanded && (
         <tr>
           <td colSpan={3} className="px-2 py-2">
-            <TickerChart symbol={symbol} />
+            <TickerChart symbol={symbol} startDate={startDate} endDate={endDate} />
           </td>
         </tr>
       )}

@@ -250,7 +250,12 @@ def _ingest_and_fetch(config, end, *, csv_override: Path | None = None):
         for sym in rh_syms - set(periods.keys()):
             periods[sym] = (earliest, None)
 
-    fetch_and_store_prices(DB_PATH, periods, end)
+    # Use computed_daily start as global_start so ticker charts cover the full brush range
+    _conn = get_connection(DB_PATH)
+    cd_start_row = _conn.execute("SELECT MIN(date) FROM computed_daily").fetchone()
+    _conn.close()
+    global_start = date.fromisoformat(cd_start_row[0]) if cd_start_row and cd_start_row[0] else earliest
+    fetch_and_store_prices(DB_PATH, periods, end, global_start=global_start)
     fetch_and_store_cny_rates(DB_PATH, earliest, end)
 
     # ── Prepare 401k daily values ──
