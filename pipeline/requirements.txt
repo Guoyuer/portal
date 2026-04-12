@@ -4,3 +4,6 @@ fredapi>=0.5,<1
 
 # HTTP client (used by tests)
 httpx>=0.28,<1
+
+# .env auto-loader (dev convenience; existing env vars still win)
+python-dotenv>=1.2.0,<2

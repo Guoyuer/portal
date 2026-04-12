@@ -31,6 +31,11 @@ from pathlib import Path
 # ── Configuration ──────────────────────────────────────────────────────────────
 
 _PROJECT_DIR = Path(__file__).resolve().parent.parent
+
+# Make etl/ importable and load pipeline/.env before any os.environ lookups.
+sys.path.insert(0, str(_PROJECT_DIR))
+import etl.dotenv_loader  # noqa: E402, F401  (side effect: load pipeline/.env)
+
 _DB_PATH = Path(os.environ.get("PORTAL_DB_PATH", str(_PROJECT_DIR / "data" / "timemachine.db")))
 _WORKER_DIR = _PROJECT_DIR.parent / "worker"
 

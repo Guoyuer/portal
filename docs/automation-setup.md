@@ -118,6 +118,27 @@ setx PORTAL_SMTP_PORT "587"
 
 `PORTAL_EMAIL_FROM` / `PORTAL_EMAIL_TO` default to `PORTAL_SMTP_USER` (self-email).
 
+### Alternative: `pipeline/.env` (developer convenience)
+
+If you prefer a file-based config (no `setx`, easy to review/edit), copy
+`pipeline/.env.example` to `pipeline/.env` and fill in the same keys:
+
+```bash
+cp pipeline/.env.example pipeline/.env
+# then edit pipeline/.env with your Gmail + FRED key
+```
+
+The entry scripts (`run_automation.py`, `build_timemachine_db.py`,
+`sync_to_d1.py`, `verify_vs_prod.py`, `verify_positions.py`) auto-load
+`pipeline/.env` on startup via `etl.dotenv_loader`.
+
+**Precedence**: environment variables set via `setx` or shell always win over
+`.env` entries (`override=False`). This means Task Scheduler sees your
+`setx`-persisted values first; `.env` is a fallback for interactive dev work
+on a machine that hasn't had `setx` run yet. `pipeline/.env` is gitignored,
+but `pipeline/.env.example` is committed as a template — see it for the
+full list of supported keys.
+
 3. Open a new PowerShell (`setx` only affects future processes) and verify:
 
 ```powershell
