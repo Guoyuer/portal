@@ -32,64 +32,66 @@ function SavingsRateCard({
   savingsRate: number | null;
   takehomeSavingsRate: number | null;
 }) {
-  const total = savingsRate ?? 0;
-  const takehome = takehomeSavingsRate ?? 0;
-  const pretax = Math.max(0, total - takehome);
+  // Both values come from the same cashflow compute — always null together
+  if (savingsRate == null || takehomeSavingsRate == null) {
+    return (
+      <div data-slot="card" data-testid="savings-rate-card" className="liquid-glass p-4 flex items-center gap-3">
+        <div className="flex-1 min-w-0">
+          <p className="text-xs sm:text-sm text-muted-foreground">Savings Rate</p>
+          <p className="text-xl sm:text-2xl font-bold mt-1">N/A</p>
+        </div>
+      </div>
+    );
+  }
 
-  const takehomeArc = RING_C * (Math.min(takehome, 100) / 100);
+  const pretax = Math.max(0, savingsRate - takehomeSavingsRate);
+  const takehomeArc = RING_C * (Math.min(takehomeSavingsRate, 100) / 100);
   const pretaxArc = RING_C * (Math.min(pretax, 100) / 100);
-
-  const color = srColor(takehome);
-  const colorMuted = srColorMuted(takehome);
+  const color = srColor(takehomeSavingsRate);
+  const colorMuted = srColorMuted(takehomeSavingsRate);
 
   return (
     <div data-slot="card" data-testid="savings-rate-card" className="liquid-glass p-4 flex items-center gap-3">
       <div className="flex-1 min-w-0">
         <p className="text-xs sm:text-sm text-muted-foreground">Savings Rate</p>
-        {takehomeSavingsRate != null ? (
-          <p className="text-xl sm:text-2xl font-bold mt-1 tabular-nums" style={{ color }}>
-            {Math.round(takehomeSavingsRate)}%
-            <span className="text-[10px] font-normal text-muted-foreground ml-1">take-home</span>
-          </p>
-        ) : (
-          <p className="text-xl sm:text-2xl font-bold mt-1">N/A</p>
-        )}
+        <p className="text-xl sm:text-2xl font-bold mt-1 tabular-nums" style={{ color }}>
+          {Math.round(takehomeSavingsRate)}%
+          <span className="text-[10px] font-normal text-muted-foreground ml-1">take-home</span>
+        </p>
       </div>
-      {savingsRate != null && (
-        <svg width={RING_SIZE} height={RING_SIZE} className="flex-shrink-0 -rotate-90">
-          {/* Background track */}
-          <circle
-            cx={RING_SIZE / 2} cy={RING_SIZE / 2} r={RING_R}
-            fill="none" stroke="currentColor" strokeWidth={RING_STROKE}
-            className="text-black/5 dark:text-white/10"
-          />
-          {/* Take-home arc */}
-          <circle
-            cx={RING_SIZE / 2} cy={RING_SIZE / 2} r={RING_R}
-            fill="none" strokeWidth={RING_STROKE}
-            strokeDasharray={`${takehomeArc} ${RING_C}`}
-            strokeLinecap="round"
-            stroke={color}
-          />
-          {/* Pre-tax arc (muted, starts after take-home) */}
-          <circle
-            cx={RING_SIZE / 2} cy={RING_SIZE / 2} r={RING_R}
-            fill="none" strokeWidth={RING_STROKE}
-            strokeDasharray={`${pretaxArc} ${RING_C}`}
-            strokeDashoffset={-takehomeArc}
-            strokeLinecap="round"
-            stroke={colorMuted}
-          />
-          {/* Center text */}
-          <text
-            x={RING_SIZE / 2} y={RING_SIZE / 2}
-            textAnchor="middle" dominantBaseline="central"
-            className="fill-foreground text-[13px] font-bold rotate-90 origin-center"
-          >
-            {Math.round(total)}%
-          </text>
-        </svg>
-      )}
+      <svg width={RING_SIZE} height={RING_SIZE} className="flex-shrink-0 -rotate-90">
+        {/* Background track */}
+        <circle
+          cx={RING_SIZE / 2} cy={RING_SIZE / 2} r={RING_R}
+          fill="none" stroke="currentColor" strokeWidth={RING_STROKE}
+          className="text-black/5 dark:text-white/10"
+        />
+        {/* Take-home arc */}
+        <circle
+          cx={RING_SIZE / 2} cy={RING_SIZE / 2} r={RING_R}
+          fill="none" strokeWidth={RING_STROKE}
+          strokeDasharray={`${takehomeArc} ${RING_C}`}
+          strokeLinecap="round"
+          stroke={color}
+        />
+        {/* Pre-tax arc (muted, starts after take-home) */}
+        <circle
+          cx={RING_SIZE / 2} cy={RING_SIZE / 2} r={RING_R}
+          fill="none" strokeWidth={RING_STROKE}
+          strokeDasharray={`${pretaxArc} ${RING_C}`}
+          strokeDashoffset={-takehomeArc}
+          strokeLinecap="round"
+          stroke={colorMuted}
+        />
+        {/* Center text */}
+        <text
+          x={RING_SIZE / 2} y={RING_SIZE / 2}
+          textAnchor="middle" dominantBaseline="central"
+          className="fill-foreground text-[13px] font-bold rotate-90 origin-center"
+        >
+          {Math.round(savingsRate)}%
+        </text>
+      </svg>
     </div>
   );
 }

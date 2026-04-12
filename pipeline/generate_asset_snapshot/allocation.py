@@ -113,7 +113,6 @@ def compute_daily_allocation(
     cached_qj: dict[str, float] | None = None
     last_fidelity_replay: date | None = None
     last_qj_replay: date | None = None
-    last_cny_rate = 7.25  # fallback
 
     current = start
     while current <= end:
@@ -150,8 +149,9 @@ def compute_daily_allocation(
         cny_date = current
         while cny_date not in cny_rates and cny_date > start:
             cny_date -= timedelta(days=1)
-        cny_rate = cny_rates.get(cny_date, last_cny_rate)
-        last_cny_rate = cny_rate
+        if cny_date not in cny_rates:
+            raise ValueError(f"No CNY rate available at or before {current} — daily_close is missing CNY=X data")
+        cny_rate = cny_rates[cny_date]
 
         # ── Compute values per ticker ──
         ticker_values: dict[str, float] = {}
@@ -246,8 +246,12 @@ def compute_daily_allocation(
             if value <= 0:
                 continue
             asset_entry = assets.get(ticker)
-            cat = asset_entry.get("category", "Unknown") if isinstance(asset_entry, dict) else "Unknown"
-            sub = asset_entry.get("subtype", "") if isinstance(asset_entry, dict) else ""
+            if not isinstance(asset_entry, dict):
+                raise KeyError(f"Ticker {ticker!r} not in config.assets — add it to config.json to classify this holding")
+            cat = asset_entry.get("category", "")
+            sub = asset_entry.get("subtype", "")
+            if not cat:
+                raise KeyError(f"Ticker {ticker!r} has no 'category' in config.assets")
             category_totals[cat] = category_totals.get(cat, 0) + value
             total += value
             cb = cost_basis_by_ticker.get(ticker, 0)
