@@ -10,6 +10,7 @@ pytest.importorskip("yfinance", reason="yfinance required for prices module")
 
 from generate_asset_snapshot.db import get_connection, init_db  # noqa: E402
 from generate_asset_snapshot.prices import (  # noqa: E402
+    _holding_periods_core,
     load_cny_rates,
     load_prices,
     load_proxy_prices,
@@ -145,4 +146,53 @@ class TestLoadProxyPrices:
         db_path = tmp_path / "test.db"
         init_db(db_path)
         result = load_proxy_prices(db_path, {})
+        assert result == {}
+
+
+# ── _holding_periods_core ──────────────────────────────────────────────────
+
+
+class TestHoldingPeriodsCore:
+    """Test the shared holding-period logic with pre-normalized tuples."""
+
+    def test_buy_and_hold(self) -> None:
+        rows = [
+            ("01/02/2025", "VOO", "YOU BOUGHT X", 10.0),
+        ]
+        result = _holding_periods_core(rows)
+        assert result["VOO"] == (date(2025, 1, 2), None)
+
+    def test_buy_then_sell_to_zero(self) -> None:
+        rows = [
+            ("01/02/2025", "VOO", "YOU BOUGHT X", 10.0),
+            ("03/15/2025", "VOO", "YOU SOLD X", -10.0),
+        ]
+        result = _holding_periods_core(rows)
+        assert result["VOO"] == (date(2025, 1, 2), date(2025, 3, 15))
+
+    def test_money_market_excluded(self) -> None:
+        rows = [
+            ("01/02/2025", "SPAXX", "REINVESTMENT", 100.0),
+        ]
+        result = _holding_periods_core(rows)
+        assert "SPAXX" not in result
+
+    def test_cusip_excluded(self) -> None:
+        rows = [
+            ("01/02/2025", "912796CR8", "YOU BOUGHT X", 5.0),
+        ]
+        result = _holding_periods_core(rows)
+        assert "912796CR8" not in result
+
+    def test_partial_sell_still_held(self) -> None:
+        rows = [
+            ("01/02/2025", "VOO", "YOU BOUGHT X", 10.0),
+            ("03/15/2025", "VOO", "YOU SOLD X", -4.0),
+        ]
+        result = _holding_periods_core(rows)
+        # Still held — end should be None
+        assert result["VOO"] == (date(2025, 1, 2), None)
+
+    def test_empty_rows(self) -> None:
+        result = _holding_periods_core([])
         assert result == {}

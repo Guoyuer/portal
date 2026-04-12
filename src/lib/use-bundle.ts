@@ -19,10 +19,12 @@ import {
   computeCashflow,
   computeActivity,
   computeCrossCheck,
+  computeMonthlyFlows,
   buildDateIndex,
   buildTickerIndex,
   type CrossCheck,
 } from "@/lib/compute";
+import type { MonthlyFlowPoint } from "@/lib/schema";
 
 const FETCH_TIMEOUT_MS = 10_000;
 
@@ -49,6 +51,7 @@ export interface BundleState {
   market: MarketData | null;
   holdingsDetail: StockDetail[] | null;
   crossCheck: CrossCheck | null;
+  monthlyFlows: MonthlyFlowPoint[];
   syncMeta: Record<string, string> | null;
 }
 
@@ -119,6 +122,7 @@ export function useBundle(): BundleState {
   const cashflow = (data && startDate && snapshotDate) ? computeCashflow(data.qianjiTxns, startDate, snapshotDate) : null;
   const activity = (data && startDate && snapshotDate) ? computeActivity(data.fidelityTxns, startDate, snapshotDate) : null;
   const crossCheck = (data && startDate && snapshotDate) ? computeCrossCheck(data.fidelityTxns, data.qianjiTxns, startDate, snapshotDate) : null;
+  const monthlyFlows = computeMonthlyFlows(data?.qianjiTxns ?? [], startDate, snapshotDate);
 
   return {
     chartDaily,
@@ -139,6 +143,7 @@ export function useBundle(): BundleState {
     market: data?.market ?? null,
     holdingsDetail: data?.holdingsDetail ?? null,
     crossCheck,
+    monthlyFlows,
     syncMeta: data?.syncMeta ?? null,
   };
 }

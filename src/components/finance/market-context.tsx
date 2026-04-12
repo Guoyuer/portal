@@ -49,18 +49,12 @@ function Sparkline({ idx }: { idx: IndexReturn }) {
     return () => ro.disconnect();
   }, []);
 
-  const data = idx.sparkline
-    ? idx.sparkline.map((v) => ({ v }))
-    : [
-        { v: idx.current / (1 + idx.ytdReturn / 100) },
-        { v: idx.current / (1 + idx.monthReturn / 100) },
-        { v: idx.current },
-      ];
+  const data = idx.sparkline?.map((v) => ({ v }));
   const color = idx.ytdReturn >= 0 ? GAIN : LOSS;
 
   return (
     <div ref={ref} className="w-full h-full">
-      {size.w > 0 && size.h > 0 && (
+      {data && size.w > 0 && size.h > 0 && (
         <AreaChart width={size.w} height={size.h} data={data} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
           <defs>
             <linearGradient id={`spark-${idx.ticker}`} x1="0" y1="0" x2="0" y2="1">

@@ -11,6 +11,7 @@ import pytest
 
 from generate_asset_snapshot.timemachine import (
     _qj_target_value,
+    _replay_core,
     replay_qianji,
     replay_qianji_currencies,
     verify,
@@ -376,3 +377,68 @@ class TestVerify:
         output = capsys.readouterr().out
         # Money market goes to cash comparison, not positions
         assert "Cash:" in output
+
+
+# ── _replay_core ───────────────────────────────────────────────────────────
+
+class TestReplayCore:
+    """Test the shared replay engine with pre-normalized tuples."""
+
+    def test_buy_creates_position(self) -> None:
+        rows = [
+            ("01/02/2025", "Z123", "YOU BOUGHT X", "VOO", "Cash", 10.0, -5000.0),
+        ]
+        result = _replay_core(rows, as_of=None)
+        assert result["positions"][("Z123", "VOO")] == pytest.approx(10.0)
+        assert result["cost_basis"][("Z123", "VOO")] == pytest.approx(5000.0)
+        assert result["txn_count"] == 1
+
+    def test_sell_reduces_position_and_cost_basis(self) -> None:
+        rows = [
+            ("01/02/2025", "Z123", "YOU BOUGHT X", "VOO", "Cash", 10.0, -5000.0),
+            ("01/05/2025", "Z123", "YOU SOLD X", "VOO", "Cash", -4.0, 2200.0),
+        ]
+        result = _replay_core(rows, as_of=None)
+        assert result["positions"][("Z123", "VOO")] == pytest.approx(6.0)
+        # Cost basis: 5000 * (1 - 4/10) = 3000
+        assert result["cost_basis"][("Z123", "VOO")] == pytest.approx(3000.0)
+
+    def test_money_market_excluded_from_positions(self) -> None:
+        rows = [
+            ("01/02/2025", "Z123", "REINVESTMENT", "SPAXX", "Cash", 100.0, 0.0),
+        ]
+        result = _replay_core(rows, as_of=None)
+        assert ("Z123", "SPAXX") not in result["positions"]
+
+    def test_cash_tracking(self) -> None:
+        rows = [
+            ("01/02/2025", "Z123", "YOU BOUGHT X", "VOO", "Cash", 10.0, -5000.0),
+            ("01/05/2025", "Z123", "DIVIDEND", "VOO", "Cash", 0.0, 50.0),
+        ]
+        result = _replay_core(rows, as_of=None)
+        assert result["cash"]["Z123"] == pytest.approx(-4950.0)
+
+    def test_as_of_filters_future(self) -> None:
+        rows = [
+            ("01/02/2025", "Z123", "YOU BOUGHT X", "VOO", "Cash", 10.0, -5000.0),
+            ("03/15/2025", "Z123", "YOU BOUGHT X", "VOO", "Cash", 5.0, -2500.0),
+        ]
+        result = _replay_core(rows, as_of=date(2025, 2, 1))
+        assert result["positions"][("Z123", "VOO")] == pytest.approx(10.0)
+        assert result["txn_count"] == 1
+
+    def test_shares_type_excluded_from_cash(self) -> None:
+        rows = [
+            ("01/02/2025", "Z123", "DISTRIBUTION", "VOO", "Shares", 0.5, 250.0),
+        ]
+        result = _replay_core(rows, as_of=None)
+        # Type=Shares should not affect cash
+        assert result["cash"].get("Z123", 0.0) == pytest.approx(0.0)
+
+    def test_reinvestment_adds_position(self) -> None:
+        rows = [
+            ("01/02/2025", "Z123", "REINVESTMENT", "VOO", "Cash", 0.5, -250.0),
+        ]
+        result = _replay_core(rows, as_of=None)
+        assert result["positions"][("Z123", "VOO")] == pytest.approx(0.5)
+        assert result["cost_basis"][("Z123", "VOO")] == pytest.approx(250.0)

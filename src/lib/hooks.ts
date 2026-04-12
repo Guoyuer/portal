@@ -14,16 +14,16 @@ export function useIsDark() {
   return isDark;
 }
 
-export function useIsMobile(breakpoint = 640) {
+export function useIsMobile() {
   const subscribe = useCallback((callback: () => void) => {
-    const mql = window.matchMedia(`(max-width: ${breakpoint - 1}px)`);
+    const mql = window.matchMedia("(max-width: 639px)");
     mql.addEventListener("change", callback);
     return () => mql.removeEventListener("change", callback);
-  }, [breakpoint]);
+  }, []);
 
   const getSnapshot = useCallback(
-    () => window.matchMedia(`(max-width: ${breakpoint - 1}px)`).matches,
-    [breakpoint],
+    () => window.matchMedia("(max-width: 639px)").matches,
+    [],
   );
 
   return useSyncExternalStore(subscribe, getSnapshot, () => false);
