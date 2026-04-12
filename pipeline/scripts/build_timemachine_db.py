@@ -250,7 +250,7 @@ def _ingest_and_fetch(config, end, *, csv_override: Path | None = None):
         for sym in rh_syms - set(periods.keys()):
             periods[sym] = (earliest, None)
 
-    fetch_and_store_prices(DB_PATH, periods, end)
+    fetch_and_store_prices(DB_PATH, periods, end, global_start=earliest)
     fetch_and_store_cny_rates(DB_PATH, earliest, end)
 
     # ── Prepare 401k daily values ──
