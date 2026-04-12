@@ -171,10 +171,23 @@ def load_transactions(csv_path: Path) -> list[FidelityTransaction]:
 
 
 def ingest_fidelity_csv(db_path: Path, csv_path: Path) -> int:
-    """Ingest a Fidelity CSV into the database, replacing overlapping date ranges.
+    """Ingest a Fidelity CSV idempotently via natural-key dedup.
 
     Dates are normalized from Fidelity's ``MM/DD/YYYY`` to ISO ``YYYY-MM-DD``
     at write time so the database only ever carries ISO dates.
+
+    Deduplication is enforced by the ``idx_fidelity_natural_key`` unique index
+    on ``(run_date, action, symbol, quantity, price, amount)``. Writes use
+    ``INSERT OR IGNORE`` so that:
+
+    - Running the same CSV twice is a no-op.
+    - Ingesting a subset of a prior CSV (Fidelity occasionally revises/removes
+      rows) does NOT silently drop the rows that are no longer present — the
+      old range-replace semantics used to delete them, causing data loss.
+    - A legitimate revision (same natural key but updated ancillary fields
+      like ``description``) is ignored; the first-inserted row wins. This is
+      the accepted trade-off for idempotency — in practice no downstream
+      consumer reads the description.
 
     Returns the total row count in fidelity_transactions after ingestion.
     """
@@ -195,7 +208,6 @@ def ingest_fidelity_csv(db_path: Path, csv_path: Path) -> int:
     # Parse with csv.DictReader from the header line onward
     reader = csv.DictReader(lines[header_idx:])
     rows: list[tuple[str, str, str, str, str, str, str, str, float, float, float, str]] = []
-    iso_dates: list[str] = []
 
     # DictReader consumes the header, so the first data row is file line header_idx + 2
     for offset, record in enumerate(reader):
@@ -226,36 +238,24 @@ def ingest_fidelity_csv(db_path: Path, csv_path: Path) -> int:
             _parse_float(record.get("Amount", "")),
             record.get("Settlement Date", "").strip(),
         ))
-        iso_dates.append(iso_date)
-
-    if not rows:
-        conn = get_connection(db_path)
-        count: int = conn.execute("SELECT COUNT(*) FROM fidelity_transactions").fetchone()[0]
-        conn.close()
-        return count
-
-    min_date = min(iso_dates)
-    max_date = max(iso_dates)
 
     conn = get_connection(db_path)
     try:
-        # Delete existing rows in the date range of this file (ISO dates sort lexicographically)
-        conn.execute(
-            "DELETE FROM fidelity_transactions WHERE run_date BETWEEN ? AND ?",
-            (min_date, max_date),
-        )
+        if rows:
+            # INSERT OR IGNORE: the natural-key unique index deduplicates within
+            # this batch (CSVs sometimes list the same row twice) and against
+            # anything already stored from prior ingests. No DELETE step — a
+            # subset CSV must not erase rows that are no longer present in it.
+            conn.executemany(
+                """INSERT OR IGNORE INTO fidelity_transactions
+                   (run_date, account, account_number, action, action_type, symbol,
+                    description, lot_type, quantity, price, amount, settlement_date)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                rows,
+            )
+            conn.commit()
 
-        # Insert all new rows
-        conn.executemany(
-            """INSERT INTO fidelity_transactions
-               (run_date, account, account_number, action, action_type, symbol,
-                description, lot_type, quantity, price, amount, settlement_date)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            rows,
-        )
-        conn.commit()
-
-        count = conn.execute("SELECT COUNT(*) FROM fidelity_transactions").fetchone()[0]
+        count: int = conn.execute("SELECT COUNT(*) FROM fidelity_transactions").fetchone()[0]
     finally:
         conn.close()
 
