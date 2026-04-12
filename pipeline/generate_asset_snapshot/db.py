@@ -8,11 +8,9 @@ from pathlib import Path
 from typing import Any
 
 from .empower_401k import Contribution, parse_qfx
-from .ingest.fidelity_history import (
-    _FIDELITY_DATE_RE,
-    _classify_action,
-    normalize_fidelity_date,
-)
+from .ingest.fidelity_history import _classify_action
+from .parsing import STRICT_US_DATE_RE, parse_us_date
+from .types import MARKET_META_KEYS
 from .types import parse_float as _parse_float
 
 # ── Schema DDL ───────────────────────────────────────────────────────────────
@@ -69,12 +67,13 @@ CREATE TABLE IF NOT EXISTS qianji_balances (
 
 -- Qianji transaction rows (from Qianji app DB)
 CREATE TABLE IF NOT EXISTS qianji_transactions (
-    date     TEXT NOT NULL,
-    type     TEXT NOT NULL,
-    category TEXT NOT NULL DEFAULT '',
-    amount   REAL NOT NULL,
-    account  TEXT NOT NULL DEFAULT '',
-    note     TEXT NOT NULL DEFAULT ''
+    date           TEXT NOT NULL,
+    type           TEXT NOT NULL,
+    category       TEXT NOT NULL DEFAULT '',
+    amount         REAL NOT NULL,
+    account        TEXT NOT NULL DEFAULT '',
+    note           TEXT NOT NULL DEFAULT '',
+    is_retirement  INTEGER NOT NULL DEFAULT 0
 );
 
 -- Pre-computed daily point-in-time values
@@ -165,6 +164,16 @@ CREATE TABLE IF NOT EXISTS calibration_log (
     positions_total   INTEGER NOT NULL DEFAULT 0,
     details           TEXT NOT NULL DEFAULT '[]'
 );
+
+-- Category metadata populated from config.json's target_weights +
+-- category_order. The frontend reads this via v_categories so the allocation
+-- palette/targets have a single source of truth.
+CREATE TABLE IF NOT EXISTS categories (
+    key           TEXT PRIMARY KEY,
+    name          TEXT NOT NULL,
+    display_order INTEGER NOT NULL,
+    target_pct    REAL NOT NULL DEFAULT 0
+);
 """
 
 _INDEXES = """
@@ -176,14 +185,109 @@ CREATE INDEX IF NOT EXISTS idx_qianji_txn_date ON qianji_transactions(date);
 CREATE INDEX IF NOT EXISTS idx_econ_series_key ON econ_series(key);
 """
 
+
+# ── Views (camelCase API contract) ──────────────────────────────────────────
+
+
+def _build_v_market_meta_sql() -> str:
+    """Pivot computed_market_indicators (key, value) → one wide row.
+
+    The column list is derived from MARKET_META_KEYS so adding a FRED indicator
+    requires editing only that list (and emitting the row in precompute.py).
+    """
+    cols = ",\n  ".join(
+        f"MAX(CASE WHEN key = '{k}' THEN value END) AS {k}" for k in MARKET_META_KEYS
+    )
+    return (
+        "CREATE VIEW IF NOT EXISTS v_market_meta AS\n"
+        "SELECT\n"
+        f"  {cols}\n"
+        "FROM computed_market_indicators;"
+    )
+
+
+_VIEWS: dict[str, str] = {
+    "v_daily": (
+        "CREATE VIEW IF NOT EXISTS v_daily AS\n"
+        "SELECT date, total, us_equity AS usEquity, non_us_equity AS nonUsEquity,\n"
+        "  crypto, safe_net AS safeNet, liabilities\n"
+        "FROM computed_daily ORDER BY date;"
+    ),
+    "v_daily_tickers": (
+        "CREATE VIEW IF NOT EXISTS v_daily_tickers AS\n"
+        "SELECT date, ticker, value, category, subtype,\n"
+        "  cost_basis AS costBasis, gain_loss AS gainLoss, gain_loss_pct AS gainLossPct\n"
+        "FROM computed_daily_tickers ORDER BY date, value DESC;"
+    ),
+    "v_fidelity_txns": (
+        "CREATE VIEW IF NOT EXISTS v_fidelity_txns AS\n"
+        "SELECT run_date AS runDate, action_type AS actionType, symbol, amount,\n"
+        "  quantity, price\n"
+        "FROM fidelity_transactions ORDER BY id;"
+    ),
+    "v_qianji_txns": (
+        "CREATE VIEW IF NOT EXISTS v_qianji_txns AS\n"
+        "SELECT date, type, category, amount,\n"
+        "  is_retirement AS isRetirement\n"
+        "FROM qianji_transactions ORDER BY date;"
+    ),
+    "v_market_indices": (
+        "CREATE VIEW IF NOT EXISTS v_market_indices AS\n"
+        "SELECT ticker, name, current, month_return AS monthReturn,\n"
+        "  ytd_return AS ytdReturn, high_52w AS high52w, low_52w AS low52w, sparkline\n"
+        "FROM computed_market_indices ORDER BY ticker;"
+    ),
+    "v_market_indicators": (
+        "CREATE VIEW IF NOT EXISTS v_market_indicators AS\n"
+        "SELECT key, value FROM computed_market_indicators;"
+    ),
+    "v_market_meta": _build_v_market_meta_sql(),
+    "v_holdings_detail": (
+        "CREATE VIEW IF NOT EXISTS v_holdings_detail AS\n"
+        "SELECT ticker, month_return AS monthReturn, start_value AS startValue,\n"
+        "  end_value AS endValue, high_52w AS high52w, low_52w AS low52w, vs_high AS vsHigh\n"
+        "FROM computed_holdings_detail ORDER BY month_return DESC;"
+    ),
+    "v_econ_series": (
+        "CREATE VIEW IF NOT EXISTS v_econ_series AS\n"
+        "SELECT key, date, value FROM econ_series ORDER BY key, date;"
+    ),
+    # Pre-grouped for the Worker /econ endpoint — each row is a key plus a
+    # JSON array of {date, value} already built by SQLite. The client parses
+    # the string via the EconDataSchema transform.
+    "v_econ_series_grouped": (
+        "CREATE VIEW IF NOT EXISTS v_econ_series_grouped AS\n"
+        "SELECT key,\n"
+        "  json_group_array(json_object('date', date, 'value', value)) AS points\n"
+        "FROM (SELECT key, date, value FROM econ_series ORDER BY key, date)\n"
+        "GROUP BY key ORDER BY key;"
+    ),
+    "v_econ_snapshot": (
+        "CREATE VIEW IF NOT EXISTS v_econ_snapshot AS\n"
+        "SELECT key, value\n"
+        "FROM econ_series t1\n"
+        "WHERE date = (SELECT MAX(date) FROM econ_series t2 WHERE t2.key = t1.key);"
+    ),
+    "v_categories": (
+        "CREATE VIEW IF NOT EXISTS v_categories AS\n"
+        "SELECT key, name,\n"
+        "  display_order AS displayOrder,\n"
+        "  target_pct AS targetPct\n"
+        "FROM categories ORDER BY display_order;"
+    ),
+}
+
+
 # ── Public API ───────────────────────────────────────────────────────────────
 
 
 def init_db(path: Path) -> None:
-    """Create the timemachine SQLite database with all tables and indexes."""
+    """Create the timemachine SQLite database with all tables, indexes, and views."""
     conn = sqlite3.connect(path)
     conn.executescript(_TABLES)
     conn.executescript(_INDEXES)
+    for view_sql in _VIEWS.values():
+        conn.execute(view_sql)
     conn.close()
 
 
@@ -230,11 +334,12 @@ def ingest_fidelity_csv(db_path: Path, csv_path: Path) -> int:
         run_date_raw = record.get("Run Date", "").strip()
         # Skip blank rows and footer/disclaimer text; only rows shaped like a
         # Fidelity date participate in ingestion.
-        if not _FIDELITY_DATE_RE.match(run_date_raw):
+        if not STRICT_US_DATE_RE.match(run_date_raw):
             continue
 
-        iso_date = normalize_fidelity_date(
+        iso_date = parse_us_date(
             run_date_raw,
+            strict=True,
             row_context=f"{csv_path.name} line {header_idx + 2 + offset}",
         )
 
@@ -292,18 +397,31 @@ def ingest_fidelity_csv(db_path: Path, csv_path: Path) -> int:
 # ── Qianji transaction ingestion ──────────────────────────────────────────
 
 
-def ingest_qianji_transactions(db_path: Path, records: list[dict[str, Any]]) -> int:
+def ingest_qianji_transactions(
+    db_path: Path,
+    records: list[dict[str, Any]],
+    *,
+    retirement_categories: list[str] | None = None,
+) -> int:
     """Ingest Qianji transaction records into the database.
 
-    Clears and replaces all rows. Returns row count.
+    Clears and replaces all rows. An ``is_retirement`` flag is set on income
+    rows whose ``category`` (exact match, case-sensitive) appears in
+    ``retirement_categories`` — this is the canonical way for the frontend
+    to compute take-home savings rate without substring sniffing.
+
+    Returns row count.
     """
+    retirement_set = set(retirement_categories or [])
+
     conn = get_connection(db_path)
     try:
         conn.execute("DELETE FROM qianji_transactions")
         if records:
             conn.executemany(
-                "INSERT INTO qianji_transactions (date, type, category, amount, account, note)"
-                " VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO qianji_transactions"
+                " (date, type, category, amount, account, note, is_retirement)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
                 [
                     (
                         r["date"][:10],  # truncate datetime to date
@@ -312,6 +430,7 @@ def ingest_qianji_transactions(db_path: Path, records: list[dict[str, Any]]) -> 
                         r["amount"],
                         r.get("account_from", ""),
                         r.get("note", ""),
+                        1 if (r["type"] == "income" and r.get("category", "") in retirement_set) else 0,
                     )
                     for r in records
                 ],

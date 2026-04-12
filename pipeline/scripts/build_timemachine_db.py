@@ -31,6 +31,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from generate_asset_snapshot.allocation import compute_daily_allocation
+from generate_asset_snapshot.categories import ingest_categories
 from generate_asset_snapshot.db import (
     get_connection,
     ingest_empower_contributions,
@@ -230,6 +231,9 @@ def _ingest_and_fetch(paths: BuildPaths, config, end):
     paths.data_dir.mkdir(parents=True, exist_ok=True)
     init_db(paths.db_path)
 
+    # ── Step 1b: Category metadata (target weights + display order) ──
+    ingest_categories(paths.db_path, config)
+
     # ── Step 2: Ingest Fidelity ──
     print("[2] Ingesting Fidelity transactions...")
     _ingest_fidelity_csvs(paths)
@@ -327,7 +331,10 @@ def _full_build(paths: BuildPaths, config, start, end, k401_daily, *, no_validat
     from generate_asset_snapshot.db import ingest_qianji_transactions
 
     qianji_records, _ = load_all_from_db(DEFAULT_QJ_DB)
-    qj_count = ingest_qianji_transactions(paths.db_path, qianji_records)
+    retirement_cats = config.get("retirement_income_categories", []) or []
+    qj_count = ingest_qianji_transactions(
+        paths.db_path, qianji_records, retirement_categories=list(retirement_cats)
+    )
     print(f"  {qj_count} Qianji transactions ingested")
 
     # Precompute market index data

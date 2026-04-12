@@ -13,20 +13,33 @@ import {
   YAxis,
 } from "recharts";
 import type { TooltipContentProps } from "recharts/types/component/Tooltip";
-import type { DailyPoint, CashflowResponse, ActivityResponse } from "@/lib/schema";
+import type { CategoryMeta, DailyPoint, CashflowResponse, ActivityResponse } from "@/lib/schema";
 import { fmtCurrency, fmtCurrencyShort, fmtDateLong, fmtDateMedium, fmtDateMonthYear, fmtTick } from "@/lib/format";
 import { useIsDark, useIsMobile } from "@/lib/hooks";
 import { tooltipStyle, gridStroke, axisProps, brushColors } from "@/lib/chart-styles";
 import { getIsDark } from "@/lib/style-helpers";
-import { CATEGORIES, CAT_COLOR_BY_KEY } from "@/lib/compute";
+import { CAT_COLOR_BY_KEY } from "@/lib/compute";
 
 // ── Constants ─────────────────────────────────────────────────────────────
 
-const CAT_LABELS: Record<string, string> = Object.fromEntries(
-  CATEGORIES.map((c) => [c.key, c.name]),
-);
+/** Area stacking order in the chart (bottom → top). */
+const CAT_STACK_ORDER: readonly string[] = ["safeNet", "crypto", "nonUsEquity", "usEquity"];
 
-function AreaTooltip({ active, payload, label }: TooltipContentProps) {
+function stackKeys(categories: CategoryMeta[]): string[] {
+  const present = new Set(categories.map((c) => c.key));
+  return CAT_STACK_ORDER.filter((k) => present.has(k));
+}
+
+function catLabelsByKey(categories: CategoryMeta[]): Record<string, string> {
+  return Object.fromEntries(categories.map((c) => [c.key, c.name]));
+}
+
+function AreaTooltip({
+  active,
+  payload,
+  label,
+  labels,
+}: TooltipContentProps & { labels: Record<string, string> }) {
   if (!active || !payload?.length) return null;
   const isDark = getIsDark();
   const style = tooltipStyle(isDark);
@@ -36,14 +49,12 @@ function AreaTooltip({ active, payload, label }: TooltipContentProps) {
       <p style={{ fontWeight: 600, marginBottom: 2 }}>{fmtLabel}</p>
       {payload.map((entry, i) => (
         <p key={i} style={{ color: entry.color, margin: 0 }}>
-          {CAT_LABELS[String(entry.name)]} : {fmtCurrency(Number(entry.value))}
+          {labels[String(entry.name)] ?? String(entry.name)} : {fmtCurrency(Number(entry.value))}
         </p>
       ))}
     </div>
   );
 }
-
-const CAT_KEYS = ["safeNet", "crypto", "nonUsEquity", "usEquity"] as const;
 
 // ── TimemachineChart ──────────────────────────────────────────────────────
 
@@ -51,10 +62,12 @@ export function TimemachineChart({
   daily,
   brushStart,
   brushEnd,
+  categories,
 }: {
   daily: DailyPoint[];
   brushStart: number;
   brushEnd: number;
+  categories: CategoryMeta[];
 }) {
   const isDark = useIsDark();
   const isMobile = useIsMobile();
@@ -62,6 +75,8 @@ export function TimemachineChart({
   // Slice to brush range so chart zooms with the brush
   const sliced = daily.slice(brushStart, brushEnd + 1);
   const chartData = sliced.map((d) => ({ ...d, ts: new Date(d.date).getTime() }));
+  const keys = stackKeys(categories);
+  const labels = catLabelsByKey(categories);
 
   if (daily.length === 0) return null;
 
@@ -69,7 +84,7 @@ export function TimemachineChart({
     <ResponsiveContainer width="100%" height={isMobile ? 240 : 280}>
       <AreaChart data={chartData} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
         <defs>
-          {CAT_KEYS.map((key) => (
+          {keys.map((key) => (
             <linearGradient key={key} id={`tmGrad-${key}`} x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor={CAT_COLOR_BY_KEY[key]} stopOpacity={0.9} />
               <stop offset="100%" stopColor={CAT_COLOR_BY_KEY[key]} stopOpacity={0.4} />
@@ -91,8 +106,8 @@ export function TimemachineChart({
           {...axisProps(isDark)}
           axisLine={false}
         />
-        <Tooltip content={AreaTooltip} />
-        {CAT_KEYS.map((key) => (
+        <Tooltip content={(props) => <AreaTooltip {...props} labels={labels} />} />
+        {keys.map((key) => (
           <Area
             key={key}
             type="monotone"
@@ -173,12 +188,14 @@ export function StickyBrush({
 
 export function TimemachineSummary({
   snapshot,
+  categories,
   cashflow,
   activity,
   startDate,
   crossCheck: cc,
 }: {
   snapshot: DailyPoint | null;
+  categories: CategoryMeta[];
   cashflow?: CashflowResponse | null;
   activity?: ActivityResponse | null;
   startDate?: string;
@@ -188,11 +205,16 @@ export function TimemachineSummary({
 
   const total = snapshot.total;
   const netWorth = total + snapshot.liabilities;
-  const catEntries = CAT_KEYS.map((key) => ({
-    key,
-    value: snapshot[key],
-    pct: total > 0 ? (snapshot[key] / total) * 100 : 0,
-  }));
+  const keys = stackKeys(categories);
+  const labels = catLabelsByKey(categories);
+  const catEntries = keys.map((key) => {
+    const value = (snapshot[key as keyof DailyPoint] as number | undefined) ?? 0;
+    return {
+      key,
+      value,
+      pct: total > 0 ? (value / total) * 100 : 0,
+    };
+  });
 
   const rangeStats = (cashflow || activity)
     ? [
@@ -246,7 +268,7 @@ export function TimemachineSummary({
             <p className="font-semibold tabular-nums mt-0.5">
               {fmtCurrencyShort(value)}
             </p>
-            <p className="text-muted-foreground">{CAT_LABELS[key]}</p>
+            <p className="text-muted-foreground">{labels[key]}</p>
           </div>
         ))}
       </div>
@@ -323,6 +345,7 @@ export function TimemachineSection({
       <div className="liquid-glass p-4 sm:p-5">
         <TimemachineSummary
           snapshot={tl.snapshot}
+          categories={tl.categories}
           cashflow={tl.cashflow}
           activity={tl.activity}
           startDate={tl.startDate ?? undefined}
@@ -333,6 +356,7 @@ export function TimemachineSection({
             daily={tl.chartDaily}
             brushStart={tl.brushStart}
             brushEnd={tl.brushEnd}
+            categories={tl.categories}
           />
         </div>
       </div>

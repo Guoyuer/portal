@@ -149,7 +149,7 @@ fidelityTxns.push({ runDate: "2025-09-15", actionType: "sell", symbol: "FBTC", a
 
 // ── Qianji transactions (realistic monthly pattern) ─────────────────────
 
-type MockQianji = { date: string; type: string; category: string; amount: number };
+type MockQianji = { date: string; type: string; category: string; amount: number; isRetirement?: boolean };
 const qianjiTxns: MockQianji[] = [];
 
 for (let m = 0; m < 28; m++) {
@@ -159,7 +159,7 @@ for (let m = 0; m < 28; m++) {
 
   // Income
   qianjiTxns.push({ date: `${ym}-28`, type: "income", category: "Salary", amount: 8000 });
-  qianjiTxns.push({ date: `${ym}-28`, type: "income", category: "401K", amount: 1600 });
+  qianjiTxns.push({ date: `${ym}-28`, type: "income", category: "401K", amount: 1600, isRetirement: true });
 
   // Fixed expenses
   qianjiTxns.push({ date: `${ym}-01`, type: "expense", category: "Rent", amount: 2200 });
@@ -213,6 +213,15 @@ const holdingsDetail = [
   { ticker: "FBTC", monthReturn: 8.0,  startValue: 5000,   endValue: 5400,   high52w: 7000,   low52w: 3000,   vsHigh: -22.9 },
 ];
 
+// ── Category metadata (target weights + display order) ──────────────────
+
+const categories = [
+  { key: "usEquity", name: "US Equity", displayOrder: 0, targetPct: 55 },
+  { key: "nonUsEquity", name: "Non-US Equity", displayOrder: 1, targetPct: 15 },
+  { key: "crypto", name: "Crypto", displayOrder: 2, targetPct: 3 },
+  { key: "safeNet", name: "Safe Net", displayOrder: 3, targetPct: 27 },
+];
+
 // ── Assembled timeline ──────────────────────────────────────────────────
 
 const TIMELINE = {
@@ -220,6 +229,7 @@ const TIMELINE = {
   dailyTickers,
   fidelityTxns,
   qianjiTxns,
+  categories,
   market,
   holdingsDetail,
   syncMeta: { last_sync: new Date().toISOString(), last_date: lastDate },

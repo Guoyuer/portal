@@ -4,6 +4,7 @@ import type {
   AllocationResponse,
   CashflowResponse,
   ActivityResponse,
+  CategoryMeta,
   DailyPoint,
   DailyTicker,
   FidelityTxn,
@@ -27,25 +28,24 @@ function accum(map: Map<string, { count: number; total: number }>, key: string, 
   map.set(key, e);
 }
 
-// ── Target allocation weights (mirror server _CATEGORIES) ───────────────
+// ── Category colour palette (frontend-only — accessibility concern) ──────
+// Keyed on the camelCase category `key` from the bundle. Pipeline owns the
+// name/order/target; colours stay here so the palette can be tuned without
+// re-syncing D1.
+// Okabe-Ito colorblind-friendly palette (protanomaly-safe).
+export const CAT_COLOR_BY_KEY: Record<string, string> = {
+  usEquity: "#0072B2",
+  nonUsEquity: "#009E73",
+  crypto: "#E69F00",
+  safeNet: "#56B4E9",
+};
 
-// Okabe-Ito colorblind-friendly palette (protanomaly-safe)
-export const CATEGORIES: { name: string; key: keyof DailyPoint; target: number; color: string }[] = [
-  { name: "US Equity", key: "usEquity", target: 55, color: "#0072B2" },
-  { name: "Non-US Equity", key: "nonUsEquity", target: 15, color: "#009E73" },
-  { name: "Crypto", key: "crypto", target: 3, color: "#E69F00" },
-  { name: "Safe Net", key: "safeNet", target: 27, color: "#56B4E9" },
-];
-
-/** Color by display name (e.g. "US Equity") */
-export const CAT_COLOR_BY_NAME: Record<string, string> = Object.fromEntries(
-  CATEGORIES.map((c) => [c.name, c.color]),
-);
-
-/** Color by camelCase key (e.g. "usEquity") */
-export const CAT_COLOR_BY_KEY: Record<string, string> = Object.fromEntries(
-  CATEGORIES.map((c) => [c.key, c.color]),
-);
+/** Build a display-name → color map from the bundle's categories. */
+export function catColorByName(categories: CategoryMeta[]): Record<string, string> {
+  return Object.fromEntries(
+    categories.map((c) => [c.name, CAT_COLOR_BY_KEY[c.key] ?? "#888888"]),
+  );
+}
 
 // ── Allocation ────────────────────────────────────────────────────────────
 
@@ -54,6 +54,7 @@ export function computeAllocation(
   tickerIndex: Map<string, ApiTicker[]>,
   dateIndex: Map<string, number>,
   date: string,
+  categories: CategoryMeta[],
 ): AllocationResponse | null {
   const idx = dateIndex.get(date);
   if (idx === undefined) return null;
@@ -61,15 +62,15 @@ export function computeAllocation(
   const total = d.total;
   const liabilities = d.liabilities;
 
-  const categories: ApiCategory[] = CATEGORIES.map(({ name, key, target }) => {
-    const value = d[key] as number;
+  const apiCategories: ApiCategory[] = categories.map(({ name, key, targetPct }) => {
+    const value = (d[key as keyof DailyPoint] as number | undefined) ?? 0;
     const pct = total ? round((value / total) * 100, 1) : 0;
-    return { name, value, pct, target, deviation: round(pct - target, 1) };
+    return { name, value, pct, target: targetPct, deviation: round(pct - targetPct, 1) };
   });
 
   const tickers: ApiTicker[] = tickerIndex.get(date) ?? [];
 
-  return { total, netWorth: round(total + liabilities), liabilities, categories, tickers };
+  return { total, netWorth: round(total + liabilities), liabilities, categories: apiCategories, tickers };
 }
 
 // ── Cashflow ──────────────────────────────────────────────────────────────
@@ -78,11 +79,15 @@ export function computeCashflow(qianjiTxns: QianjiTxn[], start: string, end: str
   const incomeMap = new Map<string, { count: number; total: number }>();
   const expenseMap = new Map<string, { count: number; total: number }>();
   let ccPayments = 0;
+  // Track retirement income separately so the take-home calculation is
+  // independent of category display names.
+  let retirementIncome = 0;
 
   for (const t of qianjiTxns) {
     if (t.date < start || t.date > end) continue;
     if (t.type === "income") {
       accum(incomeMap, t.category, t.amount);
+      if (t.isRetirement) retirementIncome += t.amount;
     } else if (t.type === "expense") {
       accum(expenseMap, t.category, t.amount);
     } else if (t.type === "repayment") {
@@ -102,8 +107,7 @@ export function computeCashflow(qianjiTxns: QianjiTxn[], start: string, end: str
   const totalExpenses = round(expenseItems.reduce((s, i) => s + i.amount, 0));
   const netCashflow = round(totalIncome - totalExpenses);
   const savingsRate = totalIncome ? round(((totalIncome - totalExpenses) / totalIncome) * 100) : 0;
-  const k401 = incomeItems.find((i) => i.category.toLowerCase().includes("401"))?.amount ?? 0;
-  const takehomeIncome = totalIncome - k401;
+  const takehomeIncome = totalIncome - round(retirementIncome);
   const takehomeSavingsRate = takehomeIncome ? round(((takehomeIncome - totalExpenses) / takehomeIncome) * 100) : 0;
 
   return { incomeItems, expenseItems, totalIncome, totalExpenses, netCashflow, ccPayments: round(ccPayments), savingsRate, takehomeSavingsRate };

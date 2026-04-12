@@ -10,6 +10,13 @@ import { useBundle } from "./use-bundle";
 
 const TIMELINE_URL = "http://localhost:8787/timeline";
 
+const CATEGORIES = [
+  { key: "usEquity", name: "US Equity", displayOrder: 0, targetPct: 55 },
+  { key: "nonUsEquity", name: "Non-US Equity", displayOrder: 1, targetPct: 15 },
+  { key: "crypto", name: "Crypto", displayOrder: 2, targetPct: 3 },
+  { key: "safeNet", name: "Safe Net", displayOrder: 3, targetPct: 27 },
+];
+
 const VALID_PAYLOAD = {
   daily: [
     { date: "2026-01-02", total: 100000, usEquity: 55000, nonUsEquity: 15000, crypto: 3000, safeNet: 27000, liabilities: -5000 },
@@ -19,6 +26,7 @@ const VALID_PAYLOAD = {
   dailyTickers: [],
   fidelityTxns: [],
   qianjiTxns: [],
+  categories: CATEGORIES,
   market: null,
   holdingsDetail: null,
   syncMeta: null,

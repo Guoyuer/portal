@@ -375,6 +375,10 @@
     "Crypto": 3,
     "Safe Net": 27
   },
+  "retirement_income_categories": [
+    "401K",
+    "401k Match"
+  ],
   "category_order": [
     "US Equity",
     "Non-US Equity",

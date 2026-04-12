@@ -8,6 +8,23 @@ const EconPointSchema = z.object({
   value: z.number(),
 });
 
+// Series points arrive from D1 as a JSON-encoded string (produced by
+// json_group_array in v_econ_series_grouped). Mock API fixtures pass arrays
+// directly. Accept both; resolve to EconPoint[].
+const EconPointsSchema = z
+  .union([
+    z.string().transform((s, ctx) => {
+      try {
+        return JSON.parse(s) as unknown;
+      } catch {
+        ctx.addIssue({ code: "custom", message: "Invalid econ series JSON" });
+        return z.NEVER;
+      }
+    }),
+    z.array(z.unknown()),
+  ])
+  .pipe(z.array(EconPointSchema));
+
 const EconSnapshotSchema = z.object({
   fedFundsRate: z.number().optional(),
   treasury10y: z.number().optional(),
@@ -26,7 +43,7 @@ const EconSnapshotSchema = z.object({
 export const EconDataSchema = z.object({
   generatedAt: z.string(),
   snapshot: EconSnapshotSchema,
-  series: z.record(z.string(), z.array(EconPointSchema)).default({}),
+  series: z.record(z.string(), EconPointsSchema).default({}),
 });
 
 export type EconPoint = z.infer<typeof EconPointSchema>;

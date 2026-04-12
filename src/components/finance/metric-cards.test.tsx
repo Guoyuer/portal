@@ -34,6 +34,13 @@ const ALLOCATION = {
   tickers: [] as ApiTicker[],
 };
 
+const COLOR_BY_NAME: Record<string, string> = {
+  "US Equity": "#0072B2",
+  "Non-US Equity": "#009E73",
+  "Crypto": "#E69F00",
+  "Safe Net": "#56B4E9",
+};
+
 const BASE_PROPS = {
   allocation: ALLOCATION,
   savingsRate: 42 as number | null,
@@ -41,6 +48,7 @@ const BASE_PROPS = {
   goal: 2_000_000,
   allocationOpen: false,
   onAllocationToggle: vi.fn(),
+  colorByName: COLOR_BY_NAME,
 };
 
 // ── Tests ───────────────────────────────────────────────────────────────

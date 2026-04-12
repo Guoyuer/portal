@@ -5,8 +5,15 @@ import { render, screen, cleanup } from "@testing-library/react";
 
 afterEach(cleanup);
 import { TimemachineSummary } from "./timemachine";
-import type { DailyPoint, CashflowResponse, ActivityResponse } from "@/lib/schema";
+import type { CategoryMeta, DailyPoint, CashflowResponse, ActivityResponse } from "@/lib/schema";
 import type { CrossCheck } from "@/lib/compute";
+
+const CATEGORIES: CategoryMeta[] = [
+  { key: "usEquity", name: "US Equity", displayOrder: 0, targetPct: 55 },
+  { key: "nonUsEquity", name: "Non-US Equity", displayOrder: 1, targetPct: 15 },
+  { key: "crypto", name: "Crypto", displayOrder: 2, targetPct: 3 },
+  { key: "safeNet", name: "Safe Net", displayOrder: 3, targetPct: 27 },
+];
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -41,19 +48,19 @@ const ACTIVITY: ActivityResponse = {
 
 describe("TimemachineSummary", () => {
   it("returns null when snapshot is null", () => {
-    const { container } = render(<TimemachineSummary snapshot={null} />);
+    const { container } = render(<TimemachineSummary snapshot={null} categories={CATEGORIES} />);
     expect(container.innerHTML).toBe("");
   });
 
   it("renders date and total", () => {
-    render(<TimemachineSummary snapshot={SNAPSHOT} />);
+    render(<TimemachineSummary snapshot={SNAPSHOT} categories={CATEGORIES} />);
     expect(screen.getByTestId("tm-date").textContent).toBe("January 15, 2026");
     // netWorth = total + liabilities = 100000 + (-5000) = 95000
     expect(screen.getByTestId("tm-total").textContent).toBe("$95,000");
   });
 
   it("renders 4 category percentages", () => {
-    render(<TimemachineSummary snapshot={SNAPSHOT} />);
+    render(<TimemachineSummary snapshot={SNAPSHOT} categories={CATEGORIES} />);
     // Each category pct appears in the stat grid
     expect(screen.getAllByText("55%").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("15%").length).toBeGreaterThanOrEqual(1);
@@ -65,6 +72,7 @@ describe("TimemachineSummary", () => {
     render(
       <TimemachineSummary
         snapshot={SNAPSHOT}
+        categories={CATEGORIES}
         cashflow={CASHFLOW}
         activity={ACTIVITY}
         startDate="2025-07-01"
@@ -79,7 +87,7 @@ describe("TimemachineSummary", () => {
   });
 
   it("hides range stats when no cashflow or activity", () => {
-    render(<TimemachineSummary snapshot={SNAPSHOT} cashflow={null} activity={null} />);
+    render(<TimemachineSummary snapshot={SNAPSHOT} categories={CATEGORIES} cashflow={null} activity={null} />);
     expect(screen.queryByText("Income")).toBeNull();
     expect(screen.queryByText("Buys")).toBeNull();
   });
@@ -93,7 +101,7 @@ describe("TimemachineSummary", () => {
       totalCount: 3,
       ok: true,
     };
-    render(<TimemachineSummary snapshot={SNAPSHOT} crossCheck={cc} />);
+    render(<TimemachineSummary snapshot={SNAPSHOT} categories={CATEGORIES} crossCheck={cc} />);
     expect(screen.getByText("Deposit Cross-check")).toBeTruthy();
     expect(screen.getByText(/3\/3/)).toBeTruthy();
   });

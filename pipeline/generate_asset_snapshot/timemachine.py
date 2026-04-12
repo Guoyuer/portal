@@ -24,8 +24,8 @@ from pathlib import Path
 from typing import Any
 
 from .db import get_connection
-from .ingest.fidelity_history import _FIDELITY_DATE_RE, normalize_fidelity_date
 from .ingest.qianji_db import DEFAULT_DB_PATH as DEFAULT_QJ_DB
+from .parsing import STRICT_US_DATE_RE, parse_us_date
 from .types import parse_float as _float
 
 log = logging.getLogger(__name__)
@@ -51,7 +51,7 @@ STORE_HEADER = (
 
 def _parse_date(iso: str) -> date:
     """Parse an ISO ``YYYY-MM-DD`` run_date. Inputs from raw Fidelity CSVs
-    must be normalized via :func:`normalize_fidelity_date` first.
+    must be normalized via :func:`parse_us_date` (strict=True) first.
     """
     return date.fromisoformat(iso.strip())
 
@@ -62,7 +62,7 @@ def _load_raw_rows(path: Path) -> list[dict[str, str]]:
     Run Dates are left in Fidelity's native ``MM/DD/YYYY`` so the rows can
     round-trip through :func:`_write_store` without changing the on-disk
     format. Callers that need a ``date`` object must pass ``Run Date``
-    through :func:`normalize_fidelity_date` first.
+    through :func:`parse_us_date` (strict=True) first.
     """
     text = path.read_text(encoding="utf-8-sig")
     lines = text.splitlines(keepends=True)
@@ -74,7 +74,7 @@ def _load_raw_rows(path: Path) -> list[dict[str, str]]:
     rows = []
     for row in csv.DictReader(csv_text.splitlines()):
         run_date = (row.get("Run Date") or "").strip()
-        if not run_date or not _FIDELITY_DATE_RE.match(run_date):
+        if not run_date or not STRICT_US_DATE_RE.match(run_date):
             continue
         rows.append(row)
     return rows
@@ -134,7 +134,7 @@ def replay(store_path: Path, as_of: date | None = None) -> dict[str, Any]:
     raw_rows = _load_raw_rows(store_path)
     rows = [
         (
-            normalize_fidelity_date(row["Run Date"], row_context=f"{store_path.name}"),
+            parse_us_date(row["Run Date"], strict=True, row_context=f"{store_path.name}"),
             (row.get("Account Number") or "").strip(),
             (row.get("Action") or "").upper(),
             (row.get("Symbol") or "").strip(),
@@ -471,7 +471,7 @@ def ingest(csv_path: Path, store_path: Path) -> int:
         return 0
 
     def _row_date(row: dict[str, str], source: Path) -> date:
-        iso = normalize_fidelity_date(row["Run Date"], row_context=source.name)
+        iso = parse_us_date(row["Run Date"], strict=True, row_context=source.name)
         return date.fromisoformat(iso)
 
     new_dates = {_row_date(r, csv_path) for r in new_rows}

@@ -35,6 +35,7 @@ EXPECTED_TABLES = frozenset({
     "econ_series",
     "replay_checkpoint",
     "calibration_log",
+    "categories",
 })
 
 
