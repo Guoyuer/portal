@@ -18,7 +18,6 @@ graph TB
         FID[Fidelity CSV]
         QFX[Empower QFX]
         RH[Robinhood CSV]
-        POS["Positions CSV (calibration)"]
     end
 
     subgraph Cloud["Cloudflare"]
@@ -39,14 +38,13 @@ graph TB
     end
 
     QJ & FID & QFX & RH --> BUILD
-    POS -.->|"--positions"| BUILD
     DETECT --> BUILD --> VALIDATE
     VALIDATE -->|PASS| DIFF --> D1
     D1 --> WORKER --> FETCH --> COMPUTE --> UI
     TEST --> DEPLOY --> PAGES & WORKER
 ```
 
-**Principles:** D1 is persistent store, local DB is disposable cache. Diff sync pushes only new rows. Worker is a thin adapter (shape work in D1 views, Zod validation at boundary). Frontend computes everything locally after one fetch. Positions CSV calibration is optional.
+**Principles:** D1 is persistent store, local DB is disposable cache. Diff sync pushes only new rows. Worker is a thin adapter (shape work in D1 views, Zod validation at boundary). Frontend computes everything locally after one fetch.
 
 ---
 
@@ -113,9 +111,6 @@ python scripts/build_timemachine_db.py
 
 # Incremental (only new days)
 python scripts/build_timemachine_db.py incremental
-
-# With calibration
-python scripts/build_timemachine_db.py incremental --positions Portfolio_Positions.csv
 
 # Sync to D1 (full replace)
 python scripts/sync_to_d1.py

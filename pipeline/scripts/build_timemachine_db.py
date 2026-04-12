@@ -11,10 +11,9 @@ Integration script that:
 Modes:
   full            Full rebuild — recompute everything, overwrite DB (default)
   incremental     Only compute dates after last persisted date
-  verify          Full recompute + diff against persisted data (no writes)
 
 Usage:
-  python scripts/build_timemachine_db.py [full|incremental|verify] [--csv PATH] [--no-validate]
+  python scripts/build_timemachine_db.py [full|incremental] [--csv PATH] [--no-validate]
 """
 from __future__ import annotations
 
@@ -44,7 +43,7 @@ from etl.empower_401k import (
     load_all_contributions,
     load_all_qfx,
 )
-from etl.incremental import append_daily, get_last_computed_date, verify_daily
+from etl.incremental import append_daily, get_last_computed_date
 from etl.ingest.empower_401k import (
     ingest_empower_contributions,
     ingest_empower_qfx,
@@ -83,13 +82,12 @@ class BuildPaths:
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="Build the timemachine SQLite database")
-    parser.add_argument("mode", nargs="?", default="full", choices=["full", "incremental", "verify"])
+    parser.add_argument("mode", nargs="?", default="full", choices=["full", "incremental"])
     parser.add_argument("--csv", type=Path, help="Path to a specific Fidelity CSV file")
     parser.add_argument("--no-validate", action="store_true", help="Skip post-build validation")
     parser.add_argument("--data-dir", type=Path, default=None, help="Override data directory (default: pipeline/data/)")
     parser.add_argument("--config", type=Path, default=None, help="Override config.json path")
     parser.add_argument("--downloads", type=Path, default=None, help="Override downloads directory")
-    parser.add_argument("--positions", type=Path, default=None, help="Fidelity positions CSV for calibration (future)")
     return parser.parse_args(argv)
 
 
@@ -468,27 +466,6 @@ def _incremental_build(paths: BuildPaths, config, start, end, k401_daily, *, no_
     return alloc
 
 
-# ── Verify ──────────────────────────────────────────────────────────────────
-
-
-def _verify_build(paths: BuildPaths, config, start, end, k401_daily):
-    print("\n[5] Computing full allocation for verification...")
-    alloc = compute_daily_allocation(paths.db_path, DEFAULT_QJ_DB, config, k401_daily, start, end, robinhood_csv=paths.robinhood_csv)
-    print(f"  {len(alloc)} daily records recomputed")
-
-    print("[V] Cross-checking against persisted data...")
-    drifts = verify_daily(paths.db_path, alloc)
-    if not drifts:
-        print("  ✓ No drift detected")
-    else:
-        print(f"  ✗ {len(drifts)} drifts found:")
-        for d in drifts[:20]:
-            print(f"    {d.date} {d.field}: persisted={d.persisted:,.2f} recomputed={d.recomputed:,.2f} Δ={d.delta:+,.2f}")
-        if len(drifts) > 20:
-            print(f"    ... and {len(drifts) - 20} more")
-    return alloc, drifts
-
-
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 
@@ -514,8 +491,6 @@ def main() -> None:
         _full_build(paths, config, start, end, k401_daily, no_validate=args.no_validate)
     elif args.mode == "incremental":
         _incremental_build(paths, config, start, end, k401_daily, no_validate=args.no_validate)
-    elif args.mode == "verify":
-        _verify_build(paths, config, start, end, k401_daily)
 
     print("\n" + "=" * 60)
 
