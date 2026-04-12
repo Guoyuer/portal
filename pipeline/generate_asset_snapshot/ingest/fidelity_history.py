@@ -15,6 +15,7 @@ import csv
 import logging
 from pathlib import Path
 
+from ..db import get_connection
 from ..parsing import STRICT_US_DATE_RE, parse_us_date
 from ..types import (
     ACT_BUY,
@@ -162,3 +163,100 @@ def load_transactions(csv_path: Path) -> list[FidelityTransaction]:
         by_type[t["action_type"]] = by_type.get(t["action_type"], 0) + 1
     log.info("Transactions: %d from %s (%s)", len(txns), csv_path.name, ", ".join(f"{t}={c}" for t, c in sorted(by_type.items())))
     return txns
+
+
+# ---------------------------------------------------------------------------
+# Ingestion into timemachine database
+# ---------------------------------------------------------------------------
+
+
+def ingest_fidelity_csv(db_path: Path, csv_path: Path) -> int:
+    """Ingest a Fidelity CSV into the database, replacing overlapping date ranges.
+
+    Dates are normalized from Fidelity's ``MM/DD/YYYY`` to ISO ``YYYY-MM-DD``
+    at write time so the database only ever carries ISO dates.
+
+    Returns the total row count in fidelity_transactions after ingestion.
+    """
+    # Read CSV, handling BOM and leading blank lines
+    text = csv_path.read_text(encoding="utf-8-sig")
+    lines = text.splitlines()
+
+    # Find the header line (starts with "Run Date")
+    header_idx = -1
+    for i, line in enumerate(lines):
+        if line.strip().startswith("Run Date"):
+            header_idx = i
+            break
+    if header_idx == -1:
+        msg = f"No header row found in {csv_path}"
+        raise ValueError(msg)
+
+    # Parse with csv.DictReader from the header line onward
+    reader = csv.DictReader(lines[header_idx:])
+    rows: list[tuple[str, str, str, str, str, str, str, str, float, float, float, str]] = []
+    iso_dates: list[str] = []
+
+    # DictReader consumes the header, so the first data row is file line header_idx + 2
+    for offset, record in enumerate(reader):
+        run_date_raw = record.get("Run Date", "").strip()
+        # Skip blank rows and footer/disclaimer text; only rows shaped like a
+        # Fidelity date participate in ingestion.
+        if not STRICT_US_DATE_RE.match(run_date_raw):
+            continue
+
+        iso_date = parse_us_date(
+            run_date_raw,
+            strict=True,
+            row_context=f"{csv_path.name} line {header_idx + 2 + offset}",
+        )
+
+        raw_action = record.get("Action", "").strip().strip('"')
+        rows.append((
+            iso_date,
+            record.get("Account", "").strip().strip('"'),
+            record.get("Account Number", "").strip().strip('"'),
+            raw_action,
+            _classify_action(raw_action),
+            record.get("Symbol", "").strip(),
+            record.get("Description", "").strip().strip('"'),
+            record.get("Type", "").strip(),
+            _parse_float(record.get("Quantity", "")),
+            _parse_float(record.get("Price", "")),
+            _parse_float(record.get("Amount", "")),
+            record.get("Settlement Date", "").strip(),
+        ))
+        iso_dates.append(iso_date)
+
+    if not rows:
+        conn = get_connection(db_path)
+        count: int = conn.execute("SELECT COUNT(*) FROM fidelity_transactions").fetchone()[0]
+        conn.close()
+        return count
+
+    min_date = min(iso_dates)
+    max_date = max(iso_dates)
+
+    conn = get_connection(db_path)
+    try:
+        # Delete existing rows in the date range of this file (ISO dates sort lexicographically)
+        conn.execute(
+            "DELETE FROM fidelity_transactions WHERE run_date BETWEEN ? AND ?",
+            (min_date, max_date),
+        )
+
+        # Insert all new rows
+        conn.executemany(
+            """INSERT INTO fidelity_transactions
+               (run_date, account, account_number, action, action_type, symbol,
+                description, lot_type, quantity, price, amount, settlement_date)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            rows,
+        )
+        conn.commit()
+
+        count = conn.execute("SELECT COUNT(*) FROM fidelity_transactions").fetchone()[0]
+    finally:
+        conn.close()
+
+    return count

@@ -34,9 +34,6 @@ from generate_asset_snapshot.allocation import compute_daily_allocation
 from generate_asset_snapshot.categories import ingest_categories
 from generate_asset_snapshot.db import (
     get_connection,
-    ingest_empower_contributions,
-    ingest_empower_qfx,
-    ingest_fidelity_csv,
     init_db,
 )
 from generate_asset_snapshot.empower_401k import (
@@ -47,7 +44,12 @@ from generate_asset_snapshot.empower_401k import (
     load_all_qfx,
 )
 from generate_asset_snapshot.incremental import append_daily, get_last_computed_date, verify_daily
-from generate_asset_snapshot.ingest.qianji_db import load_all_from_db
+from generate_asset_snapshot.ingest.empower_401k import (
+    ingest_empower_contributions,
+    ingest_empower_qfx,
+)
+from generate_asset_snapshot.ingest.fidelity_history import ingest_fidelity_csv
+from generate_asset_snapshot.ingest.qianji_db import ingest_qianji_transactions, load_all_from_db
 from generate_asset_snapshot.precompute import (
     precompute_holdings_detail,
     precompute_market,
@@ -328,8 +330,6 @@ def _full_build(paths: BuildPaths, config, start, end, k401_daily, *, no_validat
         conn.close()
 
     # Ingest Qianji transactions for /cashflow endpoint
-    from generate_asset_snapshot.db import ingest_qianji_transactions
-
     qianji_records, _ = load_all_from_db(DEFAULT_QJ_DB)
     retirement_cats = config.get("retirement_income_categories", []) or []
     qj_count = ingest_qianji_transactions(

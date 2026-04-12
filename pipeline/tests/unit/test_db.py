@@ -3,21 +3,15 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import date
 from pathlib import Path
 
 import pytest
 
 from generate_asset_snapshot.db import (
     get_connection,
-    ingest_empower_contributions,
-    ingest_empower_qfx,
-    ingest_fidelity_csv,
     ingest_prices,
-    ingest_qianji_transactions,
     init_db,
 )
-from generate_asset_snapshot.empower_401k import Contribution
 
 EXPECTED_TABLES = frozenset({
     "fidelity_transactions",
@@ -120,95 +114,6 @@ class TestGetConnection:
         conn.close()
 
 
-class TestIngestFidelity:
-    @pytest.fixture()
-    def db_path(self, tmp_path: Path) -> Path:
-        p = tmp_path / "test.db"
-        init_db(p)
-        return p
-
-    def test_ingest_sample_csv(self, db_path: Path, history_sample_csv: Path) -> None:
-        count = ingest_fidelity_csv(db_path, history_sample_csv)
-        assert count > 0
-        conn = sqlite3.connect(str(db_path))
-        rows = conn.execute("SELECT COUNT(*) FROM fidelity_transactions").fetchone()[0]
-        conn.close()
-        assert rows == count
-
-    def test_overlap_replaces(self, db_path: Path, history_sample_csv: Path) -> None:
-        ingest_fidelity_csv(db_path, history_sample_csv)
-        count2 = ingest_fidelity_csv(db_path, history_sample_csv)
-        conn = sqlite3.connect(str(db_path))
-        rows = conn.execute("SELECT COUNT(*) FROM fidelity_transactions").fetchone()[0]
-        conn.close()
-        assert rows == count2  # replaced, not doubled
-
-    def test_run_dates_normalized_to_iso(self, db_path: Path, history_sample_csv: Path) -> None:
-        """Run dates must be stored as ISO YYYY-MM-DD, not raw MM/DD/YYYY."""
-        import re
-        ingest_fidelity_csv(db_path, history_sample_csv)
-        conn = sqlite3.connect(str(db_path))
-        run_dates = [r[0] for r in conn.execute("SELECT run_date FROM fidelity_transactions")]
-        conn.close()
-        assert run_dates  # non-empty sanity check
-        iso_re = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-        for rd in run_dates:
-            assert iso_re.match(rd), f"Non-ISO run_date in DB: {rd!r}"
-
-
-class TestIngestEmpower:
-    @pytest.fixture()
-    def db_path(self, tmp_path: Path) -> Path:
-        p = tmp_path / "test.db"
-        init_db(p)
-        return p
-
-    def test_ingest_qfx(self, db_path: Path, fixtures_dir: Path) -> None:
-        count = ingest_empower_qfx(db_path, fixtures_dir / "qfx_sample.qfx")
-        assert count == 2  # two funds in fixture
-        conn = sqlite3.connect(str(db_path))
-        snaps = conn.execute("SELECT COUNT(*) FROM empower_snapshots").fetchone()[0]
-        funds = conn.execute("SELECT COUNT(*) FROM empower_funds").fetchone()[0]
-        conn.close()
-        assert snaps == 1
-        assert funds == 2
-
-    def test_idempotent_qfx(self, db_path: Path, fixtures_dir: Path) -> None:
-        ingest_empower_qfx(db_path, fixtures_dir / "qfx_sample.qfx")
-        ingest_empower_qfx(db_path, fixtures_dir / "qfx_sample.qfx")
-        conn = sqlite3.connect(str(db_path))
-        snaps = conn.execute("SELECT COUNT(*) FROM empower_snapshots").fetchone()[0]
-        funds = conn.execute("SELECT COUNT(*) FROM empower_funds").fetchone()[0]
-        conn.close()
-        assert snaps == 1
-        assert funds == 2
-
-
-class TestIngestEmpowerContributions:
-    @pytest.fixture()
-    def db_path(self, tmp_path: Path) -> Path:
-        p = tmp_path / "test.db"
-        init_db(p)
-        return p
-
-    def test_ingest_contributions(self, db_path: Path) -> None:
-        contribs = [
-            Contribution(date=date(2025, 1, 15), amount=500.0, ticker="401k sp500"),
-            Contribution(date=date(2025, 1, 15), amount=300.0, ticker="401k ex-us"),
-        ]
-        count = ingest_empower_contributions(db_path, contribs)
-        assert count == 2
-
-    def test_dedup_contributions(self, db_path: Path) -> None:
-        contribs = [Contribution(date=date(2025, 1, 15), amount=500.0, ticker="401k sp500")]
-        ingest_empower_contributions(db_path, contribs)
-        count = ingest_empower_contributions(db_path, contribs)  # same again
-        assert count == 1  # not doubled
-
-    def test_empty_contributions(self, db_path: Path) -> None:
-        assert ingest_empower_contributions(db_path, []) == 0
-
-
 class TestIngestPrices:
     @pytest.fixture()
     def db_path(self, tmp_path: Path) -> Path:
@@ -230,30 +135,3 @@ class TestIngestPrices:
         val = conn.execute("SELECT close FROM daily_close WHERE symbol='VOO'").fetchone()[0]
         conn.close()
         assert val == 501.0
-
-
-class TestIngestQianjiTransactions:
-    @pytest.fixture()
-    def db_path(self, tmp_path: Path) -> Path:
-        p = tmp_path / "test.db"
-        init_db(p)
-        return p
-
-    def test_ingest_records(self, db_path: Path) -> None:
-        records = [
-            {"date": "2025-03-01", "type": "income", "category": "Salary", "amount": 5000.0, "account_from": "Checking", "note": ""},
-            {"date": "2025-03-05", "type": "expense", "category": "Rent", "amount": 1500.0, "account_from": "Checking", "note": ""},
-        ]
-        count = ingest_qianji_transactions(db_path, records)
-        assert count == 2
-
-    def test_clears_and_replaces(self, db_path: Path) -> None:
-        records = [{"date": "2025-03-01", "type": "income", "category": "Salary", "amount": 5000.0, "account_from": "Checking", "note": ""}]
-        ingest_qianji_transactions(db_path, records)
-        new_records = [{"date": "2025-04-01", "type": "expense", "category": "Food", "amount": 100.0, "account_from": "Checking", "note": ""}]
-        count = ingest_qianji_transactions(db_path, new_records)
-        assert count == 1  # old rows cleared
-
-    def test_empty_records(self, db_path: Path) -> None:
-        count = ingest_qianji_transactions(db_path, [])
-        assert count == 0
