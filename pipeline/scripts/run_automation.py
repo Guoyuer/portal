@@ -48,6 +48,7 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import etl.dotenv_loader  # noqa: E402, F401  (side effect: load pipeline/.env)
 from etl.changelog import (  # noqa: E402
     SyncChangelog,
     SyncSnapshot,

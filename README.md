@@ -227,6 +227,10 @@ cd pipeline && python3 -m venv .venv && .venv/bin/pip install -r requirements.tx
 # Config (copy template and fill in your accounts)
 cp pipeline/config.example.json pipeline/config.json
 
+# Pipeline env vars (SMTP, FRED API key) — optional, auto-loaded by entry scripts.
+# setx-persisted User vars take precedence; .env is a dev convenience.
+cp pipeline/.env.example pipeline/.env  # then edit
+
 # Environment (create .env.local)
 cat > .env.local <<EOF
 NEXT_PUBLIC_TIMELINE_URL=http://localhost:8787/timeline

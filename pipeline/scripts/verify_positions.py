@@ -26,12 +26,14 @@ from datetime import date
 from pathlib import Path
 
 _PROJECT_DIR = Path(__file__).resolve().parent.parent
-_DB_PATH = Path(os.environ.get("PORTAL_DB_PATH", str(_PROJECT_DIR / "data" / "timemachine.db")))
 
 # Make etl/ importable when invoked as a script.
 sys.path.insert(0, str(_PROJECT_DIR))
 
+import etl.dotenv_loader  # noqa: E402, F401  (side effect: load pipeline/.env)
 from etl.timemachine import replay_from_db  # noqa: E402
+
+_DB_PATH = Path(os.environ.get("PORTAL_DB_PATH", str(_PROJECT_DIR / "data" / "timemachine.db")))
 
 log = logging.getLogger(__name__)
 

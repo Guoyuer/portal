@@ -29,6 +29,7 @@ from pathlib import Path
 # Ensure the pipeline package is importable
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import etl.dotenv_loader  # noqa: E402, F401  (side effect: load pipeline/.env)
 from etl.allocation import compute_daily_allocation
 from etl.categories import ingest_categories
 from etl.db import (
