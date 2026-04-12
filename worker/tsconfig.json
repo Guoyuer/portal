@@ -8,5 +8,6 @@
     "strict": true,
     "noEmit": true
   },
-  "include": ["src", "../src/lib/schema.ts", "../src/lib/econ-schema.ts"]
+  "include": ["src", "../src/lib/schemas"],
+  "exclude": ["../src/lib/schemas/**/*.test.ts"]
 }

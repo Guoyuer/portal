@@ -1,18 +1,20 @@
 // ── Pure computation functions (no React dependencies) ────────────────────
 
 import type {
-  AllocationResponse,
-  CashflowResponse,
-  ActivityResponse,
   CategoryMeta,
   DailyPoint,
   DailyTicker,
   FidelityTxn,
   QianjiTxn,
+} from "@/lib/schemas";
+import type {
+  AllocationResponse,
+  CashflowResponse,
+  ActivityResponse,
   ApiTicker,
   ApiCategory,
   MonthlyFlowPoint,
-} from "@/lib/schema";
+} from "@/lib/computed-types";
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 

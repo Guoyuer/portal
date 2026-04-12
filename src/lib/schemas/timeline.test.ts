@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { TimelineDataSchema } from "./schema";
+import { TimelineDataSchema } from "./timeline";
 
 // ── MarketMetaSchema via TimelineDataSchema: partial input fills in nulls ─
 

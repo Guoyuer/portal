@@ -1,16 +1,15 @@
-// ── Zod schemas — single source of truth for API response types ───────────
-// Imported by both the Next.js client (runtime + compile-time) and the
-// Cloudflare Worker (output validation before Response.json).
-//
-// D1 views shape payloads to match these schemas directly; the Worker is a
-// thin passthrough. The only transform remaining is `SparklineSchema`, which
-// parses the JSON string stored in D1 into an array on the client.
+// ── Timeline endpoint schemas (/timeline) ────────────────────────────────
+// Runtime + compile-time types for the single /timeline payload. Shared
+// between the Next.js client and the Cloudflare Worker output-validation
+// layer. D1 views shape the rows to match these exact schemas.
 
 import { z } from "zod";
 
 // ── Sparkline transform (D1 stores sparkline as a JSON string) ───────────
+// Used by IndexReturnSchema below but also re-exported via the barrel so
+// both client and Worker can reuse the same transform.
 
-const SparklineSchema = z
+export const SparklineSchema = z
   .string()
   .transform((s, ctx) => {
     try {
@@ -146,28 +145,7 @@ export const TimelineDataSchema = z.object({
   errors: TimelineErrorsSchema,
 });
 
-// ── Ticker price endpoint (/prices/:symbol) ──────────────────────────────
-
-const TickerPricePointSchema = z.object({
-  date: z.string(),
-  close: z.number(),
-});
-
-const TickerTransactionSchema = z.object({
-  runDate: z.string(),
-  actionType: z.string(),
-  quantity: z.number(),
-  price: z.number(),
-  amount: z.number(),
-});
-
-export const TickerPriceResponseSchema = z.object({
-  symbol: z.string(),
-  prices: z.array(TickerPricePointSchema).default([]),
-  transactions: z.array(TickerTransactionSchema).default([]),
-});
-
-// ── Inferred types (single source of truth) ─────────────────────────────
+// ── Inferred types ──────────────────────────────────────────────────────
 
 export type DailyPoint = z.infer<typeof DailyPointSchema>;
 export type DailyTicker = z.infer<typeof DailyTickerSchema>;
@@ -179,37 +157,4 @@ export type IndexReturn = z.infer<typeof IndexReturnSchema>;
 export type MarketData = z.infer<typeof MarketDataSchema>;
 export type MarketMeta = z.infer<typeof MarketMetaSchema>;
 export type StockDetail = z.infer<typeof StockDetailSchema>;
-export type TickerPricePoint = z.infer<typeof TickerPricePointSchema>;
-export type TickerTransaction = z.infer<typeof TickerTransactionSchema>;
-export type TickerPriceResponse = z.infer<typeof TickerPriceResponseSchema>;
 export type CategoryMeta = z.infer<typeof CategoryMetaSchema>;
-
-// ── Client-computed types (not from Zod, defined inline) ────────────────
-
-export type MonthlyFlowPoint = { month: string; income: number; expenses: number; savingsRate: number };
-export type SnapshotPoint = { date: string; total: number };
-export type CategoryData = {
-  name: string;
-  value: number;
-  lots: number;
-  pct: number;
-  target: number;
-  deviation: number;
-  isEquity: boolean;
-  subtypes: { name: string; holdings: { ticker: string; value: number }[]; value: number; lots: number; pct: number }[];
-  holdings: { ticker: string; value: number }[];
-};
-export type ApiTicker = Omit<DailyTicker, "date">;
-export type ApiCategory = { name: string; value: number; pct: number; target: number; deviation: number };
-export type AllocationResponse = { total: number; netWorth: number; liabilities: number; categories: ApiCategory[]; tickers: ApiTicker[] };
-export type CashflowResponse = {
-  incomeItems: { category: string; amount: number; count: number }[];
-  expenseItems: { category: string; amount: number; count: number }[];
-  totalIncome: number; totalExpenses: number; netCashflow: number;
-  ccPayments: number; savingsRate: number; takehomeSavingsRate: number;
-};
-export type ActivityResponse = {
-  buysBySymbol: { symbol: string; count: number; total: number }[];
-  sellsBySymbol: { symbol: string; count: number; total: number }[];
-  dividendsBySymbol: { symbol: string; count: number; total: number }[];
-};

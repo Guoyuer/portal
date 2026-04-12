@@ -4,9 +4,6 @@ import { useEffect, useState } from "react";
 import { TIMELINE_URL } from "@/lib/config";
 import {
   TimelineDataSchema,
-  type AllocationResponse,
-  type CashflowResponse,
-  type ActivityResponse,
   type CategoryMeta,
   type MarketData,
   type StockDetail,
@@ -14,7 +11,13 @@ import {
   type QianjiTxn,
   type FidelityTxn,
   type TimelineData,
-} from "@/lib/schema";
+} from "@/lib/schemas";
+import type {
+  AllocationResponse,
+  CashflowResponse,
+  ActivityResponse,
+  MonthlyFlowPoint,
+} from "@/lib/computed-types";
 import {
   computeAllocation,
   computeCashflow,
@@ -25,7 +28,6 @@ import {
   buildTickerIndex,
   type CrossCheck,
 } from "@/lib/compute";
-import type { MonthlyFlowPoint } from "@/lib/schema";
 
 const FETCH_TIMEOUT_MS = 10_000;
 

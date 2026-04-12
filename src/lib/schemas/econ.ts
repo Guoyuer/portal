@@ -1,4 +1,4 @@
-// ── Zod schemas for econ.json ────────────────────────────────────────────
+// ── Econ endpoint schemas (/econ) ────────────────────────────────────────
 // Runtime validation + compile-time types from one definition.
 
 import { z } from "zod";

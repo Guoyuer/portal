@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useState } from "react";
-import type { ApiCategory, ApiTicker, CategoryData } from "@/lib/schema";
+import type { ApiCategory, ApiTicker, CategoryData } from "@/lib/computed-types";
 import { fmtCurrency, fmtCurrencyShort, fmtPct } from "@/lib/format";
 import {
   Table,

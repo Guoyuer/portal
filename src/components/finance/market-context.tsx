@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { Area, AreaChart, YAxis } from "recharts";
-import type { MarketData, MarketMeta, IndexReturn } from "@/lib/schema";
+import type { MarketData, MarketMeta, IndexReturn } from "@/lib/schemas";
 import { fmtPct } from "@/lib/format";
 import { SectionHeader } from "@/components/finance/shared";
 

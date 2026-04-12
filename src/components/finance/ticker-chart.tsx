@@ -13,7 +13,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import type { TooltipContentProps } from "recharts/types/component/Tooltip";
-import { TickerPriceResponseSchema, type TickerPricePoint, type TickerTransaction } from "@/lib/schema";
+import { TickerPriceResponseSchema, type TickerPricePoint, type TickerTransaction } from "@/lib/schemas";
 import { fmtCurrency, fmtDateMedium, fmtTick } from "@/lib/format";
 import { useIsDark } from "@/lib/hooks";
 import { tooltipStyle, gridStroke, axisProps } from "@/lib/chart-styles";

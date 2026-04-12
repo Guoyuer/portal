@@ -5,7 +5,7 @@ import { render, screen, cleanup } from "@testing-library/react";
 
 afterEach(cleanup);
 import { MarketContext } from "./market-context";
-import type { MarketData } from "@/lib/schema";
+import type { MarketData } from "@/lib/schemas";
 
 // ── Mock recharts (avoids SVG rendering issues in jsdom) ────────────────
 

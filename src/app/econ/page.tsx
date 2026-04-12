@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ECON_URL } from "@/lib/config";
-import { EconDataSchema, type EconData, type EconPoint } from "@/lib/econ-schema";
+import { EconDataSchema, type EconData, type EconPoint } from "@/lib/schemas";
 import { Button } from "@/components/ui/button";
 import { SectionHeader, SectionBody } from "@/components/finance/shared";
 import { MacroCards } from "@/components/econ/macro-cards";
