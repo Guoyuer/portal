@@ -1,8 +1,21 @@
-// ── Worker: GET /timeline, GET /econ ─────────────────────────────────────────
+// ── Worker: thin API adapter over D1 ─────────────────────────────────────
+// All data-shape work lives in D1 views; this file is SELECT → Zod validate → JSON.
+// Critical (daily) failures return 503; optional (market/holdings/txns) failures
+// degrade to null + a human-readable entry in `errors`.
+
+import { z } from "zod";
+import {
+  TimelineDataSchema,
+  TickerPriceResponseSchema,
+  type TimelineErrors,
+} from "../../src/lib/schema";
+import { EconDataSchema } from "../../src/lib/econ-schema";
 
 interface Env {
   DB: D1Database;
 }
+
+// ── CORS ─────────────────────────────────────────────────────────────────
 
 const ALLOWED_ORIGINS = ["https://portal.guoyuer.com", "http://localhost:3000", "http://localhost:3100"];
 
@@ -21,6 +34,193 @@ function corsHeaders(origin: string | null): HeadersInit {
   return base;
 }
 
+// ── Validation + JSON helper ──────────────────────────────────────────────
+
+function validatedResponse<T>(
+  schema: z.ZodType<T>,
+  payload: unknown,
+  origin: string | null,
+): Response {
+  const parsed = schema.safeParse(payload);
+  if (!parsed.success) {
+    const detail = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+    return Response.json(
+      { error: "schema drift", detail },
+      { status: 500, headers: corsHeaders(origin) },
+    );
+  }
+  return Response.json(parsed.data, {
+    headers: { ...corsHeaders(origin), "Cache-Control": "no-cache" },
+  });
+}
+
+function dbError(origin: string | null, e: unknown): Response {
+  return Response.json(
+    { error: "Database query failed", detail: e instanceof Error ? e.message : "unknown" },
+    { status: 502, headers: corsHeaders(origin) },
+  );
+}
+
+// ── Settled helper (optional queries) ────────────────────────────────────
+
+type SettledResult<T> = { ok: true; value: T } | { ok: false; error: string };
+
+async function settled<T>(p: Promise<T>): Promise<SettledResult<T>> {
+  try {
+    return { ok: true, value: await p };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "unknown" };
+  }
+}
+
+// ── /timeline ────────────────────────────────────────────────────────────
+
+async function handleTimeline(env: Env, origin: string | null): Promise<Response> {
+  // Critical: `daily` must succeed. Everything else can fail-open.
+  let daily;
+  try {
+    daily = await env.DB.prepare("SELECT * FROM v_daily").all();
+  } catch (e) {
+    return dbError(origin, e);
+  }
+
+  if (!daily.results.length) {
+    return Response.json(
+      { error: "No data available" },
+      { status: 503, headers: corsHeaders(origin) },
+    );
+  }
+
+  // Optional queries — each failure becomes a null section + errors entry.
+  const [tickers, fidelity, qianji, indices, marketMeta, holdings, syncMetaRows] =
+    await Promise.all([
+      settled(env.DB.prepare("SELECT * FROM v_daily_tickers").all()),
+      settled(env.DB.prepare("SELECT * FROM v_fidelity_txns").all()),
+      settled(env.DB.prepare("SELECT * FROM v_qianji_txns").all()),
+      settled(env.DB.prepare("SELECT * FROM v_market_indices").all()),
+      settled(env.DB.prepare("SELECT * FROM v_market_meta").all()),
+      settled(env.DB.prepare("SELECT * FROM v_holdings_detail").all()),
+      settled(env.DB.prepare("SELECT key, value FROM sync_meta").all()),
+    ]);
+
+  const errors: TimelineErrors = {};
+
+  // Transactions: if either side fails, surface a single error message.
+  const txnErrors: string[] = [];
+  if (!fidelity.ok) txnErrors.push(`fidelity: ${fidelity.error}`);
+  if (!qianji.ok) txnErrors.push(`qianji: ${qianji.error}`);
+  if (!tickers.ok) txnErrors.push(`tickers: ${tickers.error}`);
+  if (txnErrors.length) errors.txns = txnErrors.join("; ");
+
+  // Market: indices OR meta failing is enough to mark the section as degraded.
+  // When both fail, null the whole market object; when only one fails, keep what we have.
+  // The raw payload is validated by Zod below — we just pass a structurally-compatible
+  // object through.
+  let market: unknown = null;
+  if (indices.ok || marketMeta.ok) {
+    const metaRow = marketMeta.ok ? (marketMeta.value.results[0] as Record<string, unknown> | undefined) : undefined;
+    market = {
+      indices: indices.ok ? indices.value.results : [],
+      meta: {
+        fedRate: metaRow?.fedRate ?? null,
+        treasury10y: metaRow?.treasury10y ?? null,
+        cpi: metaRow?.cpi ?? null,
+        unemployment: metaRow?.unemployment ?? null,
+        vix: metaRow?.vix ?? null,
+        dxy: metaRow?.dxy ?? null,
+        usdCny: metaRow?.usdCny ?? null,
+      },
+    };
+  }
+  const marketErrors: string[] = [];
+  if (!indices.ok) marketErrors.push(`indices: ${indices.error}`);
+  if (!marketMeta.ok) marketErrors.push(`meta: ${marketMeta.error}`);
+  if (marketErrors.length) errors.market = marketErrors.join("; ");
+
+  // Holdings: null the section on failure.
+  if (!holdings.ok) errors.holdings = holdings.error;
+
+  // syncMeta is informational — failure is silent (not included in errors).
+  const syncMeta: Record<string, string> | null = syncMetaRows.ok
+    ? Object.fromEntries(
+        (syncMetaRows.value.results as { key: string; value: string }[]).map((r) => [r.key, r.value]),
+      )
+    : null;
+
+  const payload = {
+    daily: daily.results,
+    dailyTickers: tickers.ok ? tickers.value.results : [],
+    fidelityTxns: fidelity.ok ? fidelity.value.results : [],
+    qianjiTxns: qianji.ok ? qianji.value.results : [],
+    market,
+    holdingsDetail: holdings.ok ? holdings.value.results : null,
+    syncMeta: syncMeta && Object.keys(syncMeta).length > 0 ? syncMeta : null,
+    errors,
+  };
+
+  return validatedResponse(TimelineDataSchema, payload, origin);
+}
+
+// ── /econ ────────────────────────────────────────────────────────────────
+
+async function handleEcon(env: Env, origin: string | null): Promise<Response> {
+  try {
+    const [seriesRows, snapshotRows, syncMetaRows] = await Promise.all([
+      env.DB.prepare("SELECT key, date, value FROM v_econ_series").all(),
+      env.DB.prepare("SELECT key, value FROM v_econ_snapshot").all(),
+      env.DB.prepare("SELECT key, value FROM sync_meta").all(),
+    ]);
+
+    const series: Record<string, { date: string; value: number }[]> = {};
+    for (const r of seriesRows.results as { key: string; date: string; value: number }[]) {
+      (series[r.key] ??= []).push({ date: r.date, value: r.value });
+    }
+
+    const snapshot: Record<string, number> = {};
+    for (const r of snapshotRows.results as { key: string; value: number }[]) {
+      snapshot[r.key] = r.value;
+    }
+
+    const syncMeta: Record<string, string> = {};
+    for (const r of syncMetaRows.results as { key: string; value: string }[]) {
+      syncMeta[r.key] = r.value;
+    }
+
+    const payload = {
+      generatedAt: syncMeta.last_sync ?? new Date().toISOString(),
+      snapshot,
+      series,
+    };
+    return validatedResponse(EconDataSchema, payload, origin);
+  } catch (e) {
+    return dbError(origin, e);
+  }
+}
+
+// ── /prices/:symbol ──────────────────────────────────────────────────────
+
+async function handlePrices(env: Env, origin: string | null, symbol: string): Promise<Response> {
+  try {
+    const [priceRows, txnRows] = await Promise.all([
+      env.DB.prepare("SELECT date, close FROM daily_close WHERE symbol = ? ORDER BY date")
+        .bind(symbol).all(),
+      env.DB.prepare(
+        "SELECT run_date AS runDate, action_type AS actionType, quantity, price, amount FROM fidelity_transactions WHERE symbol = ? ORDER BY id",
+      ).bind(symbol).all(),
+    ]);
+    const payload = {
+      symbol,
+      prices: priceRows.results,
+      transactions: txnRows.results,
+    };
+    return validatedResponse(TickerPriceResponseSchema, payload, origin);
+  } catch (e) {
+    return dbError(origin, e);
+  }
+}
+
+// ── Entry ────────────────────────────────────────────────────────────────
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const origin = request.headers.get("Origin");
@@ -34,136 +234,16 @@ export default {
 
     const url = new URL(request.url);
 
-    if (url.pathname === "/econ") {
-      try {
-        const [seriesRows, syncMetaRows] = await Promise.all([
-          env.DB.prepare("SELECT key, date, value FROM v_econ_series").all(),
-          env.DB.prepare("SELECT key, value FROM sync_meta").all(),
-        ]);
+    if (url.pathname === "/econ") return handleEcon(env, origin);
 
-        // Group rows into {key: [{date, value}]}
-        const series: Record<string, { date: string; value: number }[]> = {};
-        const snapshot: Record<string, number> = {};
-        for (const r of seriesRows.results as { key: string; date: string; value: number }[]) {
-          if (!series[r.key]) series[r.key] = [];
-          series[r.key].push({ date: r.date, value: r.value });
-        }
-        // Snapshot = last value per series
-        for (const [key, points] of Object.entries(series)) {
-          if (points.length > 0) {
-            snapshot[key] = points[points.length - 1].value;
-          }
-        }
-
-        const syncMeta: Record<string, string> = {};
-        for (const r of syncMetaRows.results as { key: string; value: string }[]) {
-          syncMeta[r.key] = r.value;
-        }
-
-        return Response.json(
-          {
-            generatedAt: syncMeta.last_sync ?? new Date().toISOString(),
-            snapshot,
-            series,
-          },
-          { headers: { ...corsHeaders(origin), "Cache-Control": "no-cache" } },
-        );
-      } catch (e) {
-        return Response.json(
-          { error: "Database query failed", detail: e instanceof Error ? e.message : "unknown" },
-          { status: 502, headers: corsHeaders(origin) },
-        );
-      }
-    }
-
-    // ── GET /prices/:symbol — on-demand daily close prices + transactions ────
     const priceMatch = url.pathname.match(/^\/prices\/([A-Za-z0-9.^=-]+)$/);
     if (priceMatch) {
       const symbol = decodeURIComponent(priceMatch[1]).toUpperCase();
-      try {
-        const [priceRows, txnRows] = await Promise.all([
-          env.DB.prepare("SELECT date, close FROM daily_close WHERE symbol = ? ORDER BY date")
-            .bind(symbol).all(),
-          env.DB.prepare(
-            "SELECT run_date AS runDate, action_type AS actionType, quantity, price, amount FROM fidelity_transactions WHERE symbol = ? ORDER BY id"
-          ).bind(symbol).all(),
-        ]);
-        return Response.json(
-          { symbol, prices: priceRows.results, transactions: txnRows.results },
-          { headers: { ...corsHeaders(origin), "Cache-Control": "no-cache" } },
-        );
-      } catch (e) {
-        return Response.json(
-          { error: "Database query failed", detail: e instanceof Error ? e.message : "unknown" },
-          { status: 502, headers: corsHeaders(origin) },
-        );
-      }
+      return handlePrices(env, origin, symbol);
     }
 
-    if (url.pathname !== "/timeline") {
-      return new Response("Not found", { status: 404, headers: corsHeaders(origin) });
-    }
+    if (url.pathname === "/timeline") return handleTimeline(env, origin);
 
-    try {
-      const [daily, tickers, fidelity, qianji, indices, indicators, holdings, syncMetaRows] =
-        await Promise.all([
-          env.DB.prepare("SELECT * FROM v_daily").all(),
-          env.DB.prepare("SELECT * FROM v_daily_tickers").all(),
-          env.DB.prepare("SELECT * FROM v_fidelity_txns").all(),
-          env.DB.prepare("SELECT * FROM v_qianji_txns").all(),
-          env.DB.prepare("SELECT * FROM v_market_indices").all(),
-          env.DB.prepare("SELECT * FROM v_market_indicators").all(),
-          env.DB.prepare("SELECT * FROM v_holdings_detail").all(),
-          env.DB.prepare("SELECT key, value FROM sync_meta").all(),
-        ]);
-
-      if (!daily.results.length) {
-        return Response.json(
-          { error: "No data available" },
-          { status: 503, headers: corsHeaders(origin) },
-        );
-      }
-
-      // Indicators -> flat object (Zod fills missing keys with null via .nullable().default(null))
-      const meta: Record<string, number> = {};
-      for (const r of indicators.results as { key: string; value: number }[]) {
-        meta[r.key] = r.value;
-      }
-
-      // Sync metadata
-      const syncMeta: Record<string, string> = {};
-      for (const r of syncMetaRows.results as { key: string; value: string }[]) {
-        syncMeta[r.key] = r.value;
-      }
-
-      return Response.json(
-        {
-          daily: daily.results,
-          dailyTickers: tickers.results,
-          fidelityTxns: fidelity.results,
-          qianjiTxns: qianji.results,
-          market: {
-            indices: (indices.results as Record<string, unknown>[]).map(r => ({
-              ...r,
-              sparkline: JSON.parse(r.sparkline as string) as number[],
-            })),
-            ...meta,
-          },
-          holdingsDetail: holdings.results,
-          syncMeta: Object.keys(syncMeta).length > 0 ? syncMeta : null,
-        },
-        {
-          headers: {
-            ...corsHeaders(origin),
-            "Cache-Control": "no-cache",
-          },
-        },
-      );
-    } catch (e) {
-      return Response.json(
-        { error: "Database query failed", detail: e instanceof Error ? e.message : "unknown" },
-        { status: 502, headers: corsHeaders(origin) },
-      );
-    }
+    return new Response("Not found", { status: 404, headers: corsHeaders(origin) });
   },
 } satisfies ExportedHandler<Env>;
