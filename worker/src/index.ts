@@ -6,13 +6,19 @@ interface Env {
 
 const ALLOWED_ORIGINS = ["https://portal.guoyuer.com", "http://localhost:3000", "http://localhost:3100"];
 
+function isAllowedOrigin(origin: string | null): origin is string {
+  return origin !== null && ALLOWED_ORIGINS.includes(origin);
+}
+
 function corsHeaders(origin: string | null): HeadersInit {
-  const allowed = origin && ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
-  return {
-    "Access-Control-Allow-Origin": allowed,
+  const base: Record<string, string> = {
     "Access-Control-Allow-Methods": "GET, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
   };
+  if (isAllowedOrigin(origin)) {
+    base["Access-Control-Allow-Origin"] = origin;
+  }
+  return base;
 }
 
 export default {
@@ -20,6 +26,9 @@ export default {
     const origin = request.headers.get("Origin");
 
     if (request.method === "OPTIONS") {
+      if (!isAllowedOrigin(origin)) {
+        return new Response(null, { status: 403 });
+      }
       return new Response(null, { status: 204, headers: corsHeaders(origin) });
     }
 

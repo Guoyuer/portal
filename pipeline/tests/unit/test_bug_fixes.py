@@ -93,9 +93,9 @@ class TestBug1CostBasisOrder:
 
         # Insert in NON-chronological order (simulating overlapping CSV imports):
         # id=1: SELL 5 shares on 01/10 (from earlier CSV import, lower id)
-        _insert_txn(conn, "01/10/2025", "Z123", "YOU SOLD STOCK", "AAPL", -5, 3000)
+        _insert_txn(conn, "2025-01-10", "Z123", "YOU SOLD STOCK", "AAPL", -5, 3000)
         # id=2: BUY 10 shares on 01/02 (from later CSV import, higher id)
-        _insert_txn(conn, "01/02/2025", "Z123", "YOU BOUGHT STOCK", "AAPL", 10, -5000)
+        _insert_txn(conn, "2025-01-02", "Z123", "YOU BOUGHT STOCK", "AAPL", 10, -5000)
 
         conn.commit()
         conn.close()
@@ -118,8 +118,8 @@ class TestBug1CostBasisOrder:
         conn = sqlite3.connect(str(db))
 
         # Sell processed first by id, buy processed second
-        _insert_txn(conn, "01/10/2025", "Z123", "YOU SOLD ALL", "VOO", -10, 6000)
-        _insert_txn(conn, "01/02/2025", "Z123", "YOU BOUGHT X", "VOO", 10, -5000)
+        _insert_txn(conn, "2025-01-10", "Z123", "YOU SOLD ALL", "VOO", -10, 6000)
+        _insert_txn(conn, "2025-01-02", "Z123", "YOU BOUGHT X", "VOO", 10, -5000)
 
         conn.commit()
         conn.close()
@@ -138,11 +138,11 @@ class TestBug1CostBasisOrder:
         conn = sqlite3.connect(str(db))
 
         # id=1: SELL on 03/01 (lowest id, middle date)
-        _insert_txn(conn, "03/01/2025", "Z123", "YOU SOLD X", "TSLA", -5, 2500)
+        _insert_txn(conn, "2025-03-01", "Z123", "YOU SOLD X", "TSLA", -5, 2500)
         # id=2: BUY on 02/01 (middle id, earliest date)
-        _insert_txn(conn, "02/01/2025", "Z123", "YOU BOUGHT X", "TSLA", 10, -4000)
+        _insert_txn(conn, "2025-02-01", "Z123", "YOU BOUGHT X", "TSLA", 10, -4000)
         # id=3: BUY on 04/01 (highest id, latest date)
-        _insert_txn(conn, "04/01/2025", "Z123", "YOU BOUGHT X", "TSLA", 5, -2000)
+        _insert_txn(conn, "2025-04-01", "Z123", "YOU BOUGHT X", "TSLA", 5, -2000)
 
         conn.commit()
         conn.close()
@@ -174,9 +174,9 @@ class TestBug2HoldingPeriods:
         conn = sqlite3.connect(str(db))
 
         # id=1: reinvestment on 12/24 (low id, late date)
-        _insert_txn(conn, "12/24/2025", "Z123", "REINVESTMENT", "SGOV", 0.5, -50)
+        _insert_txn(conn, "2025-12-24", "Z123", "REINVESTMENT", "SGOV", 0.5, -50)
         # id=2: buy on 11/04 (high id, early date)
-        _insert_txn(conn, "11/04/2025", "Z123", "YOU BOUGHT X", "SGOV", 240, -24096)
+        _insert_txn(conn, "2025-11-04", "Z123", "YOU BOUGHT X", "SGOV", 240, -24096)
 
         conn.commit()
         conn.close()
@@ -194,15 +194,15 @@ class TestBug2HoldingPeriods:
         conn = sqlite3.connect(str(db))
 
         # VTEB: id=1 is late, id=4 is early
-        _insert_txn(conn, "12/22/2025", "Z123", "REINVESTMENT", "VTEB", 0.6, -30)
+        _insert_txn(conn, "2025-12-22", "Z123", "REINVESTMENT", "VTEB", 0.6, -30)
         # GLDM: id=2 is late, id=5 is early
-        _insert_txn(conn, "12/29/2025", "Z123", "YOU BOUGHT X", "GLDM", 4, -340)
+        _insert_txn(conn, "2025-12-29", "Z123", "YOU BOUGHT X", "GLDM", 4, -340)
         # VOO: id=3 is correct (only one txn)
-        _insert_txn(conn, "06/17/2024", "Z123", "YOU BOUGHT X", "VOO", 1, -500)
+        _insert_txn(conn, "2024-06-17", "Z123", "YOU BOUGHT X", "VOO", 1, -500)
         # VTEB early
-        _insert_txn(conn, "12/04/2025", "Z123", "YOU BOUGHT X", "VTEB", 219, -11000)
+        _insert_txn(conn, "2025-12-04", "Z123", "YOU BOUGHT X", "VTEB", 219, -11000)
         # GLDM early
-        _insert_txn(conn, "10/29/2025", "Z123", "YOU BOUGHT X", "GLDM", 12, -950)
+        _insert_txn(conn, "2025-10-29", "Z123", "YOU BOUGHT X", "GLDM", 12, -950)
 
         conn.commit()
         conn.close()
@@ -235,7 +235,7 @@ class TestBug4MissingPriceWarning:
 
         conn = sqlite3.connect(str(db))
         # Buy SGOV — but don't add SGOV to daily_close prices
-        _insert_txn(conn, "01/02/2025", "Z123", "YOU BOUGHT X", "SGOV", 240, -24096)
+        _insert_txn(conn, "2025-01-02", "Z123", "YOU BOUGHT X", "SGOV", 240, -24096)
         # Add price for a DIFFERENT ticker so prices_df is non-empty
         conn.execute("INSERT INTO daily_close VALUES ('VTI', '2025-01-02', 250.0)")
         conn.execute("INSERT INTO daily_close VALUES ('CNY=X', '2025-01-02', 7.25)")
@@ -265,7 +265,7 @@ class TestBug4MissingPriceWarning:
         _init_qianji(qj, [])
 
         conn = sqlite3.connect(str(db))
-        _insert_txn(conn, "01/02/2025", "Z123", "YOU BOUGHT X", "VTI", 10, -2500)
+        _insert_txn(conn, "2025-01-02", "Z123", "YOU BOUGHT X", "VTI", 10, -2500)
         conn.execute("INSERT INTO daily_close VALUES ('VTI', '2025-01-02', 250.0)")
         conn.execute("INSERT INTO daily_close VALUES ('CNY=X', '2025-01-02', 7.25)")
         conn.commit()
@@ -300,7 +300,7 @@ class TestBug5UnmappedQianjiWarning:
 
         conn = sqlite3.connect(str(db))
         # Need at least one Fidelity txn to establish date range
-        _insert_txn(conn, "01/02/2025", "Z123", "YOU BOUGHT X", "VTI", 10, -2500)
+        _insert_txn(conn, "2025-01-02", "Z123", "YOU BOUGHT X", "VTI", 10, -2500)
         conn.execute("INSERT INTO daily_close VALUES ('VTI', '2025-01-02', 250.0)")
         conn.execute("INSERT INTO daily_close VALUES ('CNY=X', '2025-01-02', 7.25)")
         conn.commit()
@@ -328,7 +328,7 @@ class TestBug5UnmappedQianjiWarning:
         _init_qianji(qj, [("HYSA", 5000.0, "USD")])
 
         conn = sqlite3.connect(str(db))
-        _insert_txn(conn, "01/02/2025", "Z123", "YOU BOUGHT X", "VTI", 10, -2500)
+        _insert_txn(conn, "2025-01-02", "Z123", "YOU BOUGHT X", "VTI", 10, -2500)
         conn.execute("INSERT INTO daily_close VALUES ('VTI', '2025-01-02', 250.0)")
         conn.execute("INSERT INTO daily_close VALUES ('CNY=X', '2025-01-02', 7.25)")
         conn.commit()
@@ -356,7 +356,7 @@ class TestBug5UnmappedQianjiWarning:
         _init_qianji(qj, [("Alipay", 10000.0, "CNY")])
 
         conn = sqlite3.connect(str(db))
-        _insert_txn(conn, "01/02/2025", "Z123", "YOU BOUGHT X", "VTI", 10, -2500)
+        _insert_txn(conn, "2025-01-02", "Z123", "YOU BOUGHT X", "VTI", 10, -2500)
         conn.execute("INSERT INTO daily_close VALUES ('VTI', '2025-01-02', 250.0)")
         conn.execute("INSERT INTO daily_close VALUES ('CNY=X', '2025-01-02', 7.25)")
         conn.commit()
@@ -396,7 +396,7 @@ class TestBug6TBillCusips:
 
         conn = sqlite3.connect(str(db))
         # Buy 3000 units of a T-Bill CUSIP
-        _insert_txn(conn, "01/02/2025", "Z123", "YOU BOUGHT X", "912796CR8", 3000, -2930)
+        _insert_txn(conn, "2025-01-02", "Z123", "YOU BOUGHT X", "912796CR8", 3000, -2930)
         conn.execute("INSERT INTO daily_close VALUES ('CNY=X', '2025-01-02', 7.25)")
         conn.commit()
         conn.close()
@@ -423,7 +423,7 @@ class TestBug6TBillCusips:
 
         conn = sqlite3.connect(str(db))
         # JPMorgan CD CUSIP — NOT starting with 912
-        _insert_txn(conn, "01/02/2025", "Z123", "YOU BOUGHT X", "46656MQ38", 4000, -4000)
+        _insert_txn(conn, "2025-01-02", "Z123", "YOU BOUGHT X", "46656MQ38", 4000, -4000)
         conn.execute("INSERT INTO daily_close VALUES ('CNY=X', '2025-01-02', 7.25)")
         conn.commit()
         conn.close()
@@ -447,8 +447,8 @@ class TestBug6TBillCusips:
         _init_qianji(qj, [])
 
         conn = sqlite3.connect(str(db))
-        _insert_txn(conn, "01/02/2025", "Z123", "YOU BOUGHT X", "912797FY8", 1000, -984)
-        _insert_txn(conn, "01/02/2025", "Z123", "YOU BOUGHT X", "06428FG68", 4000, -4000)
+        _insert_txn(conn, "2025-01-02", "Z123", "YOU BOUGHT X", "912797FY8", 1000, -984)
+        _insert_txn(conn, "2025-01-02", "Z123", "YOU BOUGHT X", "06428FG68", 4000, -4000)
         conn.execute("INSERT INTO daily_close VALUES ('CNY=X', '2025-01-02', 7.25)")
         conn.commit()
         conn.close()
@@ -472,8 +472,8 @@ class TestBug6TBillCusips:
         _init_qianji(qj, [])
 
         conn = sqlite3.connect(str(db))
-        _insert_txn(conn, "01/02/2025", "Z123", "YOU BOUGHT X", "912796CR8", 3000, -2930)
-        _insert_txn(conn, "01/02/2025", "Z123", "YOU BOUGHT X", "06428FG68", 4000, -4000)
+        _insert_txn(conn, "2025-01-02", "Z123", "YOU BOUGHT X", "912796CR8", 3000, -2930)
+        _insert_txn(conn, "2025-01-02", "Z123", "YOU BOUGHT X", "06428FG68", 4000, -4000)
         conn.execute("INSERT INTO daily_close VALUES ('CNY=X', '2025-01-02', 7.25)")
         conn.commit()
         conn.close()

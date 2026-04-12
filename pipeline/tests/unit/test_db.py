@@ -142,6 +142,18 @@ class TestIngestFidelity:
         conn.close()
         assert rows == count2  # replaced, not doubled
 
+    def test_run_dates_normalized_to_iso(self, db_path: Path, history_sample_csv: Path) -> None:
+        """Run dates must be stored as ISO YYYY-MM-DD, not raw MM/DD/YYYY."""
+        import re
+        ingest_fidelity_csv(db_path, history_sample_csv)
+        conn = sqlite3.connect(str(db_path))
+        run_dates = [r[0] for r in conn.execute("SELECT run_date FROM fidelity_transactions")]
+        conn.close()
+        assert run_dates  # non-empty sanity check
+        iso_re = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+        for rd in run_dates:
+            assert iso_re.match(rd), f"Non-ISO run_date in DB: {rd!r}"
+
 
 class TestIngestEmpower:
     @pytest.fixture()

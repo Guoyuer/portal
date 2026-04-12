@@ -115,7 +115,7 @@ describe("useBundle", () => {
           { date: "2026-01-03", type: "expense", category: "Rent", amount: 2000 },
         ],
         fidelityTxns: [
-          { runDate: "01/03/2026", actionType: "buy", symbol: "VTI", amount: -1000 },
+          { runDate: "2026-01-03", actionType: "buy", symbol: "VTI", amount: -1000 },
         ],
       })),
     );

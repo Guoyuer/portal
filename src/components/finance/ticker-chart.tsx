@@ -15,7 +15,6 @@ import {
 import type { TooltipContentProps } from "recharts/types/component/Tooltip";
 import type { TickerPricePoint, TickerTransaction, TickerPriceResponse } from "@/lib/schema";
 import { fmtCurrency, fmtDateMedium, fmtTick } from "@/lib/format";
-import { fidelityDateToIso } from "@/lib/compute";
 import { useIsDark } from "@/lib/hooks";
 import { tooltipStyle, gridStroke, axisProps } from "@/lib/chart-styles";
 import { getIsDark } from "@/lib/style-helpers";
@@ -44,7 +43,7 @@ export function mergeTickerData(
   const sellMap = new Map<string, { price: number; qty: number; amount: number }>();
 
   for (const t of transactions) {
-    const iso = fidelityDateToIso(t.runDate);
+    const iso = t.runDate; // ISO YYYY-MM-DD — normalized upstream
     if (t.actionType === "buy" || t.actionType === "reinvestment") {
       const existing = buyMap.get(iso);
       if (existing) {

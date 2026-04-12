@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import csv
-import re
 import sqlite3
 from pathlib import Path
 from typing import Any
 
 from .empower_401k import Contribution, parse_qfx
-from .ingest.fidelity_history import _classify_action
+from .ingest.fidelity_history import (
+    _FIDELITY_DATE_RE,
+    _classify_action,
+    normalize_fidelity_date,
+)
 from .types import parse_float as _parse_float
 
 # ── Schema DDL ───────────────────────────────────────────────────────────────
@@ -194,17 +197,12 @@ def get_connection(path: Path) -> sqlite3.Connection:
 
 # ── Fidelity CSV ingestion ──────────────────────────────────────────────────
 
-_DATE_RE = re.compile(r"^\d{2}/\d{2}/\d{4}$")
-
-
-def _mmddyyyy_to_sort(date_str: str) -> str:
-    """Convert MM/DD/YYYY to YYYYMMDD for date range comparison."""
-    parts = date_str.strip().split("/")
-    return f"{parts[2]}{parts[0]}{parts[1]}"
-
 
 def ingest_fidelity_csv(db_path: Path, csv_path: Path) -> int:
     """Ingest a Fidelity CSV into the database, replacing overlapping date ranges.
+
+    Dates are normalized from Fidelity's ``MM/DD/YYYY`` to ISO ``YYYY-MM-DD``
+    at write time so the database only ever carries ISO dates.
 
     Returns the total row count in fidelity_transactions after ingestion.
     """
@@ -225,16 +223,24 @@ def ingest_fidelity_csv(db_path: Path, csv_path: Path) -> int:
     # Parse with csv.DictReader from the header line onward
     reader = csv.DictReader(lines[header_idx:])
     rows: list[tuple[str, str, str, str, str, str, str, str, float, float, float, str]] = []
-    dates: list[str] = []
+    iso_dates: list[str] = []
 
-    for record in reader:
-        run_date = record.get("Run Date", "").strip()
-        if not _DATE_RE.match(run_date):
+    # DictReader consumes the header, so the first data row is file line header_idx + 2
+    for offset, record in enumerate(reader):
+        run_date_raw = record.get("Run Date", "").strip()
+        # Skip blank rows and footer/disclaimer text; only rows shaped like a
+        # Fidelity date participate in ingestion.
+        if not _FIDELITY_DATE_RE.match(run_date_raw):
             continue
+
+        iso_date = normalize_fidelity_date(
+            run_date_raw,
+            row_context=f"{csv_path.name} line {header_idx + 2 + offset}",
+        )
 
         raw_action = record.get("Action", "").strip().strip('"')
         rows.append((
-            run_date,
+            iso_date,
             record.get("Account", "").strip().strip('"'),
             record.get("Account Number", "").strip().strip('"'),
             raw_action,
@@ -247,7 +253,7 @@ def ingest_fidelity_csv(db_path: Path, csv_path: Path) -> int:
             _parse_float(record.get("Amount", "")),
             record.get("Settlement Date", "").strip(),
         ))
-        dates.append(run_date)
+        iso_dates.append(iso_date)
 
     if not rows:
         conn = get_connection(db_path)
@@ -255,18 +261,14 @@ def ingest_fidelity_csv(db_path: Path, csv_path: Path) -> int:
         conn.close()
         return count
 
-    # Date range for overlap deletion (YYYYMMDD format for comparison)
-    sort_dates = [_mmddyyyy_to_sort(d) for d in dates]
-    min_date = min(sort_dates)
-    max_date = max(sort_dates)
+    min_date = min(iso_dates)
+    max_date = max(iso_dates)
 
     conn = get_connection(db_path)
     try:
-        # Delete existing rows in the date range of this file
+        # Delete existing rows in the date range of this file (ISO dates sort lexicographically)
         conn.execute(
-            """DELETE FROM fidelity_transactions
-               WHERE substr(run_date,7,4) || substr(run_date,1,2) || substr(run_date,4,2)
-                     BETWEEN ? AND ?""",
+            "DELETE FROM fidelity_transactions WHERE run_date BETWEEN ? AND ?",
             (min_date, max_date),
         )
 

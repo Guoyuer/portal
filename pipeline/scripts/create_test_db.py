@@ -46,17 +46,17 @@ def main() -> None:
                 (date, ticker, val, cat, sub, round(val * 0.8, 2), round(val * 0.2, 2), 25.0),
             )
 
-    # Fidelity transactions
+    # Fidelity transactions (run_date is ISO YYYY-MM-DD)
     conn.executemany(
         "INSERT INTO fidelity_transactions (run_date, account, account_number, action, symbol, description, lot_type, quantity, price, amount)"
         " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [
-            ("01/02/2025", "Taxable", "Z00", "YOU BOUGHT VANGUARD S&P 500 ETF", "VOO", "", "Cash", 2, 500, -1000),
-            ("01/02/2025", "Taxable", "Z00", "YOU BOUGHT INVESCO QQQ TRUST", "QQQM", "", "Cash", 5, 200, -1000),
-            ("01/02/2025", "Taxable", "Z00", "DIVIDEND RECEIVED", "VOO", "", "Cash", 0, 0, 10),
-            ("02/03/2025", "Taxable", "Z00", "YOU BOUGHT VANGUARD S&P 500 ETF", "VOO", "", "Cash", 3, 510, -1530),
-            ("03/03/2025", "Taxable", "Z00", "YOU SOLD INVESCO QQQ TRUST", "QQQM", "", "Cash", -2, 210, 420),
-            ("03/03/2025", "Taxable", "Z00", "DIVIDEND RECEIVED", "VXUS", "", "Cash", 0, 0, 15),
+            ("2025-01-02", "Taxable", "Z00", "YOU BOUGHT VANGUARD S&P 500 ETF", "VOO", "", "Cash", 2, 500, -1000),
+            ("2025-01-02", "Taxable", "Z00", "YOU BOUGHT INVESCO QQQ TRUST", "QQQM", "", "Cash", 5, 200, -1000),
+            ("2025-01-02", "Taxable", "Z00", "DIVIDEND RECEIVED", "VOO", "", "Cash", 0, 0, 10),
+            ("2025-02-03", "Taxable", "Z00", "YOU BOUGHT VANGUARD S&P 500 ETF", "VOO", "", "Cash", 3, 510, -1530),
+            ("2025-03-03", "Taxable", "Z00", "YOU SOLD INVESCO QQQ TRUST", "QQQM", "", "Cash", -2, 210, 420),
+            ("2025-03-03", "Taxable", "Z00", "DIVIDEND RECEIVED", "VXUS", "", "Cash", 0, 0, 15),
         ],
     )
 

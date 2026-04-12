@@ -109,26 +109,12 @@ export function computeCashflow(qianjiTxns: QianjiTxn[], start: string, end: str
   return { incomeItems, expenseItems, totalIncome, totalExpenses, netCashflow, ccPayments: round(ccPayments), savingsRate, takehomeSavingsRate };
 }
 
-// ── Fidelity date helpers ────────────────────────────────────────────────
+// ── Cross-check (Fidelity deposits vs Qianji transfers) ─────────────────
 
-/** Convert fidelity "MM/DD/YYYY" to "YYYY-MM-DD" */
-export function fidelityDateToIso(runDate: string): string {
-  return `${runDate.slice(6, 10)}-${runDate.slice(0, 2)}-${runDate.slice(3, 5)}`;
-}
-
-/** Convert fidelity "MM/DD/YYYY" to sortable "YYYYMMDD" */
-export function fidelityDateToSort(runDate: string): string {
-  return runDate.slice(6, 10) + runDate.slice(0, 2) + runDate.slice(3, 5);
-}
-
-/** Convert fidelity "MM/DD/YYYY" to epoch ms */
-export function fidelityDateToMs(runDate: string): number {
-  return new Date(fidelityDateToIso(runDate)).getTime();
-}
+// Fidelity runDate is ISO YYYY-MM-DD (normalized at the pipeline ingestion
+// boundary) so string comparison and `new Date(...)` both just work.
 
 export const MATCH_WINDOW_MS = 7 * 86_400_000; // Qianji can lag Fidelity by up to 7 days
-
-// ── Cross-check (Fidelity deposits vs Qianji transfers) ─────────────────
 
 export interface CrossCheck {
   fidelityTotal: number;
@@ -145,16 +131,12 @@ export function computeCrossCheck(
   start: string,
   end: string,
 ): CrossCheck {
-  const startSort = start.replaceAll("-", "");
-  const endSort = end.replaceAll("-", "");
-
   const deposits: { amt: number; ms: number }[] = [];
   let fidelityTotal = 0;
   for (const t of fidelityTxns) {
     if (t.actionType !== "deposit") continue;
-    const sort = fidelityDateToSort(t.runDate);
-    if (sort >= startSort && sort <= endSort) {
-      deposits.push({ amt: Math.round(Math.abs(t.amount) * 100), ms: fidelityDateToMs(t.runDate) });
+    if (t.runDate >= start && t.runDate <= end) {
+      deposits.push({ amt: Math.round(Math.abs(t.amount) * 100), ms: new Date(t.runDate).getTime() });
       fidelityTotal += t.amount;
     }
   }
@@ -200,16 +182,12 @@ export function computeCrossCheck(
 // ── Activity ──────────────────────────────────────────────────────────────
 
 export function computeActivity(fidelityTxns: FidelityTxn[], start: string, end: string): ActivityResponse {
-  const startSort = start.replaceAll("-", "");
-  const endSort = end.replaceAll("-", "");
-
   const buys = new Map<string, { count: number; total: number }>();
   const sells = new Map<string, { count: number; total: number }>();
   const dividends = new Map<string, { count: number; total: number }>();
 
   for (const t of fidelityTxns) {
-    const sort = fidelityDateToSort(t.runDate);
-    if (sort < startSort || sort > endSort) continue;
+    if (t.runDate < start || t.runDate > end) continue;
     if (!t.symbol) continue;
     const abs = Math.abs(t.amount);
     if (t.actionType === "buy") {
