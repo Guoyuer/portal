@@ -414,5 +414,10 @@
       "HYSA": "Amex HYSA",
       "Debit": "Debit Cash"
     }
+  },
+  "fidelity_accounts": {
+    "Z29133576": "FZFXX",
+    "238986483": "FDRXX",
+    "Z29276228": "SPAXX"
   }
 }

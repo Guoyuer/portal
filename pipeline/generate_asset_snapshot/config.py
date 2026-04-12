@@ -94,6 +94,7 @@ def load_config(path: Path) -> Config:
         aliases=data.get("aliases", {}),
         goal=data.get("goal", 0),
         qianji_accounts=data.get("qianji_accounts", {}),
+        fidelity_accounts=data.get("fidelity_accounts", {}),
     )
     log.info("Config: %d assets, %d categories, goal $%s", len(data["assets"]), len(data["target_weights"]), f"{data.get('goal', 0):,.0f}")
     return cfg
