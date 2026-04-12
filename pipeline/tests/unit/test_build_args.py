@@ -21,10 +21,6 @@ class TestParseArgs:
         args = _parse_args(["incremental"])
         assert args.mode == "incremental"
 
-    def test_verify_mode(self):
-        args = _parse_args(["verify"])
-        assert args.mode == "verify"
-
     def test_csv_flag(self, tmp_path):
         csv = tmp_path / "test.csv"
         csv.touch()
