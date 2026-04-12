@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { EconDataSchema } from "./econ-schema";
+import { EconDataSchema } from "./econ";
 
 // ── EconDataSchema: series JSON string transform ─────────────────────────
 

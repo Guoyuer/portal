@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { CategoryMeta, DailyPoint, DailyTicker, FidelityTxn, QianjiTxn } from "./schema";
+import type { CategoryMeta, DailyPoint, DailyTicker, FidelityTxn, QianjiTxn } from "./schemas";
 import {
   computeAllocation,
   computeCashflow,

@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useState } from "react";
-import type { ApiCategory, ApiTicker, CategoryData } from "@/lib/schema";
+import type { ApiCategory, ApiTicker, CategoryData } from "@/lib/computed-types";
 import { fmtCurrency, fmtCurrencyShort, fmtPct } from "@/lib/format";
 import {
   Table,
@@ -11,7 +11,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { DeviationCell, SectionHeader, SectionBody, TOTAL_ROW_CLASS } from "@/components/finance/shared";
+import { SectionHeader, SectionBody } from "@/components/finance/section";
+import { DeviationCell, TOTAL_ROW_CLASS } from "@/components/finance/ticker-table";
 import { AllocationDonut } from "@/components/finance/charts";
 
 // ── Equity categories for classification ──────────────────────────────────

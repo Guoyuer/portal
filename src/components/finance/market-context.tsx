@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useRef } from "react";
 import { Area, AreaChart, YAxis } from "recharts";
-import type { MarketData, MarketMeta, IndexReturn } from "@/lib/schema";
+import type { MarketData, MarketMeta, IndexReturn } from "@/lib/schemas";
 import { fmtPct } from "@/lib/format";
-import { SectionHeader } from "@/components/finance/shared";
+import { SectionHeader } from "@/components/finance/section";
 
 // ── Display name mapping ────────────────────────────────────────────────
 const INDEX_NAMES: Record<string, string> = {

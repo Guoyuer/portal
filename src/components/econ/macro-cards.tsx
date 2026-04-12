@@ -1,4 +1,4 @@
-import type { EconSnapshot } from "@/lib/econ-schema";
+import type { EconSnapshot } from "@/lib/schemas";
 
 const INDICATORS: { key: keyof EconSnapshot; label: string; format: (v: number) => string }[] = [
   { key: "fedFundsRate", label: "Fed Rate", format: (v) => `${v.toFixed(2)}%` },

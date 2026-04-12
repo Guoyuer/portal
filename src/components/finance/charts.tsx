@@ -23,11 +23,10 @@ import type {
   CategoryData,
   MonthlyFlowPoint,
   SnapshotPoint,
-} from "@/lib/schema";
+} from "@/lib/computed-types";
 import { fmtCurrencyShort, fmtDateMonthYear, fmtMonth, fmtMonthYear, fmtTick } from "@/lib/format";
-import { useIsDark, useIsMobile } from "@/lib/hooks";
+import { getIsDark, useIsDark, useIsMobile } from "@/lib/hooks";
 import { tooltipStyle, gridStroke, axisProps } from "@/lib/chart-styles";
-import { getIsDark } from "@/lib/style-helpers";
 
 // ── Donut: Category Allocation ─────────────────────────────────────────────
 

@@ -7,9 +7,9 @@ import { z } from "zod";
 import {
   TimelineDataSchema,
   TickerPriceResponseSchema,
+  EconDataSchema,
   type TimelineErrors,
-} from "../../src/lib/schema";
-import { EconDataSchema } from "../../src/lib/econ-schema";
+} from "../../src/lib/schemas";
 
 interface Env {
   DB: D1Database;

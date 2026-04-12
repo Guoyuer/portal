@@ -1,9 +1,9 @@
 "use client";
 
 import { useRef, useState, useEffect } from "react";
-import type { ApiCategory, ApiTicker } from "@/lib/schema";
+import type { ApiCategory, ApiTicker } from "@/lib/computed-types";
 import { fmtCurrency, fmtCurrencyShort } from "@/lib/format";
-import { SAVINGS_RATE_GOOD, SAVINGS_RATE_WARNING } from "@/lib/style-helpers";
+import { SAVINGS_RATE_GOOD, SAVINGS_RATE_WARNING } from "@/lib/thresholds";
 import { CategorySummary } from "@/components/finance/category-summary";
 
 // ── Savings Rate Card with radial progress ──────────────────────────────

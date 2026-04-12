@@ -5,7 +5,8 @@ import { render, screen, cleanup } from "@testing-library/react";
 
 afterEach(cleanup);
 import { TimemachineSummary } from "./timemachine";
-import type { CategoryMeta, DailyPoint, CashflowResponse, ActivityResponse } from "@/lib/schema";
+import type { CategoryMeta, DailyPoint } from "@/lib/schemas";
+import type { CashflowResponse, ActivityResponse } from "@/lib/computed-types";
 import type { CrossCheck } from "@/lib/compute";
 
 const CATEGORIES: CategoryMeta[] = [
