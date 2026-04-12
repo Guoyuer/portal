@@ -43,20 +43,51 @@ _CONVERSION_TOLERANCE = 0.01
 _BILL_QUERY = "SELECT id, type, money, fromact, targetact, remark, time, cateid, extra FROM user_bill WHERE status = 1 ORDER BY time"
 
 
-def _parse_amount(money: float, extra_str: str | None) -> float:
-    """Return base-currency amount, using currency conversion from extra if available."""
+def _decode_curr(extra_str: str | None) -> dict[str, Any] | None:
+    """Return ``extra.curr`` dict, or None if absent/malformed."""
     if not extra_str or extra_str == "null":
-        return float(money)
+        return None
     try:
         extra = json.loads(extra_str)
     except (json.JSONDecodeError, TypeError):
-        return float(money)
+        return None
     curr = extra.get("curr") if isinstance(extra, dict) else None
-    if not isinstance(curr, dict):
+    return curr if isinstance(curr, dict) else None
+
+
+def parse_qj_amount(money: float, extra_str: str | None) -> float:
+    """Return the base-currency (USD) amount for a Qianji bill.
+
+    Qianji's ``extra.curr`` encodes currency conversion metadata:
+      - ``ss`` / ``sv`` — source currency + amount
+      - ``bs`` / ``bv`` — base currency + amount (USD-denominated)
+      - ``ts`` / ``tv`` — target currency + amount (transfers only)
+
+    For cashflow aggregation we need USD, so return ``bv`` when the bill
+    crossed currencies and ``bv != sv`` (unconverted rows use ``bv == sv``).
+    """
+    curr = _decode_curr(extra_str)
+    if curr is None:
         return float(money)
     ss, bs, bv, sv = curr.get("ss"), curr.get("bs"), curr.get("bv"), curr.get("sv")
     if ss and bs and ss != bs and bv is not None and sv is not None and abs(bv - sv) > _CONVERSION_TOLERANCE:
         return float(bv)
+    return float(money)
+
+
+def parse_qj_target_amount(money: float, extra_str: str | None) -> float:
+    """Return the target-currency amount received by ``targetact`` in a transfer.
+
+    For a cross-currency transfer, ``extra.curr.tv`` holds the amount the
+    target account received in its native currency. Same-currency or
+    non-transfer rows fall back to ``money`` (source amount).
+    """
+    curr = _decode_curr(extra_str)
+    if curr is None:
+        return float(money)
+    ss, ts, tv = curr.get("ss"), curr.get("ts"), curr.get("tv")
+    if ss and ts and ss != ts and tv is not None and tv > 0:
+        return float(tv)
     return float(money)
 
 
@@ -70,7 +101,7 @@ def _load_records(conn: sqlite3.Connection) -> list[QianjiRecord]:
         if mapped_type is None:
             continue
         dt = datetime.fromtimestamp(ts, tz=UTC)
-        amount = _parse_amount(money, extra_str)
+        amount = parse_qj_amount(money, extra_str)
         if abs(amount - float(money)) > 0.01:
             cny_converted += 1
         records.append(

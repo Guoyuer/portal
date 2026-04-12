@@ -1,32 +1,18 @@
 """Verify Qianji balance replay: reverse-replay from current balances."""
 from __future__ import annotations
 
-import json
 import os
 import sqlite3
 import sys
 from datetime import UTC, date, datetime
 from pathlib import Path
 
+# Ensure the pipeline package is importable
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from etl.ingest.qianji_db import parse_qj_target_amount
+
 DB_PATH = Path(os.environ.get("APPDATA", "")) / "com.mutangtech.qianji.win/qianji_flutter/qianjiapp.db"
-
-
-def _parse_target_value(money: float, extra_str: str | None) -> float:
-    """For cross-currency transfers, return the target-currency amount (tv).
-    For same-currency, return money."""
-    if not extra_str or extra_str == "null":
-        return money
-    try:
-        extra = json.loads(extra_str)
-    except (json.JSONDecodeError, TypeError):
-        return money
-    curr = extra.get("curr") if isinstance(extra, dict) else None
-    if not isinstance(curr, dict):
-        return money
-    ss, ts, tv = curr.get("ss"), curr.get("ts"), curr.get("tv")
-    if ss and ts and ss != ts and tv is not None and tv > 0:
-        return float(tv)
-    return money
 
 
 def replay_qianji(db_path: Path, as_of: date | None = None) -> dict[str, float]:
@@ -56,7 +42,7 @@ def replay_qianji(db_path: Path, as_of: date | None = None) -> dict[str, float]:
         money = float(money)
         fromact = fromact or ""
         targetact = targetact or ""
-        tv = _parse_target_value(money, extra_str)
+        tv = parse_qj_target_amount(money, extra_str)
 
         if bill_type == 0:  # expense: fromact lost money → add back
             if fromact:

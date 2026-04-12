@@ -25,6 +25,7 @@ from typing import Any
 
 from .db import get_connection
 from .ingest.qianji_db import DEFAULT_DB_PATH as DEFAULT_QJ_DB
+from .ingest.qianji_db import parse_qj_target_amount
 from .parsing import STRICT_US_DATE_RE, parse_us_date
 from .types import parse_float as _float
 
@@ -358,27 +359,6 @@ def calibrate_from_positions(
 
 # ── Qianji replay ─────────────────────────────────────────────────────────────
 
-def _qj_target_value(money: float, extra_str: str | None) -> float:
-    """For cross-currency transfers, return the target-currency amount (tv).
-
-    Qianji stores source amount in `money` (source currency).
-    For cross-currency transfers, `extra.curr.tv` holds the target-currency amount.
-    For same-currency, tv == money.
-    """
-    if not extra_str or extra_str == "null":
-        return money
-    try:
-        extra = json.loads(extra_str)
-    except (json.JSONDecodeError, TypeError):
-        return money
-    curr = extra.get("curr") if isinstance(extra, dict) else None
-    if not isinstance(curr, dict):
-        return money
-    ss, ts, tv = curr.get("ss"), curr.get("ts"), curr.get("tv")
-    if ss and ts and ss != ts and tv is not None and tv > 0:
-        return float(tv)
-    return money
-
 
 def replay_qianji(db_path: Path, as_of: date | None = None) -> dict[str, float]:
     """Replay Qianji account balances at as_of date.
@@ -421,7 +401,7 @@ def replay_qianji(db_path: Path, as_of: date | None = None) -> dict[str, float]:
             money = float(money)
             fromact = fromact or ""
             targetact = targetact or ""
-            tv = _qj_target_value(money, extra_str)
+            tv = parse_qj_target_amount(money, extra_str)
 
             if bill_type == 0:  # expense: fromact lost money → add back
                 if fromact:

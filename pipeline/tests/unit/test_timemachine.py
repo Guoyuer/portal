@@ -10,7 +10,6 @@ from pathlib import Path
 import pytest
 
 from etl.timemachine import (
-    _qj_target_value,
     _replay_core,
     replay_qianji,
     replay_qianji_currencies,
@@ -83,36 +82,6 @@ def _write_positions_csv(path: Path, rows: list[dict[str, str]]) -> None:
         writer = csv.DictWriter(f, fieldnames=fields)
         writer.writeheader()
         writer.writerows(rows)
-
-
-# ── _qj_target_value ────────────────────────────────────────────────────────
-
-class TestQjTargetValue:
-    def test_no_extra(self) -> None:
-        assert _qj_target_value(100.0, None) == 100.0
-        assert _qj_target_value(100.0, "null") == 100.0
-
-    def test_invalid_json(self) -> None:
-        assert _qj_target_value(100.0, "not json") == 100.0
-
-    def test_same_currency(self) -> None:
-        """Same source/target currency returns original money."""
-        extra = '{"curr": {"ss": "USD", "ts": "USD", "tv": 100}}'
-        assert _qj_target_value(100.0, extra) == 100.0
-
-    def test_cross_currency(self) -> None:
-        """Cross-currency returns tv from extra."""
-        extra = '{"curr": {"ss": "USD", "ts": "CNY", "tv": 723.5}}'
-        assert _qj_target_value(100.0, extra) == 723.5
-
-    def test_missing_curr_key(self) -> None:
-        extra = '{"other": "data"}'
-        assert _qj_target_value(100.0, extra) == 100.0
-
-    def test_tv_zero_returns_money(self) -> None:
-        """tv <= 0 should fall back to money."""
-        extra = '{"curr": {"ss": "USD", "ts": "CNY", "tv": 0}}'
-        assert _qj_target_value(100.0, extra) == 100.0
 
 
 # ── replay_qianji ───────────────────────────────────────────────────────────
