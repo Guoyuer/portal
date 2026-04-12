@@ -64,7 +64,8 @@ def symbol_holding_periods_from_db(db_path: Path) -> dict[str, tuple[date, date 
     conn = get_connection(db_path)
     try:
         rows = conn.execute(
-            "SELECT run_date, symbol, action, quantity FROM fidelity_transactions ORDER BY id"
+            "SELECT run_date, symbol, action, quantity FROM fidelity_transactions"
+            " ORDER BY substr(run_date,7,4)||substr(run_date,1,2)||substr(run_date,4,2), id"
         ).fetchall()
     finally:
         conn.close()

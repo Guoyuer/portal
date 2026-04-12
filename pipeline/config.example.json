@@ -85,52 +85,189 @@
       "category": "US Equity",
       "subtype": "growth"
     },
-    "QQQ": { "category": "US Equity", "subtype": "growth" },
-    "AVGO": { "category": "US Equity", "subtype": "growth" },
-    "TSLA": { "category": "US Equity", "subtype": "growth" },
-    "INTC": { "category": "US Equity", "subtype": "growth" },
-    "CRWD": { "category": "US Equity", "subtype": "growth" },
-    "CRWV": { "category": "US Equity", "subtype": "growth" },
-    "SMCI": { "category": "US Equity", "subtype": "growth" },
-    "ADBE": { "category": "US Equity", "subtype": "growth" },
-    "ADI": { "category": "US Equity", "subtype": "growth" },
-    "AMZN": { "category": "US Equity", "subtype": "growth" },
-    "HOOD": { "category": "US Equity", "subtype": "growth" },
-    "SVIX": { "category": "US Equity", "subtype": "growth" },
-    "AI": { "category": "US Equity", "subtype": "growth" },
-    "U": { "category": "US Equity", "subtype": "growth" },
-    "GS": { "category": "US Equity", "subtype": "broad" },
-    "JPM": { "category": "US Equity", "subtype": "broad" },
-    "GM": { "category": "US Equity", "subtype": "broad" },
-    "KO": { "category": "US Equity", "subtype": "broad" },
-    "ELV": { "category": "US Equity", "subtype": "broad" },
-    "CVS": { "category": "US Equity", "subtype": "broad" },
-    "AAL": { "category": "US Equity", "subtype": "broad" },
-    "MO": { "category": "US Equity", "subtype": "broad" },
-    "NKE": { "category": "US Equity", "subtype": "broad" },
-    "PYPL": { "category": "US Equity", "subtype": "broad" },
-    "UBER": { "category": "US Equity", "subtype": "broad" },
-    "DLB": { "category": "US Equity", "subtype": "broad" },
-    "T": { "category": "US Equity", "subtype": "broad" },
-    "F": { "category": "US Equity", "subtype": "broad" },
-    "FIG": { "category": "US Equity", "subtype": "broad" },
-    "LOGI": { "category": "US Equity", "subtype": "broad" },
-    "STUB": { "category": "US Equity", "subtype": "broad" },
-    "MRNA": { "category": "US Equity", "subtype": "broad" },
-    "AVB": { "category": "US Equity", "subtype": "broad" },
-    "XLF": { "category": "US Equity", "subtype": "broad" },
-    "JEPI": { "category": "US Equity", "subtype": "broad" },
-    "JEPQ": { "category": "US Equity", "subtype": "broad" },
-    "ICLN": { "category": "US Equity", "subtype": "broad" },
-    "SONY": { "category": "Non-US Equity", "subtype": "broad" },
-    "HESAY": { "category": "Non-US Equity", "subtype": "broad" },
-    "BTI": { "category": "Non-US Equity", "subtype": "broad" },
-    "NVO": { "category": "Non-US Equity", "subtype": "broad" },
-    "TCEHY": { "category": "Non-US Equity", "subtype": "broad" },
-    "JD": { "category": "Non-US Equity", "subtype": "broad" },
-    "PDD": { "category": "Non-US Equity", "subtype": "broad" },
-    "BABA": { "category": "Non-US Equity", "subtype": "broad" },
-    "GLD": { "category": "Safe Net" },
+    "QQQ": {
+      "category": "US Equity",
+      "subtype": "growth"
+    },
+    "AVGO": {
+      "category": "US Equity",
+      "subtype": "growth"
+    },
+    "TSLA": {
+      "category": "US Equity",
+      "subtype": "growth"
+    },
+    "INTC": {
+      "category": "US Equity",
+      "subtype": "growth"
+    },
+    "CRWD": {
+      "category": "US Equity",
+      "subtype": "growth"
+    },
+    "CRWV": {
+      "category": "US Equity",
+      "subtype": "growth"
+    },
+    "SMCI": {
+      "category": "US Equity",
+      "subtype": "growth"
+    },
+    "ADBE": {
+      "category": "US Equity",
+      "subtype": "growth"
+    },
+    "ADI": {
+      "category": "US Equity",
+      "subtype": "growth"
+    },
+    "AMZN": {
+      "category": "US Equity",
+      "subtype": "growth"
+    },
+    "HOOD": {
+      "category": "US Equity",
+      "subtype": "growth"
+    },
+    "SVIX": {
+      "category": "US Equity",
+      "subtype": "growth"
+    },
+    "AI": {
+      "category": "US Equity",
+      "subtype": "growth"
+    },
+    "U": {
+      "category": "US Equity",
+      "subtype": "growth"
+    },
+    "GS": {
+      "category": "US Equity",
+      "subtype": "broad"
+    },
+    "JPM": {
+      "category": "US Equity",
+      "subtype": "broad"
+    },
+    "GM": {
+      "category": "US Equity",
+      "subtype": "broad"
+    },
+    "KO": {
+      "category": "US Equity",
+      "subtype": "broad"
+    },
+    "ELV": {
+      "category": "US Equity",
+      "subtype": "broad"
+    },
+    "CVS": {
+      "category": "US Equity",
+      "subtype": "broad"
+    },
+    "AAL": {
+      "category": "US Equity",
+      "subtype": "broad"
+    },
+    "MO": {
+      "category": "US Equity",
+      "subtype": "broad"
+    },
+    "NKE": {
+      "category": "US Equity",
+      "subtype": "broad"
+    },
+    "PYPL": {
+      "category": "US Equity",
+      "subtype": "broad"
+    },
+    "UBER": {
+      "category": "US Equity",
+      "subtype": "broad"
+    },
+    "DLB": {
+      "category": "US Equity",
+      "subtype": "broad"
+    },
+    "T": {
+      "category": "US Equity",
+      "subtype": "broad"
+    },
+    "F": {
+      "category": "US Equity",
+      "subtype": "broad"
+    },
+    "FIG": {
+      "category": "US Equity",
+      "subtype": "broad"
+    },
+    "LOGI": {
+      "category": "US Equity",
+      "subtype": "broad"
+    },
+    "STUB": {
+      "category": "US Equity",
+      "subtype": "broad"
+    },
+    "MRNA": {
+      "category": "US Equity",
+      "subtype": "broad"
+    },
+    "AVB": {
+      "category": "US Equity",
+      "subtype": "broad"
+    },
+    "XLF": {
+      "category": "US Equity",
+      "subtype": "broad"
+    },
+    "JEPI": {
+      "category": "US Equity",
+      "subtype": "broad"
+    },
+    "JEPQ": {
+      "category": "US Equity",
+      "subtype": "broad"
+    },
+    "ICLN": {
+      "category": "US Equity",
+      "subtype": "broad"
+    },
+    "SONY": {
+      "category": "Non-US Equity",
+      "subtype": "broad"
+    },
+    "HESAY": {
+      "category": "Non-US Equity",
+      "subtype": "broad"
+    },
+    "BTI": {
+      "category": "Non-US Equity",
+      "subtype": "broad"
+    },
+    "NVO": {
+      "category": "Non-US Equity",
+      "subtype": "broad"
+    },
+    "TCEHY": {
+      "category": "Non-US Equity",
+      "subtype": "broad"
+    },
+    "JD": {
+      "category": "Non-US Equity",
+      "subtype": "broad"
+    },
+    "PDD": {
+      "category": "Non-US Equity",
+      "subtype": "broad"
+    },
+    "BABA": {
+      "category": "Non-US Equity",
+      "subtype": "broad"
+    },
+    "GLD": {
+      "category": "Safe Net"
+    },
     "VXUS": {
       "category": "Non-US Equity",
       "subtype": "broad"
@@ -218,6 +355,18 @@
     },
     "Cash": {
       "category": "Safe Net"
+    },
+    "Amex HYSA": {
+      "category": "Safe Net"
+    },
+    "Amex Saving": {
+      "category": "Safe Net"
+    },
+    "USDC": {
+      "category": "Safe Net"
+    },
+    "T-Bills": {
+      "category": "Safe Net"
     }
   },
   "target_weights": {
@@ -258,7 +407,12 @@
       "Alipay Funds": "Alipay Funds",
       "Managed Fund": "Managed Fund",
       "Gift Card": "Gift Card",
-      "Cash": "Cash"
+      "Cash": "Cash",
+      "Amex HYSA": "Amex HYSA",
+      "Amex Saving": "Amex Saving",
+      "USDC": "USDC",
+      "HYSA": "Amex HYSA",
+      "Debit": "Debit Cash"
     }
   }
 }

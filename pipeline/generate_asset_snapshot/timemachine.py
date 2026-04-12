@@ -148,7 +148,8 @@ def replay_from_db(db_path: Path, as_of: date | None = None) -> dict[str, Any]:
     conn = sqlite3.connect(str(db_path))
     rows = conn.execute(
         "SELECT run_date, account_number, action, symbol, lot_type, quantity, amount"
-        " FROM fidelity_transactions ORDER BY id"
+        " FROM fidelity_transactions"
+        " ORDER BY substr(run_date,7,4)||substr(run_date,1,2)||substr(run_date,4,2), id"
     ).fetchall()
     conn.close()
 

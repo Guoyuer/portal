@@ -8,6 +8,7 @@ This module reconstructs historical asset allocation by combining:
 """
 from __future__ import annotations
 
+import logging
 import sqlite3
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -20,6 +21,8 @@ from .timemachine import (
     replay_qianji,
     replay_qianji_currencies,
 )
+
+log = logging.getLogger(__name__)
 
 # ── Qianji transaction dates ───────────────────────────────────────────────
 
@@ -162,11 +165,17 @@ def compute_daily_allocation(
 
         # Fidelity positions x price
         for (_acct, sym), qty in positions.items():
+            # CUSIPs (T-Bills, brokered CDs): value at face ($1/unit), aggregate as "T-Bills"
+            if sym[0].isdigit() and len(sym) >= 8:
+                ticker_values["T-Bills"] = ticker_values.get("T-Bills", 0) + qty
+                continue
             p_date = mf_price_date if sym in mutual_funds else price_date
             if sym in prices.columns and p_date in prices.index:
                 price = prices.loc[p_date, sym]
                 if pd.notna(price):
                     ticker_values[sym] = ticker_values.get(sym, 0) + qty * float(price)
+            else:
+                log.warning("No price for %s on %s (holding %.3f shares) — excluded from allocation", sym, p_date, qty)
 
         # Fidelity cash -> per-account money market ticker
         acct_mm: dict[str, str] = {
@@ -193,6 +202,8 @@ def compute_daily_allocation(
                 ticker_values[ticker] = ticker_values.get(ticker, 0) + usd_val
             elif curr == "CNY":
                 ticker_values["CNY Assets"] = ticker_values.get("CNY Assets", 0) + usd_val
+            else:
+                log.warning("Qianji account %r (%.2f USD) has no ticker_map entry — excluded from allocation", qj_acct, usd_val)
 
         # 401k (Empower QFX): daily values by config ticker
         if current in k401_daily:
