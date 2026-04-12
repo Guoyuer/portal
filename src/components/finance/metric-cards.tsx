@@ -201,9 +201,9 @@ export function MetricCards({
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <SavingsRateCard savingsRate={savingsRate} takehomeSavingsRate={takehomeSavingsRate} />
-        <div data-slot="card" data-testid="goal-card" className="liquid-glass p-4 col-span-2">
+        <div data-slot="card" data-testid="goal-card" className="liquid-glass p-4 sm:col-span-2">
           <p className="text-xs sm:text-sm text-muted-foreground">Goal</p>
           <p className="text-xl sm:text-2xl font-bold mt-1">
             {Math.round(goalPct)}%{" "}
