@@ -17,20 +17,6 @@ export const ACTIVITY_TOP_SYMBOLS = 5;
 
 export const TOTAL_ROW_CLASS = "font-bold border-t-2 border-b-2 border-foreground/20";
 
-export function SectionHeader({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="text-foreground font-semibold text-lg tracking-tight mb-3">
-      {children}
-    </div>
-  );
-}
-
-export function SectionBody({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="liquid-glass p-3 sm:p-5">{children}</div>
-  );
-}
-
 export function DeviationCell({ value }: { value: number }) {
   return (
     <TableCell

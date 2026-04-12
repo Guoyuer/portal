@@ -11,7 +11,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { DeviationCell, SectionHeader, SectionBody, TOTAL_ROW_CLASS } from "@/components/finance/shared";
+import { SectionHeader, SectionBody } from "@/components/finance/section";
+import { DeviationCell, TOTAL_ROW_CLASS } from "@/components/finance/ticker-table";
 import { AllocationDonut } from "@/components/finance/charts";
 
 // ── Equity categories for classification ──────────────────────────────────
