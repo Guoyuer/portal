@@ -1,4 +1,4 @@
-"""Unit tests for qianji_db ingest — _parse_amount, _load_records, _load_balances, ingest_qianji_transactions."""
+"""Unit tests for qianji_db ingest — parse_qj_amount, parse_qj_target_amount, _load_records, _load_balances, ingest_qianji_transactions."""
 
 from __future__ import annotations
 
@@ -14,38 +14,39 @@ from etl.db import init_db
 from etl.ingest.qianji_db import (
     _load_balances,
     _load_records,
-    _parse_amount,
     ingest_qianji_transactions,
+    parse_qj_amount,
+    parse_qj_target_amount,
 )
 
-# ── _parse_amount ─────────────────────────────────────────────────────────────
+# ── parse_qj_amount ───────────────────────────────────────────────────────────
 
 
 def _extra(ss: str, sv: float, ts: str | None, tv: float, bs: str, bv: float) -> str:
     return json.dumps({"curr": {"ss": ss, "sv": sv, "ts": ts, "tv": tv, "bs": bs, "bv": bv}})
 
 
-class TestParseAmount:
+class TestParseQjAmount:
     def test_null_string_returns_money(self):
-        assert _parse_amount(100.0, "null") == 100.0
+        assert parse_qj_amount(100.0, "null") == 100.0
 
     def test_none_returns_money(self):
-        assert _parse_amount(100.0, None) == 100.0
+        assert parse_qj_amount(100.0, None) == 100.0
 
     def test_cny_expense_uses_bv(self):
         """CNY expense with ts=None: money=2590.52 (CNY), bv=358.0 (USD)."""
         extra = _extra("CNY", 2590.52, None, 0.0, "USD", 358.0)
-        assert _parse_amount(2590.52, extra) == 358.0
+        assert parse_qj_amount(2590.52, extra) == 358.0
 
     def test_cny_to_usd_transfer_uses_bv(self):
         """CNY→USD transfer: money=5000 (CNY), bv=692 (USD)."""
         extra = _extra("CNY", 5000.0, "USD", 692.0, "USD", 692.0)
-        assert _parse_amount(5000.0, extra) == 692.0
+        assert parse_qj_amount(5000.0, extra) == 692.0
 
     def test_cny_to_cny_transfer_bv_converted(self):
         """CNY→CNY transfer where bv has USD conversion (bv != sv)."""
         extra = _extra("CNY", 10000.0, "CNY", 10000.0, "USD", 1385.0)
-        assert _parse_amount(10000.0, extra) == 1385.0
+        assert parse_qj_amount(10000.0, extra) == 1385.0
 
     def test_cny_to_cny_transfer_bv_equals_sv(self):
         """CNY→CNY transfer where bv == sv (no conversion happened).
@@ -54,46 +55,79 @@ class TestParseAmount:
         """
         extra = _extra("CNY", 7000.0, "CNY", 7000.0, "USD", 7000.0)
         # bv == sv → no conversion detected → fallback to money
-        assert _parse_amount(7000.0, extra) == 7000.0
+        assert parse_qj_amount(7000.0, extra) == 7000.0
 
     def test_usd_source_falls_back_to_money(self):
         """USD→CNY transfer: ss=USD, code should use money directly."""
         extra = _extra("USD", 2000.0, "CNY", 14366.0, "USD", 2000.0)
-        assert _parse_amount(2000.0, extra) == 2000.0
+        assert parse_qj_amount(2000.0, extra) == 2000.0
 
     def test_malformed_json_returns_money(self):
-        assert _parse_amount(50.0, "not json") == 50.0
+        assert parse_qj_amount(50.0, "not json") == 50.0
 
     def test_extra_without_curr_returns_money(self):
-        assert _parse_amount(50.0, json.dumps({"tags": None})) == 50.0
+        assert parse_qj_amount(50.0, json.dumps({"tags": None})) == 50.0
 
     def test_bv_none_returns_money(self):
         extra = json.dumps({"curr": {"ss": "CNY", "sv": 100.0, "bs": "USD", "bv": None}})
-        assert _parse_amount(100.0, extra) == 100.0
+        assert parse_qj_amount(100.0, extra) == 100.0
 
     def test_curr_not_dict_returns_money(self):
         """curr present but not a dict (e.g. int, list)."""
-        assert _parse_amount(50.0, json.dumps({"curr": 123})) == 50.0
-        assert _parse_amount(50.0, json.dumps({"curr": ["CNY"]})) == 50.0
+        assert parse_qj_amount(50.0, json.dumps({"curr": 123})) == 50.0
+        assert parse_qj_amount(50.0, json.dumps({"curr": ["CNY"]})) == 50.0
 
     def test_curr_missing_fields_returns_money(self):
         """curr dict but missing required fields."""
-        assert _parse_amount(50.0, json.dumps({"curr": {"ss": "CNY"}})) == 50.0
-        assert _parse_amount(50.0, json.dumps({"curr": {"ss": "CNY", "bs": "USD"}})) == 50.0
-        assert _parse_amount(50.0, json.dumps({"curr": {"ss": "CNY", "bs": "USD", "bv": 7.0}})) == 50.0
+        assert parse_qj_amount(50.0, json.dumps({"curr": {"ss": "CNY"}})) == 50.0
+        assert parse_qj_amount(50.0, json.dumps({"curr": {"ss": "CNY", "bs": "USD"}})) == 50.0
+        assert parse_qj_amount(50.0, json.dumps({"curr": {"ss": "CNY", "bs": "USD", "bv": 7.0}})) == 50.0
 
     def test_ss_equals_bs_returns_money(self):
         """Same source and base currency — no conversion needed."""
         extra = _extra("USD", 100.0, None, 0.0, "USD", 100.0)
-        assert _parse_amount(100.0, extra) == 100.0
+        assert parse_qj_amount(100.0, extra) == 100.0
 
     def test_bv_sv_within_tolerance_returns_money(self):
         """bv and sv differ by less than tolerance — treat as unconverted."""
         extra = _extra("CNY", 100.0, None, 0.0, "USD", 100.005)
-        assert _parse_amount(100.0, extra) == 100.0
+        assert parse_qj_amount(100.0, extra) == 100.0
 
     def test_empty_string_returns_money(self):
-        assert _parse_amount(50.0, "") == 50.0
+        assert parse_qj_amount(50.0, "") == 50.0
+
+
+# ── parse_qj_target_amount ────────────────────────────────────────────────────
+
+
+class TestParseQjTargetAmount:
+    """Target-currency parser: returns tv for cross-currency transfers, else money."""
+
+    def test_no_extra(self) -> None:
+        assert parse_qj_target_amount(100.0, None) == 100.0
+        assert parse_qj_target_amount(100.0, "null") == 100.0
+
+    def test_invalid_json(self) -> None:
+        assert parse_qj_target_amount(100.0, "not json") == 100.0
+
+    def test_same_currency(self) -> None:
+        """Same source/target currency returns original money."""
+        extra = '{"curr": {"ss": "USD", "ts": "USD", "tv": 100}}'
+        assert parse_qj_target_amount(100.0, extra) == 100.0
+
+    def test_cross_currency(self) -> None:
+        """Cross-currency returns tv from extra."""
+        extra = '{"curr": {"ss": "USD", "ts": "CNY", "tv": 723.5}}'
+        assert parse_qj_target_amount(100.0, extra) == 723.5
+
+    def test_missing_curr_key(self) -> None:
+        extra = '{"other": "data"}'
+        assert parse_qj_target_amount(100.0, extra) == 100.0
+
+    def test_tv_zero_returns_money(self) -> None:
+        """tv <= 0 should fall back to money."""
+        extra = '{"curr": {"ss": "USD", "ts": "CNY", "tv": 0}}'
+        assert parse_qj_target_amount(100.0, extra) == 100.0
 
 
 # ── _load_records ─────────────────────────────────────────────────────────────
