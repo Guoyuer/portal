@@ -114,22 +114,13 @@ async function handleTimeline(env: Env, origin: string | null): Promise<Response
 
   // Market: indices OR meta failing is enough to mark the section as degraded.
   // When both fail, null the whole market object; when only one fails, keep what we have.
-  // The raw payload is validated by Zod below — we just pass a structurally-compatible
-  // object through.
+  // MarketMetaSchema declares each key .nullable().default(null), so missing
+  // fields are filled in by Zod at validatedResponse time — no spread here.
   let market: unknown = null;
   if (indices.ok || marketMeta.ok) {
-    const metaRow = marketMeta.ok ? (marketMeta.value.results[0] as Record<string, unknown> | undefined) : undefined;
     market = {
       indices: indices.ok ? indices.value.results : [],
-      meta: {
-        fedRate: metaRow?.fedRate ?? null,
-        treasury10y: metaRow?.treasury10y ?? null,
-        cpi: metaRow?.cpi ?? null,
-        unemployment: metaRow?.unemployment ?? null,
-        vix: metaRow?.vix ?? null,
-        dxy: metaRow?.dxy ?? null,
-        usdCny: metaRow?.usdCny ?? null,
-      },
+      meta: marketMeta.ok ? (marketMeta.value.results[0] ?? {}) : {},
     };
   }
   const marketErrors: string[] = [];
@@ -166,14 +157,16 @@ async function handleTimeline(env: Env, origin: string | null): Promise<Response
 async function handleEcon(env: Env, origin: string | null): Promise<Response> {
   try {
     const [seriesRows, snapshotRows, syncMetaRows] = await Promise.all([
-      env.DB.prepare("SELECT key, date, value FROM v_econ_series").all(),
+      env.DB.prepare("SELECT key, points FROM v_econ_series_grouped").all(),
       env.DB.prepare("SELECT key, value FROM v_econ_snapshot").all(),
       env.DB.prepare("SELECT key, value FROM sync_meta").all(),
     ]);
 
-    const series: Record<string, { date: string; value: number }[]> = {};
-    for (const r of seriesRows.results as { key: string; date: string; value: number }[]) {
-      (series[r.key] ??= []).push({ date: r.date, value: r.value });
+    // Each row's `points` is a JSON string (json_group_array output); the
+    // client unpacks it via EconDataSchema's EconPointsSchema transform.
+    const series: Record<string, string> = {};
+    for (const r of seriesRows.results as { key: string; points: string }[]) {
+      series[r.key] = r.points;
     }
 
     const snapshot: Record<string, number> = {};

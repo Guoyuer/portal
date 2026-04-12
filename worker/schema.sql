@@ -146,6 +146,12 @@ FROM computed_holdings_detail ORDER BY month_return DESC;
 CREATE VIEW IF NOT EXISTS v_econ_series AS
 SELECT key, date, value FROM econ_series ORDER BY key, date;
 
+CREATE VIEW IF NOT EXISTS v_econ_series_grouped AS
+SELECT key,
+  json_group_array(json_object('date', date, 'value', value)) AS points
+FROM (SELECT key, date, value FROM econ_series ORDER BY key, date)
+GROUP BY key ORDER BY key;
+
 CREATE VIEW IF NOT EXISTS v_econ_snapshot AS
 SELECT key, value
 FROM econ_series t1

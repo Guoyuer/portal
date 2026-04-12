@@ -240,6 +240,16 @@ _VIEWS: dict[str, str] = {
         "CREATE VIEW IF NOT EXISTS v_econ_series AS\n"
         "SELECT key, date, value FROM econ_series ORDER BY key, date;"
     ),
+    # Pre-grouped for the Worker /econ endpoint — each row is a key plus a
+    # JSON array of {date, value} already built by SQLite. The client parses
+    # the string via the EconDataSchema transform.
+    "v_econ_series_grouped": (
+        "CREATE VIEW IF NOT EXISTS v_econ_series_grouped AS\n"
+        "SELECT key,\n"
+        "  json_group_array(json_object('date', date, 'value', value)) AS points\n"
+        "FROM (SELECT key, date, value FROM econ_series ORDER BY key, date)\n"
+        "GROUP BY key ORDER BY key;"
+    ),
     "v_econ_snapshot": (
         "CREATE VIEW IF NOT EXISTS v_econ_snapshot AS\n"
         "SELECT key, value\n"
