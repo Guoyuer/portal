@@ -3,7 +3,7 @@
 import { useRef, useState, useEffect } from "react";
 import type { ApiCategory, ApiTicker } from "@/lib/schema";
 import { fmtCurrency, fmtCurrencyShort } from "@/lib/format";
-import { savingsRateColor } from "@/lib/style-helpers";
+import { SAVINGS_RATE_GOOD, SAVINGS_RATE_WARNING } from "@/lib/style-helpers";
 import { CategorySummary } from "@/components/finance/category-summary";
 
 // ── Savings Rate Card with radial progress ──────────────────────────────
@@ -13,19 +13,15 @@ const RING_STROKE = 6;
 const RING_R = (RING_SIZE - RING_STROKE) / 2;
 const RING_C = 2 * Math.PI * RING_R;
 
-// Vibrant FinTech palette — matches the cyan energy of Net Worth card
-const SR_GOOD = 30;
-const SR_WARN = 15;
-
 function srColor(rate: number): string {
-  if (rate >= SR_GOOD) return "#059669";
-  if (rate >= SR_WARN) return "#CA8A04";
+  if (rate >= SAVINGS_RATE_GOOD) return "#059669";
+  if (rate >= SAVINGS_RATE_WARNING) return "#CA8A04";
   return "#DC2626";
 }
 
 function srColorMuted(rate: number): string {
-  if (rate >= SR_GOOD) return "rgba(5, 150, 105, 0.3)";
-  if (rate >= SR_WARN) return "rgba(202, 138, 4, 0.3)";
+  if (rate >= SAVINGS_RATE_GOOD) return "rgba(5, 150, 105, 0.3)";
+  if (rate >= SAVINGS_RATE_WARNING) return "rgba(202, 138, 4, 0.3)";
   return "rgba(220, 38, 38, 0.3)";
 }
 

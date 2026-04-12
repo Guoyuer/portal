@@ -14,9 +14,10 @@ import {
 } from "recharts";
 import type { TooltipContentProps } from "recharts/types/component/Tooltip";
 import type { DailyPoint, CashflowResponse, ActivityResponse } from "@/lib/schema";
-import { fmtCurrency, fmtCurrencyShort, fmtDateLong, fmtDateMedium, fmtDateMonthYear } from "@/lib/format";
+import { fmtCurrency, fmtCurrencyShort, fmtDateLong, fmtDateMedium, fmtDateMonthYear, fmtTick } from "@/lib/format";
 import { useIsDark, useIsMobile } from "@/lib/hooks";
 import { tooltipStyle, gridStroke, axisProps, brushColors } from "@/lib/chart-styles";
+import { getIsDark } from "@/lib/style-helpers";
 import { CATEGORIES, CAT_COLOR_BY_KEY } from "@/lib/compute";
 
 // ── Constants ─────────────────────────────────────────────────────────────
@@ -27,7 +28,7 @@ const CAT_LABELS: Record<string, string> = Object.fromEntries(
 
 function AreaTooltip({ active, payload, label }: TooltipContentProps) {
   if (!active || !payload?.length) return null;
-  const isDark = typeof document !== "undefined" && document.documentElement.classList.contains("dark");
+  const isDark = getIsDark();
   const style = tooltipStyle(isDark);
   const fmtLabel = new Date(Number(label)).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
   return (
@@ -63,9 +64,6 @@ export function TimemachineChart({
   const chartData = sliced.map((d) => ({ ...d, ts: new Date(d.date).getTime() }));
 
   if (daily.length === 0) return null;
-
-  const fmtTick = (ts: number) =>
-    new Date(ts).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
 
   return (
     <ResponsiveContainer width="100%" height={isMobile ? 240 : 280}>

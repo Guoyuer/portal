@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 
 export function useIsDark() {
   const [isDark, setIsDark] = useState(false);
@@ -14,17 +14,18 @@ export function useIsDark() {
   return isDark;
 }
 
+const MOBILE_MQL = "(max-width: 639px)";
+
+function subscribeMobile(callback: () => void) {
+  const mql = window.matchMedia(MOBILE_MQL);
+  mql.addEventListener("change", callback);
+  return () => mql.removeEventListener("change", callback);
+}
+
+function getMobileSnapshot() {
+  return window.matchMedia(MOBILE_MQL).matches;
+}
+
 export function useIsMobile() {
-  const subscribe = useCallback((callback: () => void) => {
-    const mql = window.matchMedia("(max-width: 639px)");
-    mql.addEventListener("change", callback);
-    return () => mql.removeEventListener("change", callback);
-  }, []);
-
-  const getSnapshot = useCallback(
-    () => window.matchMedia("(max-width: 639px)").matches,
-    [],
-  );
-
-  return useSyncExternalStore(subscribe, getSnapshot, () => false);
+  return useSyncExternalStore(subscribeMobile, getMobileSnapshot, () => false);
 }

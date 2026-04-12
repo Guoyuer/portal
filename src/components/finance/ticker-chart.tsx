@@ -14,9 +14,10 @@ import {
 } from "recharts";
 import type { TooltipContentProps } from "recharts/types/component/Tooltip";
 import type { TickerPricePoint, TickerTransaction, TickerPriceResponse } from "@/lib/schema";
-import { fmtCurrency, fmtDateMedium } from "@/lib/format";
+import { fmtCurrency, fmtDateMedium, fmtTick } from "@/lib/format";
 import { useIsDark } from "@/lib/hooks";
 import { tooltipStyle, gridStroke, axisProps } from "@/lib/chart-styles";
+import { getIsDark } from "@/lib/style-helpers";
 
 // ── Data merging ──────────────────────────────────────────────────────────
 
@@ -90,7 +91,7 @@ export function mergeTickerData(
 
 function PriceTooltip({ active, payload }: TooltipContentProps) {
   if (!active || !payload?.length) return null;
-  const isDark = typeof document !== "undefined" && document.documentElement.classList.contains("dark");
+  const isDark = getIsDark();
   const style = tooltipStyle(isDark);
   const d = payload[0]?.payload as TickerChartPoint | undefined;
   if (!d) return null;
@@ -117,9 +118,6 @@ function PriceTooltip({ active, payload }: TooltipContentProps) {
 
 function TickerChartInner({ data, avgCost }: { data: TickerChartPoint[]; avgCost: number | null }) {
   const isDark = useIsDark();
-
-  const fmtTick = (ts: number) =>
-    new Date(ts).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
 
   return (
     <ResponsiveContainer width="100%" height={200}>
@@ -183,7 +181,7 @@ function TickerChartInner({ data, avgCost }: { data: TickerChartPoint[]; avgCost
 
 // ── Fetching wrapper ──────────────────────────────────────────────────────
 
-const WORKER_URL = process.env.NEXT_PUBLIC_TIMELINE_URL?.replace(/\/timeline$/, "") ?? "";
+import { WORKER_BASE } from "@/lib/config";
 
 export function TickerChart({ symbol, startDate, endDate }: { symbol: string; startDate?: string; endDate?: string }) {
   const [data, setData] = useState<TickerChartPoint[] | null>(null);
@@ -194,7 +192,7 @@ export function TickerChart({ symbol, startDate, endDate }: { symbol: string; st
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`${WORKER_URL}/prices/${encodeURIComponent(symbol)}`);
+        const res = await fetch(`${WORKER_BASE}/prices/${encodeURIComponent(symbol)}`);
         if (!res.ok) throw new Error(`${res.status}`);
         const json = (await res.json()) as TickerPriceResponse;
         if (cancelled) return;

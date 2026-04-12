@@ -24,9 +24,10 @@ import type {
   MonthlyFlowPoint,
   SnapshotPoint,
 } from "@/lib/schema";
-import { fmtCurrencyShort, fmtDateMonthYear, fmtMonth, fmtMonthYear } from "@/lib/format";
+import { fmtCurrencyShort, fmtDateMonthYear, fmtMonth, fmtMonthYear, fmtTick } from "@/lib/format";
 import { useIsDark, useIsMobile } from "@/lib/hooks";
 import { tooltipStyle, gridStroke, axisProps } from "@/lib/chart-styles";
+import { getIsDark } from "@/lib/style-helpers";
 import { CAT_COLOR_BY_NAME } from "@/lib/compute";
 
 // ── Donut: Category Allocation ─────────────────────────────────────────────
@@ -109,7 +110,7 @@ function SavingsLabel(props: LabelProps) {
 
 function FlowTooltip({ active, payload, label }: TooltipContentProps) {
   if (!active || !payload?.length) return null;
-  const isDark = typeof document !== "undefined" && document.documentElement.classList.contains("dark");
+  const isDark = getIsDark();
   const style = tooltipStyle(isDark);
   const row = payload[0]?.payload as (MonthlyFlowPoint & { savings?: number }) | undefined;
   const fmt = (v: number) => `$${v.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
@@ -224,9 +225,6 @@ export function NetWorthTrendChart({
   const chartData = data.map((d) => ({ ...d, ts: new Date(d.date).getTime() }));
 
   const [yMin, yMax] = niceYDomain(data);
-  const fmtTick = (ts: number) =>
-    new Date(ts).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
-
   return (
     <ResponsiveContainer width="100%" height={isMobile ? 260 : 300}>
       <AreaChart data={chartData} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>

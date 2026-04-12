@@ -4,7 +4,6 @@ import { useState, useEffect, useRef } from "react";
 import { Area, AreaChart, YAxis } from "recharts";
 import type { MarketData, IndexReturn } from "@/lib/schema";
 import { fmtPct } from "@/lib/format";
-import { valueColor } from "@/lib/style-helpers";
 import { SectionHeader } from "@/components/finance/shared";
 
 // ── Display name mapping ────────────────────────────────────────────────

@@ -1,6 +1,4 @@
-// ── Pure computation functions ─────────────────────────────────────────────
-// Extracted from use-bundle.ts and finance/page.tsx so they can be unit tested.
-// No React dependencies — pure input → output.
+// ── Pure computation functions (no React dependencies) ────────────────────
 
 import type {
   AllocationResponse,

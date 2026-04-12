@@ -108,7 +108,7 @@ def _load_config(path: Path) -> dict[str, object]:
     return data
 
 
-def _f(val: object) -> float:
+def _to_float(val: object) -> float:
     """Cast object to float (safe for values known to be numeric)."""
     return float(val)  # type: ignore[arg-type]
 
@@ -271,8 +271,8 @@ def _print_summary(alloc):
     if not alloc:
         return
     earliest, latest = alloc[0], alloc[-1]
-    print(f"\n  Earliest: {earliest['date']}  ${_f(earliest['total']):,.0f}")
-    print(f"  Latest:   {latest['date']}  ${_f(latest['total']):,.0f}")
+    print(f"\n  Earliest: {earliest['date']}  ${_to_float(earliest['total']):,.0f}")
+    print(f"  Latest:   {latest['date']}  ${_to_float(latest['total']):,.0f}")
 
 
 # ── Full rebuild ────────────────────────────────────────────────────────────
@@ -292,8 +292,8 @@ def _full_build(config, start, end, k401_daily, *, no_validate: bool = False):
             conn.execute(
                 "INSERT INTO computed_daily (date, total, us_equity, non_us_equity, crypto, safe_net, liabilities)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (r["date"], _f(r["total"]), _f(r["us_equity"]), _f(r["non_us_equity"]),
-                 _f(r["crypto"]), _f(r["safe_net"]), _f(r.get("liabilities", 0))),
+                (r["date"], _to_float(r["total"]), _to_float(r["us_equity"]), _to_float(r["non_us_equity"]),
+                 _to_float(r["crypto"]), _to_float(r["safe_net"]), _to_float(r.get("liabilities", 0))),
             )
             for t in r.get("tickers", []):
                 conn.execute(
