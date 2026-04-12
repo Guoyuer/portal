@@ -39,6 +39,7 @@ from generate_asset_snapshot.db import (
 from generate_asset_snapshot.empower_401k import (
     PROXY_TICKERS,
     Contribution,
+    QuarterSnapshot,
     daily_401k_values,
     load_all_contributions,
     load_all_qfx,
@@ -223,11 +224,19 @@ def _derive_start_date(paths: BuildPaths, fallback: date) -> date:
     return date.fromisoformat(row[0]) if row and row[0] else fallback
 
 
-# ── Main ─────────────────────────────────────────────────────────────────────
+# ── Ingest & fetch pipeline ──────────────────────────────────────────────────
 
 
-def _ingest_and_fetch(paths: BuildPaths, config, end):
-    """Steps 1-4: init DB, ingest sources, fetch prices. Returns k401_daily."""
+def _init_db_and_ingest_sources(
+    paths: BuildPaths,
+    config: dict[str, object],
+) -> tuple[list[QuarterSnapshot], list[Contribution]]:
+    """Steps 1-3: init DB, ingest Fidelity + Empower 401k sources.
+
+    Loads QFX snapshots + contributions from disk and ingests the latter. The
+    loaded objects are returned so later steps can reuse them without a second
+    disk read.
+    """
     # ── Step 1: Initialise database ──
     print("\n[1] Initialising database...")
     paths.data_dir.mkdir(parents=True, exist_ok=True)
@@ -249,13 +258,27 @@ def _ingest_and_fetch(paths: BuildPaths, config, end):
     if qfx_contribs:
         ingest_empower_contributions(paths.db_path, qfx_contribs)
 
-    # ── Step 4: Fetch prices ──
-    print("[4] Fetching prices...")
+    qfx_snaps = load_all_qfx(paths.downloads)
+    return qfx_snaps, qfx_contribs
+
+
+def _compute_holding_periods(
+    paths: BuildPaths,
+    end: date,
+    qfx_snaps: list[QuarterSnapshot],
+) -> tuple[dict[str, tuple[date, date | None]], date]:
+    """Derive the symbol → (start, end) map used to bulk-fetch prices.
+
+    Union of:
+      - Fidelity holding periods from the DB
+      - 401k proxy tickers (extended back to the first QFX snapshot)
+      - Market-index tickers for the /market endpoint
+      - Robinhood symbols not already in Fidelity
+    """
     periods = symbol_holding_periods_from_db(paths.db_path)
     # Earliest date from all holding periods
     earliest = min((p[0] for p in periods.values()), default=end)
 
-    qfx_snaps = load_all_qfx(paths.downloads)
     proxy_start = qfx_snaps[0].date if qfx_snaps else earliest
     for proxy in PROXY_TICKERS.values():
         existing = periods.get(proxy)
@@ -272,6 +295,16 @@ def _ingest_and_fetch(paths: BuildPaths, config, end):
         for sym in rh_syms - set(periods.keys()):
             periods[sym] = (earliest, None)
 
+    return periods, earliest
+
+
+def _fetch_all_prices(
+    paths: BuildPaths,
+    periods: dict[str, tuple[date, date | None]],
+    earliest: date,
+    end: date,
+) -> None:
+    """Bulk-fetch + persist ticker prices and CNY rates for the given periods."""
     # Use computed_daily start as global_start so ticker charts cover the full brush range
     _conn = get_connection(paths.db_path)
     cd_start_row = _conn.execute("SELECT MIN(date) FROM computed_daily").fetchone()
@@ -280,13 +313,37 @@ def _ingest_and_fetch(paths: BuildPaths, config, end):
     fetch_and_store_prices(paths.db_path, periods, end, global_start=global_start)
     fetch_and_store_cny_rates(paths.db_path, earliest, end)
 
-    # ── Prepare 401k daily values ──
+
+def _compute_401k_daily(
+    paths: BuildPaths,
+    qfx_snaps: list[QuarterSnapshot],
+    qfx_contribs: list[Contribution],
+    earliest: date,
+    end: date,
+) -> dict[date, dict[str, float]]:
+    """Build the per-day 401k value map from proxy prices + merged contributions."""
     proxy_prices = load_proxy_prices(paths.db_path, PROXY_TICKERS)
     last_qfx_date = qfx_snaps[-1].date if qfx_snaps else None
     k401_contribs = _load_401k_contributions(qfx_contribs, last_qfx_date)
-    k401_daily = daily_401k_values(qfx_snaps, proxy_prices, earliest, end, contributions=k401_contribs)
+    return daily_401k_values(qfx_snaps, proxy_prices, earliest, end, contributions=k401_contribs)
 
-    return k401_daily
+
+# ── Main ─────────────────────────────────────────────────────────────────────
+
+
+def _ingest_and_fetch(
+    paths: BuildPaths,
+    config: dict[str, object],
+    end: date,
+) -> dict[date, dict[str, float]]:
+    """Steps 1-5: init DB, ingest sources, fetch prices, build 401k daily map."""
+    qfx_snaps, qfx_contribs = _init_db_and_ingest_sources(paths, config)
+
+    print("[4] Fetching prices...")
+    periods, earliest = _compute_holding_periods(paths, end, qfx_snaps)
+    _fetch_all_prices(paths, periods, earliest, end)
+
+    return _compute_401k_daily(paths, qfx_snaps, qfx_contribs, earliest, end)
 
 
 def _print_summary(alloc):
