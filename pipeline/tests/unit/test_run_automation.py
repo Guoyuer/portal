@@ -572,6 +572,14 @@ class TestEmailNotifications:
 
 
 class TestExtractValidationWarnings:
+    def setup_method(self) -> None:
+        # Start each test with an empty capture buffer so "buffer-primary"
+        # and "log-file-fallback" paths are both exercised cleanly.
+        run_automation._reset_script_output_buffer()
+
+    def teardown_method(self) -> None:
+        run_automation._reset_script_output_buffer()
+
     def test_returns_empty_when_log_missing(self, tmp_path):
         assert run_automation.extract_validation_warnings(tmp_path / "nope.log") == []
 
@@ -596,3 +604,103 @@ class TestExtractValidationWarnings:
             encoding="utf-8",
         )
         assert run_automation.extract_validation_warnings(log) == []
+
+    # PR-S8 Bug 1 regression: per-run scoping + dedup
+    def test_extract_warnings_per_run_scope_from_log_banner(self, tmp_path):
+        """Log file containing 2 runs' worth of WARNINGs → only the current
+        (second) run's warnings are returned by the banner-scoped parser.
+
+        This covers the case where the in-memory capture buffer is empty
+        (e.g. a wrapper tool re-reads the log file directly); the function
+        should still scope to the *last* banner.
+        """
+        banner = "=" * 60
+        log = tmp_path / "sync-2026-04-12.log"
+        log.write_text(
+            # ── First run (stale, should be ignored) ──
+            f"2026-04-12T08:00:00 {banner}\n"
+            "2026-04-12T08:00:00   Portal Sync\n"
+            f"2026-04-12T08:00:00 {banner}\n"
+            "2026-04-12T08:00:01 WARNING: OLD_RUN day_over_day 2020-01-01 -> 2020-01-02: 99.9% change\n"
+            "2026-04-12T08:00:02 INFO done\n"
+            # ── Second run (current) ──
+            f"2026-04-12T12:00:00 {banner}\n"
+            "2026-04-12T12:00:00   Portal Sync\n"
+            f"2026-04-12T12:00:00 {banner}\n"
+            "2026-04-12T12:00:01 WARNING: CURRENT day_over_day 2023-07-04 -> 2023-07-05: 15.7% change\n",
+            encoding="utf-8",
+        )
+        warnings = run_automation.extract_validation_warnings(log)
+        assert len(warnings) == 1
+        assert "CURRENT" in warnings[0]
+        assert "OLD_RUN" not in warnings[0]
+
+    def test_extract_warnings_dedup(self, tmp_path):
+        """Exact-duplicate WARNING lines within the current run collapse to one."""
+        log = tmp_path / "sync.log"
+        log.write_text(
+            "2026-04-12T12:00:01 WARNING: day_over_day 2023-07-04 -> 2023-07-05: 15.7% change\n"
+            "2026-04-12T12:00:02 WARNING: day_over_day 2023-07-04 -> 2023-07-05: 15.7% change\n"
+            "2026-04-12T12:00:03 WARNING: day_over_day 2023-07-04 -> 2023-07-05: 15.7% change\n",
+            encoding="utf-8",
+        )
+        warnings = run_automation.extract_validation_warnings(log)
+        assert len(warnings) == 1
+        assert "15.7%" in warnings[0]
+
+    def test_extract_warnings_uses_capture_buffer_when_available(self):
+        """In-memory capture buffer is preferred over the log file (which may
+        contain warnings from older runs on the same day)."""
+        # Simulate what run_python_script would append across one run:
+        from scripts.run_automation import _SCRIPT_OUTPUT_BUFFER
+        _SCRIPT_OUTPUT_BUFFER.extend([
+            "2026-04-12T12:00:00 INFO [2] build",
+            "2026-04-12T12:00:01 WARNING: day_over_day 2023-07-04 -> 2023-07-05: 15.7% change",
+            "2026-04-12T12:00:01 WARNING: day_over_day 2023-07-04 -> 2023-07-05: 15.7% change",
+            "2026-04-12T12:00:02 INFO done",
+        ])
+        # log_file is ignored when the buffer is populated.
+        warnings = run_automation.extract_validation_warnings(log_file=None)
+        assert len(warnings) == 1  # deduped
+        assert "15.7%" in warnings[0]
+
+    def test_extract_warnings_buffer_scopes_to_current_main_run(
+        self, monkeypatch, tmp_path, caplog
+    ):
+        """End-to-end: main() resets the buffer at start → a second invocation
+        in the same process does NOT see warnings from the first."""
+        from etl.changelog import SyncSnapshot
+        from scripts.run_automation import _SCRIPT_OUTPUT_BUFFER
+
+        # Pre-seed the buffer as if a prior run had left stale warnings around.
+        _SCRIPT_OUTPUT_BUFFER.extend([
+            "2026-04-12T08:00:01 WARNING: STALE bad_data found",
+        ])
+
+        # Set up a successful main() invocation that doesn't actually call any
+        # subprocess scripts — we just want to verify the reset + downstream
+        # extractor sees an empty buffer.
+        class _Fake:
+            def __call__(self, script, *args):
+                return 0
+
+        monkeypatch.setattr(run_automation, "run_python_script", _Fake())
+        monkeypatch.setattr(run_automation, "_MARKER", tmp_path / ".last_run")
+        monkeypatch.setattr(run_automation, "get_log_dir", lambda: tmp_path / "logs")
+        monkeypatch.setenv("PORTAL_DB_PATH", str(tmp_path / "timemachine.db"))
+        iso_downloads = tmp_path / "iso_downloads"
+        iso_downloads.mkdir()
+        monkeypatch.setattr(run_automation, "get_downloads_dir", lambda: iso_downloads)
+        monkeypatch.setattr(run_automation, "get_qianji_db_path", lambda: None)
+        monkeypatch.delenv("PORTAL_HEALTHCHECK_URL", raising=False)
+        monkeypatch.delenv("PORTAL_SMTP_USER", raising=False)
+        monkeypatch.delenv("PORTAL_SMTP_PASSWORD", raising=False)
+
+        # Stub capture so no real DB is needed.
+        monkeypatch.setattr(run_automation, "capture", lambda _p: SyncSnapshot())
+
+        rc = run_automation.main(["--force"])
+        assert rc == run_automation.EXIT_OK
+        # Buffer should have been reset at start-of-main; since _Fake() did
+        # not write anything to the buffer, it stays empty post-run.
+        assert run_automation.get_script_output_buffer() == []

@@ -104,10 +104,10 @@ class SyncChangelog:
     """What changed between two snapshots.
 
     ``fidelity_added`` / ``computed_daily_added`` enumerate new rows; bigger
-    tables expose a count delta only. ``econ_refreshed`` reflects whether the
-    FRED import ran at all — because FRED does a full replace every run, we
-    cannot tell from row counts alone whether values changed, and on its own it
-    is NOT considered a meaningful change (see :meth:`has_meaningful_changes`).
+    tables expose a count delta only. ``econ_refreshed`` is True only when the
+    FRED key *set* changes (new indicator added / removed) — not on every run,
+    because FRED normally has a stable set and a full-replace-per-run would
+    otherwise make this noise on every successful sync.
     """
 
     # (run_date, action_type, symbol, quantity, amount), sorted by run_date
@@ -121,10 +121,16 @@ class SyncChangelog:
     daily_close_max_before: str = ""
     daily_close_max_after: str = ""
     econ_refreshed: bool = False
+    econ_keys_added: list[str] = field(default_factory=list)
+    econ_keys_removed: list[str] = field(default_factory=list)
     empower_added: int = 0
     net_worth_before: float | None = None
     net_worth_after: float | None = None
     net_worth_delta: float | None = None
+    # Dates of the "latest" computed_daily row before/after — used to render
+    # "Unchanged" net worth blocks when both endpoints land on the same date.
+    net_worth_before_date: str | None = None
+    net_worth_after_date: str | None = None
 
     def has_meaningful_changes(self) -> bool:
         """True if this changelog represents a sync that did actual work.
@@ -179,20 +185,24 @@ def diff(before: SyncSnapshot, after: SyncSnapshot) -> SyncChangelog:
     # daily_close is counts-only (too many rows for tuple diff)
     daily_close_delta = max(0, after.daily_close_count - before.daily_close_count)
 
-    # Net worth = latest computed_daily total
-    nw_before = _latest_value(before.computed_daily)
-    nw_after = _latest_value(after.computed_daily)
+    # Net worth = latest computed_daily total (track its date too so the
+    # formatter can render "Unchanged — DATE" when before/after land on the
+    # same row, e.g. a weekend run that added no new computed_daily entry).
+    nw_before, nw_before_date = _latest_entry(before.computed_daily)
+    nw_after, nw_after_date = _latest_entry(after.computed_daily)
     nw_delta: float | None
     if nw_before is None or nw_after is None:
         nw_delta = None
     else:
         nw_delta = nw_after - nw_before
 
-    # FRED: full replace every run, so any presence of keys after the sync
-    # indicates the import ran. Value-level change detection is deliberately
-    # skipped — too granular, too noisy. This flag does NOT contribute to
-    # has_meaningful_changes on its own.
-    econ_refreshed = bool(after.econ_series_keys)
+    # FRED: fire only on *set* changes — added or removed indicators. Normal
+    # runs have a stable key set so this will be False; True only when the
+    # pipeline adds a new series or one is retired. Avoids the "FRED: 9
+    # indicator(s) refreshed" noise on every successful run.
+    econ_keys_added = sorted(after.econ_series_keys - before.econ_series_keys)
+    econ_keys_removed = sorted(before.econ_series_keys - after.econ_series_keys)
+    econ_refreshed = bool(econ_keys_added or econ_keys_removed)
 
     return SyncChangelog(
         fidelity_added=fidelity_added,
@@ -203,19 +213,23 @@ def diff(before: SyncSnapshot, after: SyncSnapshot) -> SyncChangelog:
         daily_close_max_before=before.daily_close_max_date,
         daily_close_max_after=after.daily_close_max_date,
         econ_refreshed=econ_refreshed,
+        econ_keys_added=econ_keys_added,
+        econ_keys_removed=econ_keys_removed,
         empower_added=max(0, after.empower_snapshots_count - before.empower_snapshots_count),
         net_worth_before=nw_before,
         net_worth_after=nw_after,
         net_worth_delta=nw_delta,
+        net_worth_before_date=nw_before_date,
+        net_worth_after_date=nw_after_date,
     )
 
 
-def _latest_value(daily: dict[str, float]) -> float | None:
-    """Return the total for the max date (lexicographic = chronological for ISO dates)."""
+def _latest_entry(daily: dict[str, float]) -> tuple[float | None, str | None]:
+    """Return (total, date) for the max date. ``(None, None)`` if the dict is empty."""
     if not daily:
-        return None
+        return (None, None)
     latest_date = max(daily.keys())
-    return daily[latest_date]
+    return (daily[latest_date], latest_date)
 
 
 # ── Formatting ───────────────────────────────────────────────────────────────
@@ -240,6 +254,21 @@ def _fmt_qty(v: float) -> str:
     if v == int(v):
         return f"{int(v)}"
     return f"{v:.4f}".rstrip("0").rstrip(".")
+
+
+# Keep in sync with run_automation.EXIT_* constants. Hard-coded rather than
+# imported to avoid a cycle (run_automation imports from changelog).
+_EXIT_GATE_NAMES: dict[int, str] = {
+    1: "build",
+    2: "parity check (verify_vs_prod)",
+    3: "sync",
+    4: "positions check (verify_positions)",
+}
+
+
+def _gate_for_exit(exit_code: int) -> str:
+    """Human label for the step that blocked when the sync exited non-zero."""
+    return _EXIT_GATE_NAMES.get(exit_code, f"step (exit {exit_code})")
 
 
 def format_text(changelog: SyncChangelog, context: dict[str, Any]) -> str:
@@ -287,45 +316,89 @@ def format_text(changelog: SyncChangelog, context: dict[str, Any]) -> str:
             f"  * Prices: {changelog.daily_close_added} new close row(s); through {through}"
         )
     if changelog.econ_refreshed:
-        lines.append(f"  * FRED: {len(context.get('econ_keys', [])) or '(refreshed)'} indicator(s) refreshed")
+        # Only surface FRED when the key set *changed* (added/removed series).
+        # Stable runs skip this block entirely — see diff() for the rule.
+        any_changes = True
+        if changelog.econ_keys_added:
+            names = ", ".join(changelog.econ_keys_added)
+            n = len(changelog.econ_keys_added)
+            lines.append(f"  * FRED: +{n} new indicator(s) ({names})")
+        if changelog.econ_keys_removed:
+            names = ", ".join(changelog.econ_keys_removed)
+            n = len(changelog.econ_keys_removed)
+            lines.append(f"  * FRED: -{n} indicator(s) removed ({names})")
     if changelog.empower_added > 0:
         any_changes = True
         lines.append(f"  * Empower: +{changelog.empower_added} 401k snapshot(s)")
-    if not any_changes and not changelog.econ_refreshed:
+    if not any_changes:
         lines.append("  (no changes detected)")
     lines.append("")
 
-    # Net worth
-    if changelog.net_worth_before is not None and changelog.net_worth_after is not None:
+    # Net worth — handle three cases:
+    #   1) both endpoints present AND delta is meaningful (> $0.01 or diff date)
+    #      -> full before/after block with delta
+    #   2) both endpoints present but equal + same date (weekend/holiday run
+    #      added no new computed_daily row) -> single "Unchanged — DATE" line
+    #   3) only one endpoint present -> show what we have with "(no prior snapshot)"
+    nw_before = changelog.net_worth_before
+    nw_after = changelog.net_worth_after
+    before_date = changelog.net_worth_before_date or ""
+    after_date = changelog.net_worth_after_date or ""
+    if nw_before is not None and nw_after is not None:
         lines.append("Net Worth")
-        before_date = max(context.get("before_dates", [""]) or [""])
-        after_date = max(context.get("after_dates", [""]) or [""])
-        lines.append(f"  {before_date}: {_fmt_money(changelog.net_worth_before)}")
-        if changelog.net_worth_delta is not None:
-            pct = changelog.net_worth_delta_pct()
-            pct_str = f" / {pct:+.2f}%" if pct is not None else ""
-            lines.append(
-                f"  {after_date}: {_fmt_money(changelog.net_worth_after)}"
-                f"  ({_fmt_delta(changelog.net_worth_delta)}{pct_str})"
-            )
+        same_date = bool(before_date) and before_date == after_date
+        delta_is_zero = (
+            changelog.net_worth_delta is None
+            or abs(changelog.net_worth_delta) < 0.01
+        )
+        if same_date and delta_is_zero:
+            lines.append(f"  Unchanged — {after_date}: {_fmt_money(nw_after)}")
+        else:
+            lines.append(f"  {before_date}: {_fmt_money(nw_before)}")
+            if changelog.net_worth_delta is not None:
+                pct = changelog.net_worth_delta_pct()
+                pct_str = f" / {pct:+.2f}%" if pct is not None else ""
+                lines.append(
+                    f"  {after_date}: {_fmt_money(nw_after)}"
+                    f"  ({_fmt_delta(changelog.net_worth_delta)}{pct_str})"
+                )
+        lines.append("")
+    elif nw_after is not None:
+        lines.append("Net Worth")
+        lines.append(f"  {after_date}: {_fmt_money(nw_after)}  (no prior snapshot)")
+        lines.append("")
+    elif nw_before is not None:
+        lines.append("Net Worth")
+        lines.append(f"  {before_date}: {_fmt_money(nw_before)}  (no prior snapshot)")
         lines.append("")
 
-    # D1 sync
+    # D1 sync — on failure, nothing actually reached D1. Show "not executed"
+    # with the gate name instead of the (misleading) row-counts.
     lines.append("D1 Sync")
-    if changelog.computed_daily_added:
-        dates = sorted(changelog.computed_daily_added.keys())
-        dates_str = ", ".join(dates[-3:]) + ("..." if len(dates) > 3 else "")
-        lines.append(f"  computed_daily:        +{len(changelog.computed_daily_added)} row(s)  ({dates_str})")
-    if changelog.daily_close_added > 0:
-        lines.append(f"  daily_close:           +{changelog.daily_close_added} row(s)")
-    if changelog.fidelity_added:
-        lines.append(f"  fidelity_transactions: +{len(changelog.fidelity_added)} row(s)")
-    if changelog.qianji_added_count > 0:
-        lines.append(f"  qianji_transactions:   +{changelog.qianji_added_count} row(s)")
-    if changelog.empower_added > 0:
-        lines.append(f"  empower_snapshots:     +{changelog.empower_added} row(s)")
-    if changelog.econ_refreshed:
-        lines.append(f"  econ_series:           {len(context.get('econ_keys', []))} key(s) refreshed (full replace)")
+    if exit_code != 0:
+        gate = _gate_for_exit(exit_code)
+        lines.append(f"  not executed — blocked at {gate}")
+    else:
+        if changelog.computed_daily_added:
+            dates = sorted(changelog.computed_daily_added.keys())
+            dates_str = ", ".join(dates[-3:]) + ("..." if len(dates) > 3 else "")
+            lines.append(f"  computed_daily:        +{len(changelog.computed_daily_added)} row(s)  ({dates_str})")
+        if changelog.daily_close_added > 0:
+            lines.append(f"  daily_close:           +{changelog.daily_close_added} row(s)")
+        if changelog.fidelity_added:
+            lines.append(f"  fidelity_transactions: +{len(changelog.fidelity_added)} row(s)")
+        if changelog.qianji_added_count > 0:
+            lines.append(f"  qianji_transactions:   +{changelog.qianji_added_count} row(s)")
+        if changelog.empower_added > 0:
+            lines.append(f"  empower_snapshots:     +{changelog.empower_added} row(s)")
+        if changelog.econ_refreshed:
+            delta_bits: list[str] = []
+            if changelog.econ_keys_added:
+                delta_bits.append(f"+{len(changelog.econ_keys_added)}")
+            if changelog.econ_keys_removed:
+                delta_bits.append(f"-{len(changelog.econ_keys_removed)}")
+            summary = " ".join(delta_bits) if delta_bits else "changed"
+            lines.append(f"  econ_series:           {summary} key(s) (full replace)")
     lines.append("")
 
     # Warnings

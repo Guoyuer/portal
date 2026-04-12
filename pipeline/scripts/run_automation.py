@@ -214,8 +214,24 @@ def find_new_positions_csv(downloads: Path, marker: Path) -> Path | None:
 
 # ── Subprocess runner ─────────────────────────────────────────────────────────
 
+# Per-process buffer of captured script output lines. Cleared at the start of
+# each main() run so that warnings extracted for an email are scoped to the
+# current invocation only — without this, re-reading the per-day log file would
+# accumulate warnings from earlier runs on the same day, leading to duplicated
+# validation messages in the email body (see PR-S8 Bug 1).
+_SCRIPT_OUTPUT_BUFFER: list[str] = []
+
+
 def run_python_script(script: Path, *args: str) -> int:
-    """Invoke a sibling Python script, stream stdout/stderr into the logger. Returns exit code."""
+    """Invoke a sibling Python script, stream stdout/stderr into the logger.
+
+    Each emitted line is also appended to ``_SCRIPT_OUTPUT_BUFFER`` so that the
+    orchestrator can later extract warnings scoped to the *current* run
+    (without re-reading the per-day log file, which accumulates lines from
+    every prior invocation).
+
+    Returns the subprocess exit code.
+    """
     log = logging.getLogger(__name__)
     cmd = [sys.executable, str(script), *args]
     log.info("  > %s", " ".join(cmd))
@@ -230,9 +246,21 @@ def run_python_script(script: Path, *args: str) -> int:
     )
     assert proc.stdout is not None
     for line in proc.stdout:
-        log.info(line.rstrip("\n"))
+        stripped = line.rstrip("\n")
+        log.info(stripped)
+        _SCRIPT_OUTPUT_BUFFER.append(stripped)
     proc.wait()
     return proc.returncode
+
+
+def _reset_script_output_buffer() -> None:
+    """Clear the per-run capture buffer. Call once at the start of main()."""
+    _SCRIPT_OUTPUT_BUFFER.clear()
+
+
+def get_script_output_buffer() -> list[str]:
+    """Return a *copy* of the captured subprocess lines for THIS main() run."""
+    return list(_SCRIPT_OUTPUT_BUFFER)
 
 
 # ── Email reporting ───────────────────────────────────────────────────────────
@@ -246,29 +274,63 @@ _STATUS_LABELS = {
 }
 
 
-def extract_validation_warnings(log_file: Path) -> list[str]:
-    """Scan the current day's log for ``validate_build`` WARNING lines.
+def _parse_warnings_from_lines(lines: list[str]) -> list[str]:
+    """Extract ``validate_build`` WARNING messages from an iterable of log lines.
 
-    Matches the warning format emitted by ``etl/validate.py`` via
-    ``build_timemachine_db.py`` — lines containing ``"WARNING"`` followed by a
-    colon. Returns an empty list if the log is missing or unreadable.
+    Matches lines containing ``"WARNING"`` followed by a colon or space. Skips
+    healthcheck noise and de-duplicates exact repeats while preserving order
+    (defense in depth: even if a caller passes a multi-run buffer, repeated
+    warnings collapse to one entry).
     """
-    if not log_file.exists():
-        return []
     warnings: list[str] = []
+    for line in lines:
+        m = re.search(r"WARNING[: ]\s*(.+)", line)
+        if not m:
+            continue
+        msg = m.group(1).strip()
+        if not msg or "healthcheck ping failed" in msg:
+            continue
+        warnings.append(msg)
+    # dict.fromkeys preserves first-seen order while dropping duplicates.
+    return list(dict.fromkeys(warnings))
+
+
+def extract_validation_warnings(log_file: Path | None = None) -> list[str]:
+    """Return validation WARNINGs captured from this run.
+
+    Primary source is the in-memory subprocess capture buffer, which guarantees
+    scoping to the CURRENT ``main()`` invocation. If that buffer is empty
+    (e.g. subprocess hooks were bypassed in a test or the caller passed a path
+    explicitly), falls back to parsing the tail of ``log_file`` starting from
+    the most recent ``"=" * 60`` banner — which matches the "Portal Sync"
+    opening block emitted by :func:`main` at each run.
+
+    This two-tier approach keeps warnings from prior runs on the same day
+    (the per-day log file is append-only) from leaking into the email body.
+    """
+    buffered = get_script_output_buffer()
+    if buffered:
+        return _parse_warnings_from_lines(buffered)
+
+    if log_file is None or not log_file.exists():
+        return []
     try:
         with log_file.open("r", encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                # Match "WARNING: day_over_day" or "WARNING  date_gaps" etc.
-                m = re.search(r"WARNING[: ]\s*(.+)", line)
-                if m:
-                    msg = m.group(1).strip()
-                    # Skip healthcheck-ignored lines and misc INFO noise
-                    if msg and "healthcheck ping failed" not in msg:
-                        warnings.append(msg)
+            all_lines = fh.readlines()
     except OSError:
         return []
-    return warnings
+
+    # Find the start of the *current* run: the last "============" banner. The
+    # orchestrator writes three banner lines ("=" * 60, "Portal Sync", "=" * 60)
+    # at the top of each main() run; slicing from the last banner onward gives
+    # us only the current run's output.
+    banner = "=" * 60
+    last_banner_idx = -1
+    for i, line in enumerate(all_lines):
+        if banner in line:
+            last_banner_idx = i
+    tail = all_lines[last_banner_idx:] if last_banner_idx >= 0 else all_lines
+    return _parse_warnings_from_lines([ln.rstrip("\n") for ln in tail])
 
 
 def _build_context(
@@ -366,6 +428,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+
+    # Reset the per-run subprocess capture so validation warnings extracted
+    # later in this invocation never include leftovers from a previous call
+    # to main() inside the same Python process (tests, or a hypothetical
+    # long-lived orchestrator).
+    _reset_script_output_buffer()
 
     log_dir = get_log_dir()
     log_file = setup_logging(log_dir)
