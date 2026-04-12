@@ -7,7 +7,7 @@ Personal finance dashboard: Next.js 16 static shell + Cloudflare Worker/D1.
 ```mermaid
 graph TB
     subgraph Local["Local machine"]
-        DETECT["run.sh — detect changes"]
+        DETECT["run_portal_sync.ps1 — detect changes"]
         BUILD["build_timemachine_db.py --incremental"]
         VALIDATE["validate_build() — gate"]
         DIFF["sync_to_d1.py --diff"]
@@ -112,14 +112,17 @@ python scripts/build_timemachine_db.py
 # Incremental (only new days)
 python scripts/build_timemachine_db.py incremental
 
-# Sync to D1 (full replace)
+# Sync to D1 (diff — default; range-replace with auto-derived --since)
 python scripts/sync_to_d1.py
 
-# Sync to D1 (diff — only new rows)
-python scripts/sync_to_d1.py --diff --since 2026-04-01
+# Sync to D1 (explicit cutoff)
+python scripts/sync_to_d1.py --since 2026-04-01
 
-# Automated pipeline (detect changes → build → sync)
-./scripts/run.sh
+# Sync to D1 (DESTRUCTIVE full-replace — requires explicit flag)
+python scripts/sync_to_d1.py --full
+
+# Automated pipeline (Windows — detect changes → build → verify → sync)
+powershell -ExecutionPolicy Bypass -File pipeline\scripts\run_portal_sync.ps1
 ```
 
 CLI flags: `--data-dir`, `--config`, `--downloads`, `--no-validate`, `--csv <path>`.

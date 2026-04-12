@@ -27,8 +27,17 @@ cd pipeline && .venv/bin/ruff check .
 
 # Build timemachine DB + sync
 cd pipeline && python3 scripts/build_timemachine_db.py
-cd pipeline && python3 scripts/sync_to_d1.py        # push to remote D1
+cd pipeline && python3 scripts/sync_to_d1.py        # push to remote D1 (diff, default)
 cd pipeline && python3 scripts/sync_to_d1.py --local # push to local D1
+
+# Automated pipeline (Windows, manual run)
+powershell -ExecutionPolicy Bypass -File pipeline\scripts\run_portal_sync.ps1
+
+# Dry run (build + verify, no sync)
+powershell -ExecutionPolicy Bypass -File pipeline\scripts\run_portal_sync.ps1 -DryRun
+
+# Register with Task Scheduler (daily 06:00)
+schtasks /create /tn "PortalSync" /tr "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Users\guoyu\Projects\portal\pipeline\scripts\run_portal_sync.ps1" /sc daily /st 06:00
 
 # E2E (mock API on port 4444 — no real backend needed)
 npx playwright test                                   # 5 Playwright spec files
