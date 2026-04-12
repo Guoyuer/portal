@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sqlite3
 from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
@@ -119,8 +120,7 @@ def precompute_market(db_path: Path) -> None:
 
     Reads daily_close prices, computes returns/sparklines for each index
     into computed_market_indices, and stores CNY rate + optional FRED data
-    into computed_market_indicators.
-    Clears and rewrites both tables each invocation.
+    into computed_market_indicators. Clears and rewrites tables each invocation.
     """
     from .db import get_connection
 
@@ -129,66 +129,83 @@ def precompute_market(db_path: Path) -> None:
         conn.execute("DELETE FROM computed_market_indices")
         conn.execute("DELETE FROM computed_market_indicators")
 
-        # ── Index rows (batch-fetch all index prices) ─────────────────
-        index_tickers = list(_INDEX_NAMES.keys())
-        placeholders = ",".join("?" for _ in index_tickers)
-        index_data: dict[str, list[tuple[str, float]]] = {t: [] for t in index_tickers}
-        for sym, dt, close in conn.execute(
-            f"SELECT symbol, date, close FROM daily_close WHERE symbol IN ({placeholders}) ORDER BY symbol, date",
-            index_tickers,
-        ):
-            index_data[sym].append((dt, close))
-
-        for ticker, name in _INDEX_NAMES.items():
-            row = _compute_index_row(ticker, name, index_data[ticker])
-            if row is not None:
-                conn.execute(
-                    "INSERT INTO computed_market_indices"
-                    " (ticker, name, current, month_return, ytd_return, high_52w, low_52w, sparkline)"
-                    " VALUES (:ticker, :name, :current, :month_return, :ytd_return, :high_52w, :low_52w, :sparkline)",
-                    asdict(row),
-                )
-
-        # ── CNY rate ────────────────────────────────────────────────────
-        cny_row = conn.execute(
-            "SELECT close FROM daily_close WHERE symbol='CNY=X' ORDER BY date DESC LIMIT 1"
-        ).fetchone()
-        if cny_row is not None:
-            conn.execute(
-                "INSERT INTO computed_market_indicators (key, value) VALUES (?, ?)",
-                ("usdCny", cny_row[0]),
-            )
-
-        # ── FRED macro data (fetch_fred_data returns None on API error) ──
-        fred_key = os.environ.get("FRED_API_KEY", "")
-        if fred_key:
-            from .market.fred import fetch_fred_data
-
-            fred = fetch_fred_data(fred_key)
-            if fred and "snapshot" in fred:
-                snap: dict[str, object] = fred["snapshot"]  # type: ignore[assignment]
-                for src, dst in _FRED_SNAPSHOT_KEYS.items():
-                    if src in snap:
-                        conn.execute(
-                            "INSERT INTO computed_market_indicators (key, value) VALUES (?, ?)",
-                            (dst, float(snap[src])),  # type: ignore[arg-type]
-                        )
-            if fred and "series" in fred:
-                conn.execute("DELETE FROM econ_series")
-                econ_count = 0
-                series: dict[str, list[dict[str, object]]] = fred["series"]  # type: ignore[assignment]
-                for skey, points in series.items():
-                    for pt in points:
-                        conn.execute(
-                            "INSERT INTO econ_series (key, date, value) VALUES (?, ?, ?)",
-                            (skey, pt["date"], pt["value"]),
-                        )
-                        econ_count += 1
-                log.info("Stored %d econ_series rows", econ_count)
+        _precompute_indices(conn)
+        _precompute_cny(conn)
+        _precompute_fred(conn)
 
         conn.commit()
     finally:
         conn.close()
+
+
+def _precompute_indices(conn: sqlite3.Connection) -> None:
+    """Batch-fetch index prices and insert computed stats into computed_market_indices."""
+    index_tickers = list(_INDEX_NAMES.keys())
+    placeholders = ",".join("?" for _ in index_tickers)
+    index_data: dict[str, list[tuple[str, float]]] = {t: [] for t in index_tickers}
+    for sym, dt, close in conn.execute(
+        f"SELECT symbol, date, close FROM daily_close WHERE symbol IN ({placeholders}) ORDER BY symbol, date",
+        index_tickers,
+    ):
+        index_data[sym].append((dt, close))
+
+    for ticker, name in _INDEX_NAMES.items():
+        row = _compute_index_row(ticker, name, index_data[ticker])
+        if row is not None:
+            conn.execute(
+                "INSERT INTO computed_market_indices"
+                " (ticker, name, current, month_return, ytd_return, high_52w, low_52w, sparkline)"
+                " VALUES (:ticker, :name, :current, :month_return, :ytd_return, :high_52w, :low_52w, :sparkline)",
+                asdict(row),
+            )
+
+
+def _precompute_cny(conn: sqlite3.Connection) -> None:
+    """Insert the latest USD/CNY rate into computed_market_indicators."""
+    cny_row = conn.execute(
+        "SELECT close FROM daily_close WHERE symbol='CNY=X' ORDER BY date DESC LIMIT 1"
+    ).fetchone()
+    if cny_row is None:
+        return
+    conn.execute(
+        "INSERT INTO computed_market_indicators (key, value) VALUES (?, ?)",
+        ("usdCny", cny_row[0]),
+    )
+
+
+def _precompute_fred(conn: sqlite3.Connection) -> None:
+    """Fetch FRED macro data (if FRED_API_KEY set) and persist snapshot + econ_series."""
+    fred_key = os.environ.get("FRED_API_KEY", "")
+    if not fred_key:
+        return
+
+    from .market.fred import fetch_fred_data
+
+    fred = fetch_fred_data(fred_key)
+    if not fred:
+        return
+
+    if "snapshot" in fred:
+        snap: dict[str, object] = fred["snapshot"]  # type: ignore[assignment]
+        for src, dst in _FRED_SNAPSHOT_KEYS.items():
+            if src in snap:
+                conn.execute(
+                    "INSERT INTO computed_market_indicators (key, value) VALUES (?, ?)",
+                    (dst, float(snap[src])),  # type: ignore[arg-type]
+                )
+
+    if "series" in fred:
+        conn.execute("DELETE FROM econ_series")
+        econ_count = 0
+        series: dict[str, list[dict[str, object]]] = fred["series"]  # type: ignore[assignment]
+        for skey, points in series.items():
+            for pt in points:
+                conn.execute(
+                    "INSERT INTO econ_series (key, date, value) VALUES (?, ?, ?)",
+                    (skey, pt["date"], pt["value"]),
+                )
+                econ_count += 1
+        log.info("Stored %d econ_series rows", econ_count)
 
 
 # ── Holdings detail precomputation ─────────────────────────────────────────

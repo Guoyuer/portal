@@ -6,6 +6,9 @@ from pathlib import Path
 from generate_asset_snapshot.db import get_connection, init_db
 from generate_asset_snapshot.precompute import (
     _compute_index_row,
+    _precompute_cny,
+    _precompute_fred,
+    _precompute_indices,
     precompute_holdings_detail,
     precompute_market,
 )
@@ -121,6 +124,167 @@ class TestPrecomputeMarket:
         conn = get_connection(db_path)
         rows = conn.execute("SELECT * FROM computed_market_indicators").fetchall()
         conn.close()
+        assert rows == []
+
+
+# ── _precompute_indices ─────────────────────────────────────────────────────
+
+
+class TestPrecomputeIndices:
+    def test_inserts_rows_for_seeded_indices(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        prices = [(f"2025-01-{d:02d}", 5000.0 + d) for d in range(2, 28)]
+        _seed_prices(db_path, "^GSPC", prices)
+
+        conn = get_connection(db_path)
+        try:
+            _precompute_indices(conn)
+            conn.commit()
+            rows = conn.execute("SELECT ticker FROM computed_market_indices").fetchall()
+        finally:
+            conn.close()
+        assert ("^GSPC",) in rows
+
+    def test_noop_for_unseeded_indices(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        conn = get_connection(db_path)
+        try:
+            _precompute_indices(conn)
+            conn.commit()
+            rows = conn.execute("SELECT * FROM computed_market_indices").fetchall()
+        finally:
+            conn.close()
+        assert rows == []
+
+
+# ── _precompute_cny ─────────────────────────────────────────────────────────
+
+
+class TestPrecomputeCny:
+    def test_inserts_latest_rate(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        _seed_prices(db_path, "CNY=X", [("2025-01-01", 7.00), ("2025-01-10", 7.30)])
+
+        conn = get_connection(db_path)
+        try:
+            _precompute_cny(conn)
+            conn.commit()
+            row = conn.execute(
+                "SELECT value FROM computed_market_indicators WHERE key = 'usdCny'"
+            ).fetchone()
+        finally:
+            conn.close()
+        assert row is not None
+        assert row[0] == 7.30  # Latest date wins
+
+    def test_noop_without_cny_data(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        conn = get_connection(db_path)
+        try:
+            _precompute_cny(conn)  # should not raise
+            conn.commit()
+            rows = conn.execute("SELECT * FROM computed_market_indicators").fetchall()
+        finally:
+            conn.close()
+        assert rows == []
+
+
+# ── _precompute_fred ────────────────────────────────────────────────────────
+
+
+class TestPrecomputeFred:
+    def test_noop_without_api_key(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.delenv("FRED_API_KEY", raising=False)
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        conn = get_connection(db_path)
+        try:
+            _precompute_fred(conn)  # should not raise
+            conn.commit()
+            rows = conn.execute("SELECT * FROM computed_market_indicators").fetchall()
+        finally:
+            conn.close()
+        assert rows == []
+
+    def test_inserts_snapshot_and_series_when_api_returns_data(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """Snapshot keys are remapped per _FRED_SNAPSHOT_KEYS; series rows land in econ_series."""
+        monkeypatch.setenv("FRED_API_KEY", "fake-key")
+        fake_fred = {
+            "snapshot": {
+                "fedFundsRate": 5.25,
+                "treasury10y": 4.50,
+                "cpiYoy": 3.20,
+                "unemployment": 3.70,
+                "vix": 14.50,
+            },
+            "series": {
+                "fedRate": [
+                    {"date": "2025-01-01", "value": 5.25},
+                    {"date": "2025-02-01", "value": 5.00},
+                ],
+                "cpi": [
+                    {"date": "2025-01-01", "value": 3.20},
+                ],
+            },
+        }
+        monkeypatch.setattr(
+            "generate_asset_snapshot.market.fred.fetch_fred_data",
+            lambda _key: fake_fred,
+        )
+
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        conn = get_connection(db_path)
+        try:
+            _precompute_fred(conn)
+            conn.commit()
+
+            indicators = dict(
+                conn.execute("SELECT key, value FROM computed_market_indicators")
+            )
+            series_rows = conn.execute(
+                "SELECT key, date, value FROM econ_series ORDER BY key, date"
+            ).fetchall()
+        finally:
+            conn.close()
+
+        # Snapshot keys get remapped per _FRED_SNAPSHOT_KEYS
+        assert indicators == {
+            "fedRate": 5.25,
+            "treasury10y": 4.50,
+            "cpi": 3.20,
+            "unemployment": 3.70,
+            "vix": 14.50,
+        }
+        # Series rows persist 1:1 (no remapping)
+        assert series_rows == [
+            ("cpi", "2025-01-01", 3.20),
+            ("fedRate", "2025-01-01", 5.25),
+            ("fedRate", "2025-02-01", 5.00),
+        ]
+
+    def test_none_from_api_is_noop(self, tmp_path: Path, monkeypatch) -> None:
+        """fetch_fred_data returning None (total failure) should not insert or raise."""
+        monkeypatch.setenv("FRED_API_KEY", "fake-key")
+        monkeypatch.setattr(
+            "generate_asset_snapshot.market.fred.fetch_fred_data",
+            lambda _key: None,
+        )
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        conn = get_connection(db_path)
+        try:
+            _precompute_fred(conn)
+            conn.commit()
+            rows = conn.execute("SELECT * FROM computed_market_indicators").fetchall()
+        finally:
+            conn.close()
         assert rows == []
 
 
