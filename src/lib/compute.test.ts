@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { DailyPoint, DailyTicker, FidelityTxn, QianjiTxn } from "./schema";
+import type { CategoryMeta, DailyPoint, DailyTicker, FidelityTxn, QianjiTxn } from "./schema";
 import {
   computeAllocation,
   computeCashflow,
@@ -8,7 +8,18 @@ import {
   computeMonthlyFlows,
   buildDateIndex,
   buildTickerIndex,
+  catColorByName,
+  CAT_COLOR_BY_KEY,
 } from "./compute";
+
+// Canonical category metadata (matches the pipeline default; each test is
+// isolated — if a test needs a different shape it declares its own).
+const CATEGORIES: CategoryMeta[] = [
+  { key: "usEquity", name: "US Equity", displayOrder: 0, targetPct: 55 },
+  { key: "nonUsEquity", name: "Non-US Equity", displayOrder: 1, targetPct: 15 },
+  { key: "crypto", name: "Crypto", displayOrder: 2, targetPct: 3 },
+  { key: "safeNet", name: "Safe Net", displayOrder: 3, targetPct: 27 },
+];
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -72,7 +83,7 @@ describe("computeAllocation", () => {
     const daily = [mkDaily()];
     const dateIdx = buildDateIndex(daily);
     const tickerIdx = new Map();
-    const result = computeAllocation(daily, tickerIdx, dateIdx, "2026-01-15");
+    const result = computeAllocation(daily, tickerIdx, dateIdx, "2026-01-15", CATEGORIES);
     expect(result).not.toBeNull();
     expect(result!.total).toBe(100000);
     expect(result!.netWorth).toBe(95000); // 100000 + (-5000)
@@ -85,13 +96,13 @@ describe("computeAllocation", () => {
   it("returns null for unknown date", () => {
     const daily = [mkDaily()];
     const dateIdx = buildDateIndex(daily);
-    expect(computeAllocation(daily, new Map(), dateIdx, "2099-01-01")).toBeNull();
+    expect(computeAllocation(daily, new Map(), dateIdx, "2099-01-01", CATEGORIES)).toBeNull();
   });
 
   it("handles zero total without NaN", () => {
     const daily = [mkDaily({ total: 0, usEquity: 0, nonUsEquity: 0, crypto: 0, safeNet: 0 })];
     const dateIdx = buildDateIndex(daily);
-    const result = computeAllocation(daily, new Map(), dateIdx, "2026-01-15");
+    const result = computeAllocation(daily, new Map(), dateIdx, "2026-01-15", CATEGORIES);
     expect(result).not.toBeNull();
     for (const cat of result!.categories) {
       expect(cat.pct).toBe(0);
@@ -103,9 +114,39 @@ describe("computeAllocation", () => {
     const daily = [mkDaily()];
     const dateIdx = buildDateIndex(daily);
     const tickerIdx = new Map([["2026-01-15", [{ ticker: "VTI", value: 55000, category: "US Equity", subtype: "broad", costBasis: 50000, gainLoss: 5000, gainLossPct: 10 }]]]);
-    const result = computeAllocation(daily, tickerIdx, dateIdx, "2026-01-15");
+    const result = computeAllocation(daily, tickerIdx, dateIdx, "2026-01-15", CATEGORIES);
     expect(result!.tickers).toHaveLength(1);
     expect(result!.tickers[0].ticker).toBe("VTI");
+  });
+
+  it("honors custom target weights from bundle", () => {
+    const daily = [mkDaily()];
+    const dateIdx = buildDateIndex(daily);
+    const customCats: CategoryMeta[] = [
+      { key: "usEquity", name: "US Equity", displayOrder: 0, targetPct: 60 },
+      { key: "nonUsEquity", name: "Non-US Equity", displayOrder: 1, targetPct: 10 },
+      { key: "crypto", name: "Crypto", displayOrder: 2, targetPct: 5 },
+      { key: "safeNet", name: "Safe Net", displayOrder: 3, targetPct: 25 },
+    ];
+    const result = computeAllocation(daily, new Map(), dateIdx, "2026-01-15", customCats)!;
+    expect(result.categories.find(c => c.name === "US Equity")!.target).toBe(60);
+    // 55% actual vs 60% target → deviation -5
+    expect(result.categories.find(c => c.name === "US Equity")!.deviation).toBe(-5);
+  });
+});
+
+// ── catColorByName ──────────────────────────────────────────────────────
+
+describe("catColorByName", () => {
+  it("maps display names to Okabe-Ito colors via key", () => {
+    const map = catColorByName(CATEGORIES);
+    expect(map["US Equity"]).toBe(CAT_COLOR_BY_KEY.usEquity);
+    expect(map["Crypto"]).toBe(CAT_COLOR_BY_KEY.crypto);
+  });
+
+  it("falls back to neutral grey for unknown keys", () => {
+    const map = catColorByName([{ key: "unknown", name: "Alt", displayOrder: 0, targetPct: 0 }]);
+    expect(map["Alt"]).toBe("#888888");
   });
 });
 

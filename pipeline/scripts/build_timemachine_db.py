@@ -31,6 +31,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from generate_asset_snapshot.allocation import compute_daily_allocation
+from generate_asset_snapshot.categories import ingest_categories
 from generate_asset_snapshot.db import (
     get_connection,
     ingest_empower_contributions,
@@ -229,6 +230,9 @@ def _ingest_and_fetch(paths: BuildPaths, config, end):
     print("\n[1] Initialising database...")
     paths.data_dir.mkdir(parents=True, exist_ok=True)
     init_db(paths.db_path)
+
+    # ── Step 1b: Category metadata (target weights + display order) ──
+    ingest_categories(paths.db_path, config)
 
     # ── Step 2: Ingest Fidelity ──
     print("[2] Ingesting Fidelity transactions...")

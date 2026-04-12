@@ -76,10 +76,15 @@ async function settled<T>(p: Promise<T>): Promise<SettledResult<T>> {
 // ── /timeline ────────────────────────────────────────────────────────────
 
 async function handleTimeline(env: Env, origin: string | null): Promise<Response> {
-  // Critical: `daily` must succeed. Everything else can fail-open.
+  // Critical: `daily` and `categories` must succeed — the allocation UI is
+  // unusable without either. Everything else can fail-open.
   let daily;
+  let categories;
   try {
-    daily = await env.DB.prepare("SELECT * FROM v_daily").all();
+    [daily, categories] = await Promise.all([
+      env.DB.prepare("SELECT * FROM v_daily").all(),
+      env.DB.prepare("SELECT * FROM v_categories").all(),
+    ]);
   } catch (e) {
     return dbError(origin, e);
   }
@@ -87,6 +92,13 @@ async function handleTimeline(env: Env, origin: string | null): Promise<Response
   if (!daily.results.length) {
     return Response.json(
       { error: "No data available" },
+      { status: 503, headers: corsHeaders(origin) },
+    );
+  }
+
+  if (!categories.results.length) {
+    return Response.json(
+      { error: "No category metadata" },
       { status: 503, headers: corsHeaders(origin) },
     );
   }
@@ -143,6 +155,7 @@ async function handleTimeline(env: Env, origin: string | null): Promise<Response
     dailyTickers: tickers.ok ? tickers.value.results : [],
     fidelityTxns: fidelity.ok ? fidelity.value.results : [],
     qianjiTxns: qianji.ok ? qianji.value.results : [],
+    categories: categories.results,
     market,
     holdingsDetail: holdings.ok ? holdings.value.results : null,
     syncMeta: syncMeta && Object.keys(syncMeta).length > 0 ? syncMeta : null,

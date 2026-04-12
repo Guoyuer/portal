@@ -7,6 +7,7 @@ describe("MarketMetaSchema defaulting", () => {
   it("fills missing meta keys with null (partial input)", () => {
     const payload = {
       daily: [{ date: "2026-01-01", total: 100, usEquity: 55, nonUsEquity: 15, crypto: 3, safeNet: 27, liabilities: 0 }],
+      categories: [{ key: "usEquity", name: "US Equity", displayOrder: 0, targetPct: 55 }],
       market: { indices: [], meta: { fedRate: 5.5 } },
     };
     const parsed = TimelineDataSchema.safeParse(payload);
@@ -26,6 +27,7 @@ describe("MarketMetaSchema defaulting", () => {
   it("fills every meta key when meta is an empty object", () => {
     const payload = {
       daily: [{ date: "2026-01-01", total: 100, usEquity: 55, nonUsEquity: 15, crypto: 3, safeNet: 27, liabilities: 0 }],
+      categories: [{ key: "usEquity", name: "US Equity", displayOrder: 0, targetPct: 55 }],
       market: { indices: [], meta: {} },
     };
     const parsed = TimelineDataSchema.safeParse(payload);

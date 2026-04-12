@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { GOAL } from "@/lib/config";
 import { useBundle } from "@/lib/use-bundle";
+import { catColorByName } from "@/lib/compute";
 import { fmtDateMedium } from "@/lib/format";
 import { SectionHeader, SectionBody, TickerTable } from "@/components/finance/shared";
 import { IncomeExpensesChart } from "@/components/finance/charts";
@@ -84,6 +85,9 @@ export default function FinancePage() {
   const snapshotDate = tl.snapshot?.date ?? null;
   const startDate = tl.startDate;
 
+  // ── Category colour map (derived from bundle categories) ──────────
+  const colorByName = catColorByName(tl.categories);
+
   // ── Tab title with date range ─────────────────────────────────────
   useEffect(() => {
     if (startDate && snapshotDate) {
@@ -133,6 +137,7 @@ export default function FinancePage() {
             goal={GOAL}
             allocationOpen={allocOpen}
             onAllocationToggle={() => setAllocOpen((v) => !v)}
+            colorByName={colorByName}
           />
         ) : (
           <div className="liquid-glass p-4 text-center text-sm text-red-400">Allocation data unavailable</div>

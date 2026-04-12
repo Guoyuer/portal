@@ -213,6 +213,15 @@ const holdingsDetail = [
   { ticker: "FBTC", monthReturn: 8.0,  startValue: 5000,   endValue: 5400,   high52w: 7000,   low52w: 3000,   vsHigh: -22.9 },
 ];
 
+// ── Category metadata (target weights + display order) ──────────────────
+
+const categories = [
+  { key: "usEquity", name: "US Equity", displayOrder: 0, targetPct: 55 },
+  { key: "nonUsEquity", name: "Non-US Equity", displayOrder: 1, targetPct: 15 },
+  { key: "crypto", name: "Crypto", displayOrder: 2, targetPct: 3 },
+  { key: "safeNet", name: "Safe Net", displayOrder: 3, targetPct: 27 },
+];
+
 // ── Assembled timeline ──────────────────────────────────────────────────
 
 const TIMELINE = {
@@ -220,6 +229,7 @@ const TIMELINE = {
   dailyTickers,
   fidelityTxns,
   qianjiTxns,
+  categories,
   market,
   holdingsDetail,
   syncMeta: { last_sync: new Date().toISOString(), last_date: lastDate },

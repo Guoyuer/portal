@@ -118,12 +118,14 @@ export function CategorySummary({
   total: totalValue,
   title,
   embedded,
+  colorByName,
 }: {
   categories: ApiCategory[];
   tickers: ApiTicker[];
   total: number;
   title: string;
   embedded?: boolean;
+  colorByName: Record<string, string>;
 }) {
   const grouped = groupTickers(categories, tickers, totalValue);
   const equityCats = grouped.filter((c) => c.isEquity);
@@ -262,7 +264,7 @@ export function CategorySummary({
         </Table>
       </div>
       <div className="lg:w-80 flex-shrink-0">
-        <AllocationDonut categories={donutCategories} total={totalValue} />
+        <AllocationDonut categories={donutCategories} total={totalValue} colorByName={colorByName} />
       </div>
     </div>
   );

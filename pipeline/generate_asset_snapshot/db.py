@@ -163,6 +163,16 @@ CREATE TABLE IF NOT EXISTS calibration_log (
     positions_total   INTEGER NOT NULL DEFAULT 0,
     details           TEXT NOT NULL DEFAULT '[]'
 );
+
+-- Category metadata populated from config.json's target_weights +
+-- category_order. The frontend reads this via v_categories so the allocation
+-- palette/targets have a single source of truth.
+CREATE TABLE IF NOT EXISTS categories (
+    key           TEXT PRIMARY KEY,
+    name          TEXT NOT NULL,
+    display_order INTEGER NOT NULL,
+    target_pct    REAL NOT NULL DEFAULT 0
+);
 """
 
 _INDEXES = """
@@ -255,6 +265,13 @@ _VIEWS: dict[str, str] = {
         "SELECT key, value\n"
         "FROM econ_series t1\n"
         "WHERE date = (SELECT MAX(date) FROM econ_series t2 WHERE t2.key = t1.key);"
+    ),
+    "v_categories": (
+        "CREATE VIEW IF NOT EXISTS v_categories AS\n"
+        "SELECT key, name,\n"
+        "  display_order AS displayOrder,\n"
+        "  target_pct AS targetPct\n"
+        "FROM categories ORDER BY display_order;"
     ),
 }
 

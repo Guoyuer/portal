@@ -107,6 +107,15 @@ const QianjiTxnSchema = z.object({
   amount: z.number(),
 });
 
+// ── Category metadata (target weights + display order from pipeline) ────
+
+const CategoryMetaSchema = z.object({
+  key: z.string(),
+  name: z.string(),
+  displayOrder: z.number(),
+  targetPct: z.number(),
+});
+
 // ── Per-section errors (populated when an optional view fails) ──────────
 
 const TimelineErrorsSchema = z
@@ -124,6 +133,7 @@ export const TimelineDataSchema = z.object({
   dailyTickers: z.array(DailyTickerSchema).default([]),
   fidelityTxns: z.array(FidelityTxnSchema).default([]),
   qianjiTxns: z.array(QianjiTxnSchema).default([]),
+  categories: z.array(CategoryMetaSchema),
   market: MarketDataSchema.nullable().default(null),
   holdingsDetail: z.array(StockDetailSchema).nullable().default(null),
   syncMeta: z.record(z.string(), z.string()).nullable().default(null),
@@ -166,6 +176,7 @@ export type StockDetail = z.infer<typeof StockDetailSchema>;
 export type TickerPricePoint = z.infer<typeof TickerPricePointSchema>;
 export type TickerTransaction = z.infer<typeof TickerTransactionSchema>;
 export type TickerPriceResponse = z.infer<typeof TickerPriceResponseSchema>;
+export type CategoryMeta = z.infer<typeof CategoryMetaSchema>;
 
 // ── Client-computed types (not from Zod, defined inline) ────────────────
 

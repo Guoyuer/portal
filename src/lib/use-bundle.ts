@@ -7,6 +7,7 @@ import {
   type AllocationResponse,
   type CashflowResponse,
   type ActivityResponse,
+  type CategoryMeta,
   type MarketData,
   type StockDetail,
   type DailyPoint,
@@ -36,6 +37,7 @@ export interface BundleState {
   chartDaily: DailyPoint[];
   qianjiTxns: QianjiTxn[];
   fidelityTxns: FidelityTxn[];
+  categories: CategoryMeta[];
   defaultStartIndex: number;
   defaultEndIndex: number;
   snapshot: DailyPoint | null;
@@ -119,7 +121,8 @@ export function useBundle(): BundleState {
   const snapshotDate = snapshot?.date ?? null;
 
   // ── Computed data (pure, instant) ───────────────────────────────────
-  const allocation = (data && snapshotDate) ? computeAllocation(data.daily, tickerIndex, dateIndex, snapshotDate) : null;
+  const categories = data?.categories ?? [];
+  const allocation = (data && snapshotDate) ? computeAllocation(data.daily, tickerIndex, dateIndex, snapshotDate, categories) : null;
   const cashflow = (data && startDate && snapshotDate) ? computeCashflow(data.qianjiTxns, startDate, snapshotDate) : null;
   const activity = (data && startDate && snapshotDate) ? computeActivity(data.fidelityTxns, startDate, snapshotDate) : null;
   const crossCheck = (data && startDate && snapshotDate) ? computeCrossCheck(data.fidelityTxns, data.qianjiTxns, startDate, snapshotDate) : null;
@@ -129,6 +132,7 @@ export function useBundle(): BundleState {
     chartDaily,
     qianjiTxns: data?.qianjiTxns ?? [],
     fidelityTxns: data?.fidelityTxns ?? [],
+    categories,
     defaultStartIndex,
     defaultEndIndex,
     brushStart: fullRange.start,

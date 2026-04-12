@@ -39,6 +39,7 @@ TABLES_TO_SYNC: list[str] = [
     "computed_holdings_detail",
     "econ_series",
     "daily_close",
+    "categories",
 ]
 
 # Column subsets to sync to D1.  None → all columns (SELECT *).

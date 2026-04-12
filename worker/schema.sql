@@ -84,6 +84,13 @@ CREATE TABLE IF NOT EXISTS econ_series (
     PRIMARY KEY (key, date)
 );
 
+CREATE TABLE IF NOT EXISTS categories (
+    key           TEXT PRIMARY KEY,
+    name          TEXT NOT NULL,
+    display_order INTEGER NOT NULL,
+    target_pct    REAL NOT NULL DEFAULT 0
+);
+
 -- ── Indexes ───────────────────────────────────────────────────────────────────
 
 CREATE INDEX IF NOT EXISTS idx_fidelity_date     ON fidelity_transactions(run_date);
@@ -156,3 +163,9 @@ CREATE VIEW IF NOT EXISTS v_econ_snapshot AS
 SELECT key, value
 FROM econ_series t1
 WHERE date = (SELECT MAX(date) FROM econ_series t2 WHERE t2.key = t1.key);
+
+CREATE VIEW IF NOT EXISTS v_categories AS
+SELECT key, name,
+  display_order AS displayOrder,
+  target_pct AS targetPct
+FROM categories ORDER BY display_order;

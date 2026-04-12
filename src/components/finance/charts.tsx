@@ -28,16 +28,17 @@ import { fmtCurrencyShort, fmtDateMonthYear, fmtMonth, fmtMonthYear, fmtTick } f
 import { useIsDark, useIsMobile } from "@/lib/hooks";
 import { tooltipStyle, gridStroke, axisProps } from "@/lib/chart-styles";
 import { getIsDark } from "@/lib/style-helpers";
-import { CAT_COLOR_BY_NAME } from "@/lib/compute";
 
 // ── Donut: Category Allocation ─────────────────────────────────────────────
 
 export function AllocationDonut({
   categories,
   total,
+  colorByName,
 }: {
   categories: CategoryData[];
   total: number;
+  colorByName: Record<string, string>;
 }) {
   const isDark = useIsDark();
   const data = categories.map((c) => ({ name: c.name, value: c.value, pct: c.pct }));
@@ -57,7 +58,7 @@ export function AllocationDonut({
             strokeWidth={1}
           >
             {data.map((d, i) => (
-              <Cell key={i} fill={CAT_COLOR_BY_NAME[d.name]} />
+              <Cell key={i} fill={colorByName[d.name]} />
             ))}
           </Pie>
           <Tooltip
@@ -75,7 +76,7 @@ export function AllocationDonut({
       <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2 text-sm">
         {data.map((d, i) => (
           <div key={d.name} className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: CAT_COLOR_BY_NAME[d.name] }} />
+            <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: colorByName[d.name] }} />
             <span className="text-muted-foreground">{d.name} {d.pct.toFixed(0)}%</span>
           </div>
         ))}

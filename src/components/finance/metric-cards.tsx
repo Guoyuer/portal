@@ -110,6 +110,7 @@ export function MetricCards({
   goal,
   allocationOpen,
   onAllocationToggle,
+  colorByName,
 }: {
   allocation: { total: number; netWorth: number; categories: ApiCategory[]; tickers: ApiTicker[] };
   savingsRate: number | null;
@@ -117,6 +118,7 @@ export function MetricCards({
   goal: number;
   allocationOpen: boolean;
   onAllocationToggle: () => void;
+  colorByName: Record<string, string>;
 }) {
   const { total, netWorth, categories, tickers } = allocation;
   const goalPct = (total / goal) * 100;
@@ -193,7 +195,7 @@ export function MetricCards({
               <>
                 <div className="mx-4 h-px bg-gradient-to-r from-transparent via-foreground/10 to-transparent" />
                 <div className="p-4 pt-3">
-                  <CategorySummary categories={categories} tickers={tickers} total={total} title="Allocation" embedded />
+                  <CategorySummary categories={categories} tickers={tickers} total={total} title="Allocation" embedded colorByName={colorByName} />
                 </div>
               </>
             )}
