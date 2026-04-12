@@ -133,10 +133,10 @@ def _ingest_fidelity_csvs(paths: BuildPaths) -> None:
         ingest_fidelity_csv(paths.db_path, paths.csv)
         return
 
-    # Scan Downloads for Accounts_History*.csv
+    # Scan downloads directory for Accounts_History*.csv
     raw_csvs = sorted(paths.downloads.glob("Accounts_History*.csv"))
     if not raw_csvs:
-        print("  ERROR: No Accounts_History CSVs found in Downloads")
+        print(f"  ERROR: No Accounts_History CSVs found in {paths.downloads}")
         sys.exit(1)
 
     # Sort by earliest date in each file (chronological ingestion)
@@ -150,7 +150,7 @@ def _ingest_fidelity_csvs(paths: BuildPaths) -> None:
         return min(d[6:10] + d[0:2] + d[3:5] for d in dates)
 
     raw_csvs.sort(key=_csv_start_date)
-    print(f"  Found {len(raw_csvs)} CSVs in Downloads, ingesting chronologically...")
+    print(f"  Found {len(raw_csvs)} CSVs in {paths.downloads}, ingesting chronologically...")
 
     total = 0
     for csv_path in raw_csvs:
