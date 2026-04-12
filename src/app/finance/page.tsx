@@ -198,7 +198,9 @@ export default function FinancePage() {
           ) : (
             <>
               <SectionHeader>{SECTION_LABELS["market"]}</SectionHeader>
-              <p className="text-sm text-red-400">Market data unavailable</p>
+              <p data-testid="market-error" className="text-sm text-red-400">
+                Market data failed to load{tl.marketError ? `: ${tl.marketError}` : ""}
+              </p>
             </>
           )}
         </div>

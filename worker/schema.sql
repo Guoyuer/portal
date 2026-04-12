@@ -126,6 +126,19 @@ FROM computed_market_indices ORDER BY ticker;
 CREATE VIEW IF NOT EXISTS v_market_indicators AS
 SELECT key, value FROM computed_market_indicators;
 
+-- Pivot computed_market_indicators long-format (key, value) → single wide row.
+-- Mirrors MarketMetaSchema in src/shared/schema.ts. Always returns one row; missing keys are NULL.
+CREATE VIEW IF NOT EXISTS v_market_meta AS
+SELECT
+  MAX(CASE WHEN key = 'fedRate'      THEN value END) AS fedRate,
+  MAX(CASE WHEN key = 'treasury10y'  THEN value END) AS treasury10y,
+  MAX(CASE WHEN key = 'cpi'          THEN value END) AS cpi,
+  MAX(CASE WHEN key = 'unemployment' THEN value END) AS unemployment,
+  MAX(CASE WHEN key = 'vix'          THEN value END) AS vix,
+  MAX(CASE WHEN key = 'dxy'          THEN value END) AS dxy,
+  MAX(CASE WHEN key = 'usdCny'       THEN value END) AS usdCny
+FROM computed_market_indicators;
+
 CREATE VIEW IF NOT EXISTS v_holdings_detail AS
 SELECT ticker, month_return AS monthReturn, start_value AS startValue,
   end_value AS endValue, high_52w AS high52w, low_52w AS low52w, vs_high AS vsHigh
@@ -133,3 +146,10 @@ FROM computed_holdings_detail ORDER BY month_return DESC;
 
 CREATE VIEW IF NOT EXISTS v_econ_series AS
 SELECT key, date, value FROM econ_series ORDER BY key, date;
+
+-- Last value per econ series — snapshot for /econ endpoint.
+-- Correlated subquery (SQLite-compatible): pick the row whose date equals MAX(date) per key.
+CREATE VIEW IF NOT EXISTS v_econ_snapshot AS
+SELECT key, value
+FROM econ_series t1
+WHERE date = (SELECT MAX(date) FROM econ_series t2 WHERE t2.key = t1.key);

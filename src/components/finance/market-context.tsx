@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { Area, AreaChart, YAxis } from "recharts";
-import type { MarketData, IndexReturn } from "@/lib/schema";
+import type { MarketData, MarketMeta, IndexReturn } from "@/lib/schema";
 import { fmtPct } from "@/lib/format";
 import { SectionHeader } from "@/components/finance/shared";
 
@@ -134,7 +134,7 @@ function IndexCard({ idx }: { idx: IndexReturn }) {
 }
 
 // ── MarketContext ────────────────────────────────────────────────────────
-const INDICATOR_DEFS: { key: keyof MarketData; label: string; fmt: (v: number) => string }[] = [
+const INDICATOR_DEFS: { key: keyof MarketMeta; label: string; fmt: (v: number) => string }[] = [
   { key: "fedRate",      label: "Fed Rate",     fmt: (v) => fmtPct(v, false) },
   { key: "treasury10y",  label: "10Y Treasury", fmt: (v) => fmtPct(v, false) },
   { key: "cpi",          label: "CPI",          fmt: (v) => fmtPct(v, false) },
@@ -146,8 +146,8 @@ const INDICATOR_DEFS: { key: keyof MarketData; label: string; fmt: (v: number) =
 
 export function MarketContext({ data: m, title }: { data: MarketData; title: string }) {
   const indicators = INDICATOR_DEFS
-    .filter(({ key }) => m[key] != null)
-    .map(({ key, label, fmt }) => ({ label, value: fmt(m[key] as number) }));
+    .filter(({ key }) => m.meta[key] != null)
+    .map(({ key, label, fmt }) => ({ label, value: fmt(m.meta[key] as number) }));
 
   return (
     <section>

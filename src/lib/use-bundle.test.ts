@@ -130,6 +130,69 @@ describe("useBundle", () => {
     expect(result.current.activity!.buysBySymbol[0].symbol).toBe("VTI");
   });
 
+  it("exposes per-section errors from the Worker payload", async () => {
+    server.use(
+      http.get(TIMELINE_URL, () => HttpResponse.json({
+        ...VALID_PAYLOAD,
+        market: null,
+        errors: { market: "db timeout", holdings: "view missing" },
+      })),
+    );
+    const { result } = renderHook(() => useBundle());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.market).toBeNull();
+    expect(result.current.marketError).toBe("db timeout");
+    expect(result.current.holdingsError).toBe("view missing");
+    expect(result.current.txnsError).toBeNull();
+  });
+
+  it("defaults errors to null when the field is omitted", async () => {
+    const { result } = renderHook(() => useBundle());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.marketError).toBeNull();
+    expect(result.current.holdingsError).toBeNull();
+    expect(result.current.txnsError).toBeNull();
+  });
+
+  it("parses sparkline from a JSON string (D1 storage format)", async () => {
+    server.use(
+      http.get(TIMELINE_URL, () => HttpResponse.json({
+        ...VALID_PAYLOAD,
+        market: {
+          indices: [
+            { ticker: "^GSPC", name: "S&P 500", monthReturn: 2.1, ytdReturn: 12.5, current: 5800, sparkline: "[5500, 5600, 5700, 5800]", high52w: 5900, low52w: 4800 },
+          ],
+          meta: { fedRate: null, treasury10y: null, cpi: null, unemployment: null, vix: null, dxy: null, usdCny: null },
+        },
+      })),
+    );
+    const { result } = renderHook(() => useBundle());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.market).not.toBeNull();
+    expect(result.current.market!.indices[0].sparkline).toEqual([5500, 5600, 5700, 5800]);
+  });
+
+  it("accepts sparkline already parsed as an array", async () => {
+    server.use(
+      http.get(TIMELINE_URL, () => HttpResponse.json({
+        ...VALID_PAYLOAD,
+        market: {
+          indices: [
+            { ticker: "^GSPC", name: "S&P 500", monthReturn: 2.1, ytdReturn: 12.5, current: 5800, sparkline: [5500, 5600, 5700, 5800], high52w: 5900, low52w: 4800 },
+          ],
+          meta: { fedRate: null, treasury10y: null, cpi: null, unemployment: null, vix: null, dxy: null, usdCny: null },
+        },
+      })),
+    );
+    const { result } = renderHook(() => useBundle());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.market!.indices[0].sparkline).toEqual([5500, 5600, 5700, 5800]);
+  });
+
   it("computes monthlyFlows from qianjiTxns", async () => {
     server.use(
       http.get(TIMELINE_URL, () => HttpResponse.json({

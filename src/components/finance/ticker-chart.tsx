@@ -13,7 +13,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import type { TooltipContentProps } from "recharts/types/component/Tooltip";
-import type { TickerPricePoint, TickerTransaction, TickerPriceResponse } from "@/lib/schema";
+import { TickerPriceResponseSchema, type TickerPricePoint, type TickerTransaction } from "@/lib/schema";
 import { fmtCurrency, fmtDateMedium, fmtTick } from "@/lib/format";
 import { useIsDark } from "@/lib/hooks";
 import { tooltipStyle, gridStroke, axisProps } from "@/lib/chart-styles";
@@ -190,14 +190,19 @@ export function TickerChart({ symbol, startDate, endDate }: { symbol: string; st
       try {
         const res = await fetch(`${WORKER_BASE}/prices/${encodeURIComponent(symbol)}`);
         if (!res.ok) throw new Error(`${res.status}`);
-        const json = (await res.json()) as TickerPriceResponse;
+        const json = await res.json();
+        const parsed = TickerPriceResponseSchema.safeParse(json);
+        if (!parsed.success) {
+          throw new Error(`schema drift: ${parsed.error.issues[0]?.message ?? "unknown"}`);
+        }
         if (cancelled) return;
 
-        const merged = mergeTickerData(json.prices, json.transactions);
+        const { prices, transactions } = parsed.data;
+        const merged = mergeTickerData(prices, transactions);
         setData(merged);
 
         // Compute average cost basis from buy transactions
-        const buys = json.transactions.filter(
+        const buys = transactions.filter(
           (t) => t.actionType === "buy" || t.actionType === "reinvestment",
         );
         const totalCost = buys.reduce((s, t) => s + Math.abs(t.amount), 0);
