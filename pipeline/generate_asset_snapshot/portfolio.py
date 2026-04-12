@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import logging
 from collections import defaultdict
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .types import Config, Portfolio, PortfolioError, parse_currency
@@ -12,15 +13,19 @@ from .types import Config, Portfolio, PortfolioError, parse_currency
 log = logging.getLogger(__name__)
 
 
-def _parse_rows(
-    reader: csv.DictReader[str], config: Config
-) -> tuple[dict[str, float], dict[str, int], dict[str, float], dict[str, float], dict[str, float]]:
-    """Parse CSV rows into totals, counts, cost_basis, gain_loss, gain_loss_pct."""
-    totals: dict[str, float] = defaultdict(float)
-    counts: dict[str, int] = defaultdict(int)
-    cost_basis: dict[str, float] = defaultdict(float)
-    gain_loss: dict[str, float] = defaultdict(float)
-    gain_loss_pct: dict[str, float] = {}
+@dataclass
+class ParsedRows:
+    """Aggregated per-ticker values parsed from a Fidelity positions CSV."""
+    totals: dict[str, float] = field(default_factory=lambda: defaultdict(float))
+    counts: dict[str, int] = field(default_factory=lambda: defaultdict(int))
+    cost_basis: dict[str, float] = field(default_factory=lambda: defaultdict(float))
+    gain_loss: dict[str, float] = field(default_factory=lambda: defaultdict(float))
+    gain_loss_pct: dict[str, float] = field(default_factory=dict)
+
+
+def _parse_rows(reader: csv.DictReader[str], config: Config) -> ParsedRows:
+    """Parse CSV rows into per-ticker totals, counts, cost basis, and gain/loss."""
+    parsed = ParsedRows()
 
     headers = {h.lower(): h for h in (reader.fieldnames or [])}
     sym_h = headers.get("symbol")
@@ -42,22 +47,19 @@ def _parse_rows(
                 f"is not configured in config.json. "
                 f"Please add it to the 'assets' section."
             )
-        totals[ticker] += parse_currency(row.get(val_h, "0"))
-        counts[ticker] += 1
+        parsed.totals[ticker] += parse_currency(row.get(val_h, "0"))
+        parsed.counts[ticker] += 1
         if cb_h:
-            cost_basis[ticker] += parse_currency(row.get(cb_h, "0"))
+            parsed.cost_basis[ticker] += parse_currency(row.get(cb_h, "0"))
         if gl_h:
-            gain_loss[ticker] += parse_currency(row.get(gl_h, "0"))
+            parsed.gain_loss[ticker] += parse_currency(row.get(gl_h, "0"))
 
     # Compute gain/loss % from aggregated values
-    for ticker in totals:
-        cb = cost_basis[ticker]
-        if cb > 0:
-            gain_loss_pct[ticker] = (totals[ticker] - cb) / cb * 100
-        else:
-            gain_loss_pct[ticker] = 0.0
+    for ticker in parsed.totals:
+        cb = parsed.cost_basis[ticker]
+        parsed.gain_loss_pct[ticker] = (parsed.totals[ticker] - cb) / cb * 100 if cb > 0 else 0.0
 
-    return totals, counts, cost_basis, gain_loss, gain_loss_pct
+    return parsed
 
 
 def load_portfolio(
@@ -69,19 +71,19 @@ def load_portfolio(
     try:
         with csv_path.open(newline="", encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
-            totals, counts, cost_basis, gain_loss, gain_loss_pct = _parse_rows(reader, config)
+            parsed = _parse_rows(reader, config)
     except FileNotFoundError as e:
         raise PortfolioError(f"CSV not found: {csv_path}") from e
     for ticker, value in (manual_values or {}).items():
-        totals[ticker] += value
-        counts[ticker] += 1
+        parsed.totals[ticker] += value
+        parsed.counts[ticker] += 1
     p = Portfolio(
-        totals=totals,
-        counts=counts,
-        total=sum(totals.values()),
-        cost_basis=cost_basis,
-        gain_loss=gain_loss,
-        gain_loss_pct=gain_loss_pct,
+        totals=parsed.totals,
+        counts=parsed.counts,
+        total=sum(parsed.totals.values()),
+        cost_basis=parsed.cost_basis,
+        gain_loss=parsed.gain_loss,
+        gain_loss_pct=parsed.gain_loss_pct,
     )
     log.info("Portfolio: %d tickers, %d lots, total $%s (manual: %d)", len(p["totals"]), sum(p["counts"].values()), f"{p['total']:,.2f}", len(manual_values or {}))
     return p

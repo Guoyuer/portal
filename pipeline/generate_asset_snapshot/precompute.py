@@ -4,10 +4,24 @@ from __future__ import annotations
 import json
 import logging
 import os
+from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
 
 from .types import TRADING_DAYS_MONTH, TRADING_DAYS_YEAR
+
+
+@dataclass
+class MarketIndexRow:
+    """Computed stats for a single market index, ready for SQL INSERT via asdict()."""
+    ticker: str
+    name: str
+    current: float
+    month_return: float
+    ytd_return: float
+    high_52w: float
+    low_52w: float
+    sparkline: str  # JSON-encoded list[float]
 
 _ASSET_KEY_MAP: dict[str, str] = {
     "US Equity": "usEquity",
@@ -56,10 +70,10 @@ _FRED_SNAPSHOT_KEYS: dict[str, str] = {
 def _compute_index_row(
     ticker: str, name: str,
     rows: list[tuple[str, float]],
-) -> tuple[str, str, float, float, float, float, float, str] | None:
+) -> MarketIndexRow | None:
     """Compute market stats for a single index ticker from pre-fetched (date, close) rows.
 
-    Returns a tuple ready for INSERT, or None if insufficient data.
+    Returns a MarketIndexRow ready for INSERT, or None if insufficient data.
     """
     if len(rows) < 2:
         return None
@@ -88,7 +102,16 @@ def _compute_index_row(
     # Sparkline: last ~1 year of closes
     sparkline = json.dumps(year_closes)
 
-    return (ticker, name, current, month_return, ytd_return, high_52w, low_52w, sparkline)
+    return MarketIndexRow(
+        ticker=ticker,
+        name=name,
+        current=current,
+        month_return=month_return,
+        ytd_return=ytd_return,
+        high_52w=high_52w,
+        low_52w=low_52w,
+        sparkline=sparkline,
+    )
 
 
 def precompute_market(db_path: Path) -> None:
@@ -122,8 +145,8 @@ def precompute_market(db_path: Path) -> None:
                 conn.execute(
                     "INSERT INTO computed_market_indices"
                     " (ticker, name, current, month_return, ytd_return, high_52w, low_52w, sparkline)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    row,
+                    " VALUES (:ticker, :name, :current, :month_return, :ytd_return, :high_52w, :low_52w, :sparkline)",
+                    asdict(row),
                 )
 
         # ── CNY rate ────────────────────────────────────────────────────

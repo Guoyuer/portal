@@ -52,13 +52,12 @@ class TestComputeIndexRow:
         prices = [(f"2025-01-{d:02d}", 5000.0 + d * 10) for d in range(2, 32)]
         row = _compute_index_row("^GSPC", "S&P 500", prices)
         assert row is not None
-        ticker, name, current, month_ret, ytd_ret, high, low, sparkline = row
-        assert ticker == "^GSPC"
-        assert name == "S&P 500"
-        assert current == prices[-1][1]
-        assert high >= low
-        assert isinstance(month_ret, float)
-        assert isinstance(ytd_ret, float)
+        assert row.ticker == "^GSPC"
+        assert row.name == "S&P 500"
+        assert row.current == prices[-1][1]
+        assert row.high_52w >= row.low_52w
+        assert isinstance(row.month_return, float)
+        assert isinstance(row.ytd_return, float)
 
 
 # ── precompute_market ──────────────────────────────────────────────────────
