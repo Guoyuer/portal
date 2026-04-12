@@ -46,7 +46,9 @@ Next.js static shell on Cloudflare Pages. Data served by Cloudflare Worker (`wor
 
 Frontend fetches all data in a single `GET /timeline` call (~4.6 MB JSON, ~385 KB gzipped by Cloudflare edge), then computes allocation, cashflow, activity, and reconciliation locally in `compute.ts` via `use-bundle.ts`. All daily data points are rendered directly (no downsampling). Brush drag is zero-latency (no network). Ticker charts fetch on-demand via `GET /prices/:symbol`.
 
-D1 schema: 7 tables + `daily_close` + `sync_meta` + 7 camelCase views. Worker serves 3 endpoints: `GET /timeline`, `GET /econ`, `GET /prices/:symbol`. Worker is pure passthrough (SELECT → JSON). All data flows through D1.
+D1 schema: 7 tables + `daily_close` + `sync_meta` + 9 camelCase views (inc. `v_market_meta` pivot + `v_econ_snapshot`). Worker serves 3 endpoints: `GET /timeline`, `GET /econ`, `GET /prices/:symbol`. Worker is a thin adapter: `SELECT` → `Zod.safeParse` → JSON. All shape work lives in the views; the only transform in TypeScript is `JSON.parse(sparkline)`, done via a Zod transform shared with the client. All data flows through D1.
+
+`/timeline` is fail-open: the critical `v_daily` query returns 503 on failure, but optional sections (market, holdings, txns) degrade to `null` + a `errors: { market?, holdings?, txns? }` entry. Panels render explicit error cards — missing data never hides silently.
 
 ## Accessibility
 
