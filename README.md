@@ -137,7 +137,6 @@ portal/
 │   │   ├── prices.py                  # Yahoo Finance price + CNY rate fetcher
 │   │   ├── empower_401k.py            # Empower 401k QFX snapshot parser
 │   │   ├── types.py                   # Source-of-truth dataclasses
-│   │   ├── portfolio.py               # Load positions from Fidelity CSV
 │   │   ├── config.py                  # JSON config loader
 │   │   ├── ingest/
 │   │   │   ├── fidelity_history.py    # Fidelity transaction CSV parser
