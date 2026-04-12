@@ -1,231 +1,270 @@
 # Gmail Auto-Triage — Design (2026-04-12)
 
+> Revised 2026-04-12: switched from GH Actions + OAuth to Task Scheduler + Gmail app password (IMAP + SMTP), aligning with `etl.email_report` / `run_automation.py` patterns already in main.
+
 ## Goal
 
-Every morning at 7am local time, receive a digest email summarizing the last 24 hours of Gmail, with important emails highlighted and low-value emails listed with one-click delete links.
+Every morning at 07:00 local, receive a digest email summarizing the last 24 hours of Gmail, with important emails highlighted and low-value emails listed with one-click delete links. Clicks queue deletions; a flush task runs every 15 min, so trash happens within ≤15 min.
 
 ## Non-goals
 
-- Auto-applying labels or archiving (Gmail MCP is read+draft only; deletion is the only mutation we perform, via direct OAuth — labeling stays out of scope to keep the blast radius narrow).
+- Auto-applying labels or archiving.
 - Reply drafting.
 - Multi-user support.
-- Reading state tracking ("which emails did I open") — we trust the user to click through.
+- **Instant** delete — 15-min latency is the cost of zero-OAuth simplicity.
+- Read-state tracking.
 
-## Top-level architecture
+## Architecture
 
-Three runtime components:
+Three runtime pieces. **Single Gmail app password** for all Gmail I/O (no OAuth anywhere):
 
 ```
-            ┌──────────────────────────────┐
- 7am local  │  GitHub Actions workflow     │
- ──cron────▶│  .github/workflows/          │
-            │    gmail-triage.yml          │
-            └──────────────┬───────────────┘
-                           │
-                           ▼
-            ┌──────────────────────────────┐
-            │  Python triage script        │
-            │  scripts/gmail/triage.py     │
-            │                              │
-            │  1. Gmail list + batch_get   │
-            │  2. Claude classify (Haiku)  │
-            │  3. Request trash-tokens     │──┐
-            │  4. Render HTML digest       │  │
-            │  5. Gmail send to self       │  │
-            └──────────────────────────────┘  │
-                                              │
-                   ┌──────────────────────────┘
-                   ▼
-            ┌──────────────────────────────┐
-            │  worker-gmail/               │◀────── user clicks ☐
-            │  Cloudflare Worker           │        in digest email
-            │                              │
-            │  POST /sign  (internal)      │
-            │  GET  /trash (confirm page)  │
-            │  POST /trash (commit delete) │
-            └──────────────────────────────┘
-                           │
-                           ▼
-                     Gmail API: messages.trash()
+                ┌──────────────────────────────────┐
+                │  Task Scheduler (user's PC)      │
+                │                                  │
+                │  Daily 07:00: triage.py --digest │
+                │  Every 15 min: triage.py --flush │
+                └───────────────┬──────────────────┘
+                                │
+                                ▼
+              ┌──────────────────────────────────┐
+              │  Python: pipeline/scripts/gmail/ │
+              │                                  │
+              │  --digest:                       │
+              │    1. IMAP fetch 24h unread      │
+              │    2. Claude Haiku classify      │
+              │    3. POST Worker /sign × N      │
+              │    4. Render HTML (pre-based)    │
+              │    5. SMTP send to self          │
+              │       (via etl.email_report)     │
+              │                                  │
+              │  --flush:                        │
+              │    1. GET Worker /pending        │
+              │    2. IMAP trash each msg_id     │
+              │    3. DELETE Worker /pending/... │
+              └───────────────┬──────────────────┘
+                              │
+                              ▼
+              ┌──────────────────────────────────┐
+              │  worker-gmail/  (Free tier)      │
+              │                                  │
+              │  POST   /sign      (internal)    │
+              │  GET    /trash     (user click)  │
+              │  POST   /trash     (confirm)     │
+              │  GET    /pending   (Python poll) │
+              │  DELETE /pending/… (Python ack)  │
+              │                                  │
+              │  Storage: KV  (TRASH_QUEUE)      │
+              │  No Gmail API. No OAuth.         │
+              └──────────────────────────────────┘
+                              ▲
+                              │
+                    user clicks ☐ in digest
 ```
 
-**Why split GH Actions + Worker**: Cloudflare Workers free tier caps CPU at 10ms/request. The digest generation (30 emails × HMAC signing + Anthropic response parsing + HTML render) would exceed this. GH Actions runs the heavy work (free: 2000 min/mo private repo, we use <1 min/day). Worker only handles user-facing click traffic, which is trivial CPU.
+**Why this shape:**
+- **App password** covers SMTP (send digest) + IMAP (read inbox, trash emails) with one credential. No OAuth consent, no refresh tokens, no "unverified app" warning.
+- **Worker is a thin queue**, never calls Gmail. Cloudflare free tier easily handles this workload (<5 ms CPU/request).
+- **Python owns all Gmail I/O**, runs on existing Task Scheduler alongside `PortalSync` — identical operational model.
+- **Reuses `etl.email_report`** (merged to main via PR #122). Zero new send code.
 
 ## Data flow
 
-### 1. Digest generation (daily cron)
+### 1. Daily digest (07:00 local)
 
 ```
-GH Actions cron fires (22:00 UTC = 7am local)
+Task Scheduler → triage.py --digest
   ↓
-Python refreshes Gmail access token using stored refresh_token
+imaplib.IMAP4_SSL('imap.gmail.com', 993).login(user, app_password)
   ↓
-GET /gmail/v1/users/me/messages?q=(newer_than:1d in:inbox is:unread)
-  → list of message IDs (~30 for this user)
+M.select('INBOX')
+M.uid('SEARCH', 'UNSEEN', 'SINCE', '12-Apr-2026')
+  → ~30 UIDs
   ↓
-POST /batch/gmail/v1  (batch get message bodies, format=full)
-  → full email contents
+M.uid('FETCH', uid, 'BODY.PEEK[]')  per UID, parse MIME
+  → list of {msg_id (Message-ID header), from, subject, body_excerpt}
   ↓
-POST https://api.anthropic.com/v1/messages
-  model=claude-haiku-4-5-20251001
-  → { classifications: [{msg_id, category, summary}, ...] }
-  where category ∈ {IMPORTANT, NEUTRAL, TRASH_CANDIDATE}
+anthropic.messages.create(model="claude-haiku-4-5-20251001", ...)
+  → {classifications: [{msg_id, category, summary}]}
   ↓
 For each TRASH_CANDIDATE:
-  POST https://worker-gmail.<account>.workers.dev/sign
-    Header: X-Signing-Secret: <shared>
-    Body: { msg_id, expiry: now + 7d }
-    → { token: "base64(...)" }
+  POST {WORKER_URL}/sign
+    Header: X-Signing-Secret: {WORKER_SECRET}
+    Body:   {msg_id, expiry: now + 7d}
+    → {token: "<base64>"}
   ↓
-Python renders HTML digest (see "Digest HTML" section)
+Render HTML (+ plain-text twin) — use etl.changelog's <pre>-based pattern
   ↓
-POST /gmail/v1/users/me/messages/send
-  From: me  To: me  Subject: "📬 Gmail Triage — Apr 12"
-  → digest arrives in inbox seconds later
+etl.email_report.send(subject, html, text, config)
+  → digest arrives in inbox within seconds
 ```
 
-### 2. Delete click (user-initiated)
+### 2. User click (asynchronous)
 
 ```
-User sees digest in Gmail, clicks ☐ next to a TRASH_CANDIDATE
-  ↓
-Browser: GET https://worker-gmail.<account>.workers.dev/trash?t=<token>
+User opens digest in Gmail, clicks a ☐ link → opens /trash?t=<token>
   ↓
 Worker:
-  - Verify HMAC signature
-  - Verify expiry
-  - Render confirm page: "Trash this email? [Confirm]"
+  - Verify HMAC + expiry
+  - Render confirm page: "Queue this email for trash? [Confirm]"
   ↓
-User clicks "Confirm" → POST /trash  (same token in form)
+User clicks Confirm → POST /trash with same token
   ↓
 Worker:
   - Re-verify token
-  - Refresh Gmail access token (using stored refresh_token)
-  - POST /gmail/v1/users/me/messages/{msg_id}/trash
-  - Return: "✅ Moved to Trash. Restore within 30 days via Gmail."
-  ↓
-On Gmail error 404 (already trashed):
-  - Return: "Already gone."
-On Gmail error 5xx:
-  - Return: "Gmail unavailable, try again in a minute."
+  - KV: TRASH_QUEUE.put(msg_id, {queued_at: now}, {expirationTtl: 7d})
+  - Render: "✓ Queued. Will be trashed within ~15 min."
 ```
 
-**Why two-step (GET confirm → POST commit)**: Any upstream email scanner (corporate gateway, iOS Mail preview, archive.org) that prefetches links would otherwise silently delete emails on GET. The confirm page forces a human action, and the POST is never prefetched.
+Note: GET renders confirm only (mutation-free), POST performs the queue. Defeats link-prefetch by email scanners.
+
+### 3. Queue flush (every 15 min)
+
+```
+Task Scheduler → triage.py --flush
+  ↓
+GET {WORKER_URL}/pending  (Header: X-Poll-Secret)
+  → {pending: [{msg_id, queued_at}, ...]}
+  ↓
+If empty: log "no pending", exit 0  (typical case — ~90% of runs)
+  ↓
+Otherwise:
+  imaplib.IMAP4_SSL().login(user, app_password)
+  M.select('INBOX')
+  ↓
+  For each msg_id in pending:
+    uid = M.uid('SEARCH', 'HEADER', 'Message-ID', msg_id)
+    if uid:
+      M.uid('STORE', uid, '+X-GM-LABELS', '\\Trash')  # Gmail-specific: moves to Trash
+      M.uid('STORE', uid, '+FLAGS', '\\Deleted')
+      M.expunge()
+      DELETE /pending/<msg_id> (acknowledge)
+    else:
+      # Already trashed elsewhere / moved — ack anyway to clear queue
+      DELETE /pending/<msg_id>
+```
+
+**Gmail IMAP quirk**: setting `\Deleted` alone does NOT trash in Gmail — it only unlabels "INBOX". Use the Gmail-specific `X-GM-LABELS` extension to apply the `\Trash` label. Both together + expunge = behavior matching the Gmail UI "Trash" button.
 
 ## Components
 
-### GitHub Actions workflow
-
-`.github/workflows/gmail-triage.yml`
-
-```yaml
-name: Gmail Triage Digest
-on:
-  schedule:
-    - cron: "0 22 * * *"     # 22:00 UTC = 07:00 +07 (adjust for DST)
-  workflow_dispatch: {}      # manual trigger for testing
-jobs:
-  triage:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: "3.13" }
-      - run: pip install -r scripts/gmail/requirements.txt
-      - run: python scripts/gmail/triage.py
-        env:
-          GMAIL_CLIENT_ID:      ${{ secrets.GMAIL_CLIENT_ID }}
-          GMAIL_CLIENT_SECRET:  ${{ secrets.GMAIL_CLIENT_SECRET }}
-          GMAIL_REFRESH_TOKEN:  ${{ secrets.GMAIL_REFRESH_TOKEN }}
-          ANTHROPIC_API_KEY:    ${{ secrets.ANTHROPIC_API_KEY }}
-          WORKER_SIGN_URL:      ${{ secrets.WORKER_SIGN_URL }}
-          WORKER_SIGN_SECRET:   ${{ secrets.WORKER_SIGN_SECRET }}
-```
-
-### Python triage script
+### Python: `pipeline/scripts/gmail/`
 
 ```
-scripts/gmail/
-├── triage.py              # entry point, orchestrates fetch→classify→sign→render→send
-├── oauth.py               # Gmail OAuth refresh (using refresh_token)
-├── fetch.py               # list + batch_get messages
-├── classify.py            # Anthropic call, prompt with few-shot
-├── sign.py                # HTTP POST to Worker /sign
-├── digest.py              # HTML template rendering
-├── send.py                # Gmail API send
-├── obtain_refresh_token.py  # one-shot utility for initial OAuth dance
+gmail/
+├── triage.py            # CLI entry: --digest / --flush / --dry-run
+├── imap_client.py       # IMAP connect, search, fetch, trash
+├── classify.py          # Anthropic call + prompt with few-shot
+├── digest_html.py       # <pre>-based HTML renderer (matches etl.changelog)
+├── worker_api.py        # httpx wrappers: /sign, /pending, /pending/:id
 ├── tests/
-│   ├── test_classify.py
-│   ├── test_digest.py
-│   └── fixtures/
-├── requirements.txt
-└── README.md              # setup + run instructions
+│   ├── test_imap_client.py    # mock imaplib
+│   ├── test_classify.py       # mock anthropic
+│   ├── test_digest_html.py    # golden snapshots (0 / 1 / 30 emails)
+│   └── test_worker_api.py     # mock httpx
+├── requirements.txt     # anthropic, httpx  (stdlib imaplib for IMAP)
+└── README.md
 ```
 
-**Boundaries:** each module has one purpose, `<150` LoC. `triage.py` is pure orchestration (no business logic). Each module has a unit test file with network calls mocked.
+**Dependencies**: only `anthropic` + `httpx`. No `google-*` libraries. IMAP via stdlib.
 
-**Dependencies**: `google-auth`, `google-api-python-client`, `anthropic`, `httpx`. No heavy frameworks.
+**Reuses from `etl/`** (already in main as of PR #122):
+- `etl.email_report.EmailConfig.from_env()`
+- `etl.email_report.send(subject, html, text, config)`
 
-### Cloudflare Worker
+### Env vars (align with existing `PORTAL_*` family)
+
+| Var | Source | Used by |
+|---|---|---|
+| `PORTAL_SMTP_USER` | reuse from email_report | Python (SMTP send + IMAP login) |
+| `PORTAL_SMTP_PASSWORD` | reuse | Python |
+| `PORTAL_GMAIL_TRIAGE_ENABLED` | new | Python opt-in guard |
+| `PORTAL_GMAIL_WORKER_URL` | new | Python |
+| `PORTAL_GMAIL_WORKER_SECRET` | new, shared | Python (X-Signing-Secret), Worker env (SIGNING_SECRET) |
+| `PORTAL_GMAIL_POLL_SECRET` | new, shared | Python (X-Poll-Secret), Worker env (POLL_SECRET) |
+| `PORTAL_GMAIL_TOKEN_SIGNING_KEY` | new, shared | Python + Worker (HMAC) |
+| `ANTHROPIC_API_KEY` | new | Python |
+
+Python uses the **same app password** as `email_report` for IMAP — Gmail app passwords work for IMAP too.
+
+### Cloudflare Worker: `worker-gmail/`
 
 ```
 worker-gmail/
 ├── src/
-│   ├── index.ts         # fetch handler (routes /sign, /trash)
-│   ├── token.ts         # HMAC sign + verify
-│   ├── gmail.ts         # Gmail API client (OAuth refresh + trash call)
-│   └── html.ts          # confirm/success/error page templates
-├── tests/
-│   └── token.test.ts    # HMAC roundtrip
+│   ├── index.ts         # all routes in one file (<250 LoC target)
+│   └── token.ts         # HMAC sign/verify
+├── wrangler.jsonc       # binds TRASH_QUEUE KV namespace + secrets
 ├── package.json
-├── tsconfig.json
-└── wrangler.jsonc
+└── tsconfig.json
 ```
 
-Single-file is also fine — if total `< 300` LoC, keep in `index.ts`; split only when each concern exceeds `~100` LoC.
+**No Gmail API. No OAuth. No D1.** KV-only storage.
 
-Runtime env vars (via `wrangler secret put`):
-- `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN` — for Gmail API trash calls
-- `SIGNING_KEY` — HMAC key (shared with GH Actions)
-- `SIGNING_SECRET` — header secret for internal `/sign` endpoint
+Routes:
 
-**No D1 / KV needed.** Stateless — tokens carry their own expiry; Gmail trash is idempotent.
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| POST | `/sign` | `X-Signing-Secret` header | Return HMAC-signed token for a msg_id |
+| GET | `/trash?t=<token>` | HMAC token | Render confirm HTML page |
+| POST | `/trash?t=<token>` | HMAC token (form body) | KV.put msg_id → success page |
+| GET | `/pending` | `X-Poll-Secret` header | Return `{pending: [{msg_id, queued_at}]}` |
+| DELETE | `/pending/:msg_id` | `X-Poll-Secret` header | KV.delete, 204 |
+
+**KV schema**:
+- Namespace: `TRASH_QUEUE`
+- Key: `msg_id` (URL-encoded if special chars — Message-IDs shouldn't need it)
+- Value: JSON `{queued_at: <unix_ms>}`
+- TTL: 7 days (auto-expire — safety net if Python stops flushing)
+
+**Free tier fit**: 100k reads/day + 1k writes/day. Our workload: ~100 reads/day (polls), ~20 writes/day (queue + ack). Zero concern.
+
+### Reuse from main (post-PR#122)
+
+| From `etl/email_report.py` | Usage |
+|---|---|
+| `EmailConfig.from_env()` | Direct import |
+| `send()` | Direct import |
+
+| Pattern from `etl/changelog.py` | Usage |
+|---|---|
+| `<pre>`-wrapped HTML with monospace inline CSS | Copy the pattern into `digest_html.py` |
+| Plain-text primary, HTML wraps it | Same approach |
+| Status color convention (green `#2e7d32` / red `#c62828`) | For header accents |
+
+Post-merge consolidation TODO: once both features stabilize, consider lifting shared HTML scaffolding into a common `etl/email_html.py` helper. Not a blocker for v1 — a trivial follow-up PR.
 
 ## Token format
 
-Goal: each digest link is a self-contained, tamper-proof, expiring credential to trash one specific message.
-
 ```
-payload    = msg_id + "|" + expiry_unix_ts + "|" + key_version
+payload    = msg_id + "|" + expiry_unix + "|" + key_version
 signature  = HMAC_SHA256(SIGNING_KEY_<version>, payload)
 token      = base64url(payload + "|" + signature)
 ```
 
-- `expiry`: 7 days after digest send — long enough for lazy weekend cleanup, short enough to bound exposure.
-- `key_version`: single byte prefix on the key. Lets us rotate by adding a new key version without invalidating outstanding digests.
-- **Stateless** — no replay protection beyond idempotent Gmail trash. Rationale: stolen digest email has already exposed the email subjects; letting an attacker trash those same emails is lower severity than the read access they already stole. Not worth the KV round-trip on every click.
+- `expiry`: 7 days after digest send.
+- `key_version`: single byte prefix. Supports key rotation.
+- Idempotent: queuing an already-queued msg_id is a KV overwrite — no user-visible difference.
 
 ## Classification prompt
 
-Stored in `scripts/gmail/classify.py`. Structure:
+Stored in `classify.py`. Structure:
 
 ```
 System:
   You triage Gmail for <user>. You return STRICT JSON.
-  
+
   Categories:
-    IMPORTANT — recruiter outreach (猎头), emails demanding user action
-                (bills with due dates, account security alerts requiring
-                response, time-sensitive invitations, work emails from
-                humans asking a direct question).
+    IMPORTANT      — recruiter outreach (猎头), emails demanding user
+                     action (bill due dates, security alerts needing
+                     response, time-sensitive invitations, human email
+                     asking a direct question).
     TRASH_CANDIDATE — promotional newsletters the user doesn't engage
-                      with, routine system notifications (login from
-                      known device, "your weekly summary"), duplicate
-                      marketing from services already subscribed.
-    NEUTRAL — anything else. When in doubt, NEUTRAL.
-  
-  FEW-SHOT EXAMPLES (edit this list as you correct misclassifications):
+                      with, routine system notifications (login-success,
+                      "weekly summary"), duplicate marketing.
+    NEUTRAL        — anything else. When in doubt, NEUTRAL.
+
+  FEW-SHOT EXAMPLES (edit in source to tune — no config file):
     "Software Engineer role at Stripe — competitive comp"
       → IMPORTANT (recruiter)
     "Your statement is ready — Chase Freedom"
@@ -235,164 +274,173 @@ System:
     "Security alert: sign-in from Chrome on Windows"
       → TRASH_CANDIDATE (routine, user's own device)
     "Slack: 2 new messages in #general"
-      → NEUTRAL (might be relevant, user decides)
+      → NEUTRAL (user decides)
 
 User (input):
-  Classify the following 30 emails. Output JSON:
+  Classify the following N emails. Output:
     {"classifications": [
       {"msg_id": "...", "category": "IMPORTANT|NEUTRAL|TRASH_CANDIDATE",
        "summary": "one short sentence on what this email is"}
     ]}
-  
+
   Emails:
-    [msg_id: 192abc] From: recruiter@company.io | Subject: ... | Body excerpt: ...
-    [msg_id: 192def] From: ...
+    [msg_id: <uuid>] From: <...> | Subject: <...> | Body excerpt: <...>
     ...
 ```
 
-Few-shot examples are the primary tuning lever. When misclassified, edit the list and redeploy — no config file, no DSL.
-
-Haiku 4.5 is sufficient for this task; cost is negligible (<$0.01/day at 30 emails).
+Haiku 4.5 suffices (~$0.001/day at 30 emails). Tune via few-shot edits + redeploy — no config DSL.
 
 ## Digest HTML
 
-Constraints: Gmail strips `<script>`, `<form>` inputs with submit buttons survive but look inconsistent across clients. Use simple tables + inline CSS. All "interactive" elements are `<a>` links.
+Match `etl.changelog.format_html`'s pattern: one `<pre>` block with monospace CSS inside a minimal `<html>` wrapper. No tables, no Bootstrap, no pixel-perfect design.
 
-Layout:
-
-```
-📬 Gmail Triage — Monday, Apr 12, 2026
-
+```html
+<html>
+<body style="font-family: -apple-system, Segoe UI, sans-serif; color: #222;">
+  <h2 style="margin-bottom: 8px;">Gmail Triage — Mon Apr 12</h2>
+  <pre style="font-family: Consolas, Menlo, monospace; font-size: 13px;
+              background: #f6f8fa; padding: 14px 16px; border-radius: 6px;
+              white-space: pre-wrap; line-height: 1.45;">
 IMPORTANT (3)
-─────────────
-▸ recruiter@talent.io  |  Software Engineer role at Stripe
-  Reaching out about a senior role, mentions comp range $300k+
-  [Open in Gmail]
+──────────────
+▸ recruiter@talent.io  Software Engineer role at Stripe
+  Reaching out about senior role, mentions $300k+
+  <a href="https://mail.google.com/mail/u/0/#inbox/{msg_id}">Open in Gmail</a>
 
-▸ billing@chase.com  |  Your statement is ready
+▸ billing@chase.com  Your statement is ready
   $1,247.33 balance, due Apr 28
-  [Open in Gmail]
-
-▸ ...
+  <a href="...">Open in Gmail</a>
 
 OTHER (8)
-─────────
-• @slack.com   — 3 new DMs in #general
-• @notion.so   — Page shared by colleague
-• ...
+──────────
+• @slack.com  — 3 new DMs
+• @notion.so  — Page shared
+...
 
 SUGGESTED TRASH (12)
 ────────────────────
-☐  @linkedin.com   — People you may know: 5 new suggestions   [Delete]
-☐  @spotify.com    — Your monthly wrapped is ready            [Delete]
-☐  @marketing.brand.com  — 40% off this weekend only          [Delete]
+☐  @linkedin.com   People you may know         <a href="{worker}/trash?t=...">Delete</a>
+☐  @spotify.com    Your monthly wrapped        <a href="{worker}/trash?t=...">Delete</a>
 ...
+  </pre>
+</body>
+</html>
 ```
 
-- `[Open in Gmail]` is a deep link: `https://mail.google.com/mail/u/0/#inbox/<msg_id>`.
-- `[Delete]` is a signed Worker link: `https://worker-gmail.<account>.workers.dev/trash?t=<token>`.
-- `☐` is a Unicode character (U+2610), not a real checkbox.
+- `☐` is U+2610 (BALLOT BOX) — a Unicode glyph, not a real checkbox.
+- `[Open in Gmail]` uses the deep link `https://mail.google.com/mail/u/0/#inbox/<msg_id>`.
+- `[Delete]` is the signed Worker link.
+- `text/plain` fallback renders as the same text minus the `<a>` tags.
 
-Render as a plain HTML email (MIME `text/html`). Include `text/plain` fallback with the same content sans links.
+HTML-escape all email-sourced content (subjects, summaries, senders) before injecting into the template — same escape as `etl.changelog.format_html`.
 
 ## Setup — one-time tasks
 
-1. **Google Cloud project**
-   - Create project, enable Gmail API
-   - OAuth 2.0 client (type: "Desktop app" — easiest for obtain_refresh_token.py flow)
-   - Consent screen:
-     - User type: External
-     - Scopes: `gmail.readonly`, `gmail.send`, `gmail.modify`
-     - Publishing status: **Publish to production** (unverified). Click past the "unverified app" warning on first consent.
-   - **Do not leave as "Testing"** — refresh token would expire after 7 days.
+**Vastly simpler than an OAuth setup** — no Google Cloud, no consent screen, no verification.
 
-2. **Obtain refresh token**
-   - `python scripts/gmail/obtain_refresh_token.py`
-   - Opens browser, runs OAuth consent, prints refresh token to stdout
-   - Save output — this is what goes into GH Secrets + Worker secret
+1. **Gmail app password** (2 min)
+   - Google Account → Security → App passwords
+   - Generate one named "Portal Gmail Triage". Copy the 16-char string.
+   - (Or reuse the existing `PORTAL_SMTP_PASSWORD` if it's already the app password for this account. App passwords work for both SMTP and IMAP.)
 
-3. **HMAC signing key**
-   - `openssl rand -hex 32` → save as `SIGNING_KEY_v1`
+2. **Enable IMAP** (1 min)
+   - Gmail Settings → Forwarding and POP/IMAP → IMAP access: Enable
 
-4. **Cloudflare Worker**
-   - `cd worker-gmail && npx wrangler deploy`
-   - `npx wrangler secret put GMAIL_CLIENT_ID` (repeat for all 5 secrets)
+3. **HMAC signing key** — `openssl rand -hex 32`. Save to `.env` (Python side) and Worker secrets (via `wrangler secret put`).
 
-5. **GitHub Secrets** (repo settings → secrets)
-   - `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`
-   - `ANTHROPIC_API_KEY`
-   - `WORKER_SIGN_URL`, `WORKER_SIGN_SECRET`
+4. **Worker secrets** (inside `worker-gmail/`)
+   ```bash
+   npx wrangler kv:namespace create TRASH_QUEUE
+   npx wrangler secret put SIGNING_KEY       # HMAC key
+   npx wrangler secret put SIGNING_SECRET    # for /sign
+   npx wrangler secret put POLL_SECRET       # for /pending + /pending/:id
+   npx wrangler deploy
+   ```
 
-6. **Dry run** — trigger workflow via `workflow_dispatch` before enabling cron. Verify digest arrives, trash links work.
+5. **Env vars on PC** — add the 5 new `PORTAL_GMAIL_*` entries + `ANTHROPIC_API_KEY` to wherever `PORTAL_SMTP_*` lives (per `docs/automation-setup.md`).
+
+6. **Task Scheduler**
+   ```cmd
+   :: Daily 07:00 — digest
+   schtasks /create /tn "PortalGmailDigest" /sc daily /st 07:00 ^
+     /tr "powershell.exe -NoProfile -File %USERPROFILE%\Projects\portal\pipeline\scripts\run_gmail_triage.ps1 --digest"
+
+   :: Every 15 min — flush pending trash queue
+   schtasks /create /tn "PortalGmailFlush" /sc minute /mo 15 ^
+     /tr "powershell.exe -NoProfile -File %USERPROFILE%\Projects\portal\pipeline\scripts\run_gmail_triage.ps1 --flush"
+   ```
+
+7. **Dry-run smoke test** — `python pipeline/scripts/gmail/triage.py --digest --dry-run` prints HTML to stdout. Verify classifications + formatting before enabling scheduled tasks.
 
 ## Error handling
 
-Each failure mode has a defined behavior. No silent failures.
-
 | Failure | Behavior |
 |---|---|
-| Gmail list/fetch 5xx | Retry 3× with exp backoff. On persistent failure: GH Actions fails → email notification from GitHub |
-| Anthropic API timeout/5xx | Retry 2×. Then fallback: send digest with all emails as NEUTRAL + note "AI unavailable" |
-| Worker /sign unreachable during GH Actions | Continue without trash tokens. TRASH_CANDIDATE emails appear with only "Open in Gmail" link, no ☐ |
-| OAuth refresh token invalid | GH Actions exit 1. Notification. User re-runs `obtain_refresh_token.py` and updates secret |
+| IMAP auth (535) — bad app password | Exit 1, log plainly. User regenerates app password, updates env. |
+| IMAP SEARCH fails | Retry 3× w/ backoff. Persistent: exit 1. |
+| Anthropic timeout/5xx | Retry 2×. Fallback: digest lists subjects as NEUTRAL with "AI unavailable" note (still useful). |
+| Worker `/sign` unreachable during `--digest` | Skip trash tokens; digest shows "Open in Gmail" links only. |
+| Worker `/pending` unreachable during `--flush` | Exit 0, no-op. Retries next cycle. |
+| IMAP trash fails for one msg_id (in `--flush`) | Leave in queue, continue. KV TTL auto-expires after 7d. |
 | `/trash` token HMAC invalid | 400 "Invalid or tampered link" |
-| `/trash` token expired | 410 "This link has expired (older than 7 days)" |
-| Gmail trash returns 404 (msg already trashed/deleted) | 200 "Already gone" — friendly, not an error |
-| Gmail trash returns 5xx | 503 "Gmail temporarily unavailable, try again in a minute" — user retries |
-| Worker cold start exceeds 10ms CPU | N/A — trash handler is <5ms estimated; /sign called only during GH Actions; if this ever bites, GH Actions would have to sign locally instead |
+| `/trash` token expired | 410 "This link is older than 7 days" |
+| msg_id already trashed when `--flush` runs (user trashed manually) | IMAP SEARCH returns empty UID. Ack anyway (DELETE /pending/:id) to clear queue. |
+| Concurrent `--digest` runs (overlap of scheduler) | Lock file in `%TEMP%/portal_gmail_digest.lock`; second run no-ops. |
 
 ## Security
 
 | Threat | Mitigation |
 |---|---|
-| Someone finds/forwards my digest email | They get read-only view of my subjects (already leaked) + ability to trash THOSE specific emails (recoverable from Gmail Trash for 30d). Not attacker-useful enough to warrant per-click auth. |
-| Email scanner prefetches `/trash` link | GET renders confirm page. Actual trash requires POST from a human click. |
-| Worker `/sign` called by random caller | `X-Signing-Secret` header must match env secret. Returns 401 otherwise. |
-| OAuth refresh token leaked | Revoke via Google Account settings → Third-party access. Run obtain_refresh_token.py again. Update secrets. |
-| HMAC signing key leaked | Rotate: add `SIGNING_KEY_v2`, increment key_version in new tokens. Old-version tokens keep working until expiry (7d). |
-| Prompt injection via email content (malicious email tries to make Claude misclassify) | Classification is advisory only — no auto-action. Worst case: an important email gets put in TRASH_CANDIDATE. User notices wrong category, ignores the link, it doesn't auto-delete. |
-| Accidentally permanent-delete | Only use `messages.trash` (reversible for 30d). Never `messages.delete`. |
+| Digest email forwarded/leaked | Attacker can trash those specific emails (reversible in Gmail Trash for 30d). App password is isolated from Google account password. |
+| App password leaked | Revoke in Google Account → Security. Generate new. Update env. |
+| Email scanner prefetches `/trash` link | GET renders confirm page only. Actual queue add requires POST from human click. |
+| `/sign` / `/pending` / `DELETE /pending` called by random caller | Require `X-Signing-Secret` / `X-Poll-Secret` header. 401 otherwise. |
+| HMAC signing key leaked | Rotate: increment key_version. Outstanding tokens remain valid until 7d expiry. |
+| Prompt injection via email body | Classification advisory-only. Worst case: misclassification. User ignores, moves on. |
+| Accidental permanent delete | IMAP `X-GM-LABELS \Trash` moves to Trash (30d recoverable). Never EXPUNGE outside Trash. |
+| Python fails partway through `--flush` (crash after IMAP trash, before DELETE ack) | Next cycle: IMAP SEARCH finds no UID, acks anyway. Idempotent. |
 
 ## Testing
 
-### Python triage script
+### Python
 
-- `test_classify.py`: mock Anthropic client, feed synthetic email fixtures, assert categories
-- `test_digest.py`: golden HTML snapshot tests for digest rendering with 0 / 1 / 30 emails
-- `test_sign.py`: mock Worker endpoint, assert HTTP round-trip
-- `test_oauth.py`: mock token refresh, assert 401 triggers re-auth
+- `test_imap_client.py`: `imaplib.IMAP4_SSL` mocked; verify SEARCH, FETCH, STORE, EXPUNGE call sequence.
+- `test_classify.py`: `anthropic.Anthropic` mocked; assert each fixture email maps to expected category.
+- `test_digest_html.py`: golden HTML snapshot tests for 0 / 1 / 30 email digests. Include a fixture with special chars to verify escaping.
+- `test_worker_api.py`: `httpx` mocked; assert each Worker call has correct headers + body.
 
 ### Worker
 
-- `token.test.ts`: HMAC sign → verify roundtrip, tampering detection, expiry check
-- Manual integration: `wrangler dev` + curl GET + POST /trash with a real test message
+- `token.test.ts`: HMAC sign → verify roundtrip, tampering detection, expiry boundary.
+- Local integration: `wrangler dev` + `curl` for all 5 routes; assert KV state transitions.
 
-### End-to-end
+### End-to-end smoke
 
-- `python scripts/gmail/triage.py --dry-run`: prints digest HTML to stdout, skips send
-- `--dry-run --limit 5`: process only 5 emails (faster iteration)
+- `triage.py --digest --dry-run`: classify + render, print HTML to stdout, skip send.
+- `triage.py --flush --dry-run`: fetch pending, skip IMAP trash, print what-would-happen.
 
-## Open questions (decide before implementation)
+## Open questions (resolved)
 
-1. **Timezone handling** — cron is UTC-based. User's local is presumably +07 or +08 (China). Pick one (e.g., `0 22 * * *` = 07:00 +08 winter) and document; skip DST (China doesn't do DST; if user travels, they still get digest at a predictable UTC time).
-2. **"Delete all" bulk link** — add to v1 or defer to v2? Recommendation: defer. Watch usage for a week; if user clicks every single trash link anyway, add bulk in v2.
-3. **Cost monitoring** — Anthropic API is ~$0.01/day. Add a note in digest footer with token count for observability? Skip for v1.
-4. **"I read this already" feedback loop** — none in v1. If false-negative (important email marked TRASH_CANDIDATE), user just ignores link. If false-positive (trash email marked IMPORTANT), user ignores. Few-shot tuning is manual.
+1. **Flush cadence**: every 15 min. ✅ (user confirmed, free-tier compatible)
+2. **Opt-in guard**: `PORTAL_GMAIL_TRIAGE_ENABLED=1` required. Default off.
+3. **`email_report` post-merge refactor** — treat as stable import; open follow-up PR later if interfaces drift.
+4. **Log file**: follow `run_automation.py`'s pattern (stdout captured by Task Scheduler + optional log file env).
 
 ## Out of scope for v1
 
-- Auto-applying labels / archiving
-- Reply drafting  
-- "Unsubscribe for me" automation
-- Bulk-delete link
+- Auto-applying labels / auto-archive
+- Reply drafting
+- "Unsubscribe for me"
+- Bulk-delete link ("Trash all TRASH_CANDIDATES" — one-click for the whole section)
 - Mobile app / push notification
-- Multi-language UI (digest is bilingual by fact that the source emails are mixed Chinese/English)
-- Analytics on click-through rate
+- Multi-language UI (digest naturally bilingual if inbox is mixed zh/en)
+- Click-through analytics
 - Retroactive triage of old emails
 
 ## Success criteria
 
-- Daily digest arrives at 7am local without manual intervention for 2+ weeks
-- ≤1 false-positive per week (important email in TRASH_CANDIDATE)
-- User clicks trash link without it failing > 95% of the time
-- Total monthly cost < $0.50 (Anthropic API only; everything else free tier)
+- Daily digest arrives at 07:00 local without intervention for 2+ weeks.
+- ≤1 false-positive per week (important email classified TRASH_CANDIDATE).
+- Click ☐ → actual trash within 15 min, success rate > 95%.
+- Monthly cost < $0.50 (Anthropic API; everything else free tier).
+- Shared code (`email_report`, `changelog` pattern): zero duplication of SMTP send logic.
