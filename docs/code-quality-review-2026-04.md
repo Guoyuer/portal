@@ -1,6 +1,6 @@
 # Code Quality Review — 2026-04
 
-Findings from a targeted audit of the frontend + worker. Scoped to real defects, not stylistic preferences. Previous review's leftovers are tracked in `refactor-candidates.md`; this file is net-new findings.
+Findings from a targeted audit of the frontend + worker. Scoped to real defects, not stylistic preferences. Previous review's leftovers are tracked in `refactor-candidates.md`; this file contains net-new findings.
 
 ---
 
@@ -20,7 +20,7 @@ CLAUDE.md claims the worker is a "pure passthrough (SELECT → JSON)". The code 
 
 ---
 
-## 2. Worker type safety is casts all the way down
+## 2. Worker type safety: casts all the way down
 
 **File:** `worker/src/index.ts:38, 50, 120, 126, 137`
 
