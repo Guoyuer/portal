@@ -13,6 +13,7 @@ from .ingest.fidelity_history import (
     _classify_action,
     normalize_fidelity_date,
 )
+from .types import MARKET_META_KEYS
 from .types import parse_float as _parse_float
 
 # ── Schema DDL ───────────────────────────────────────────────────────────────
@@ -176,14 +177,91 @@ CREATE INDEX IF NOT EXISTS idx_qianji_txn_date ON qianji_transactions(date);
 CREATE INDEX IF NOT EXISTS idx_econ_series_key ON econ_series(key);
 """
 
+
+# ── Views (camelCase API contract) ──────────────────────────────────────────
+
+
+def _build_v_market_meta_sql() -> str:
+    """Pivot computed_market_indicators (key, value) → one wide row.
+
+    The column list is derived from MARKET_META_KEYS so adding a FRED indicator
+    requires editing only that list (and emitting the row in precompute.py).
+    """
+    cols = ",\n  ".join(
+        f"MAX(CASE WHEN key = '{k}' THEN value END) AS {k}" for k in MARKET_META_KEYS
+    )
+    return (
+        "CREATE VIEW IF NOT EXISTS v_market_meta AS\n"
+        "SELECT\n"
+        f"  {cols}\n"
+        "FROM computed_market_indicators;"
+    )
+
+
+_VIEWS: dict[str, str] = {
+    "v_daily": (
+        "CREATE VIEW IF NOT EXISTS v_daily AS\n"
+        "SELECT date, total, us_equity AS usEquity, non_us_equity AS nonUsEquity,\n"
+        "  crypto, safe_net AS safeNet, liabilities\n"
+        "FROM computed_daily ORDER BY date;"
+    ),
+    "v_daily_tickers": (
+        "CREATE VIEW IF NOT EXISTS v_daily_tickers AS\n"
+        "SELECT date, ticker, value, category, subtype,\n"
+        "  cost_basis AS costBasis, gain_loss AS gainLoss, gain_loss_pct AS gainLossPct\n"
+        "FROM computed_daily_tickers ORDER BY date, value DESC;"
+    ),
+    "v_fidelity_txns": (
+        "CREATE VIEW IF NOT EXISTS v_fidelity_txns AS\n"
+        "SELECT run_date AS runDate, action_type AS actionType, symbol, amount,\n"
+        "  quantity, price\n"
+        "FROM fidelity_transactions ORDER BY id;"
+    ),
+    "v_qianji_txns": (
+        "CREATE VIEW IF NOT EXISTS v_qianji_txns AS\n"
+        "SELECT date, type, category, amount\n"
+        "FROM qianji_transactions ORDER BY date;"
+    ),
+    "v_market_indices": (
+        "CREATE VIEW IF NOT EXISTS v_market_indices AS\n"
+        "SELECT ticker, name, current, month_return AS monthReturn,\n"
+        "  ytd_return AS ytdReturn, high_52w AS high52w, low_52w AS low52w, sparkline\n"
+        "FROM computed_market_indices ORDER BY ticker;"
+    ),
+    "v_market_indicators": (
+        "CREATE VIEW IF NOT EXISTS v_market_indicators AS\n"
+        "SELECT key, value FROM computed_market_indicators;"
+    ),
+    "v_market_meta": _build_v_market_meta_sql(),
+    "v_holdings_detail": (
+        "CREATE VIEW IF NOT EXISTS v_holdings_detail AS\n"
+        "SELECT ticker, month_return AS monthReturn, start_value AS startValue,\n"
+        "  end_value AS endValue, high_52w AS high52w, low_52w AS low52w, vs_high AS vsHigh\n"
+        "FROM computed_holdings_detail ORDER BY month_return DESC;"
+    ),
+    "v_econ_series": (
+        "CREATE VIEW IF NOT EXISTS v_econ_series AS\n"
+        "SELECT key, date, value FROM econ_series ORDER BY key, date;"
+    ),
+    "v_econ_snapshot": (
+        "CREATE VIEW IF NOT EXISTS v_econ_snapshot AS\n"
+        "SELECT key, value\n"
+        "FROM econ_series t1\n"
+        "WHERE date = (SELECT MAX(date) FROM econ_series t2 WHERE t2.key = t1.key);"
+    ),
+}
+
+
 # ── Public API ───────────────────────────────────────────────────────────────
 
 
 def init_db(path: Path) -> None:
-    """Create the timemachine SQLite database with all tables and indexes."""
+    """Create the timemachine SQLite database with all tables, indexes, and views."""
     conn = sqlite3.connect(path)
     conn.executescript(_TABLES)
     conn.executescript(_INDEXES)
+    for view_sql in _VIEWS.values():
+        conn.execute(view_sql)
     conn.close()
 
 
