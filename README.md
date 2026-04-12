@@ -247,8 +247,12 @@ npx playwright test                                          # e2e tests (mock A
 # Build timemachine DB from raw data
 cd pipeline && python3 scripts/build_timemachine_db.py
 
-# Sync DB to Cloudflare D1
+# Sync DB to Cloudflare D1 (diff, default)
 cd pipeline && python3 scripts/sync_to_d1.py
+
+# Automated pipeline: detect changes → build → verify → sync
+# (orchestration lives in run_automation.py; PS1 is a thin Task Scheduler shim)
+cd pipeline && .venv/Scripts/python.exe scripts/run_automation.py
 ```
 
 ## Setup (one-time)
