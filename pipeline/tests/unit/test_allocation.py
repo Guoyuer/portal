@@ -22,9 +22,15 @@ if "yfinance" not in sys.modules:
     sys.modules["yfinance"] = _yf
 
 from generate_asset_snapshot.allocation import (  # noqa: E402
+    _add_401k,
+    _add_fidelity_cash,
+    _add_fidelity_positions,
+    _add_qianji_balances,
+    _build_allocation_row,
     _categorize_ticker,
     _find_price_date,
     _qianji_transaction_dates,
+    _resolve_date_windows,
     compute_daily_allocation,
 )
 from generate_asset_snapshot.db import init_db  # noqa: E402
@@ -476,3 +482,221 @@ class TestCategorizeTicker:
         import pytest as _pytest
         with _pytest.raises(KeyError, match="no 'category'"):
             _categorize_ticker("X", 100.0, {"X": {"subtype": "foo"}}, {})
+
+
+# ── _add_fidelity_cash ─────────────────────────────────────────────────────
+
+
+class TestAddFidelityCash:
+    def test_known_accounts_route_to_mapped_ticker(self) -> None:
+        ticker_values: dict[str, float] = {}
+        _add_fidelity_cash(
+            ticker_values,
+            fidelity_cash={"Z29133576": 1000.0, "238986483": 2000.0},
+            fidelity_accounts={"Z29133576": "FZFXX", "238986483": "FDRXX"},
+        )
+        assert ticker_values == {"FZFXX": 1000.0, "FDRXX": 2000.0}
+
+    def test_unknown_account_falls_back_to_fzfxx(self) -> None:
+        ticker_values: dict[str, float] = {}
+        _add_fidelity_cash(ticker_values, {"UNKNOWN": 500.0}, fidelity_accounts={})
+        assert ticker_values == {"FZFXX": 500.0}
+
+    def test_accumulates_into_existing_values(self) -> None:
+        ticker_values: dict[str, float] = {"FZFXX": 100.0}
+        _add_fidelity_cash(ticker_values, {"Z29133576": 50.0}, {"Z29133576": "FZFXX"})
+        assert ticker_values == {"FZFXX": 150.0}
+
+
+# ── _add_fidelity_positions ────────────────────────────────────────────────
+
+
+class TestAddFidelityPositions:
+    def _prices(self, dt: str = "2025-01-02") -> pd.DataFrame:
+        return pd.DataFrame(
+            index=pd.to_datetime([dt]).date,
+            data={"VTI": [250.0], "FXAIX": [200.0]},
+        )
+
+    def test_regular_ticker_multiplied_by_price(self) -> None:
+        ticker_values: dict[str, float] = {}
+        _add_fidelity_positions(
+            ticker_values,
+            positions={("TAXABLE", "VTI"): 10.0},
+            prices=self._prices(),
+            price_date=date(2025, 1, 2),
+            mf_price_date=date(2025, 1, 2),
+        )
+        assert ticker_values == {"VTI": 2500.0}
+
+    def test_cusip_aggregates_as_t_bills_at_face(self) -> None:
+        ticker_values: dict[str, float] = {}
+        _add_fidelity_positions(
+            ticker_values,
+            positions={("TAXABLE", "91282CEZ0"): 5000.0},  # 9-char CUSIP starting with digit
+            prices=self._prices(),
+            price_date=date(2025, 1, 2),
+            mf_price_date=date(2025, 1, 2),
+        )
+        assert ticker_values == {"T-Bills": 5000.0}
+
+    def test_mutual_fund_uses_mf_price_date(self) -> None:
+        """FXAIX (mutual fund) should use mf_price_date, not price_date."""
+        prices = pd.DataFrame(
+            index=pd.to_datetime(["2025-01-01", "2025-01-02"]).date,
+            data={"FXAIX": [100.0, 200.0]},  # Different price on each date
+        )
+        ticker_values: dict[str, float] = {}
+        _add_fidelity_positions(
+            ticker_values,
+            positions={("TAXABLE", "FXAIX"): 5.0},
+            prices=prices,
+            price_date=date(2025, 1, 2),
+            mf_price_date=date(2025, 1, 1),  # T-1
+        )
+        assert ticker_values == {"FXAIX": 500.0}  # 5 * 100 (T-1 price), not 5 * 200
+
+
+# ── _add_qianji_balances ───────────────────────────────────────────────────
+
+
+class TestAddQianjiBalances:
+    def test_cny_converts_to_usd(self) -> None:
+        ticker_values: dict[str, float] = {}
+        _add_qianji_balances(
+            ticker_values,
+            qj_balances={"Alipay": 7250.0},
+            currencies={"Alipay": "CNY"},
+            ticker_map={"Alipay": "Alipay Funds"},
+            assets={"Alipay Funds": {"category": "Non-US Equity"}},
+            cny_rate=7.25,
+            skip_accounts=frozenset(),
+        )
+        assert ticker_values == {"Alipay Funds": 1000.0}
+
+    def test_unmapped_cny_falls_back_to_cny_assets(self) -> None:
+        ticker_values: dict[str, float] = {}
+        _add_qianji_balances(
+            ticker_values,
+            qj_balances={"RandomCNY": 7250.0},
+            currencies={"RandomCNY": "CNY"},
+            ticker_map={},
+            assets={},
+            cny_rate=7.25,
+            skip_accounts=frozenset(),
+        )
+        assert ticker_values == {"CNY Assets": 1000.0}
+
+    def test_negative_balance_treated_as_liability(self) -> None:
+        ticker_values: dict[str, float] = {}
+        _add_qianji_balances(
+            ticker_values,
+            qj_balances={"Visa Card": -500.0},
+            currencies={"Visa Card": "USD"},
+            ticker_map={},
+            assets={},
+            cny_rate=7.25,
+            skip_accounts=frozenset(),
+        )
+        assert ticker_values == {"Visa Card": -500.0}  # Account name becomes ticker
+
+    def test_skipped_accounts_ignored(self) -> None:
+        ticker_values: dict[str, float] = {}
+        _add_qianji_balances(
+            ticker_values,
+            qj_balances={"Fidelity taxable": 10000.0},
+            currencies={},
+            ticker_map={},
+            assets={},
+            cny_rate=7.25,
+            skip_accounts=frozenset({"Fidelity taxable"}),
+        )
+        assert ticker_values == {}
+
+
+# ── _resolve_date_windows ──────────────────────────────────────────────────
+
+
+class TestResolveDateWindows:
+    def test_walks_back_to_nearest_price_date(self) -> None:
+        prices = pd.DataFrame(
+            index=pd.to_datetime(["2025-01-03"]).date,  # Friday only
+            data={"VTI": [250.0]},
+        )
+        cny = {date(2025, 1, 3): 7.25}
+        # Monday requested, should walk back to Friday
+        price_date, mf_price_date, cny_rate = _resolve_date_windows(
+            prices, cny, date(2025, 1, 6), date(2025, 1, 1),
+        )
+        assert price_date == date(2025, 1, 3)
+        assert cny_rate == 7.25
+
+    def test_raises_when_no_cny_rate(self) -> None:
+        import pytest as _pytest
+        prices = pd.DataFrame(
+            index=pd.to_datetime(["2025-01-03"]).date,
+            data={"VTI": [250.0]},
+        )
+        with _pytest.raises(ValueError, match="No CNY rate"):
+            _resolve_date_windows(prices, {}, date(2025, 1, 3), date(2025, 1, 1))
+
+
+# ── _build_allocation_row ──────────────────────────────────────────────────
+
+
+class TestBuildAllocationRow:
+    ASSETS = {
+        "VTI": {"category": "US Equity", "subtype": "broad"},
+        "VXUS": {"category": "Non-US Equity", "subtype": "broad"},
+        "GLD": {"category": "Safe Net", "subtype": ""},
+    }
+
+    def test_categorizes_and_sums_totals(self) -> None:
+        row = _build_allocation_row(
+            current=date(2025, 1, 2),
+            ticker_values={"VTI": 5000.0, "VXUS": 2000.0, "GLD": 1000.0},
+            assets=self.ASSETS,
+            cost_basis_by_ticker={},
+        )
+        assert row["date"] == "2025-01-02"
+        assert row["total"] == 8000.0
+        assert row["us_equity"] == 5000.0
+        assert row["non_us_equity"] == 2000.0
+        assert row["safe_net"] == 1000.0
+        assert row["liabilities"] == 0
+
+    def test_zero_values_skipped(self) -> None:
+        row = _build_allocation_row(
+            current=date(2025, 1, 2),
+            ticker_values={"VTI": 5000.0, "VXUS": 0.0},
+            assets=self.ASSETS,
+            cost_basis_by_ticker={},
+        )
+        tickers = [t["ticker"] for t in row["tickers"]]  # type: ignore[attr-defined]
+        assert "VXUS" not in tickers
+
+    def test_negative_value_counts_as_liability(self) -> None:
+        row = _build_allocation_row(
+            current=date(2025, 1, 2),
+            ticker_values={"VTI": 5000.0, "CreditCard": -1000.0},
+            assets=self.ASSETS,
+            cost_basis_by_ticker={},
+        )
+        assert row["total"] == 5000.0  # liability NOT added to total
+        assert row["liabilities"] == -1000.0
+
+
+# ── _add_401k ──────────────────────────────────────────────────────────────
+
+
+class TestAdd401k:
+    def test_values_added_for_current_date(self) -> None:
+        ticker_values: dict[str, float] = {}
+        k401 = {date(2025, 1, 2): {"401k sp500": 50000.0, "401k ex-us": 10000.0}}
+        _add_401k(ticker_values, k401, date(2025, 1, 2))
+        assert ticker_values == {"401k sp500": 50000.0, "401k ex-us": 10000.0}
+
+    def test_no_entry_for_date_is_noop(self) -> None:
+        ticker_values: dict[str, float] = {"EXISTING": 100.0}
+        _add_401k(ticker_values, {}, date(2025, 1, 2))
+        assert ticker_values == {"EXISTING": 100.0}
