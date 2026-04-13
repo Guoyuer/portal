@@ -18,7 +18,8 @@ from gmail.imap_client import ParsedMessage
 log = logging.getLogger(__name__)
 
 MODEL = "claude-haiku-4-5-20251001"
-MAX_TOKENS = 4096
+MAX_TOKENS = 16384  # Haiku 4.5 default max. Only pay for actual output; set high for safety.
+BATCH_SIZE = 30     # Per-batch email count. 30 * ~30 tokens/row ≈ 900 tokens output.
 
 
 class Category(StrEnum):
@@ -91,35 +92,60 @@ def classify_emails(
         return {}
 
     client = Anthropic(api_key=api_key)
+    out: dict[str, Classification] = {}
+    for i in range(0, len(emails), BATCH_SIZE):
+        _classify_batch(client, emails[i : i + BATCH_SIZE], out)
+
+    # Safety net for any email that didn't land a classification
+    for e in emails:
+        out.setdefault(e.msg_id, Classification(Category.NEUTRAL, "no classification returned"))
+    return out
+
+
+def _classify_batch(
+    client: Anthropic, batch: list[ParsedMessage], out: dict[str, Classification],
+) -> None:
+    """Classify one batch in-place into ``out``. Per-batch fail-open."""
     try:
         response = client.messages.create(
             model=MODEL,
             max_tokens=MAX_TOKENS,
             system=_system_prompt(),
-            messages=[{"role": "user", "content": _user_prompt(emails)}],
+            messages=[{"role": "user", "content": _user_prompt(batch)}],
         )
     except Exception as e:  # noqa: BLE001 — fail-open is the contract
         log.warning("anthropic call failed: %s", e)
-        return _fallback(emails, "classifier failed")
+        for em in batch:
+            out[em.msg_id] = Classification(Category.NEUTRAL, "AI unavailable — classifier failed")
+        return
 
     text = response.content[0].text if response.content else ""
+    # Haiku 4.5 commonly wraps JSON in ```json ... ``` fences. Strip them.
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        first_nl = stripped.find("\n")
+        last_fence = stripped.rfind("```")
+        if first_nl != -1 and last_fence > first_nl:
+            stripped = stripped[first_nl + 1 : last_fence].strip()
     try:
-        parsed = json.loads(text)
+        parsed = json.loads(stripped)
         items = parsed["classifications"]
     except (json.JSONDecodeError, KeyError, TypeError) as e:
-        log.warning("anthropic returned unparseable response: %s", e)
-        return _fallback(emails, "unparseable response")
+        log.warning("batch unparseable: %s (raw=%r)", e, text[:200])
+        for em in batch:
+            out[em.msg_id] = Classification(Category.NEUTRAL, "AI unavailable — unparseable response")
+        return
 
-    out: dict[str, Classification] = {}
+    # Model often strips RFC 5322 angle brackets on the way out.
+    # Map both <x@y> and x@y to the canonical msg_id we sent.
+    canonical = {e.msg_id.strip("<>"): e.msg_id for e in batch}
     for item in items:
         try:
-            out[item["msg_id"]] = Classification(
+            returned = str(item["msg_id"])
+            actual_id = canonical.get(returned.strip("<>"), returned)
+            out[actual_id] = Classification(
                 category=Category(item["category"]),
                 summary=str(item.get("summary", "")),
             )
         except (KeyError, ValueError) as e:
             log.warning("skipping malformed classification item: %s", e)
-
-    for e in emails:
-        out.setdefault(e.msg_id, Classification(Category.NEUTRAL, "no classification returned"))
-    return out
