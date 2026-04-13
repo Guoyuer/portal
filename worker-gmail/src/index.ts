@@ -223,6 +223,6 @@ export default {
       }
       return Response.json({ status: "error" }, { status: 503, headers: corsHeaders(origin) });
     }
-    return new Response("Not found", { status: 404 });
+    return new Response("Not found", { status: 404, headers: corsHeaders(origin) });
   },
 } satisfies ExportedHandler<Env>;

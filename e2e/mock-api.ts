@@ -252,8 +252,12 @@ const ECON = {
 // real Worker; browsers reject wildcard Allow-Origin alongside credentials,
 // so the mock echoes the request's Origin and opts into credentials too.
 function corsFor(req: http.IncomingMessage): Record<string, string> {
+  // Node types `origin` as `string | string[] | undefined`. A comma-joined
+  // array would be rejected by the browser; normalise to the first value.
+  const rawOrigin = req.headers.origin;
+  const origin = Array.isArray(rawOrigin) ? rawOrigin[0] : rawOrigin;
   return {
-    "Access-Control-Allow-Origin": (req.headers.origin as string | undefined) ?? "http://localhost:3100",
+    "Access-Control-Allow-Origin": origin ?? "http://localhost:3100",
     "Access-Control-Allow-Credentials": "true",
     "Access-Control-Allow-Methods": "GET, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
