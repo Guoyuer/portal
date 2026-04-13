@@ -6,6 +6,7 @@ import {
   dbError,
   isAllowedOrigin,
   settled,
+  unauthorized,
   validatedResponse,
 } from "./utils";
 
@@ -109,5 +110,21 @@ describe("settled", () => {
   it("falls back to 'unknown' when the rejection is not an Error", async () => {
     const r = await settled(Promise.reject("plain-string"));
     expect(r).toEqual({ ok: false, error: "unknown" });
+  });
+});
+
+// ── unauthorized ────────────────────────────────────────────────────────
+
+describe("unauthorized", () => {
+  it("returns 401 with allowed-origin CORS header", () => {
+    const res = unauthorized(ALLOWED_ORIGINS[0]);
+    expect(res.status).toBe(401);
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe(ALLOWED_ORIGINS[0]);
+  });
+
+  it("omits Allow-Origin for null / disallowed origins", () => {
+    const res = unauthorized(null);
+    expect(res.status).toBe(401);
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBeNull();
   });
 });

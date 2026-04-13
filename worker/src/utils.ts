@@ -5,6 +5,19 @@
 
 import type { z } from "zod";
 
+// ── Auth response helper ─────────────────────────────────────────────────
+// The auth decision itself (`isAllowedUser`, `AuthEnv`) lives in the shared
+// `src/lib/worker-auth` module — both workers validate against the same
+// contract. Only the response wrapper is Worker-specific because it carries
+// portal-api's own CORS headers.
+
+export function unauthorized(origin: string | null): Response {
+  return Response.json(
+    { error: "unauthorized" },
+    { status: 401, headers: corsHeaders(origin) },
+  );
+}
+
 // ── CORS ─────────────────────────────────────────────────────────────────
 
 export const ALLOWED_ORIGINS = ["https://portal.guoyuer.com", "http://localhost:3000", "http://localhost:3100"];

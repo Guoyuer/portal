@@ -1,9 +1,10 @@
 import { upsertEmails, listActiveLast7Days, markTrashed } from "./db.js";
 import type { UpsertInput } from "./types.js";
 import { imapOk, parseSearchUid } from "./imap-parse.js";
+import { cfAccessEmailMatches, type AuthEnv } from "../../src/lib/worker-auth";
 import { connect } from "cloudflare:sockets";
 
-interface Env {
+interface Env extends AuthEnv {
   DB: D1Database;
   SYNC_SECRET: string;
   USER_KEY: string;
@@ -12,6 +13,11 @@ interface Env {
 }
 
 function authUser(request: Request, url: URL, env: Env): boolean {
+  // Prod mode: trust the CF Access JWT header (verified by Access before
+  // the request reaches us). `USER_KEY` becomes dead code once the dashboard
+  // migration is complete; follow-up PR will remove it + the frontend
+  // localStorage key path.
+  if (env.REQUIRE_AUTH === "true") return cfAccessEmailMatches(request, env);
   const headerKey = request.headers.get("X-Mail-Key");
   const queryKey = url.searchParams.get("key");
   const provided = headerKey ?? queryKey ?? "";
