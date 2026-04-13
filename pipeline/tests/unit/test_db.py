@@ -19,7 +19,6 @@ EXPECTED_TABLES = frozenset({
     "empower_snapshots",
     "empower_funds",
     "empower_contributions",
-    "qianji_balances",
     "qianji_transactions",
     "computed_daily",
     "computed_daily_tickers",

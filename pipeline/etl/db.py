@@ -53,13 +53,6 @@ CREATE TABLE IF NOT EXISTS empower_funds (
     PRIMARY KEY (snapshot_id, cusip)
 );
 
--- Qianji account balances
-CREATE TABLE IF NOT EXISTS qianji_balances (
-    account  TEXT PRIMARY KEY,
-    balance  REAL NOT NULL,
-    currency TEXT NOT NULL DEFAULT 'USD'
-);
-
 -- Qianji transaction rows (from Qianji app DB)
 CREATE TABLE IF NOT EXISTS qianji_transactions (
     date           TEXT NOT NULL,
