@@ -234,7 +234,6 @@ portal/
 │   │   ├── gen_schema_sql.py          # Auto-generate worker/schema.sql from db.py
 │   │   ├── verify_positions.py        # Verify Fidelity replay accuracy
 │   │   ├── inspect_qianji.py          # Debug/inspect Qianji replay (no drift gate)
-│   │   ├── create_test_db.py          # Generate test fixture DB
 │   │   └── gmail/                     # Gmail triage daily classifier (GH Actions)
 │   │       ├── triage.py              # CLI: fetch 24h unread → classify → POST /mail/sync
 │   │       ├── imap_client.py         # imaplib + MIME parse
