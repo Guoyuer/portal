@@ -53,10 +53,19 @@ def _qianji_transaction_dates(db_path: Path) -> list[date]:
     return sorted(dates)
 
 
-def _find_price_date(prices: pd.DataFrame, target: date, floor: date) -> date:
-    """Find the latest date ≤ target that has prices, walking back to ``floor``."""
+def _find_price_date(prices: pd.DataFrame, target: date) -> date:
+    """Find the latest date ≤ target that has prices.
+
+    Walks back day-by-day, stopping at ``prices.index[0]`` (earliest available
+    data). The floor is intentionally the global data start, not any caller's
+    compute range, so mutual-fund T-1 lookups walk across weekends regardless
+    of whether the compute window is full or incremental.
+    """
+    if prices.empty:
+        return target
+    earliest = prices.index[0]
     d = target
-    while d not in prices.index and d > floor:
+    while d not in prices.index and d > earliest:
         d -= timedelta(days=1)
     return d
 
@@ -98,13 +107,13 @@ def _resolve_date_windows(
     prices: pd.DataFrame,
     cny_rates: dict[date, float],
     current: date,
-    start: date,
 ) -> tuple[date, date, float]:
     """Resolve (price_date, mf_price_date, cny_rate) for a given date via forward-fill."""
-    price_date = _find_price_date(prices, current, start)
-    mf_price_date = _find_price_date(prices, price_date - timedelta(days=1), start)
+    price_date = _find_price_date(prices, current)
+    mf_price_date = _find_price_date(prices, price_date - timedelta(days=1))
     cny_date = current
-    while cny_date not in cny_rates and cny_date > start:
+    earliest_cny = min(cny_rates) if cny_rates else current
+    while cny_date not in cny_rates and cny_date > earliest_cny:
         cny_date -= timedelta(days=1)
     if cny_date not in cny_rates:
         raise ValueError(f"No CNY rate available at or before {current} — daily_close is missing CNY=X data")
@@ -336,7 +345,7 @@ def compute_daily_allocation(
             cached_qj = replay_qianji(qj_db, current)
             last_qj_replay = current
 
-        price_date, mf_price_date, cny_rate = _resolve_date_windows(prices, cny_rates, current, start)
+        price_date, mf_price_date, cny_rate = _resolve_date_windows(prices, cny_rates, current)
 
         # ── Aggregate ticker values from all sources ──
         ticker_values: dict[str, float] = {}
