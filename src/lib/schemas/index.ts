@@ -13,7 +13,6 @@ export {
   type TimelineErrors,
   type IndexReturn,
   type MarketData,
-  type MarketMeta,
   type StockDetail,
   type CategoryMeta,
 } from "./timeline";

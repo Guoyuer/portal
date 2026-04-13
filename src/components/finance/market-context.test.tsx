@@ -33,15 +33,6 @@ const MARKET: MarketData = {
     { ticker: "^GSPC", name: "S&P 500", monthReturn: 2.5, ytdReturn: 12.3, current: 5500, sparkline: null, high52w: 5800, low52w: 4200 },
     { ticker: "^NDX", name: "NASDAQ 100", monthReturn: -1.2, ytdReturn: 8.7, current: 19000, sparkline: null, high52w: 20000, low52w: 15000 },
   ],
-  meta: {
-    fedRate: 4.5,
-    treasury10y: 4.2,
-    cpi: 3.1,
-    unemployment: 3.8,
-    vix: 15.2,
-    dxy: 104.5,
-    usdCny: 7.2345,
-  },
 };
 
 // ── Tests ───────────────────────────────────────────────────────────────

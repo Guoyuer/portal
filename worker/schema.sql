@@ -63,11 +63,6 @@ CREATE TABLE IF NOT EXISTS computed_market_indices (
     sparkline    TEXT NOT NULL DEFAULT '[]'
 );
 
-CREATE TABLE IF NOT EXISTS computed_market_indicators (
-    key   TEXT PRIMARY KEY,
-    value REAL NOT NULL DEFAULT 0
-);
-
 CREATE TABLE IF NOT EXISTS computed_holdings_detail (
     ticker       TEXT PRIMARY KEY,
     month_return REAL NOT NULL DEFAULT 0,
@@ -139,22 +134,6 @@ CREATE VIEW IF NOT EXISTS v_market_indices AS
 SELECT ticker, name, current, month_return AS monthReturn,
   ytd_return AS ytdReturn, high_52w AS high52w, low_52w AS low52w, sparkline
 FROM computed_market_indices ORDER BY ticker;
-
-DROP VIEW IF EXISTS v_market_indicators;
-CREATE VIEW IF NOT EXISTS v_market_indicators AS
-SELECT key, value FROM computed_market_indicators;
-
-DROP VIEW IF EXISTS v_market_meta;
-CREATE VIEW IF NOT EXISTS v_market_meta AS
-SELECT
-  MAX(CASE WHEN key = 'fedRate' THEN value END) AS fedRate,
-  MAX(CASE WHEN key = 'treasury10y' THEN value END) AS treasury10y,
-  MAX(CASE WHEN key = 'cpi' THEN value END) AS cpi,
-  MAX(CASE WHEN key = 'unemployment' THEN value END) AS unemployment,
-  MAX(CASE WHEN key = 'vix' THEN value END) AS vix,
-  MAX(CASE WHEN key = 'dxy' THEN value END) AS dxy,
-  MAX(CASE WHEN key = 'usdCny' THEN value END) AS usdCny
-FROM computed_market_indicators;
 
 DROP VIEW IF EXISTS v_holdings_detail;
 CREATE VIEW IF NOT EXISTS v_holdings_detail AS

@@ -37,20 +37,8 @@ const IndexReturnSchema = z.object({
   low52w: z.number().nullable().default(null),
 });
 
-// Scalar macro indicators — one row produced by v_market_meta.
-const MarketMetaSchema = z.object({
-  fedRate: z.number().nullable().default(null),
-  treasury10y: z.number().nullable().default(null),
-  cpi: z.number().nullable().default(null),
-  unemployment: z.number().nullable().default(null),
-  vix: z.number().nullable().default(null),
-  dxy: z.number().nullable().default(null),
-  usdCny: z.number().nullable().default(null),
-});
-
 const MarketDataSchema = z.object({
   indices: z.array(IndexReturnSchema),
-  meta: MarketMetaSchema,
 });
 
 // ── Holdings Detail ──────────────────────────────────────────────────────
@@ -155,6 +143,5 @@ export type TimelineData = z.infer<typeof TimelineDataSchema>;
 export type TimelineErrors = z.infer<typeof TimelineErrorsSchema>;
 export type IndexReturn = z.infer<typeof IndexReturnSchema>;
 export type MarketData = z.infer<typeof MarketDataSchema>;
-export type MarketMeta = z.infer<typeof MarketMetaSchema>;
 export type StockDetail = z.infer<typeof StockDetailSchema>;
 export type CategoryMeta = z.infer<typeof CategoryMetaSchema>;

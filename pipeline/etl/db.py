@@ -7,8 +7,6 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from .types import MARKET_META_KEYS
-
 # ── Schema DDL ───────────────────────────────────────────────────────────────
 
 _TABLES = """
@@ -110,12 +108,6 @@ CREATE TABLE IF NOT EXISTS computed_market_indices (
     sparkline    TEXT NOT NULL DEFAULT '[]'
 );
 
--- Pre-computed macro scalar indicators (fedRate, usdCny, etc.)
-CREATE TABLE IF NOT EXISTS computed_market_indicators (
-    key   TEXT PRIMARY KEY,
-    value REAL NOT NULL DEFAULT 0
-);
-
 -- Pre-computed per-ticker holdings performance
 CREATE TABLE IF NOT EXISTS computed_holdings_detail (
     ticker       TEXT PRIMARY KEY,
@@ -178,23 +170,6 @@ CREATE INDEX IF NOT EXISTS idx_econ_series_key ON econ_series(key);
 # ── Views (camelCase API contract) ──────────────────────────────────────────
 
 
-def _build_v_market_meta_sql() -> str:
-    """Pivot computed_market_indicators (key, value) → one wide row.
-
-    The column list is derived from MARKET_META_KEYS so adding a FRED indicator
-    requires editing only that list (and emitting the row in precompute.py).
-    """
-    cols = ",\n  ".join(
-        f"MAX(CASE WHEN key = '{k}' THEN value END) AS {k}" for k in MARKET_META_KEYS
-    )
-    return (
-        "CREATE VIEW IF NOT EXISTS v_market_meta AS\n"
-        "SELECT\n"
-        f"  {cols}\n"
-        "FROM computed_market_indicators;"
-    )
-
-
 _VIEWS: dict[str, str] = {
     "v_daily": (
         "CREATE VIEW IF NOT EXISTS v_daily AS\n"
@@ -226,11 +201,6 @@ _VIEWS: dict[str, str] = {
         "  ytd_return AS ytdReturn, high_52w AS high52w, low_52w AS low52w, sparkline\n"
         "FROM computed_market_indices ORDER BY ticker;"
     ),
-    "v_market_indicators": (
-        "CREATE VIEW IF NOT EXISTS v_market_indicators AS\n"
-        "SELECT key, value FROM computed_market_indicators;"
-    ),
-    "v_market_meta": _build_v_market_meta_sql(),
     "v_holdings_detail": (
         "CREATE VIEW IF NOT EXISTS v_holdings_detail AS\n"
         "SELECT ticker, month_return AS monthReturn, start_value AS startValue,\n"

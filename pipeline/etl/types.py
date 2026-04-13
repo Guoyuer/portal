@@ -14,21 +14,6 @@ EQUITY_CATEGORIES = ["US Equity", "Non-US Equity"]
 NON_EQUITY_CATEGORIES = ["Crypto", "Safe Net"]
 SUBTYPE_ORDER = ["broad", "growth", "other"]
 
-# Canonical list of scalar market-meta keys pivoted by v_market_meta.
-# Adding a new FRED (or other) indicator requires:
-#   1. Appending its key here
-#   2. Emitting the row into computed_market_indicators with that key
-# v_market_meta's SQL is derived from this list in db.py.
-MARKET_META_KEYS: list[str] = [
-    "fedRate",
-    "treasury10y",
-    "cpi",
-    "unemployment",
-    "vix",
-    "dxy",
-    "usdCny",
-]
-
 MIN_RECORDS_FOR_COMPLETE_MONTH = 25  # fewer records → likely partial month
 
 # Trading-day lookback windows (US equity market)

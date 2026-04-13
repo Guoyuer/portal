@@ -187,15 +187,6 @@ const market = {
     { ticker: "VXUS",  name: "FTSE All-World ex-US", current: 62, monthReturn: 1.8, ytdReturn: 5.2, sparkline: [58, 59, 60, 59, 61, 62, 62], high52w: 65, low52w: 52 },
     { ticker: "000300.SS", name: "CSI 300", current: 3900, monthReturn: -1.2, ytdReturn: -3.5, sparkline: [4100, 4050, 4000, 3950, 3900, 3950, 3900], high52w: 4200, low52w: 3500 },
   ],
-  meta: {
-    fedRate: 4.33,
-    treasury10y: 4.25,
-    cpi: 3.0,
-    unemployment: 3.8,
-    vix: 15.2,
-    dxy: 104.5,
-    usdCny: 7.24,
-  },
 };
 
 // ── Holdings detail ─────────────────────────────────────────────────────

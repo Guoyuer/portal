@@ -74,7 +74,9 @@ class TestPrecomputeMarketRows:
     def test_writes_usd_cny_indicator(self, db_path: Path) -> None:
         precompute_market(db_path)
         conn = get_connection(db_path)
-        row = conn.execute("SELECT value FROM computed_market_indicators WHERE key = 'usdCny'").fetchone()
+        row = conn.execute(
+            "SELECT value FROM econ_series WHERE key='usdCny' ORDER BY date DESC LIMIT 1"
+        ).fetchone()
         conn.close()
         assert row is not None
         assert row[0] == pytest.approx(7.26, abs=0.01)
@@ -182,10 +184,11 @@ class TestClearAndRewrite:
         precompute_market(db_path)
         conn = get_connection(db_path)
         idx_count = conn.execute("SELECT COUNT(*) FROM computed_market_indices").fetchone()[0]
-        ind_count = conn.execute("SELECT COUNT(*) FROM computed_market_indicators").fetchone()[0]
+        cny_count = conn.execute("SELECT COUNT(*) FROM econ_series WHERE key='usdCny'").fetchone()[0]
         conn.close()
         assert idx_count == 4  # 4 indices
-        assert ind_count == 1  # 1 usdCny indicator
+        # 300 daily seed prices spanning ~11 months → 11 monthly bins for usdCny
+        assert cny_count == 11
 
 
 class TestSkipTickerWithTooFewRows:

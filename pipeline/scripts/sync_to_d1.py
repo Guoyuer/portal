@@ -49,7 +49,6 @@ TABLES_TO_SYNC: list[str] = [
     "fidelity_transactions",
     "qianji_transactions",
     "computed_market_indices",
-    "computed_market_indicators",
     "computed_holdings_detail",
     "econ_series",
     "daily_close",
