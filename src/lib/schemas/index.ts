@@ -11,7 +11,6 @@ export {
   type TimelineData,
   type IndexReturn,
   type MarketData,
-  type MarketMeta,
   type StockDetail,
   type CategoryMeta,
 } from "./timeline";

@@ -3,11 +3,19 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
 from etl.db import get_connection, ingest_prices, init_db
 from etl.precompute import precompute_holdings_detail, precompute_market
+
+
+@pytest.fixture(autouse=True)
+def _no_dxy_network():
+    """Stub fetch_dxy_monthly so precompute_market doesn't hit Yahoo."""
+    with patch("etl.market.yahoo.fetch_dxy_monthly", return_value=[]):
+        yield
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -66,7 +74,9 @@ class TestPrecomputeMarketRows:
     def test_writes_usd_cny_indicator(self, db_path: Path) -> None:
         precompute_market(db_path)
         conn = get_connection(db_path)
-        row = conn.execute("SELECT value FROM computed_market_indicators WHERE key = 'usdCny'").fetchone()
+        row = conn.execute(
+            "SELECT value FROM econ_series WHERE key='usdCny' ORDER BY date DESC LIMIT 1"
+        ).fetchone()
         conn.close()
         assert row is not None
         assert row[0] == pytest.approx(7.26, abs=0.01)
@@ -174,10 +184,11 @@ class TestClearAndRewrite:
         precompute_market(db_path)
         conn = get_connection(db_path)
         idx_count = conn.execute("SELECT COUNT(*) FROM computed_market_indices").fetchone()[0]
-        ind_count = conn.execute("SELECT COUNT(*) FROM computed_market_indicators").fetchone()[0]
+        cny_count = conn.execute("SELECT COUNT(*) FROM econ_series WHERE key='usdCny'").fetchone()[0]
         conn.close()
         assert idx_count == 4  # 4 indices
-        assert ind_count == 1  # 1 usdCny indicator
+        # Fixture seeds 2 CNY rows both in 2025-10 → 1 monthly bucket
+        assert cny_count == 1
 
 
 class TestSkipTickerWithTooFewRows:

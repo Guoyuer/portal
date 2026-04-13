@@ -172,7 +172,6 @@ describe("useBundle", () => {
           indices: [
             { ticker: "^GSPC", name: "S&P 500", monthReturn: 2.1, ytdReturn: 12.5, current: 5800, sparkline: "[5500, 5600, 5700, 5800]", high52w: 5900, low52w: 4800 },
           ],
-          meta: { fedRate: null, treasury10y: null, cpi: null, unemployment: null, vix: null, dxy: null, usdCny: null },
         },
       })),
     );
@@ -191,7 +190,6 @@ describe("useBundle", () => {
           indices: [
             { ticker: "^GSPC", name: "S&P 500", monthReturn: 2.1, ytdReturn: 12.5, current: 5800, sparkline: [5500, 5600, 5700, 5800], high52w: 5900, low52w: 4800 },
           ],
-          meta: { fedRate: null, treasury10y: null, cpi: null, unemployment: null, vix: null, dxy: null, usdCny: null },
         },
       })),
     );

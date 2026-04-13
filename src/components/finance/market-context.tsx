@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { Area, AreaChart, YAxis } from "recharts";
-import type { MarketData, MarketMeta, IndexReturn } from "@/lib/schemas";
+import type { MarketData, IndexReturn } from "@/lib/schemas";
 import { fmtPct } from "@/lib/format";
 import { SectionHeader } from "@/components/finance/section";
 
@@ -134,21 +134,7 @@ function IndexCard({ idx }: { idx: IndexReturn }) {
 }
 
 // ── MarketContext ────────────────────────────────────────────────────────
-const INDICATOR_DEFS: { key: keyof MarketMeta; label: string; fmt: (v: number) => string }[] = [
-  { key: "fedRate",      label: "Fed Rate",     fmt: (v) => fmtPct(v, false) },
-  { key: "treasury10y",  label: "10Y Treasury", fmt: (v) => fmtPct(v, false) },
-  { key: "cpi",          label: "CPI",          fmt: (v) => fmtPct(v, false) },
-  { key: "unemployment", label: "Unemployment", fmt: (v) => fmtPct(v, false) },
-  { key: "vix",          label: "VIX",          fmt: (v) => v.toFixed(1) },
-  { key: "dxy",          label: "DXY",          fmt: (v) => v.toFixed(1) },
-  { key: "usdCny",       label: "USD/CNY",      fmt: (v) => v.toFixed(4) },
-];
-
 export function MarketContext({ data: m, title }: { data: MarketData; title: string }) {
-  const indicators = INDICATOR_DEFS
-    .filter(({ key }) => m.meta[key] != null)
-    .map(({ key, label, fmt }) => ({ label, value: fmt(m.meta[key] as number) }));
-
   return (
     <section>
       <SectionHeader>{title}</SectionHeader>
@@ -162,30 +148,6 @@ export function MarketContext({ data: m, title }: { data: MarketData; title: str
         </div>
       ) : (
         <p className="text-sm text-red-400">Index data unavailable</p>
-      )}
-
-      {/* Macro Indicators */}
-      {indicators.length > 0 ? (
-        <div className="@container liquid-glass p-3 sm:p-5 mt-4">
-          <h3 className="text-xs font-semibold text-foreground/50 uppercase tracking-wider mb-2">
-            Macro
-          </h3>
-          <div className="grid grid-cols-2 @md:grid-cols-4 gap-x-6 gap-y-1.5 text-sm">
-            {indicators.map((ind) => (
-              <div
-                key={ind.label}
-                className="flex justify-between py-1 border-b border-foreground/5"
-              >
-                <span className="text-muted-foreground text-xs">{ind.label}</span>
-                <span className="font-medium text-xs tabular-nums">
-                  {ind.value}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : (
-        <p className="text-sm text-red-400 mt-4">Macro data unavailable</p>
       )}
     </section>
   );

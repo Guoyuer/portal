@@ -33,15 +33,6 @@ const MARKET: MarketData = {
     { ticker: "^GSPC", name: "S&P 500", monthReturn: 2.5, ytdReturn: 12.3, current: 5500, sparkline: null, high52w: 5800, low52w: 4200 },
     { ticker: "^NDX", name: "NASDAQ 100", monthReturn: -1.2, ytdReturn: 8.7, current: 19000, sparkline: null, high52w: 20000, low52w: 15000 },
   ],
-  meta: {
-    fedRate: 4.5,
-    treasury10y: 4.2,
-    cpi: 3.1,
-    unemployment: 3.8,
-    vix: 15.2,
-    dxy: 104.5,
-    usdCny: 7.2345,
-  },
 };
 
 // ── Tests ───────────────────────────────────────────────────────────────
@@ -67,31 +58,10 @@ describe("MarketContext", () => {
     expect(ytdLabels.length).toBe(2);
   });
 
-  it("renders macro indicators", () => {
-    render(<MarketContext data={MARKET} title="Market" />);
-    expect(screen.getByText("Fed Rate")).toBeTruthy();
-    expect(screen.getByText("10Y Treasury")).toBeTruthy();
-    expect(screen.getByText("CPI")).toBeTruthy();
-    expect(screen.getByText("VIX")).toBeTruthy();
-    expect(screen.getByText("USD/CNY")).toBeTruthy();
-  });
-
   it("shows empty state when no indices", () => {
     const emptyMarket = { ...MARKET, indices: [] };
     render(<MarketContext data={emptyMarket} title="Market" />);
     expect(screen.getByText("Index data unavailable")).toBeTruthy();
-  });
-
-  it("shows empty state when no macro data", () => {
-    const noMacro: MarketData = {
-      indices: MARKET.indices,
-      meta: {
-        fedRate: null, treasury10y: null, cpi: null,
-        unemployment: null, vix: null, dxy: null, usdCny: null,
-      },
-    };
-    render(<MarketContext data={noMacro} title="Market" />);
-    expect(screen.getByText("Macro data unavailable")).toBeTruthy();
   });
 
   it("renders 52-week range bars", () => {

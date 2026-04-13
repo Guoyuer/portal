@@ -10,9 +10,13 @@ import logging
 import time
 from typing import Any
 
+import pandas as pd
 import yfinance as yf
 
 log = logging.getLogger(__name__)
+
+_DXY_TICKER = "DX-Y.NYB"
+_DXY_LOOKBACK = "5y"
 
 
 def fetch_index_returns(tickers: list[str], period: str = "1mo") -> dict[str, Any]:
@@ -63,6 +67,39 @@ def fetch_index_returns(tickers: list[str], period: str = "1mo") -> dict[str, An
         return result
     except Exception:  # noqa: BLE001
         return {}
+
+
+def fetch_dxy_monthly() -> list[dict[str, Any]]:
+    """Fetch DXY (US Dollar Index) month-end close history from Yahoo (DX-Y.NYB).
+
+    Returns ``[{"date": "YYYY-MM", "value": float}, ...]`` for ~5 years, or an
+    empty list on failure / no data. The shape matches the per-key entries
+    that ``fetch_fred_data`` produces for ``econ_series`` — so consumers can
+    insert directly without a separate adapter.
+    """
+    try:
+        data = yf.download(_DXY_TICKER, period=_DXY_LOOKBACK, progress=False)
+        if data.empty:
+            log.info("DXY: no data returned")
+            return []
+
+        closes = data["Close"]
+        if hasattr(closes, "columns"):
+            closes = closes.iloc[:, 0]
+        closes = closes.dropna()
+        if closes.empty:
+            return []
+
+        monthly = closes.resample("ME").last().dropna()
+        records = [
+            {"date": pd.Timestamp(dt).strftime("%Y-%m"), "value": round(float(val), 2)}
+            for dt, val in monthly.items()
+        ]
+        log.info("DXY: %d monthly observations", len(records))
+        return records
+    except Exception as e:  # noqa: BLE001
+        log.warning("DXY fetch failed: %s", e)
+        return []
 
 
 def fetch_cny_rate() -> float:

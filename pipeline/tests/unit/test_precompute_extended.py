@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
+
+import pytest
 
 from etl.db import get_connection, init_db
 from etl.precompute import (
@@ -12,6 +15,13 @@ from etl.precompute import (
     precompute_holdings_detail,
     precompute_market,
 )
+
+
+@pytest.fixture(autouse=True)
+def _no_dxy_network():
+    """Stub fetch_dxy_monthly so precompute_market doesn't hit Yahoo."""
+    with patch("etl.market.yahoo.fetch_dxy_monthly", return_value=[]):
+        yield
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -91,7 +101,9 @@ class TestPrecomputeMarket:
         precompute_market(db_path)
 
         conn = get_connection(db_path)
-        row = conn.execute("SELECT value FROM computed_market_indicators WHERE key = 'usdCny'").fetchone()
+        row = conn.execute(
+            "SELECT value FROM econ_series WHERE key = 'usdCny' ORDER BY date DESC LIMIT 1"
+        ).fetchone()
         conn.close()
         assert row is not None
         assert row[0] == 7.30
@@ -122,7 +134,7 @@ class TestPrecomputeMarket:
         precompute_market(db_path)
 
         conn = get_connection(db_path)
-        rows = conn.execute("SELECT * FROM computed_market_indicators").fetchall()
+        rows = conn.execute("SELECT * FROM econ_series").fetchall()
         conn.close()
         assert rows == []
 
@@ -163,22 +175,26 @@ class TestPrecomputeIndices:
 
 
 class TestPrecomputeCny:
-    def test_inserts_latest_rate(self, tmp_path: Path) -> None:
+    def test_writes_monthly_last_close_to_econ_series(self, tmp_path: Path) -> None:
         db_path = tmp_path / "test.db"
         init_db(db_path)
-        _seed_prices(db_path, "CNY=X", [("2025-01-01", 7.00), ("2025-01-10", 7.30)])
+        _seed_prices(
+            db_path,
+            "CNY=X",
+            [("2025-01-15", 7.20), ("2025-01-31", 7.30), ("2025-02-28", 7.25)],
+        )
 
         conn = get_connection(db_path)
         try:
             _precompute_cny(conn)
             conn.commit()
-            row = conn.execute(
-                "SELECT value FROM computed_market_indicators WHERE key = 'usdCny'"
-            ).fetchone()
+            rows = conn.execute(
+                "SELECT date, value FROM econ_series WHERE key='usdCny' ORDER BY date"
+            ).fetchall()
         finally:
             conn.close()
-        assert row is not None
-        assert row[0] == 7.30  # Latest date wins
+        # Last close per YYYY-MM bucket
+        assert rows == [("2025-01", 7.30), ("2025-02", 7.25)]
 
     def test_noop_without_cny_data(self, tmp_path: Path) -> None:
         db_path = tmp_path / "test.db"
@@ -187,7 +203,7 @@ class TestPrecomputeCny:
         try:
             _precompute_cny(conn)  # should not raise
             conn.commit()
-            rows = conn.execute("SELECT * FROM computed_market_indicators").fetchall()
+            rows = conn.execute("SELECT * FROM econ_series").fetchall()
         finally:
             conn.close()
         assert rows == []
@@ -205,24 +221,17 @@ class TestPrecomputeFred:
         try:
             _precompute_fred(conn)  # should not raise
             conn.commit()
-            rows = conn.execute("SELECT * FROM computed_market_indicators").fetchall()
+            rows = conn.execute("SELECT * FROM econ_series").fetchall()
         finally:
             conn.close()
         assert rows == []
 
-    def test_inserts_snapshot_and_series_when_api_returns_data(
+    def test_inserts_series_when_api_returns_data(
         self, tmp_path: Path, monkeypatch
     ) -> None:
-        """Snapshot keys are remapped per _FRED_SNAPSHOT_KEYS; series rows land in econ_series."""
+        """Series rows land in econ_series (1:1, no remapping)."""
         monkeypatch.setenv("FRED_API_KEY", "fake-key")
         fake_fred = {
-            "snapshot": {
-                "fedFundsRate": 5.25,
-                "treasury10y": 4.50,
-                "cpiYoy": 3.20,
-                "unemployment": 3.70,
-                "vix": 14.50,
-            },
             "series": {
                 "fedRate": [
                     {"date": "2025-01-01", "value": 5.25},
@@ -245,24 +254,12 @@ class TestPrecomputeFred:
             _precompute_fred(conn)
             conn.commit()
 
-            indicators = dict(
-                conn.execute("SELECT key, value FROM computed_market_indicators")
-            )
             series_rows = conn.execute(
                 "SELECT key, date, value FROM econ_series ORDER BY key, date"
             ).fetchall()
         finally:
             conn.close()
 
-        # Snapshot keys get remapped per _FRED_SNAPSHOT_KEYS
-        assert indicators == {
-            "fedRate": 5.25,
-            "treasury10y": 4.50,
-            "cpi": 3.20,
-            "unemployment": 3.70,
-            "vix": 14.50,
-        }
-        # Series rows persist 1:1 (no remapping)
         assert series_rows == [
             ("cpi", "2025-01-01", 3.20),
             ("fedRate", "2025-01-01", 5.25),
@@ -282,7 +279,7 @@ class TestPrecomputeFred:
         try:
             _precompute_fred(conn)
             conn.commit()
-            rows = conn.execute("SELECT * FROM computed_market_indicators").fetchall()
+            rows = conn.execute("SELECT * FROM econ_series").fetchall()
         finally:
             conn.close()
         assert rows == []

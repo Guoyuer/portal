@@ -104,13 +104,12 @@ async function handleTimeline(env: Env, origin: string | null): Promise<Response
   }
 
   // Optional queries — each failure becomes a null section + errors entry.
-  const [tickers, fidelity, qianji, indices, marketMeta, holdings, syncMetaRows] =
+  const [tickers, fidelity, qianji, indices, holdings, syncMetaRows] =
     await Promise.all([
       settled(env.DB.prepare("SELECT * FROM v_daily_tickers").all()),
       settled(env.DB.prepare("SELECT * FROM v_fidelity_txns").all()),
       settled(env.DB.prepare("SELECT * FROM v_qianji_txns").all()),
       settled(env.DB.prepare("SELECT * FROM v_market_indices").all()),
-      settled(env.DB.prepare("SELECT * FROM v_market_meta").all()),
       settled(env.DB.prepare("SELECT * FROM v_holdings_detail").all()),
       settled(env.DB.prepare("SELECT key, value FROM sync_meta").all()),
     ]);
@@ -124,21 +123,9 @@ async function handleTimeline(env: Env, origin: string | null): Promise<Response
   if (!tickers.ok) txnErrors.push(`tickers: ${tickers.error}`);
   if (txnErrors.length) errors.txns = txnErrors.join("; ");
 
-  // Market: indices OR meta failing is enough to mark the section as degraded.
-  // When both fail, null the whole market object; when only one fails, keep what we have.
-  // MarketMetaSchema declares each key .nullable().default(null), so missing
-  // fields are filled in by Zod at validatedResponse time — no spread here.
-  let market: unknown = null;
-  if (indices.ok || marketMeta.ok) {
-    market = {
-      indices: indices.ok ? indices.value.results : [],
-      meta: marketMeta.ok ? (marketMeta.value.results[0] ?? {}) : {},
-    };
-  }
-  const marketErrors: string[] = [];
-  if (!indices.ok) marketErrors.push(`indices: ${indices.error}`);
-  if (!marketMeta.ok) marketErrors.push(`meta: ${marketMeta.error}`);
-  if (marketErrors.length) errors.market = marketErrors.join("; ");
+  // Market: indices section is null on failure; macro lives on /econ now.
+  const market = indices.ok ? { indices: indices.value.results } : null;
+  if (!indices.ok) errors.market = `indices: ${indices.error}`;
 
   // Holdings: null the section on failure.
   if (!holdings.ok) errors.holdings = holdings.error;
