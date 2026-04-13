@@ -82,7 +82,13 @@ jobs:
           NEXT_PUBLIC_TIMELINE_URL: ${{ secrets.NEXT_PUBLIC_TIMELINE_URL || 'https://portal-worker.guoyuer.workers.dev/timeline' }}
           NEXT_PUBLIC_GMAIL_WORKER_URL: ${{ secrets.PORTAL_GMAIL_WORKER_URL }}
 
-      # Deploy only on main (not PRs)
+      # Deploy only on main (not PRs).
+      # Worker deploys are manual (`cd worker && wrangler deploy`) — the zone
+      # routes on portal.guoyuer.com/api/* require `Zone → Workers Routes →
+      # Edit` on the token, which the Portal CI token doesn't carry. D1
+      # schema is applied as a side effect of `sync_to_d1.py` runs from the
+      # pipeline machine; the python job above already fails the build if
+      # `worker/schema.sql` drifts from `gen_schema_sql.py` output.
       - name: Deploy to Cloudflare Pages
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         uses: cloudflare/wrangler-action@v3
@@ -91,20 +97,3 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           wranglerVersion: "4"
           command: pages deploy out --project-name=portal --commit-dirty=true
-      - name: Deploy Worker
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          wranglerVersion: "4"
-          workingDirectory: worker
-          command: deploy
-      - name: Apply D1 schema (idempotent)
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        working-directory: worker
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          npx wrangler d1 execute portal-db --remote --file=schema.sql

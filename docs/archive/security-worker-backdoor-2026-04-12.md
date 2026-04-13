@@ -1,5 +1,14 @@
 # Worker Public-URL Backdoor — Security Follow-up
 
+> **Status: resolved 2026-04-13.** Option A implemented, but the Custom-Domain
+> approach hit the CF Access cross-subdomain cookie wall (fetches from
+> portal.guoyuer.com could not silently authenticate to portal-api.guoyuer.com
+> because Access cookies are host-scoped). Final architecture mounts both
+> Workers as zone routes on `portal.guoyuer.com/api/*` so the existing Access
+> cookie authenticates the API calls in the same handshake that gated the HTML.
+> `.workers.dev` on both Workers is closed; orphaned `portal-api.guoyuer.com`
+> Custom Domain retired (handled in dashboard). See PRs #136, #137, #138, #139.
+
 > Discovered 2026-04-12 while deploying Gmail triage. Separate PR from the triage feature.
 
 ## Problem

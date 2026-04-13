@@ -187,9 +187,7 @@ export function TickerChart({ symbol, startDate, endDate }: { symbol: string; st
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`${WORKER_BASE}/prices/${encodeURIComponent(symbol)}`, {
-          credentials: "include",
-        });
+        const res = await fetch(`${WORKER_BASE}/prices/${encodeURIComponent(symbol)}`);
         if (!res.ok) throw new Error(`${res.status}`);
         const json = await res.json();
         const parsed = TickerPriceResponseSchema.safeParse(json);

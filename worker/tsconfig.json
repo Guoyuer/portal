@@ -8,6 +8,6 @@
     "strict": true,
     "noEmit": true
   },
-  "include": ["src", "../src/lib/schemas", "../src/lib/worker-auth.ts"],
+  "include": ["src", "../src/lib/schemas"],
   "exclude": ["../src/lib/schemas/**/*.test.ts", "src/**/*.test.ts"]
 }

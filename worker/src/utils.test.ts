@@ -6,7 +6,6 @@ import {
   dbError,
   isAllowedOrigin,
   settled,
-  unauthorized,
   validatedResponse,
 } from "./utils";
 
@@ -113,18 +112,3 @@ describe("settled", () => {
   });
 });
 
-// ── unauthorized ────────────────────────────────────────────────────────
-
-describe("unauthorized", () => {
-  it("returns 401 with allowed-origin CORS header", () => {
-    const res = unauthorized(ALLOWED_ORIGINS[0]);
-    expect(res.status).toBe(401);
-    expect(res.headers.get("Access-Control-Allow-Origin")).toBe(ALLOWED_ORIGINS[0]);
-  });
-
-  it("omits Allow-Origin for null / disallowed origins", () => {
-    const res = unauthorized(null);
-    expect(res.status).toBe(401);
-    expect(res.headers.get("Access-Control-Allow-Origin")).toBeNull();
-  });
-});

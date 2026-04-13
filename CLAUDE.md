@@ -44,7 +44,14 @@ cd worker-gmail && npx wrangler deploy                # deploy Gmail Worker
 
 # E2E (mock API on port 4444 — no real backend needed)
 npx playwright test                                   # 5 Playwright spec files
+
+# Manual Pages deploy (when CI's Worker deploy step is down or when iterating locally)
+MSYS_NO_PATHCONV=1 NEXT_PUBLIC_TIMELINE_URL='https://portal.guoyuer.com/api/timeline' \
+  NEXT_PUBLIC_GMAIL_WORKER_URL='/api/mail' npx next build
+npx wrangler pages deploy out --project-name=portal --commit-dirty=true
 ```
+
+**Git Bash / MSYS gotcha:** `NEXT_PUBLIC_*=/path npx next build` in Git Bash translates the value into `C:/Program Files/Git/path` before Node sees it (a known MSYS path-conv feature). Prefix any such command with `MSYS_NO_PATHCONV=1` or run from CMD; otherwise the JS bundle bakes in a `file:///C:/…` URL and fetches fail at runtime.
 
 ## Code style
 
