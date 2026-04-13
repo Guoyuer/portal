@@ -37,10 +37,7 @@ export function useMail(): UseMailState {
     setLoading(true);
     setError(null);
 
-    fetch(`${MAIL_BASE}/list`, {
-      credentials: "include",
-      signal: ctrl.signal,
-    })
+    fetch(`${MAIL_BASE}/list`, { signal: ctrl.signal })
       .then(async (r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const json = await r.json();
@@ -63,7 +60,6 @@ export function useMail(): UseMailState {
     const r = await fetch(`${MAIL_BASE}/trash`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      credentials: "include",
       body: JSON.stringify({ msg_id: msgId }),
     });
     const json = await r.json();

@@ -12,14 +12,6 @@ routes = [
   { pattern = "portal.guoyuer.com/api/*", zone_name = "guoyuer.com" },
 ]
 
-# REQUIRE_AUTH stays "false" while the migration settles — the portal.guoyuer.com
-# Access app already gates every request that reaches this Worker, so the
-# in-Worker header check is defense-in-depth only. A follow-up PR will flip
-# this to "true" once we've confirmed the Access cookie flow is stable.
-[vars]
-REQUIRE_AUTH = "false"
-ALLOWED_EMAIL = "guoyuer1@gmail.com"
-
 [[d1_databases]]
 binding = "DB"
 database_name = "portal-db"

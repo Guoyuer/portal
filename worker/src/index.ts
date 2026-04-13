@@ -9,17 +9,15 @@ import {
   EconDataSchema,
   type TimelineErrors,
 } from "../../src/lib/schemas";
-import { isAllowedUser, type AuthEnv } from "../../src/lib/worker-auth";
 import {
   corsHeaders,
   dbError,
   isAllowedOrigin,
   settled,
-  unauthorized,
   validatedResponse,
 } from "./utils";
 
-interface Env extends AuthEnv {
+interface Env {
   DB: D1Database;
 }
 
@@ -174,8 +172,6 @@ export default {
       }
       return new Response(null, { status: 204, headers: corsHeaders(origin) });
     }
-
-    if (!isAllowedUser(request, env)) return unauthorized(origin);
 
     const url = new URL(request.url);
     // In prod the Worker is mounted at `portal.guoyuer.com/api/*` so requests

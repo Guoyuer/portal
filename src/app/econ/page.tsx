@@ -66,7 +66,6 @@ export default function EconPage() {
     try {
       const res = await fetch(ECON_URL, {
         cache: "no-store",
-        credentials: "include",
         signal: AbortSignal.timeout(10_000),
       });
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
