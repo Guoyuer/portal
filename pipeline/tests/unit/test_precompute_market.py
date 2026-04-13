@@ -187,8 +187,8 @@ class TestClearAndRewrite:
         cny_count = conn.execute("SELECT COUNT(*) FROM econ_series WHERE key='usdCny'").fetchone()[0]
         conn.close()
         assert idx_count == 4  # 4 indices
-        # 300 daily seed prices spanning ~11 months → 11 monthly bins for usdCny
-        assert cny_count == 11
+        # Fixture seeds 2 CNY rows both in 2025-10 → 1 monthly bucket
+        assert cny_count == 1
 
 
 class TestSkipTickerWithTooFewRows:
