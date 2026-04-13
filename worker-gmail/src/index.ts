@@ -1,5 +1,6 @@
 import { upsertEmails, listActiveLast7Days } from "./db.js";
 import type { UpsertInput } from "./types.js";
+import { connect } from "cloudflare:sockets";
 
 interface Env {
   DB: D1Database;
@@ -29,6 +30,110 @@ function corsHeaders(): Headers {
   // Prevent browser/CDN caching of user-specific classified mail
   h.set("Cache-Control", "no-store");
   return h;
+}
+
+// ── IMAP client (Gmail-specific, minimal) ────────────────────────────────────
+
+const enc = new TextEncoder();
+const dec = new TextDecoder();
+
+type TrashResult = "trashed" | "not_found" | "auth_failed" | "error";
+
+async function readUntilFirstLine(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  timeoutMs = 10000,
+): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  let buf = "";
+  while (Date.now() < deadline) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    if (buf.includes("\r\n")) return buf;
+  }
+  throw new Error("imap greeting timeout");
+}
+
+async function readUntilTag(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  tag: string,
+  timeoutMs = 10000,
+): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  const re = new RegExp(`^${tag} (OK|NO|BAD)[^\\r\\n]*\\r?\\n`, "m");
+  let buf = "";
+  while (Date.now() < deadline) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    if (re.test(buf)) return buf;
+  }
+  throw new Error("imap read timeout");
+}
+
+function imapOk(response: string, tag: string): boolean {
+  return new RegExp(`^${tag} OK`, "m").test(response);
+}
+
+function parseSearchUid(response: string): string | null {
+  const m = response.match(/^\* SEARCH\s+(\d+)/m);
+  return m ? m[1] : null;
+}
+
+export async function imapTrashMessage(
+  user: string, password: string, msgId: string,
+): Promise<TrashResult> {
+  let socket: Socket | undefined;
+  try {
+    socket = connect(
+      { hostname: "imap.gmail.com", port: 993 },
+      { secureTransport: "on", allowHalfOpen: false },
+    );
+    const writer = socket.writable.getWriter();
+    const reader = socket.readable.getReader();
+
+    const send = async (line: string) => {
+      await writer.write(enc.encode(line + "\r\n"));
+    };
+
+    // Greeting: * OK Gimap ready ...
+    await readUntilFirstLine(reader);
+
+    // RFC 3501 quote escaping: double backslash + double-quote in the actual string
+    const esc = (s: string) => s.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"");
+
+    await send(`A1 LOGIN "${esc(user)}" "${esc(password)}"`);
+    const loginResp = await readUntilTag(reader, "A1");
+    if (!imapOk(loginResp, "A1")) return "auth_failed";
+
+    await send(`A2 SELECT INBOX`);
+    const selResp = await readUntilTag(reader, "A2");
+    if (!imapOk(selResp, "A2")) return "error";
+
+    // UID SEARCH HEADER — msgId typically contains <angle brackets>, quote the whole thing
+    await send(`A3 UID SEARCH HEADER "Message-ID" "${esc(msgId)}"`);
+    const searchResp = await readUntilTag(reader, "A3");
+    if (!imapOk(searchResp, "A3")) return "error";
+    const uid = parseSearchUid(searchResp);
+    if (!uid) return "not_found";
+
+    // Gmail-specific: X-GM-LABELS with "\Trash" — send two backslashes over the wire
+    await send(`A4 UID STORE ${uid} +X-GM-LABELS "\\\\Trash"`);
+    const storeResp = await readUntilTag(reader, "A4");
+    if (!imapOk(storeResp, "A4")) return "error";
+
+    await send(`A5 LOGOUT`);
+    try { await writer.close(); } catch {}
+
+    return "trashed";
+  } catch (err) {
+    // Surfaces in `wrangler tail`. Credentials never included in the thrown
+    // errors above (timeouts, not auth failures — those return "auth_failed").
+    console.error("imap trash error:", err instanceof Error ? err.message : String(err));
+    return "error";
+  } finally {
+    try { await socket?.close(); } catch {}
+  }
 }
 
 export default {
