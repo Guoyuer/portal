@@ -11,7 +11,13 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "json-summary", "json"],
       include: ["src/lib/**"],
-      exclude: ["src/lib/chart-styles.ts", "src/lib/hooks.ts"],
+      exclude: [
+        "src/lib/chart-styles.ts",
+        "src/lib/hooks.ts",
+        // use-mail is integration-heavy (fetch + localStorage + Next.js
+        // router). Covered by the /mail e2e flow, not unit tests.
+        "src/lib/use-mail.ts",
+      ],
       thresholds: {
         statements: 70,
         branches: 70,
