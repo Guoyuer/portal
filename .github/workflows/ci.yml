@@ -80,6 +80,7 @@ jobs:
         run: npx next build
         env:
           NEXT_PUBLIC_TIMELINE_URL: ${{ secrets.NEXT_PUBLIC_TIMELINE_URL || 'https://portal-worker.guoyuer.workers.dev/timeline' }}
+          NEXT_PUBLIC_GMAIL_WORKER_URL: ${{ secrets.PORTAL_GMAIL_WORKER_URL }}
 
       # Deploy only on main (not PRs)
       - name: Deploy to Cloudflare Pages
