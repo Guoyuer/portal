@@ -10,13 +10,6 @@ export function valueColor(val: number): string {
 export const SAVINGS_RATE_GOOD = 30;
 export const SAVINGS_RATE_WARNING = 15;
 
-/** Green / yellow / red based on savings rate thresholds. */
-export function savingsRateColor(rate: number): string {
-  if (rate >= SAVINGS_RATE_GOOD) return "text-emerald-700 dark:text-cyan-400";
-  if (rate >= SAVINGS_RATE_WARNING) return "text-yellow-600 dark:text-yellow-400";
-  return "text-red-500 dark:text-red-400";
-}
-
 // ── Component-level thresholds ───────────────────────────────────────────
 
 /** Cash-flow: expenses below this are grouped into "... and N more" */

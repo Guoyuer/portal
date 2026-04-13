@@ -107,15 +107,6 @@ class Config(TypedDict):
     fidelity_accounts: NotRequired[dict[str, str]]
 
 
-class Portfolio(TypedDict):
-    totals: dict[str, float]
-    counts: dict[str, int]
-    total: float
-    cost_basis: dict[str, float]  # ticker → total cost basis
-    gain_loss: dict[str, float]  # ticker → total gain/loss $
-    gain_loss_pct: dict[str, float]  # ticker → total gain/loss %
-
-
 # ── Record types (parsed from CSV/DB) ──────────────────────────────────────
 
 

@@ -24,4 +24,3 @@ export const TickerPriceResponseSchema = z.object({
 
 export type TickerPricePoint = z.infer<typeof TickerPricePointSchema>;
 export type TickerTransaction = z.infer<typeof TickerTransactionSchema>;
-export type TickerPriceResponse = z.infer<typeof TickerPriceResponseSchema>;

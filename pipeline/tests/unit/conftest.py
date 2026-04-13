@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import csv
 import json
-from collections import defaultdict
 from pathlib import Path
 
 import pytest
 
 from etl.config import load_config
-from etl.types import Config, Portfolio
+from etl.types import Config
 
 MINIMAL_CONFIG_DATA = {
     "assets": {
@@ -58,20 +57,6 @@ def load_test_config(tmp_path: Path, data: dict) -> Config:
     p = tmp_path / "config.json"
     p.write_text(json.dumps(data))
     return load_config(p)
-
-
-def make_portfolio(totals_map: dict[str, float]) -> Portfolio:
-    """Build a portfolio dict from {ticker: value}."""
-    totals = defaultdict(float, totals_map)
-    counts = defaultdict(int, {t: 1 for t in totals_map})
-    return Portfolio(
-        totals=totals,
-        counts=counts,
-        total=sum(totals.values()),
-        cost_basis=defaultdict(float),
-        gain_loss=defaultdict(float),
-        gain_loss_pct={},
-    )
 
 
 @pytest.fixture()
