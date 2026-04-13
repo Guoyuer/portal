@@ -61,6 +61,7 @@ screenshots-before/
 *.png
 *.txt
 !README*.txt
+!**/requirements*.txt
 data/
 *.coverage
 pipeline/.coverage
