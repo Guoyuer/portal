@@ -33,6 +33,9 @@ export function corsHeaders(origin: string | null): HeadersInit {
   };
   if (isAllowedOrigin(origin)) {
     base["Access-Control-Allow-Origin"] = origin;
+    // Required so the browser includes the CF Access session cookie on
+    // cross-origin fetches from portal.guoyuer.com → portal-api.guoyuer.com.
+    base["Access-Control-Allow-Credentials"] = "true";
   }
   return base;
 }

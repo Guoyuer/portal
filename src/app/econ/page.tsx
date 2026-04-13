@@ -64,7 +64,11 @@ export default function EconPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(ECON_URL, { cache: "no-store", signal: AbortSignal.timeout(10_000) });
+      const res = await fetch(ECON_URL, {
+        cache: "no-store",
+        credentials: "include",
+        signal: AbortSignal.timeout(10_000),
+      });
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
       const json = await res.json();
       const parsed = EconDataSchema.safeParse(json);

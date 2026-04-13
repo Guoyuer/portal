@@ -61,6 +61,7 @@ export function useMail(): UseMailState {
 
     fetch(`${WORKER_URL}/mail/list`, {
       headers: { "X-Mail-Key": key },
+      credentials: "include",
       signal: ctrl.signal,
     })
       .then(async (r) => {
@@ -95,6 +96,7 @@ export function useMail(): UseMailState {
     const r = await fetch(`${WORKER_URL}/mail/trash`, {
       method: "POST",
       headers: { "X-Mail-Key": key, "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify({ msg_id: msgId }),
     });
     if (r.status === 401) {

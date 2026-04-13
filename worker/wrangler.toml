@@ -2,6 +2,26 @@ name = "portal-api"
 main = "src/index.ts"
 compatibility_date = "2024-12-01"
 
+# Custom Domain behind Cloudflare Access (Google SSO, allow-list =
+# guoyuer1@gmail.com). CF Access validates the JWT before requests reach this
+# Worker and injects `Cf-Access-Authenticated-User-Email`; `REQUIRE_AUTH="true"`
+# tells the Worker to verify that header. The `.workers.dev` URL bypasses
+# Access, so once this var is live any unauthenticated request there returns
+# 401 — closing the public backdoor documented in
+# docs/security-worker-backdoor-2026-04-12.md.
+routes = [
+  { pattern = "portal-api.guoyuer.com", custom_domain = true },
+]
+
+# Migration stage 1: Custom Domain live, `.workers.dev` still open, Worker
+# does NOT enforce the Access header yet. Pages can be cut over to the new
+# URL (which is already protected by Access) while the old URL keeps working
+# as a safety net. A follow-up PR flips REQUIRE_AUTH to "true" and disables
+# `workers_dev` to close the backdoor.
+[vars]
+REQUIRE_AUTH = "false"
+ALLOWED_EMAIL = "guoyuer1@gmail.com"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "portal-db"

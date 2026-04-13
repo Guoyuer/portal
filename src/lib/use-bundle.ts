@@ -75,7 +75,13 @@ export function useBundle(): BundleState {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(TIMELINE_URL, { cache: "no-store", signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+        const res = await fetch(TIMELINE_URL, {
+          cache: "no-store",
+          // CF Access cookie is set on the Custom Domain; include it on
+          // cross-origin fetches from portal.guoyuer.com so Access can validate.
+          credentials: "include",
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        });
         if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
         const json = await res.json();
         const parsed = TimelineDataSchema.safeParse(json);
