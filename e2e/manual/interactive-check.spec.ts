@@ -1,6 +1,7 @@
 /**
  * Interactive E2E check — screenshots of every section + brush interaction.
- * Run: npx playwright test e2e/interactive-check.spec.ts --headed
+ * Excluded from CI via playwright.config.ts `testIgnore` on `manual/`.
+ * Run: npx playwright test e2e/manual/interactive-check.spec.ts --headed
  */
 import { test, expect, Page } from "@playwright/test";
 

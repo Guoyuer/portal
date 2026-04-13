@@ -9,6 +9,7 @@ export {
   type FidelityTxn,
   type QianjiTxn,
   type TimelineData,
+  type TimelineErrors,
   type IndexReturn,
   type MarketData,
   type StockDetail,

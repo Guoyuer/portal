@@ -15,12 +15,3 @@ def fixtures_dir():
 @pytest.fixture
 def history_sample_csv():
     return FIXTURES_DIR / "history_sample.csv"
-
-
-@pytest.fixture
-def positions_sample_csv():
-    """Latest real positions CSV if available."""
-    csvs = sorted(Path("data").glob("Portfolio_Positions_*.csv"))
-    if not csvs:
-        pytest.skip("No positions CSV found in data/")
-    return csvs[-1]

@@ -6,7 +6,7 @@ export default defineConfig({
     alias: { "@": path.resolve(__dirname, "src") },
   },
   test: {
-    include: ["src/**/*.test.{ts,tsx}"],
+    include: ["src/**/*.test.{ts,tsx}", "worker/src/**/*.test.ts", "worker-gmail/src/**/*.test.ts"],
     coverage: {
       provider: "v8",
       reporter: ["text", "json-summary", "json"],

@@ -2,6 +2,9 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./e2e",
+  // e2e/manual/ holds interactive debug tools (screenshot-capturing specs);
+  // run explicitly with `npx playwright test e2e/manual/*.spec.ts --headed`.
+  testIgnore: /manual\//,
   fullyParallel: true,
   retries: process.env.CI ? 1 : 0,
   workers: process.env.CI ? 2 : undefined,

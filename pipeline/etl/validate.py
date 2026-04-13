@@ -3,12 +3,20 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import date, timedelta
 from enum import Enum
 from pathlib import Path
 
 from .db import get_connection
 
 log = logging.getLogger(__name__)
+
+# Day-over-day anomalies older than this (relative to the latest computed_daily
+# date) are not actionable: `daily_close` is immutable past the refresh window
+# (PR #98), so an old jump is a permanent fact (typically a 401k QFX-snapshot
+# step-function). Only surface recent spikes where the user can actually
+# investigate an incoming data issue.
+_DAY_OVER_DAY_WINDOW_DAYS = 7
 
 
 # ── Types ───────────────────────────────────────────────────────────────────
@@ -61,7 +69,8 @@ def _check_total_vs_tickers(db_path: Path) -> list[CheckResult]:
 
 
 def _check_day_over_day(db_path: Path) -> list[CheckResult]:
-    """Flag suspicious day-over-day total changes."""
+    """Flag suspicious day-over-day total changes within the recent window
+    (anchored to the latest computed_daily date, not wall-clock today)."""
     conn = get_connection(db_path)
     try:
         rows = conn.execute(
@@ -70,11 +79,18 @@ def _check_day_over_day(db_path: Path) -> list[CheckResult]:
     finally:
         conn.close()
 
+    if not rows:
+        return []
+    latest_date = date.fromisoformat(rows[-1][0])
+    cutoff_date = latest_date - timedelta(days=_DAY_OVER_DAY_WINDOW_DAYS)
+
     results: list[CheckResult] = []
     for i in range(1, len(rows)):
         prev_date, prev_total = rows[i - 1]
         curr_date, curr_total = rows[i]
         if prev_total == 0:
+            continue
+        if date.fromisoformat(curr_date) < cutoff_date:
             continue
         pct_change = abs((curr_total - prev_total) / prev_total) * 100
         abs_change = abs(curr_total - prev_total)

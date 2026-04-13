@@ -1,5 +1,6 @@
 import { upsertEmails, listActiveLast7Days, markTrashed } from "./db.js";
 import type { UpsertInput } from "./types.js";
+import { imapOk, parseSearchUid } from "./imap-parse.js";
 import { connect } from "cloudflare:sockets";
 
 interface Env {
@@ -69,15 +70,6 @@ async function readUntilTag(
     if (re.test(buf)) return buf;
   }
   throw new Error("imap read timeout");
-}
-
-function imapOk(response: string, tag: string): boolean {
-  return new RegExp(`^${tag} OK`, "m").test(response);
-}
-
-function parseSearchUid(response: string): string | null {
-  const m = response.match(/^\* SEARCH\s+(\d+)/m);
-  return m ? m[1] : null;
 }
 
 export async function imapTrashMessage(
