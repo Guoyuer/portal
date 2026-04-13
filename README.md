@@ -233,7 +233,7 @@ portal/
 │   │   ├── sync_to_d1.py             # Push timemachine.db tables to D1
 │   │   ├── gen_schema_sql.py          # Auto-generate worker/schema.sql from db.py
 │   │   ├── verify_positions.py        # Verify Fidelity replay accuracy
-│   │   ├── verify_qianji.py           # Verify Qianji replay accuracy
+│   │   ├── inspect_qianji.py          # Debug/inspect Qianji replay (no drift gate)
 │   │   ├── create_test_db.py          # Generate test fixture DB
 │   │   └── gmail/                     # Gmail triage daily classifier (GH Actions)
 │   │       ├── triage.py              # CLI: fetch 24h unread → classify → POST /mail/sync

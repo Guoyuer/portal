@@ -33,10 +33,18 @@ import etl.dotenv_loader  # noqa: E402, F401  (side effect: load pipeline/.env)
 from etl.allocation import compute_daily_allocation
 from etl.categories import ingest_categories
 from etl.db import (
+    append_daily,
     get_connection,
+    get_last_computed_date,
     init_db,
 )
-from etl.empower_401k import (
+from etl.ingest.empower_401k import (
+    ingest_empower_contributions,
+    ingest_empower_qfx,
+)
+from etl.ingest.fidelity_history import ingest_fidelity_csv
+from etl.ingest.qianji_db import ingest_qianji_transactions, load_all_from_db
+from etl.k401 import (
     PROXY_TICKERS,
     Contribution,
     QuarterSnapshot,
@@ -44,13 +52,6 @@ from etl.empower_401k import (
     load_all_contributions,
     load_all_qfx,
 )
-from etl.incremental import append_daily, get_last_computed_date
-from etl.ingest.empower_401k import (
-    ingest_empower_contributions,
-    ingest_empower_qfx,
-)
-from etl.ingest.fidelity_history import ingest_fidelity_csv
-from etl.ingest.qianji_db import ingest_qianji_transactions, load_all_from_db
 from etl.precompute import (
     precompute_holdings_detail,
     precompute_market,

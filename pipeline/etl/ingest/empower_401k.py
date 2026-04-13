@@ -1,17 +1,11 @@
-"""Write Empower 401k snapshots and BUYMF contributions into the timemachine DB.
-
-Parsing and computation (QFX → ``QuarterSnapshot`` / ``Contribution``, daily
-interpolation from proxy prices) live in ``etl.empower_401k``
-at the package root. This module owns only the DB-write side of that pipeline
-so each source's ingest sits next to the rest of the ``ingest/`` subpackage.
-"""
+"""Write Empower 401k snapshots and BUYMF contributions into the timemachine DB."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 from ..db import get_connection
-from ..empower_401k import Contribution, parse_qfx
+from ..k401 import Contribution, parse_qfx
 
 
 def ingest_empower_qfx(db_path: Path, qfx_path: Path) -> int:
