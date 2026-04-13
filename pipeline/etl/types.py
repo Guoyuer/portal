@@ -87,7 +87,6 @@ parse_float = parse_currency
 class AssetInfo(TypedDict, total=False):
     category: str
     subtype: str
-    source: str  # "fidelity", "linked", or "manual" (for portfolio reconciliation)
 
 
 class QianjiAccountsConfig(TypedDict, total=False):

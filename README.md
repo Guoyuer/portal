@@ -224,10 +224,9 @@ portal/
 │   │   │   ├── fidelity_history.py    # Fidelity transaction CSV parser
 │   │   │   ├── robinhood_history.py   # Robinhood transaction CSV parser
 │   │   │   └── qianji_db.py           # Qianji SQLite reader
-│   │   ├── market/
-│   │   │   ├── yahoo.py               # Yahoo Finance: index returns, CNY rate
-│   │   │   └── fred.py                # FRED API: Fed rate, CPI, VIX, oil, etc.
-│   │   └── reconcile.py               # Qianji ↔ Fidelity cross-reconciliation
+│   │   └── market/
+│   │       ├── yahoo.py               # Yahoo Finance: index returns, CNY rate
+│   │       └── fred.py                # FRED API: Fed rate, CPI, VIX, oil, etc.
 │   ├── scripts/
 │   │   ├── build_timemachine_db.py    # Main build: ingest → replay → precompute → SQLite
 │   │   ├── sync_to_d1.py             # Push timemachine.db tables to D1
