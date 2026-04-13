@@ -432,18 +432,25 @@ class TestFindPriceDate:
 
     def test_exact_match_returns_target(self) -> None:
         prices = self._prices(["2025-01-02", "2025-01-03"])
-        assert _find_price_date(prices, date(2025, 1, 3), date(2025, 1, 1)) == date(2025, 1, 3)
+        assert _find_price_date(prices, date(2025, 1, 3)) == date(2025, 1, 3)
 
     def test_walks_back_to_prior_trading_day(self) -> None:
         # Saturday → walk back to Friday
         prices = self._prices(["2025-01-03"])  # Friday
-        assert _find_price_date(prices, date(2025, 1, 4), date(2025, 1, 1)) == date(2025, 1, 3)
+        assert _find_price_date(prices, date(2025, 1, 4)) == date(2025, 1, 3)
 
-    def test_stops_at_floor(self) -> None:
-        # No prices exist, should stop at floor
+    def test_walks_across_weekend_to_prior_friday(self) -> None:
+        # Regression for the incremental-start bug: when compute range starts
+        # on a Saturday (inc_start = last_built + 1 = Fri + 1), Monday's
+        # mutual-fund T-1 lookup (Sunday) must still walk back to Friday.
+        prices = self._prices(["2026-04-10"])  # Friday
+        assert _find_price_date(prices, date(2026, 4, 12)) == date(2026, 4, 10)
+
+    def test_stops_at_earliest_when_target_before_data(self) -> None:
+        # Target precedes all available data → walk can't advance past target.
         prices = self._prices(["2025-06-01"])
-        result = _find_price_date(prices, date(2025, 1, 5), date(2025, 1, 2))
-        assert result == date(2025, 1, 2)  # floor, not in prices
+        result = _find_price_date(prices, date(2025, 1, 5))
+        assert result == date(2025, 1, 5)  # no walk possible; caller will skip
 
 
 # ── _categorize_ticker ──────────────────────────────────────────────────────
@@ -626,7 +633,7 @@ class TestResolveDateWindows:
         cny = {date(2025, 1, 3): 7.25}
         # Monday requested, should walk back to Friday
         price_date, mf_price_date, cny_rate = _resolve_date_windows(
-            prices, cny, date(2025, 1, 6), date(2025, 1, 1),
+            prices, cny, date(2025, 1, 6),
         )
         assert price_date == date(2025, 1, 3)
         assert cny_rate == 7.25
@@ -638,7 +645,7 @@ class TestResolveDateWindows:
             data={"VTI": [250.0]},
         )
         with _pytest.raises(ValueError, match="No CNY rate"):
-            _resolve_date_windows(prices, {}, date(2025, 1, 3), date(2025, 1, 1))
+            _resolve_date_windows(prices, {}, date(2025, 1, 3))
 
 
 # ── _build_allocation_row ──────────────────────────────────────────────────
