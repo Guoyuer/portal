@@ -2,8 +2,11 @@
 yfinance==1.2.1
 fredapi>=0.5,<1
 
-# HTTP client (used by tests)
+# HTTP client (used by tests + gmail triage worker_sync)
 httpx>=0.28,<1
+
+# Gmail auto-triage classifier (scripts/gmail/classify.py)
+anthropic>=0.40.0
 
 # .env auto-loader (dev convenience; existing env vars still win)
 python-dotenv>=1.2.0,<2

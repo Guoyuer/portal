@@ -2,6 +2,7 @@
 
 # dependencies
 /node_modules
+**/node_modules
 /.pnp
 .pnp.*
 .yarn/*
@@ -62,6 +63,7 @@ screenshots-before/
 *.png
 *.txt
 !README*.txt
+!**/requirements*.txt
 data/
 *.coverage
 pipeline/.coverage

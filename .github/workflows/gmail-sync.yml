@@ -1,0 +1,31 @@
+name: Gmail Sync
+on:
+  schedule:
+    - cron: "0 22 * * *"     # 22:00 UTC = 07:00 +08 (no DST)
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r pipeline/scripts/gmail/requirements.txt
+
+      - name: Run triage
+        working-directory: pipeline
+        run: python scripts/gmail/triage.py --sync
+        env:
+          PORTAL_SMTP_USER:          ${{ secrets.PORTAL_SMTP_USER }}
+          PORTAL_SMTP_PASSWORD:      ${{ secrets.PORTAL_SMTP_PASSWORD }}
+          PORTAL_GMAIL_WORKER_URL:   ${{ secrets.PORTAL_GMAIL_WORKER_URL }}
+          PORTAL_GMAIL_SYNC_SECRET:  ${{ secrets.PORTAL_GMAIL_SYNC_SECRET }}
+          ANTHROPIC_API_KEY:         ${{ secrets.ANTHROPIC_API_KEY }}
