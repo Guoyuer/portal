@@ -1,4 +1,4 @@
-import { upsertEmails, listActiveLast7Days } from "./db.js";
+import { upsertEmails, listActiveLast7Days, markTrashed } from "./db.js";
 import type { UpsertInput } from "./types.js";
 import { connect } from "cloudflare:sockets";
 
@@ -178,7 +178,34 @@ export default {
       return new Response(null, { status: 204, headers: corsHeaders() });
     }
     if (url.pathname === "/mail/trash" && request.method === "POST") {
-      return new Response("not implemented", { status: 501 });
+      if (!authUser(request, url, env)) {
+        return Response.json({ error: "unauthorized" }, { status: 401, headers: corsHeaders() });
+      }
+      let body: { msg_id?: string };
+      try {
+        body = await request.json();
+      } catch {
+        return Response.json({ error: "invalid json" }, { status: 400, headers: corsHeaders() });
+      }
+      if (!body.msg_id) {
+        return Response.json({ error: "missing msg_id" }, { status: 400, headers: corsHeaders() });
+      }
+
+      const result = await imapTrashMessage(env.SMTP_USER, env.SMTP_PASSWORD, body.msg_id);
+
+      if (result === "trashed") {
+        await markTrashed(env.DB, body.msg_id);
+        return Response.json({ status: "trashed" }, { headers: corsHeaders() });
+      }
+      if (result === "not_found") {
+        // Email already gone from Gmail (user trashed elsewhere). Update D1 to match.
+        await markTrashed(env.DB, body.msg_id);
+        return Response.json({ status: "already_gone" }, { headers: corsHeaders() });
+      }
+      if (result === "auth_failed") {
+        return Response.json({ status: "auth_failed" }, { status: 503, headers: corsHeaders() });
+      }
+      return Response.json({ status: "error" }, { status: 503, headers: corsHeaders() });
     }
     return new Response("Not found", { status: 404 });
   },
