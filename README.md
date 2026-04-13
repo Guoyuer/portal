@@ -150,8 +150,10 @@ portal/
 │   │   ├── page.tsx                   # / → redirects to /finance
 │   │   ├── finance/
 │   │   │   └── page.tsx               # Finance dashboard (client component)
-│   │   └── econ/
-│   │       └── page.tsx               # Economy dashboard (FRED charts)
+│   │   ├── econ/
+│   │   │   └── page.tsx               # Economy dashboard (FRED charts)
+│   │   └── mail/
+│   │       └── page.tsx               # Gmail triage tab (client, URL-key auth)
 │   ├── components/
 │   │   ├── layout/
 │   │   │   ├── sidebar.tsx            # Nav sidebar
@@ -171,10 +173,15 @@ portal/
 │   │   ├── econ/
 │   │   │   ├── macro-cards.tsx        # Economic snapshot cards
 │   │   │   └── time-series-chart.tsx  # Multi-line FRED chart viewer
+│   │   ├── mail/
+│   │   │   ├── mail-list.tsx          # 3-section grouped list
+│   │   │   ├── mail-row.tsx           # single email row with actions
+│   │   │   └── delete-button.tsx      # optimistic IMAP trash button
 │   │   └── ui/                        # shadcn/ui (Button, Table)
 │   └── lib/
 │       ├── use-bundle.ts              # Core data hook: fetch /timeline → local compute
-│       ├── schemas/                   # Zod API schemas (timeline, econ, ticker) + index
+│       ├── use-mail.ts                # Gmail triage hook (key-resolve + optimistic delete)
+│       ├── schemas/                   # Zod API schemas (timeline, econ, ticker, mail) + index
 │       ├── computed-types.ts          # Client-computed TS types (not Zod-derived)
 │       ├── compute.ts                 # Pure computation (allocation, cashflow, activity)
 │       ├── config.ts                  # WORKER_BASE, TIMELINE_URL, ECON_URL, GOAL
@@ -184,10 +191,20 @@ portal/
 │       ├── thresholds.ts              # Business thresholds + value coloring
 │       └── utils.ts                   # General utilities
 │
-├── worker/                            # Cloudflare Worker (TypeScript)
+├── worker/                            # Cloudflare Worker (TypeScript) — Finance/Econ
 │   ├── src/index.ts                   # GET /timeline, /econ, /prices/:symbol → D1 → JSON
 │   ├── schema.sql                     # D1 tables + camelCase views
 │   ├── wrangler.toml                  # D1 binding config
+│   ├── tsconfig.json
+│   └── package.json
+│
+├── worker-gmail/                      # Cloudflare Worker (TypeScript) — Gmail triage
+│   ├── src/index.ts                   # POST /mail/sync, GET /mail/list, POST /mail/trash
+│   │                                  # Includes hand-rolled IMAP via cloudflare:sockets
+│   ├── src/db.ts                      # D1 helpers (INSERT OR IGNORE, list, markTrashed)
+│   ├── src/types.ts                   # Category / UpsertInput / TriagedEmail
+│   ├── schema.sql                     # triaged_emails table + indexes
+│   ├── wrangler.jsonc                 # D1 binding + nodejs_compat
 │   ├── tsconfig.json
 │   └── package.json
 │
@@ -202,7 +219,6 @@ portal/
 │   │   ├── prices.py                  # Yahoo Finance price + CNY rate fetcher
 │   │   ├── empower_401k.py            # Empower 401k QFX snapshot parser
 │   │   ├── types.py                   # Source-of-truth dataclasses
-│   │   ├── portfolio.py               # Load positions from Fidelity CSV
 │   │   ├── config.py                  # JSON config loader
 │   │   ├── ingest/
 │   │   │   ├── fidelity_history.py    # Fidelity transaction CSV parser
@@ -218,7 +234,12 @@ portal/
 │   │   ├── gen_schema_sql.py          # Auto-generate worker/schema.sql from db.py
 │   │   ├── verify_positions.py        # Verify Fidelity replay accuracy
 │   │   ├── verify_qianji.py           # Verify Qianji replay accuracy
-│   │   └── create_test_db.py          # Generate test fixture DB
+│   │   ├── create_test_db.py          # Generate test fixture DB
+│   │   └── gmail/                     # Gmail triage daily classifier (GH Actions)
+│   │       ├── triage.py              # CLI: fetch 24h unread → classify → POST /mail/sync
+│   │       ├── imap_client.py         # imaplib + MIME parse
+│   │       ├── classify.py            # Anthropic Haiku, batched + fence-strip + bracket-match
+│   │       └── worker_sync.py         # httpx POST to worker-gmail
 │   ├── tests/                         # Unit + contract tests
 │   │   ├── unit/                      # Unit tests
 │   │   ├── contract/                  # Data invariant tests
@@ -236,7 +257,8 @@ portal/
 │   └── interactive-check.spec.ts      # Interactive component tests
 │
 ├── .github/workflows/
-│   └── ci.yml                         # Python + Node CI → Pages + Worker deploy
+│   ├── ci.yml                         # Python + Node CI → Pages + Worker deploy
+│   └── gmail-sync.yml                 # Daily 22:00 UTC → run gmail/triage.py --sync
 │
 └── package.json
 ```
@@ -307,6 +329,10 @@ cd worker && npx wrangler dev --remote   # http://localhost:8787
 # Dev server (fetches from TIMELINE_URL)
 npm run dev              # http://localhost:3000
 
+# Gmail triage — dry-run against real Gmail, skip Worker sync
+# (requires PORTAL_SMTP_USER/PASSWORD + ANTHROPIC_API_KEY in env)
+cd pipeline && .venv/Scripts/python.exe scripts/gmail/triage.py --sync --dry-run
+
 # Run tests
 cd pipeline && .venv/bin/pytest -q                          # Python tests
 cd pipeline && .venv/bin/mypy etl/ --ignore-missing-imports
@@ -333,6 +359,7 @@ cd pipeline && .venv/Scripts/python.exe scripts/run_automation.py
 5. **GitHub Secrets**: `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `NEXT_PUBLIC_TIMELINE_URL`, `FRED_API_KEY`
 6. **Config**: Copy `config.example.json` → `config.json`, fill in your accounts
 7. **First build**: `cd pipeline && python3 scripts/build_timemachine_db.py && python3 scripts/sync_to_d1.py`
+8. **Gmail triage (optional)**: `cd worker-gmail && npx wrangler d1 create portal-gmail` → apply `schema.sql` → `wrangler secret put` for `SYNC_SECRET`, `USER_KEY`, `SMTP_USER`, `SMTP_PASSWORD` → `wrangler deploy`. Add GH secrets `PORTAL_SMTP_*`, `PORTAL_GMAIL_WORKER_URL`, `PORTAL_GMAIL_SYNC_SECRET`, `ANTHROPIC_API_KEY`. First visit: `/mail?key=<USER_KEY>` once.
 
 ## Adding a New Module
 
