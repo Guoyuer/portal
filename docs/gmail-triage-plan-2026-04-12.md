@@ -1,58 +1,62 @@
-# Gmail Auto-Triage Implementation Plan
+# Gmail Auto-Triage v2 Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the Gmail auto-triage system designed in `docs/gmail-triage-design-2026-04-12.md`: a GH Actions cron runs a Python script that reads unread Gmail (IMAP), classifies via Claude Haiku, and emails a digest back to the user. The digest contains signed links to a Cloudflare Worker that trashes emails on click via IMAP.
+**Goal:** Build the v2 Gmail auto-triage system designed in `docs/gmail-triage-design-2026-04-12.md`. A GH Actions cron runs a Python script that fetches unread Gmail (IMAP), classifies via Claude Haiku, and POSTs results to a Cloudflare Worker. The Worker caches classifications in D1 and serves them to a new `/mail` tab in the Portal Next.js app. Delete button → Worker IMAP trash + D1 status update.
 
-**Architecture:** One Gmail app password covers everything (Python SMTP+IMAP + Worker IMAP). Worker is a single-file TypeScript service with 3 routes: POST `/sign` (internal HMAC), GET `/trash` (confirm page), POST `/trash` (IMAP-trash). Python is a small orchestrator under `pipeline/scripts/gmail/` with thin, testable modules.
+**Architecture:** 4 components — (1) Python classifier on GH Actions, (2) Cloudflare Worker with D1, (3) Portal Next.js `/mail` page, (4) GH Actions workflow. Auth: `SYNC_SECRET` header for GH → Worker, `USER_KEY` query param for Portal → Worker.
 
-**Tech Stack:**
-- Python 3.13, stdlib `imaplib`, `anthropic`, `httpx`
-- Cloudflare Workers (TypeScript), Web Crypto for HMAC, `cloudflare:sockets` for IMAP
-- GitHub Actions (cron schedule)
-- Reuses `etl.email_report` (SMTP send) from main
+**Tech Stack:** Python 3.13 + stdlib `imaplib` + `anthropic` + `httpx` · TypeScript Worker + `cloudflare:sockets` + D1 · Next.js 16 + React + Zod · GitHub Actions cron.
 
 **File structure** (all new):
 
 ```
 worker-gmail/
-├── src/index.ts          # all Worker code — single file, <400 LoC
+├── src/
+│   ├── index.ts           # routes + auth + IMAP — <500 LoC single file
+│   └── db.ts              # D1 helpers
+├── schema.sql
 ├── wrangler.jsonc
 ├── package.json
 └── tsconfig.json
 
 pipeline/scripts/gmail/
 ├── __init__.py
-├── triage.py             # CLI entry point
-├── imap_client.py        # IMAP connect, search, fetch
-├── classify.py           # Anthropic call + prompt
-├── digest_html.py        # HTML + text rendering
-├── worker_sign.py        # httpx POST /sign wrapper
+├── triage.py              # CLI: --sync / --dry-run
+├── imap_client.py
+├── classify.py
+├── worker_sync.py
 ├── requirements.txt
 └── README.md
 
 pipeline/tests/unit/gmail/
 ├── __init__.py
 ├── conftest.py
-├── fixtures/             # sample raw emails (.eml fixtures)
 ├── test_imap_client.py
 ├── test_classify.py
-├── test_digest_html.py
-└── test_worker_sign.py
+└── test_worker_sync.py
+
+src/app/mail/
+└── page.tsx
+
+src/components/mail/
+├── mail-list.tsx
+├── mail-row.tsx
+└── delete-button.tsx
+
+src/lib/schemas/mail.ts
+src/lib/use-mail.ts
 
 .github/workflows/
-└── gmail-digest.yml
+└── gmail-sync.yml
 ```
 
 ---
 
-## Task 1: Worker — scaffold
+## Task 1: Worker — scaffold + D1 binding
 
 **Files:**
-- Create: `worker-gmail/package.json`
-- Create: `worker-gmail/tsconfig.json`
-- Create: `worker-gmail/wrangler.jsonc`
-- Create: `worker-gmail/src/index.ts`
+- Create: `worker-gmail/package.json`, `worker-gmail/tsconfig.json`, `worker-gmail/wrangler.jsonc`, `worker-gmail/src/index.ts`
 
 - [ ] **Step 1: Create `worker-gmail/package.json`**
 
@@ -62,7 +66,7 @@ pipeline/tests/unit/gmail/
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "wrangler dev",
+    "dev": "wrangler dev --local",
     "deploy": "wrangler deploy"
   },
   "devDependencies": {
@@ -102,18 +106,26 @@ pipeline/tests/unit/gmail/
   "name": "worker-gmail",
   "main": "src/index.ts",
   "compatibility_date": "2024-09-01",
-  "compatibility_flags": ["nodejs_compat"]
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "portal-gmail",
+      "database_id": "REPLACE_WITH_REAL_ID_AFTER_CREATE"
+    }
+  ]
 }
 ```
 
-Secrets (`SIGNING_KEY`, `SIGNING_SECRET`, `SMTP_USER`, `SMTP_PASSWORD`) will be set via `wrangler secret put` at deploy time. No vars section needed.
+(`database_id` is filled in during the deploy step — `wrangler d1 create portal-gmail` prints it.)
 
 - [ ] **Step 4: Create `worker-gmail/src/index.ts` skeleton**
 
 ```ts
 interface Env {
-  SIGNING_KEY: string;
-  SIGNING_SECRET: string;
+  DB: D1Database;
+  SYNC_SECRET: string;
+  USER_KEY: string;
   SMTP_USER: string;
   SMTP_PASSWORD: string;
 }
@@ -121,10 +133,14 @@ interface Env {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    if (url.pathname === "/sign" && request.method === "POST") {
+
+    if (url.pathname === "/mail/sync" && request.method === "POST") {
       return new Response("not implemented", { status: 501 });
     }
-    if (url.pathname === "/trash") {
+    if (url.pathname === "/mail/list" && request.method === "GET") {
+      return new Response("not implemented", { status: 501 });
+    }
+    if (url.pathname === "/mail/trash" && request.method === "POST") {
       return new Response("not implemented", { status: 501 });
     }
     return new Response("Not found", { status: 404 });
@@ -140,251 +156,228 @@ npm install
 npx tsc --noEmit
 ```
 
-Expected: no errors.
+Expected: zero errors.
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add worker-gmail/
-git commit -m "feat(gmail-triage): scaffold worker-gmail with 3 route stubs"
+git commit -m "feat(gmail-triage): scaffold worker-gmail with D1 binding and 3 route stubs"
 ```
 
 ---
 
-## Task 2: Worker — HMAC sign/verify
+## Task 2: Worker — D1 schema
 
 **Files:**
-- Modify: `worker-gmail/src/index.ts` (add `signToken` / `verifyToken` functions)
+- Create: `worker-gmail/schema.sql`
 
-Token format per spec: `base64url(msg_id + "|" + expiry_unix + "|" + HMAC_SHA256(key, msg_id + "|" + expiry_unix))`.
+- [ ] **Step 1: Create `worker-gmail/schema.sql`**
 
-- [ ] **Step 1: Add HMAC helpers**
+```sql
+CREATE TABLE IF NOT EXISTS triaged_emails (
+  msg_id        TEXT PRIMARY KEY,
+  received_at   TEXT NOT NULL,
+  classified_at TEXT NOT NULL,
+  sender        TEXT NOT NULL,
+  subject       TEXT NOT NULL,
+  summary       TEXT NOT NULL,
+  category      TEXT NOT NULL
+                CHECK (category IN ('IMPORTANT','NEUTRAL','TRASH_CANDIDATE')),
+  status        TEXT NOT NULL DEFAULT 'active'
+                CHECK (status IN ('active','trashed'))
+);
 
-Insert before the default export:
+CREATE INDEX IF NOT EXISTS idx_triaged_classified_at
+  ON triaged_emails(classified_at DESC);
+CREATE INDEX IF NOT EXISTS idx_triaged_category_status
+  ON triaged_emails(category, status);
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add worker-gmail/schema.sql
+git commit -m "feat(gmail-triage): D1 schema — triaged_emails table"
+```
+
+---
+
+## Task 3: Worker — POST /mail/sync
+
+**Files:**
+- Create: `worker-gmail/src/db.ts`
+- Modify: `worker-gmail/src/index.ts`
+
+- [ ] **Step 1: Create `worker-gmail/src/types.ts` first (db.ts imports from it)**
 
 ```ts
-// ── HMAC token helpers ───────────────────────────────────────────────────────
+export type Category = "IMPORTANT" | "NEUTRAL" | "TRASH_CANDIDATE";
 
-const enc = new TextEncoder();
-const dec = new TextDecoder();
-
-function base64urlEncode(bytes: Uint8Array): string {
-  let bin = "";
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+export interface UpsertInput {
+  msg_id: string;
+  received_at: string;
+  classified_at: string;
+  sender: string;
+  subject: string;
+  summary: string;
+  category: Category;
 }
 
-function base64urlDecode(s: string): Uint8Array {
-  const pad = s.length % 4 === 0 ? "" : "=".repeat(4 - (s.length % 4));
-  const bin = atob(s.replaceAll("-", "+").replaceAll("_", "/") + pad);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return bytes;
-}
-
-async function hmacSha256(keyBytes: Uint8Array, data: Uint8Array): Promise<Uint8Array> {
-  const key = await crypto.subtle.importKey(
-    "raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
-  );
-  const sig = await crypto.subtle.sign("HMAC", key, data);
-  return new Uint8Array(sig);
-}
-
-function timingSafeEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
-  return diff === 0;
-}
-
-async function signToken(msgId: string, expiryUnix: number, keyHex: string): Promise<string> {
-  const keyBytes = hexToBytes(keyHex);
-  const payload = `${msgId}|${expiryUnix}`;
-  const sig = await hmacSha256(keyBytes, enc.encode(payload));
-  const combined = enc.encode(payload + "|");
-  const out = new Uint8Array(combined.length + sig.length);
-  out.set(combined, 0);
-  out.set(sig, combined.length);
-  return base64urlEncode(out);
-}
-
-async function verifyToken(
-  token: string, keyHex: string,
-): Promise<{ msgId: string; expiryUnix: number } | null> {
-  let bytes: Uint8Array;
-  try {
-    bytes = base64urlDecode(token);
-  } catch {
-    return null;
-  }
-  const text = dec.decode(bytes);
-  const lastPipe = text.lastIndexOf("|");
-  if (lastPipe < 0) return null;
-  const payload = text.slice(0, lastPipe);
-  const sigStart = enc.encode(payload + "|").length;
-  const providedSig = bytes.slice(sigStart);
-
-  const [msgId, expiryStr] = payload.split("|");
-  if (!msgId || !expiryStr) return null;
-  const expiryUnix = parseInt(expiryStr, 10);
-  if (!Number.isFinite(expiryUnix)) return null;
-  if (expiryUnix < Math.floor(Date.now() / 1000)) return null;
-
-  const keyBytes = hexToBytes(keyHex);
-  const expected = await hmacSha256(keyBytes, enc.encode(payload));
-  if (!timingSafeEqual(providedSig, expected)) return null;
-
-  return { msgId, expiryUnix };
-}
-
-function hexToBytes(hex: string): Uint8Array {
-  const out = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-  return out;
+export interface TriagedEmail extends UpsertInput {
+  status: "active" | "trashed";
 }
 ```
 
-- [ ] **Step 2: Typecheck**
+- [ ] **Step 2: Create `worker-gmail/src/db.ts`**
+
+```ts
+import type { TriagedEmail, UpsertInput } from "./types.js";
+
+export async function upsertEmails(db: D1Database, rows: UpsertInput[]): Promise<{ inserted: number; skipped: number }> {
+  let inserted = 0;
+  let skipped = 0;
+  // INSERT OR IGNORE preserves status='trashed' for rows the user has already acted on.
+  const stmt = db.prepare(
+    `INSERT OR IGNORE INTO triaged_emails
+       (msg_id, received_at, classified_at, sender, subject, summary, category)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  );
+  for (const r of rows) {
+    const result = await stmt
+      .bind(r.msg_id, r.received_at, r.classified_at, r.sender, r.subject, r.summary, r.category)
+      .run();
+    if (result.meta.changes === 1) inserted++;
+    else skipped++;
+  }
+  return { inserted, skipped };
+}
+
+export async function listActiveLast7Days(db: D1Database): Promise<TriagedEmail[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT msg_id, received_at, classified_at, sender, subject, summary, category, status
+         FROM triaged_emails
+        WHERE status = 'active'
+          AND classified_at > datetime('now', '-7 days')
+        ORDER BY received_at DESC`
+    )
+    .all<TriagedEmail>();
+  return results ?? [];
+}
+
+export async function markTrashed(db: D1Database, msgId: string): Promise<boolean> {
+  const result = await db
+    .prepare(`UPDATE triaged_emails SET status = 'trashed' WHERE msg_id = ? AND status = 'active'`)
+    .bind(msgId)
+    .run();
+  return result.meta.changes > 0;
+}
+```
+
+- [ ] **Step 3: Replace the `/mail/sync` stub in `index.ts`**
+
+Add to the top of the file (after Env interface):
+
+```ts
+import { upsertEmails, listActiveLast7Days, markTrashed } from "./db.js";
+import type { UpsertInput, Category } from "./types.js";
+```
+
+Then replace the `/mail/sync` branch:
+
+```ts
+    if (url.pathname === "/mail/sync" && request.method === "POST") {
+      if (request.headers.get("X-Sync-Secret") !== env.SYNC_SECRET) {
+        return new Response("unauthorized", { status: 401 });
+      }
+      let body: { classified_at?: string; emails?: UpsertInput[] };
+      try {
+        body = await request.json();
+      } catch {
+        return new Response("invalid json", { status: 400 });
+      }
+      if (!Array.isArray(body.emails)) {
+        return new Response("missing emails array", { status: 400 });
+      }
+      // Minimal validation — reject rows missing required fields. Full schema
+      // enforcement is done client-side in Python before POST.
+      for (const e of body.emails) {
+        if (!e.msg_id || !e.sender || !e.category || !e.received_at) {
+          return new Response(`invalid email row: ${JSON.stringify(e)}`, { status: 400 });
+        }
+      }
+      const result = await upsertEmails(env.DB, body.emails);
+      return Response.json({ inserted: result.inserted, skipped_existing: result.skipped });
+    }
+```
+
+- [ ] **Step 4: Typecheck**
 
 ```bash
 cd worker-gmail
 npx tsc --noEmit
 ```
 
-Expected: no errors.
+Expected: zero errors.
 
-- [ ] **Step 3: Smoke test with `wrangler dev` in a tmp script**
-
-Create temporary `worker-gmail/scratch/sign.ts` (not committed — just for local verification):
-
-```ts
-// Run: npx ts-node --esm scratch/sign.ts
-// Or paste into the Worker's fetch handler temporarily and hit it with curl.
-```
-
-Skip formal test. The routes below exercise HMAC and will fail fast if broken.
-
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add worker-gmail/src/index.ts
-git commit -m "feat(gmail-triage): HMAC sign/verify helpers in Worker"
+git add worker-gmail/src/
+git commit -m "feat(gmail-triage): POST /mail/sync with SYNC_SECRET auth + D1 upsert"
 ```
 
 ---
 
-## Task 3: Worker — POST /sign route
+## Task 4: Worker — GET /mail/list
 
 **Files:**
 - Modify: `worker-gmail/src/index.ts`
 
-- [ ] **Step 1: Implement /sign handler**
-
-Replace the `if (url.pathname === "/sign" && request.method === "POST")` branch:
-
-```ts
-    if (url.pathname === "/sign" && request.method === "POST") {
-      if (request.headers.get("X-Signing-Secret") !== env.SIGNING_SECRET) {
-        return new Response("unauthorized", { status: 401 });
-      }
-      let body: { msg_id?: string; expiry?: number };
-      try {
-        body = await request.json();
-      } catch {
-        return new Response("invalid json", { status: 400 });
-      }
-      if (!body.msg_id || typeof body.msg_id !== "string") {
-        return new Response("missing msg_id", { status: 400 });
-      }
-      const expiry = body.expiry ?? Math.floor(Date.now() / 1000) + 7 * 86400;
-      const token = await signToken(body.msg_id, expiry, env.SIGNING_KEY);
-      return Response.json({ token });
-    }
-```
-
-- [ ] **Step 2: Local smoke test with `wrangler dev`**
-
-```bash
-cd worker-gmail
-npx wrangler dev --local --var SIGNING_KEY:$(openssl rand -hex 32) --var SIGNING_SECRET:test-secret --var SMTP_USER:x --var SMTP_PASSWORD:x
-```
-
-In another terminal:
-
-```bash
-# Missing header → 401
-curl -i -X POST http://127.0.0.1:8787/sign -d '{"msg_id":"abc"}'
-
-# Happy path → 200 with token
-curl -i -X POST http://127.0.0.1:8787/sign \
-  -H "X-Signing-Secret: test-secret" \
-  -H "Content-Type: application/json" \
-  -d '{"msg_id":"<abc@example.com>"}'
-```
-
-Expected: second curl returns `{"token":"..."}` with a ~80 char base64url token.
-
-Stop `wrangler dev` with Ctrl+C.
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add worker-gmail/src/index.ts
-git commit -m "feat(gmail-triage): POST /sign route with HMAC + shared-secret auth"
-```
-
----
-
-## Task 4: Worker — GET /trash confirm page
-
-**Files:**
-- Modify: `worker-gmail/src/index.ts`
-
-- [ ] **Step 1: Add a helper to render HTML pages**
+- [ ] **Step 1: Add a key-auth helper near the top of `index.ts`**
 
 Before the default export:
 
 ```ts
-function htmlPage(title: string, body: string, status = 200): Response {
-  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title>
-<style>body{font-family:-apple-system,Segoe UI,sans-serif;max-width:480px;margin:6rem auto;padding:0 1rem;color:#222;line-height:1.5}
-button,input[type=submit]{background:#2e7d32;color:white;border:0;padding:.6rem 1.2rem;font-size:16px;border-radius:6px;cursor:pointer}
-.muted{color:#666;font-size:14px}</style></head><body>${body}</body></html>`;
-  return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8" } });
+function authUser(request: Request, url: URL, env: Env): boolean {
+  const headerKey = request.headers.get("X-Mail-Key");
+  const queryKey = url.searchParams.get("key");
+  const provided = headerKey ?? queryKey ?? "";
+  if (!provided) return false;
+  // Constant-time compare
+  if (provided.length !== env.USER_KEY.length) return false;
+  let diff = 0;
+  for (let i = 0; i < provided.length; i++) diff |= provided.charCodeAt(i) ^ env.USER_KEY.charCodeAt(i);
+  return diff === 0;
+}
+
+function corsHeaders(): Headers {
+  const h = new Headers();
+  h.set("Access-Control-Allow-Origin", "*");
+  h.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  h.set("Access-Control-Allow-Headers", "Content-Type, X-Mail-Key");
+  return h;
 }
 ```
 
-- [ ] **Step 2: Replace `/trash` branch to handle GET**
+Note on CORS: v1 of this plan can accept `Access-Control-Allow-Origin: *`. When Portal's deployed domain is known, change to that specific origin. Justification: the endpoint is key-protected, so CORS is not the security boundary.
 
-Replace the `if (url.pathname === "/trash")` branch:
+- [ ] **Step 2: Replace `/mail/list` branch**
 
 ```ts
-    if (url.pathname === "/trash") {
-      const token = url.searchParams.get("t") ?? "";
-      const verified = await verifyToken(token, env.SIGNING_KEY);
-
-      if (request.method === "GET") {
-        if (!verified) {
-          return htmlPage("Invalid link", `<h2>Invalid or expired link</h2>
-<p class="muted">This link is either tampered, corrupted, or older than 7 days.</p>`, 410);
-        }
-        const safeId = verified.msgId.replace(/[<>&"]/g, (c) =>
-          ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" })[c]!);
-        return htmlPage("Trash email?", `<h2>Trash this email?</h2>
-<p class="muted">Message-ID: <code>${safeId}</code></p>
-<p class="muted">Recoverable for 30 days in Gmail Trash.</p>
-<form method="POST" action="/trash">
-  <input type="hidden" name="t" value="${token.replace(/"/g, "&quot;")}">
-  <input type="submit" value="Confirm trash">
-</form>`);
+    if (url.pathname === "/mail/list" && request.method === "GET") {
+      if (!authUser(request, url, env)) {
+        return new Response("unauthorized", { status: 401, headers: corsHeaders() });
       }
-
-      if (request.method === "POST") {
-        // Implemented in Task 6
-        return new Response("not implemented", { status: 501 });
-      }
-
-      return new Response("method not allowed", { status: 405 });
+      const rows = await listActiveLast7Days(env.DB);
+      return Response.json(
+        { emails: rows, as_of: new Date().toISOString() },
+        { headers: corsHeaders() },
+      );
+    }
+    if (request.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: corsHeaders() });
     }
 ```
 
@@ -392,28 +385,49 @@ Replace the `if (url.pathname === "/trash")` branch:
 
 ```bash
 cd worker-gmail
-npx wrangler dev --local --var SIGNING_KEY:... --var SIGNING_SECRET:test-secret --var SMTP_USER:x --var SMTP_PASSWORD:x
+# D1 local uses a sqlite file under .wrangler/. Initialize it:
+npx wrangler d1 execute portal-gmail --local --file=schema.sql
+# Start dev server (pass required secrets as vars for local)
+npx wrangler dev --local \
+  --var SYNC_SECRET:sync-test \
+  --var USER_KEY:user-test-abcdef \
+  --var SMTP_USER:x --var SMTP_PASSWORD:x
 ```
 
-Get a token:
+In another terminal:
 
 ```bash
-TOKEN=$(curl -s -X POST http://127.0.0.1:8787/sign \
-  -H "X-Signing-Secret: test-secret" -H "Content-Type: application/json" \
-  -d '{"msg_id":"<abc@example.com>"}' | jq -r .token)
+# 1. Unauthorized without key
+curl -i "http://127.0.0.1:8787/mail/list"
+# Expected: 401
 
-curl -s "http://127.0.0.1:8787/trash?t=$TOKEN" | grep -o "Confirm trash"
-# Expected: Confirm trash
+# 2. Sync a row
+curl -s -X POST http://127.0.0.1:8787/mail/sync \
+  -H "X-Sync-Secret: sync-test" \
+  -H "Content-Type: application/json" \
+  -d '{"classified_at":"2026-04-12T22:00:00Z","emails":[{
+    "msg_id":"<t1@x>",
+    "received_at":"2026-04-12T10:00:00Z",
+    "classified_at":"2026-04-12T22:00:00Z",
+    "sender":"a@b",
+    "subject":"Hi",
+    "summary":"test",
+    "category":"IMPORTANT"
+  }]}'
+# Expected: {"inserted":1,"skipped_existing":0}
 
-curl -s "http://127.0.0.1:8787/trash?t=invalid" | grep -o "Invalid or expired"
-# Expected: Invalid or expired
+# 3. List with key
+curl -s "http://127.0.0.1:8787/mail/list?key=user-test-abcdef" | jq
+# Expected: {"emails":[{...t1...}], "as_of": "..."}
 ```
+
+Stop `wrangler dev` with Ctrl+C.
 
 - [ ] **Step 4: Commit**
 
 ```bash
 git add worker-gmail/src/index.ts
-git commit -m "feat(gmail-triage): GET /trash confirm page with HMAC verify"
+git commit -m "feat(gmail-triage): GET /mail/list with USER_KEY auth + CORS"
 ```
 
 ---
@@ -423,102 +437,21 @@ git commit -m "feat(gmail-triage): GET /trash confirm page with HMAC verify"
 **Files:**
 - Modify: `worker-gmail/src/index.ts`
 
-Gmail IMAP is a text protocol. For our narrow use (trash one message by Message-ID), we only need 4 tagged commands: LOGIN, SELECT INBOX, UID SEARCH HEADER, UID STORE.
+Gmail IMAP is a text protocol. For trashing one message by Message-ID, we need only 4 tagged commands: LOGIN, SELECT INBOX, UID SEARCH HEADER, UID STORE.
 
-- [ ] **Step 1: Add IMAP client function**
+- [ ] **Step 1: Add IMAP client block to `index.ts`**
 
-Before the default export:
+Before the default export, after `corsHeaders`:
 
 ```ts
 // ── IMAP client (Gmail-specific, minimal) ────────────────────────────────────
 
 import { connect, type Socket } from "cloudflare:sockets";
 
+const enc = new TextEncoder();
+const dec = new TextDecoder();
+
 type TrashResult = "trashed" | "not_found" | "auth_failed" | "error";
-
-async function readUntilTag(
-  reader: ReadableStreamDefaultReader<Uint8Array>,
-  tag: string,
-  timeoutMs = 10000,
-): Promise<string> {
-  const deadline = Date.now() + timeoutMs;
-  let buf = "";
-  while (Date.now() < deadline) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buf += dec.decode(value, { stream: true });
-    // Look for line starting with our tag followed by OK/NO/BAD
-    const match = buf.match(new RegExp(`^${tag} (OK|NO|BAD)[^\\r\\n]*\\r?\\n`, "m"));
-    if (match) return buf;
-  }
-  throw new Error("imap read timeout");
-}
-
-function imapLineIsOk(line: string, tag: string): boolean {
-  return new RegExp(`^${tag} OK`, "m").test(line);
-}
-
-function parseSearchUid(response: string): string | null {
-  // Matches "* SEARCH 12345\r\n" or "* SEARCH 12345 67890\r\n" — take the first UID.
-  const m = response.match(/^\* SEARCH\s+(\d+)/m);
-  return m ? m[1] : null;
-}
-
-async function imapTrashMessage(
-  user: string, password: string, msgId: string,
-): Promise<TrashResult> {
-  let socket: Socket | undefined;
-  try {
-    socket = connect({ hostname: "imap.gmail.com", port: 993, secureTransport: "on", allowHalfOpen: false });
-    const writer = socket.writable.getWriter();
-    const reader = socket.readable.getReader();
-
-    const send = async (line: string) => {
-      await writer.write(enc.encode(line + "\r\n"));
-    };
-
-    // Read initial greeting (* OK Gimap ready ...)
-    await readUntilFirstLine(reader);
-
-    // A1 LOGIN
-    // IMPORTANT: escape " and \ in password per IMAP spec (RFC 3501)
-    const escUser = user.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"");
-    const escPwd = password.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"");
-    await send(`A1 LOGIN "${escUser}" "${escPwd}"`);
-    const loginResp = await readUntilTag(reader, "A1");
-    if (!imapLineIsOk(loginResp, "A1")) return "auth_failed";
-
-    // A2 SELECT INBOX
-    await send(`A2 SELECT INBOX`);
-    const selResp = await readUntilTag(reader, "A2");
-    if (!imapLineIsOk(selResp, "A2")) return "error";
-
-    // A3 UID SEARCH HEADER Message-ID
-    // Message-ID often already has angle brackets — quote as-is
-    const escMsgId = msgId.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"");
-    await send(`A3 UID SEARCH HEADER "Message-ID" "${escMsgId}"`);
-    const searchResp = await readUntilTag(reader, "A3");
-    if (!imapLineIsOk(searchResp, "A3")) return "error";
-    const uid = parseSearchUid(searchResp);
-    if (!uid) return "not_found";
-
-    // A4 UID STORE uid +X-GM-LABELS "\Trash"
-    // Must escape the backslash in \Trash (so send `\\Trash` over the wire)
-    await send(`A4 UID STORE ${uid} +X-GM-LABELS "\\\\Trash"`);
-    const storeResp = await readUntilTag(reader, "A4");
-    if (!imapLineIsOk(storeResp, "A4")) return "error";
-
-    // A5 LOGOUT (best-effort)
-    await send(`A5 LOGOUT`);
-    try { await writer.close(); } catch {}
-
-    return "trashed";
-  } catch (e) {
-    return "error";
-  } finally {
-    try { await socket?.close(); } catch {}
-  }
-}
 
 async function readUntilFirstLine(
   reader: ReadableStreamDefaultReader<Uint8Array>,
@@ -534,6 +467,85 @@ async function readUntilFirstLine(
   }
   throw new Error("imap greeting timeout");
 }
+
+async function readUntilTag(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  tag: string,
+  timeoutMs = 10000,
+): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  let buf = "";
+  while (Date.now() < deadline) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    const re = new RegExp(`^${tag} (OK|NO|BAD)[^\\r\\n]*\\r?\\n`, "m");
+    if (re.test(buf)) return buf;
+  }
+  throw new Error("imap read timeout");
+}
+
+function imapOk(response: string, tag: string): boolean {
+  return new RegExp(`^${tag} OK`, "m").test(response);
+}
+
+function parseSearchUid(response: string): string | null {
+  const m = response.match(/^\* SEARCH\s+(\d+)/m);
+  return m ? m[1] : null;
+}
+
+export async function imapTrashMessage(
+  user: string, password: string, msgId: string,
+): Promise<TrashResult> {
+  let socket: Socket | undefined;
+  try {
+    socket = connect({
+      hostname: "imap.gmail.com", port: 993,
+      secureTransport: "on", allowHalfOpen: false,
+    });
+    const writer = socket.writable.getWriter();
+    const reader = socket.readable.getReader();
+
+    const send = async (line: string) => {
+      await writer.write(enc.encode(line + "\r\n"));
+    };
+
+    // Greeting: * OK Gimap ready ...
+    await readUntilFirstLine(reader);
+
+    // RFC 3501 quote escaping: double backslash + double-quote in the actual string
+    const esc = (s: string) => s.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"");
+
+    await send(`A1 LOGIN "${esc(user)}" "${esc(password)}"`);
+    const loginResp = await readUntilTag(reader, "A1");
+    if (!imapOk(loginResp, "A1")) return "auth_failed";
+
+    await send(`A2 SELECT INBOX`);
+    const selResp = await readUntilTag(reader, "A2");
+    if (!imapOk(selResp, "A2")) return "error";
+
+    // UID SEARCH HEADER — msgId typically contains <angle brackets>, quote the whole thing
+    await send(`A3 UID SEARCH HEADER "Message-ID" "${esc(msgId)}"`);
+    const searchResp = await readUntilTag(reader, "A3");
+    if (!imapOk(searchResp, "A3")) return "error";
+    const uid = parseSearchUid(searchResp);
+    if (!uid) return "not_found";
+
+    // Gmail-specific: X-GM-LABELS with "\Trash" — send two backslashes over the wire
+    await send(`A4 UID STORE ${uid} +X-GM-LABELS "\\\\Trash"`);
+    const storeResp = await readUntilTag(reader, "A4");
+    if (!imapOk(storeResp, "A4")) return "error";
+
+    await send(`A5 LOGOUT`);
+    try { await writer.close(); } catch {}
+
+    return "trashed";
+  } catch {
+    return "error";
+  } finally {
+    try { await socket?.close(); } catch {}
+  }
+}
 ```
 
 - [ ] **Step 2: Typecheck**
@@ -543,7 +555,7 @@ cd worker-gmail
 npx tsc --noEmit
 ```
 
-Expected: no errors. The `cloudflare:sockets` import type may need the compat flag acknowledged in types; if missing, `@cloudflare/workers-types` version >= 4.20240909 has it.
+Expected: zero errors.
 
 - [ ] **Step 3: Commit**
 
@@ -554,89 +566,164 @@ git commit -m "feat(gmail-triage): hand-rolled Gmail IMAP trash helper in Worker
 
 ---
 
-## Task 6: Worker — POST /trash (wire IMAP)
+## Task 6: Worker — POST /mail/trash
 
 **Files:**
 - Modify: `worker-gmail/src/index.ts`
 
-- [ ] **Step 1: Replace the POST branch inside `/trash`**
-
-Replace the `if (request.method === "POST") { ... return 501 }` block:
+- [ ] **Step 1: Replace the `/mail/trash` branch**
 
 ```ts
-      if (request.method === "POST") {
-        // Token arrives in application/x-www-form-urlencoded body (from the confirm page form)
-        const formData = await request.formData();
-        const postToken = formData.get("t");
-        if (typeof postToken !== "string") {
-          return htmlPage("Bad request", `<h2>Bad request</h2>`, 400);
-        }
-        const v = await verifyToken(postToken, env.SIGNING_KEY);
-        if (!v) {
-          return htmlPage("Invalid link", `<h2>Invalid or expired link</h2>`, 410);
-        }
-
-        const result = await imapTrashMessage(env.SMTP_USER, env.SMTP_PASSWORD, v.msgId);
-
-        if (result === "trashed") {
-          return htmlPage("Trashed", `<h2>✓ Trashed</h2>
-<p class="muted">Recoverable for 30 days in Gmail Trash.</p>`);
-        }
-        if (result === "not_found") {
-          return htmlPage("Already gone", `<h2>Already gone</h2>
-<p class="muted">This message isn't in your inbox — you probably trashed it on another device.</p>`);
-        }
-        if (result === "auth_failed") {
-          return htmlPage("Auth failed", `<h2>Gmail auth failed</h2>
-<p class="muted">The app password may need to be regenerated.</p>`, 503);
-        }
-        return htmlPage("Temporary error", `<h2>Gmail unavailable</h2>
-<p class="muted">Try again in a minute.</p>`, 503);
+    if (url.pathname === "/mail/trash" && request.method === "POST") {
+      if (!authUser(request, url, env)) {
+        return new Response("unauthorized", { status: 401, headers: corsHeaders() });
       }
+      let body: { msg_id?: string };
+      try {
+        body = await request.json();
+      } catch {
+        return new Response("invalid json", { status: 400, headers: corsHeaders() });
+      }
+      if (!body.msg_id) {
+        return new Response("missing msg_id", { status: 400, headers: corsHeaders() });
+      }
+
+      const result = await imapTrashMessage(env.SMTP_USER, env.SMTP_PASSWORD, body.msg_id);
+
+      if (result === "trashed") {
+        await markTrashed(env.DB, body.msg_id);
+        return Response.json({ status: "trashed" }, { headers: corsHeaders() });
+      }
+      if (result === "not_found") {
+        // Also mark as trashed locally — the row is gone from Gmail regardless.
+        await markTrashed(env.DB, body.msg_id);
+        return Response.json({ status: "already_gone" }, { headers: corsHeaders() });
+      }
+      if (result === "auth_failed") {
+        return Response.json({ status: "auth_failed" }, { status: 503, headers: corsHeaders() });
+      }
+      return Response.json({ status: "error" }, { status: 503, headers: corsHeaders() });
+    }
 ```
 
-- [ ] **Step 2: Deploy to a dev worker and test with a throwaway email**
+- [ ] **Step 2: Typecheck**
 
 ```bash
 cd worker-gmail
-# Set real secrets (for an actual Gmail account)
-npx wrangler secret put SIGNING_KEY      # paste: openssl rand -hex 32
-npx wrangler secret put SIGNING_SECRET   # paste: any random string
-npx wrangler secret put SMTP_USER        # paste: your.account@gmail.com
-npx wrangler secret put SMTP_PASSWORD    # paste: the 16-char Gmail app password
-npx wrangler deploy
+npx tsc --noEmit
 ```
-
-Copy the deployed URL.
-
-Send yourself a test email in Gmail, grab its `Message-ID` header (Gmail web: More → Show original → Message-ID line).
-
-Get a signed token via the deployed Worker:
-
-```bash
-export WORKER_URL=https://worker-gmail.<account>.workers.dev
-export SIGNING_SECRET=...   # same value you set
-
-TOKEN=$(curl -s -X POST $WORKER_URL/sign \
-  -H "X-Signing-Secret: $SIGNING_SECRET" \
-  -H "Content-Type: application/json" \
-  -d "{\"msg_id\":\"<paste-message-id-here>\"}" | jq -r .token)
-
-echo "Confirm URL: $WORKER_URL/trash?t=$TOKEN"
-```
-
-Open the URL in a browser, click Confirm, verify the test email moves to Gmail Trash within 1–2 seconds.
 
 - [ ] **Step 3: Commit**
 
 ```bash
 git add worker-gmail/src/index.ts
-git commit -m "feat(gmail-triage): POST /trash performs IMAP trash with graceful error pages"
+git commit -m "feat(gmail-triage): POST /mail/trash performs IMAP trash + D1 status update"
 ```
 
 ---
 
-## Task 7: Python — scaffold
+## Task 7: Worker — deploy + live smoke test
+
+**Files:** none (operational).
+
+- [ ] **Step 1: Create D1 database (one-time)**
+
+```bash
+cd worker-gmail
+npx wrangler d1 create portal-gmail
+# Output includes the database_id — paste it into wrangler.jsonc
+```
+
+- [ ] **Step 2: Apply schema to remote D1**
+
+```bash
+cd worker-gmail
+npx wrangler d1 execute portal-gmail --remote --file=schema.sql
+```
+
+- [ ] **Step 3: Set secrets**
+
+```bash
+cd worker-gmail
+npx wrangler secret put SYNC_SECRET     # paste: openssl rand -hex 32
+npx wrangler secret put USER_KEY        # paste: openssl rand -hex 32
+npx wrangler secret put SMTP_USER       # paste: your.account@gmail.com
+npx wrangler secret put SMTP_PASSWORD   # paste: Gmail app password
+```
+
+- [ ] **Step 4: Deploy**
+
+```bash
+cd worker-gmail
+npx wrangler deploy
+# Note the deployed URL, e.g. https://worker-gmail.<account>.workers.dev
+```
+
+- [ ] **Step 5: End-to-end smoke test**
+
+```bash
+export WORKER=https://worker-gmail.<account>.workers.dev
+export SYNC=<the SYNC_SECRET you set>
+export KEY=<the USER_KEY you set>
+
+# Push a test row
+curl -s -X POST $WORKER/mail/sync \
+  -H "X-Sync-Secret: $SYNC" -H "Content-Type: application/json" \
+  -d '{"classified_at":"2026-04-12T22:00:00Z","emails":[{
+    "msg_id":"<smoke@test>",
+    "received_at":"2026-04-12T10:00:00Z",
+    "classified_at":"2026-04-12T22:00:00Z",
+    "sender":"smoke@test",
+    "subject":"Smoke",
+    "summary":"test",
+    "category":"NEUTRAL"
+  }]}'
+
+# Read it back
+curl -s "$WORKER/mail/list?key=$KEY" | jq
+# Expected: emails array with the smoke row
+
+# Clean up
+npx wrangler d1 execute portal-gmail --remote \
+  --command "DELETE FROM triaged_emails WHERE msg_id='<smoke@test>'"
+```
+
+- [ ] **Step 6: Test trash with a real email**
+
+Send yourself a test email in Gmail. Grab its Message-ID via Gmail web → Show original.
+
+```bash
+MSGID='<paste-message-id-here>'
+
+# Insert a row so markTrashed has something to UPDATE (optional — markTrashed is harmless if row is absent)
+curl -s -X POST $WORKER/mail/sync \
+  -H "X-Sync-Secret: $SYNC" -H "Content-Type: application/json" \
+  -d "{\"classified_at\":\"$(date -u +%FT%TZ)\",\"emails\":[{
+    \"msg_id\":\"$MSGID\",
+    \"received_at\":\"$(date -u +%FT%TZ)\",
+    \"classified_at\":\"$(date -u +%FT%TZ)\",
+    \"sender\":\"self\",
+    \"subject\":\"trash test\",
+    \"summary\":\"smoke\",
+    \"category\":\"TRASH_CANDIDATE\"
+  }]}"
+
+# Trash it
+curl -s -X POST "$WORKER/mail/trash?key=$KEY" \
+  -H "Content-Type: application/json" \
+  -d "{\"msg_id\":\"$MSGID\"}"
+# Expected: {"status":"trashed"} within ~1 second
+
+# Verify in Gmail UI — email should be in Trash folder
+```
+
+- [ ] **Step 7: Commit (none — this was operational verification)**
+
+No files changed; no commit needed.
+
+---
+
+## Task 8: Python — scaffold
 
 **Files:**
 - Create: `pipeline/scripts/gmail/__init__.py`
@@ -659,35 +746,30 @@ anthropic>=0.40.0
 httpx>=0.28.0
 ```
 
-Stdlib `imaplib`, `email`, `smtplib` cover everything else. `etl.email_report` is imported from the existing pipeline package and has no additional deps.
-
 - [ ] **Step 3: Create `pipeline/scripts/gmail/README.md`**
 
 ```markdown
 # Gmail Triage
 
-Daily 07:00 local digest of unread Gmail, with important emails highlighted and
-low-value emails listed with one-click delete links.
+Daily Gmail classification script. Fetches 24h of unread emails, runs them
+through Claude Haiku, and POSTs per-email categories + summaries to the
+worker-gmail D1 via the `/mail/sync` endpoint.
+
+Portal's `/mail` tab reads from that D1 via `/mail/list`.
 
 ## Run locally (dry-run)
 
 ```bash
 cd pipeline
-.venv/Scripts/python.exe scripts/gmail/triage.py --digest --dry-run
+PORTAL_SMTP_USER=...@gmail.com PORTAL_SMTP_PASSWORD=... ANTHROPIC_API_KEY=sk-... \
+  .venv/Scripts/python.exe scripts/gmail/triage.py --sync --dry-run
 ```
 
-Prints the HTML digest to stdout. No email is sent and no Worker calls are made.
+Prints the classified rows to stdout. No Worker call, no D1 write.
 
-## Env vars
+## Production
 
-See `docs/gmail-triage-design-2026-04-12.md` for the full list. For local
-dry-runs you need only:
-- `PORTAL_SMTP_USER`, `PORTAL_SMTP_PASSWORD` (for IMAP login)
-- `ANTHROPIC_API_KEY` (classification)
-
-## Deployment
-
-Runs on GitHub Actions. See `.github/workflows/gmail-digest.yml`.
+Runs on GitHub Actions daily. See `.github/workflows/gmail-sync.yml`.
 ```
 
 - [ ] **Step 4: Create `pipeline/tests/unit/gmail/conftest.py`**
@@ -701,7 +783,6 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class FakeEmail:
-    """Lightweight stand-in for a parsed Gmail message."""
     msg_id: str
     sender: str
     subject: str
@@ -717,26 +798,25 @@ git commit -m "feat(gmail-triage): scaffold Python package under pipeline/script
 
 ---
 
-## Task 8: Python — IMAP client
+## Task 9: Python — IMAP client
 
 **Files:**
 - Create: `pipeline/scripts/gmail/imap_client.py`
 - Create: `pipeline/tests/unit/gmail/test_imap_client.py`
 
-- [ ] **Step 1: Write the failing test — `pipeline/tests/unit/gmail/test_imap_client.py`**
+- [ ] **Step 1: Write the failing test**
+
+`pipeline/tests/unit/gmail/test_imap_client.py`:
 
 ```python
 """Tests for IMAP client fetch/search wrappers.
 
-We mock ``imaplib.IMAP4_SSL`` directly and verify the wrapper calls the
-expected sequence of IMAP commands. Response parsing is tested against
-real Gmail IMAP response shapes (RFC 3501 plus Gmail-specific extensions).
+Mocks ``imaplib.IMAP4_SSL`` directly and verifies the wrapper calls the
+expected sequence of IMAP commands.
 """
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from gmail.imap_client import ImapConfig, fetch_unread_last_24h, parse_message
 
@@ -749,7 +829,7 @@ class TestFetchUnreadLast24h:
         m.login.return_value = ("OK", [b"LOGIN ok"])
         m.select.return_value = ("OK", [b"42"])
         m.uid.side_effect = [
-            ("OK", [b"1 2 3"]),  # SEARCH returns 3 UIDs
+            ("OK", [b"1 2 3"]),
             ("OK", [(b"1 (BODY[] {...})", b"From: a@x\r\nSubject: A\r\nMessage-ID: <1@x>\r\n\r\nbody1")]),
             ("OK", [(b"2 (BODY[] {...})", b"From: b@x\r\nSubject: B\r\nMessage-ID: <2@x>\r\n\r\nbody2")]),
             ("OK", [(b"3 (BODY[] {...})", b"From: c@x\r\nSubject: C\r\nMessage-ID: <3@x>\r\n\r\nbody3")]),
@@ -768,10 +848,9 @@ class TestFetchUnreadLast24h:
         mock_imap_cls.return_value = m
         m.login.return_value = ("OK", [b"ok"])
         m.select.return_value = ("OK", [b"0"])
-        m.uid.return_value = ("OK", [b""])  # SEARCH returns nothing
+        m.uid.return_value = ("OK", [b""])
         cfg = ImapConfig(user="me@gmail.com", password="pw")
-        emails = fetch_unread_last_24h(cfg)
-        assert emails == []
+        assert fetch_unread_last_24h(cfg) == []
 
 
 class TestParseMessage:
@@ -780,6 +859,7 @@ class TestParseMessage:
             b"From: Foo <foo@example.com>\r\n"
             b"Subject: Test Subject\r\n"
             b"Message-ID: <abc123@example.com>\r\n"
+            b"Date: Mon, 12 Apr 2026 10:00:00 +0000\r\n"
             b"\r\n"
             b"Hello world. This is the body."
         )
@@ -787,15 +867,20 @@ class TestParseMessage:
         assert msg.msg_id == "<abc123@example.com>"
         assert msg.sender == "Foo <foo@example.com>"
         assert msg.subject == "Test Subject"
+        assert msg.received_at.startswith("2026-04-12")
         assert "Hello world" in msg.body_excerpt
 
     def test_handles_missing_subject(self) -> None:
-        raw = b"From: x@y\r\nMessage-ID: <m@y>\r\n\r\nbody"
-        msg = parse_message(raw)
-        assert msg.subject == ""
+        raw = b"From: x@y\r\nMessage-ID: <m@y>\r\nDate: Mon, 12 Apr 2026 10:00:00 +0000\r\n\r\nbody"
+        assert parse_message(raw).subject == ""
+
+    def test_handles_missing_date(self) -> None:
+        raw = b"From: x@y\r\nSubject: s\r\nMessage-ID: <m@y>\r\n\r\nbody"
+        # Fallback to empty string — worker_sync will reject such rows
+        assert parse_message(raw).received_at == ""
 ```
 
-- [ ] **Step 2: Run test — expect failure**
+- [ ] **Step 2: Run — expect failure**
 
 ```bash
 cd pipeline
@@ -809,16 +894,17 @@ Expected: `ModuleNotFoundError: No module named 'gmail.imap_client'`.
 ```python
 """Minimal Gmail IMAP client: connect, login, search unread last 24h, fetch.
 
-Stdlib imaplib + email. Returns plain dataclasses so downstream modules don't
-depend on imaplib's awkward response shapes.
+Stdlib imaplib + email. Returns plain dataclasses so downstream modules
+don't depend on imaplib's awkward response shapes.
 """
 from __future__ import annotations
 
 import email
 import email.policy
+import email.utils
 import imaplib
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 
 @dataclass(frozen=True)
@@ -832,18 +918,32 @@ class ImapConfig:
 @dataclass(frozen=True)
 class ParsedMessage:
     msg_id: str          # Message-ID header with angle brackets
+    received_at: str     # ISO 8601 UTC (from Date: header) — "" if missing
     sender: str          # raw From: value
     subject: str
     body_excerpt: str    # first ~500 chars of text body
 
 
 def _imap_date(d: date) -> str:
-    """Format a date the way IMAP SEARCH expects (e.g. '12-Apr-2026')."""
+    """Format for IMAP SEARCH (e.g. '12-Apr-2026')."""
     return d.strftime("%d-%b-%Y")
 
 
+def _normalize_date(raw: str) -> str:
+    """Parse RFC 2822 date to ISO 8601 UTC. Returns '' if unparseable."""
+    if not raw:
+        return ""
+    try:
+        dt = email.utils.parsedate_to_datetime(raw)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=UTC)
+        return dt.astimezone(UTC).isoformat()
+    except (TypeError, ValueError):
+        return ""
+
+
 def fetch_unread_last_24h(config: ImapConfig) -> list[ParsedMessage]:
-    """Return unread INBOX messages received since yesterday (SINCE is day-granular)."""
+    """Return unread INBOX messages received since yesterday (day-granular)."""
     m = imaplib.IMAP4_SSL(config.host, config.port)
     try:
         m.login(config.user, config.password)
@@ -873,13 +973,13 @@ def fetch_unread_last_24h(config: ImapConfig) -> list[ParsedMessage]:
 
 
 def parse_message(raw: bytes) -> ParsedMessage:
-    """Parse a raw RFC 5322 message into a ParsedMessage."""
+    """Parse raw RFC 5322 bytes into a ParsedMessage."""
     msg = email.message_from_bytes(raw, policy=email.policy.default)
     msg_id = (msg["Message-ID"] or "").strip()
     sender = (msg["From"] or "").strip()
     subject = (msg["Subject"] or "").strip()
+    received_at = _normalize_date((msg["Date"] or "").strip())
 
-    # Extract text/plain body; fall back to stripped HTML
     body = ""
     if msg.is_multipart():
         for part in msg.walk():
@@ -895,34 +995,37 @@ def parse_message(raw: bytes) -> ParsedMessage:
         body = msg.get_content() if msg.get_content_type() == "text/plain" else ""
 
     excerpt = body[:500].strip()
-    return ParsedMessage(msg_id=msg_id, sender=sender, subject=subject, body_excerpt=excerpt)
+    return ParsedMessage(
+        msg_id=msg_id, received_at=received_at, sender=sender,
+        subject=subject, body_excerpt=excerpt,
+    )
 ```
 
-- [ ] **Step 4: Run test — expect pass**
+- [ ] **Step 4: Run — expect pass**
 
 ```bash
 cd pipeline
 .venv/Scripts/pytest.exe tests/unit/gmail/test_imap_client.py -v
 ```
 
-Expected: all 3 tests pass.
-
 - [ ] **Step 5: Commit**
 
 ```bash
 git add pipeline/scripts/gmail/imap_client.py pipeline/tests/unit/gmail/test_imap_client.py
-git commit -m "feat(gmail-triage): IMAP fetch + MIME parse helpers with tests"
+git commit -m "feat(gmail-triage): IMAP fetch + MIME parse with received_at extraction"
 ```
 
 ---
 
-## Task 9: Python — classify
+## Task 10: Python — classify
 
 **Files:**
 - Create: `pipeline/scripts/gmail/classify.py`
 - Create: `pipeline/tests/unit/gmail/test_classify.py`
 
-- [ ] **Step 1: Write the failing test — `pipeline/tests/unit/gmail/test_classify.py`**
+- [ ] **Step 1: Write the failing test**
+
+`pipeline/tests/unit/gmail/test_classify.py`:
 
 ```python
 """Tests for Anthropic classification call and response parsing."""
@@ -936,7 +1039,10 @@ from gmail.imap_client import ParsedMessage
 
 
 def _msg(msg_id: str, subject: str) -> ParsedMessage:
-    return ParsedMessage(msg_id=msg_id, sender="x@example.com", subject=subject, body_excerpt="")
+    return ParsedMessage(
+        msg_id=msg_id, received_at="2026-04-12T10:00:00+00:00",
+        sender="x@example.com", subject=subject, body_excerpt="",
+    )
 
 
 class TestClassifyEmails:
@@ -954,14 +1060,11 @@ class TestClassifyEmails:
         client.messages.create.return_value = MagicMock(
             content=[MagicMock(text=response_text)],
         )
-
-        emails = [_msg("<1>", "Stripe role"), _msg("<2>", "Sale!"), _msg("<3>", "Slack ping")]
+        emails = [_msg("<1>", "Role"), _msg("<2>", "Sale"), _msg("<3>", "Slack")]
         result = classify_emails(emails, api_key="sk-test")
-
         assert result["<1>"].category == Category.IMPORTANT
         assert result["<2>"].category == Category.TRASH_CANDIDATE
         assert result["<3>"].category == Category.NEUTRAL
-        assert "recruiter" in result["<1>"].summary
 
     @patch("gmail.classify.Anthropic")
     def test_empty_list_skips_api(self, mock_anthropic_cls: MagicMock) -> None:
@@ -976,9 +1079,7 @@ class TestClassifyEmails:
         client.messages.create.return_value = MagicMock(
             content=[MagicMock(text="not json")],
         )
-        emails = [_msg("<1>", "Something")]
-        result = classify_emails(emails, api_key="sk-test")
-        # On unparseable response every email falls back to NEUTRAL
+        result = classify_emails([_msg("<1>", "x")], api_key="sk-test")
         assert result["<1>"].category == Category.NEUTRAL
         assert "AI unavailable" in result["<1>"].summary
 ```
@@ -995,10 +1096,9 @@ cd pipeline
 ```python
 """Anthropic classification of Gmail messages.
 
-Takes a list of ParsedMessage and returns per-msg_id classification with a
-one-sentence summary. Fails open: on any Anthropic error or unparseable
-response, every email falls back to NEUTRAL with a note so the digest still
-ships.
+Fails open: on any Anthropic error or unparseable response, every email
+falls back to NEUTRAL with a note so the sync still ships a result for
+each email (the UI always shows *something*).
 """
 from __future__ import annotations
 
@@ -1042,15 +1142,15 @@ Categories:
                     summary"), duplicate marketing.
   NEUTRAL         — anything else. When in doubt, NEUTRAL.
 
-Few-shot examples (treat as the user's taste calibration):
+Few-shot examples (user's taste calibration):
   "Software Engineer role at Stripe — competitive comp"
     → IMPORTANT (recruiter)
   "Your statement is ready — Chase Freedom"
     → IMPORTANT (bill action)
   "Notion's weekly digest: 5 pages you haven't opened"
-    → TRASH_CANDIDATE (marketing, no action)
+    → TRASH_CANDIDATE (marketing)
   "Security alert: sign-in from Chrome on Windows"
-    → TRASH_CANDIDATE (routine, user's own device)
+    → TRASH_CANDIDATE (routine, own device)
   "Slack: 2 new messages in #general"
     → NEUTRAL
 """
@@ -1083,7 +1183,6 @@ def _fallback(emails: list[ParsedMessage], reason: str) -> dict[str, Classificat
 def classify_emails(
     emails: list[ParsedMessage], *, api_key: str,
 ) -> dict[str, Classification]:
-    """Classify a batch of emails. Returns {msg_id: Classification}."""
     if not emails:
         return {}
 
@@ -1117,7 +1216,6 @@ def classify_emails(
         except (KeyError, ValueError) as e:
             log.warning("skipping malformed classification item: %s", e)
 
-    # Emails with no result → NEUTRAL fallback
     for e in emails:
         out.setdefault(e.msg_id, Classification(Category.NEUTRAL, "no classification returned"))
     return out
@@ -1134,396 +1232,209 @@ cd pipeline
 
 ```bash
 git add pipeline/scripts/gmail/classify.py pipeline/tests/unit/gmail/test_classify.py
-git commit -m "feat(gmail-triage): Claude Haiku classifier with fail-open JSON parsing"
+git commit -m "feat(gmail-triage): Claude Haiku classifier with fail-open JSON parse"
 ```
 
 ---
 
-## Task 10: Python — Worker sign wrapper
+## Task 11: Python — worker_sync client
 
 **Files:**
-- Create: `pipeline/scripts/gmail/worker_sign.py`
-- Create: `pipeline/tests/unit/gmail/test_worker_sign.py`
+- Create: `pipeline/scripts/gmail/worker_sync.py`
+- Create: `pipeline/tests/unit/gmail/test_worker_sync.py`
 
-- [ ] **Step 1: Write test — `pipeline/tests/unit/gmail/test_worker_sign.py`**
+- [ ] **Step 1: Write the failing test**
+
+`pipeline/tests/unit/gmail/test_worker_sync.py`:
 
 ```python
-"""Tests for Worker /sign HTTP wrapper."""
+"""Tests for POST /mail/sync HTTP wrapper."""
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from gmail.worker_sign import WorkerSignClient, WorkerUnavailable
+import pytest
+
+from gmail.worker_sync import SyncResult, WorkerSyncClient, WorkerSyncError
 
 
-class TestWorkerSignClient:
-    @patch("gmail.worker_sign.httpx.Client")
-    def test_returns_token_on_200(self, mock_cls: MagicMock) -> None:
+class TestWorkerSyncClient:
+    @patch("gmail.worker_sync.httpx.Client")
+    def test_returns_result_on_200(self, mock_cls: MagicMock) -> None:
         client = MagicMock()
         mock_cls.return_value.__enter__.return_value = client
         client.post.return_value = MagicMock(
             status_code=200,
-            json=MagicMock(return_value={"token": "abc123"}),
+            json=MagicMock(return_value={"inserted": 5, "skipped_existing": 3}),
         )
-        c = WorkerSignClient(base_url="https://w.example", secret="s")
-        token = c.sign("<msg@id>")
-        assert token == "abc123"
+        c = WorkerSyncClient(base_url="https://w.example", secret="s")
+        r = c.sync(
+            classified_at="2026-04-12T22:00:00Z",
+            emails=[{
+                "msg_id": "<1>", "received_at": "2026-04-12T10:00:00Z",
+                "classified_at": "2026-04-12T22:00:00Z",
+                "sender": "a@b", "subject": "hi", "summary": "test",
+                "category": "IMPORTANT",
+            }],
+        )
+        assert r == SyncResult(inserted=5, skipped=3)
 
-        call_args = client.post.call_args
-        assert call_args.args[0] == "https://w.example/sign"
-        assert call_args.kwargs["headers"]["X-Signing-Secret"] == "s"
-        assert call_args.kwargs["json"]["msg_id"] == "<msg@id>"
+        call = client.post.call_args
+        assert call.args[0] == "https://w.example/mail/sync"
+        assert call.kwargs["headers"]["X-Sync-Secret"] == "s"
+        body = call.kwargs["json"]
+        assert len(body["emails"]) == 1
 
-    @patch("gmail.worker_sign.httpx.Client")
+    @patch("gmail.worker_sync.httpx.Client")
     def test_raises_on_non_200(self, mock_cls: MagicMock) -> None:
         client = MagicMock()
         mock_cls.return_value.__enter__.return_value = client
         client.post.return_value = MagicMock(status_code=401, text="unauthorized")
+        c = WorkerSyncClient(base_url="https://w.example", secret="wrong")
+        with pytest.raises(WorkerSyncError):
+            c.sync(classified_at="x", emails=[])
 
-        c = WorkerSignClient(base_url="https://w.example", secret="wrong")
-        try:
-            c.sign("<msg@id>")
-        except WorkerUnavailable as e:
-            assert "401" in str(e)
-        else:
-            raise AssertionError("expected WorkerUnavailable")
-
-    @patch("gmail.worker_sign.httpx.Client")
+    @patch("gmail.worker_sync.httpx.Client")
     def test_raises_on_network_error(self, mock_cls: MagicMock) -> None:
         import httpx
         client = MagicMock()
         mock_cls.return_value.__enter__.return_value = client
         client.post.side_effect = httpx.ConnectError("dns failed")
-
-        c = WorkerSignClient(base_url="https://w.example", secret="s")
-        try:
-            c.sign("<msg@id>")
-        except WorkerUnavailable:
-            pass
-        else:
-            raise AssertionError("expected WorkerUnavailable")
+        c = WorkerSyncClient(base_url="https://w.example", secret="s")
+        with pytest.raises(WorkerSyncError):
+            c.sync(classified_at="x", emails=[])
 ```
 
 - [ ] **Step 2: Run — expect failure**
 
 ```bash
 cd pipeline
-.venv/Scripts/pytest.exe tests/unit/gmail/test_worker_sign.py -v
+.venv/Scripts/pytest.exe tests/unit/gmail/test_worker_sync.py -v
 ```
 
-- [ ] **Step 3: Implement `pipeline/scripts/gmail/worker_sign.py`**
+- [ ] **Step 3: Implement `pipeline/scripts/gmail/worker_sync.py`**
 
 ```python
-"""Thin HTTP wrapper around Worker POST /sign.
+"""POST /mail/sync client.
 
-Raises WorkerUnavailable on any non-200 response or network error. Callers
-decide whether to fail the whole digest or fall back to omitting trash links.
+Hits the Worker with all classified emails in one batch. Raises
+WorkerSyncError on any non-200 or network error — the daily cron fails loudly
+so GH Actions sends a notification. No retries in v1 (GitHub's own retry
+settings + the daily cadence cover transient failures).
 """
 from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
 
 import httpx
 
 
-class WorkerUnavailable(RuntimeError):
-    """Raised when the signing Worker is unreachable or rejects the call."""
+class WorkerSyncError(RuntimeError):
+    pass
 
 
-class WorkerSignClient:
-    def __init__(self, *, base_url: str, secret: str, timeout: float = 10.0) -> None:
+@dataclass(frozen=True)
+class SyncResult:
+    inserted: int
+    skipped: int
+
+
+class WorkerSyncClient:
+    def __init__(self, *, base_url: str, secret: str, timeout: float = 15.0) -> None:
         self._base_url = base_url.rstrip("/")
         self._secret = secret
         self._timeout = timeout
 
-    def sign(self, msg_id: str) -> str:
-        """Return a signed token for the given Message-ID."""
+    def sync(self, *, classified_at: str, emails: list[dict[str, Any]]) -> SyncResult:
+        body = {"classified_at": classified_at, "emails": emails}
         try:
             with httpx.Client(timeout=self._timeout) as client:
                 r = client.post(
-                    f"{self._base_url}/sign",
-                    headers={"X-Signing-Secret": self._secret, "Content-Type": "application/json"},
-                    json={"msg_id": msg_id},
+                    f"{self._base_url}/mail/sync",
+                    headers={"X-Sync-Secret": self._secret, "Content-Type": "application/json"},
+                    json=body,
                 )
         except httpx.HTTPError as e:
-            raise WorkerUnavailable(f"network error: {e}") from e
+            raise WorkerSyncError(f"network error: {e}") from e
 
         if r.status_code != 200:
-            raise WorkerUnavailable(f"sign returned {r.status_code}: {r.text[:200]}")
+            raise WorkerSyncError(f"sync returned {r.status_code}: {r.text[:200]}")
 
         data = r.json()
-        token = data.get("token")
-        if not isinstance(token, str):
-            raise WorkerUnavailable(f"sign returned invalid body: {data!r}")
-        return token
+        try:
+            return SyncResult(
+                inserted=int(data["inserted"]),
+                skipped=int(data["skipped_existing"]),
+            )
+        except (KeyError, TypeError, ValueError) as e:
+            raise WorkerSyncError(f"sync returned invalid body: {data!r}") from e
 ```
 
 - [ ] **Step 4: Run — expect pass**
 
 ```bash
 cd pipeline
-.venv/Scripts/pytest.exe tests/unit/gmail/test_worker_sign.py -v
+.venv/Scripts/pytest.exe tests/unit/gmail/test_worker_sync.py -v
 ```
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add pipeline/scripts/gmail/worker_sign.py pipeline/tests/unit/gmail/test_worker_sign.py
-git commit -m "feat(gmail-triage): httpx wrapper for Worker POST /sign"
+git add pipeline/scripts/gmail/worker_sync.py pipeline/tests/unit/gmail/test_worker_sync.py
+git commit -m "feat(gmail-triage): httpx POST /mail/sync client"
 ```
 
 ---
 
-## Task 11: Python — digest HTML renderer
-
-**Files:**
-- Create: `pipeline/scripts/gmail/digest_html.py`
-- Create: `pipeline/tests/unit/gmail/test_digest_html.py`
-
-- [ ] **Step 1: Write test — `pipeline/tests/unit/gmail/test_digest_html.py`**
-
-```python
-"""Golden snapshot tests for digest HTML + plain-text rendering."""
-from __future__ import annotations
-
-from datetime import date
-
-from gmail.classify import Category, Classification
-from gmail.digest_html import render_digest
-from gmail.imap_client import ParsedMessage
-
-
-def _msg(msg_id: str, sender: str, subject: str) -> ParsedMessage:
-    return ParsedMessage(msg_id=msg_id, sender=sender, subject=subject, body_excerpt="")
-
-
-class TestRenderDigest:
-    def test_empty_digest(self) -> None:
-        html, text = render_digest(
-            emails=[], classifications={}, trash_tokens={},
-            worker_url="https://w.example", as_of=date(2026, 4, 12),
-        )
-        assert "IMPORTANT (0)" in text
-        assert "SUGGESTED TRASH (0)" in text
-        assert "<pre" in html
-
-    def test_single_important_email(self) -> None:
-        emails = [_msg("<a@x>", "recruiter@co", "Role at Stripe")]
-        cls = {"<a@x>": Classification(Category.IMPORTANT, "Stripe role, $300k")}
-        html, text = render_digest(
-            emails=emails, classifications=cls, trash_tokens={},
-            worker_url="https://w.example", as_of=date(2026, 4, 12),
-        )
-        assert "IMPORTANT (1)" in text
-        assert "Role at Stripe" in text
-        assert "Stripe role, $300k" in text
-        assert "https://mail.google.com/mail/u/0/#inbox/" in html
-        assert "SUGGESTED TRASH (0)" in text
-
-    def test_trash_candidate_has_link(self) -> None:
-        emails = [_msg("<b@x>", "linkedin", "People you may know")]
-        cls = {"<b@x>": Classification(Category.TRASH_CANDIDATE, "LI spam")}
-        tokens = {"<b@x>": "tok123"}
-        html, text = render_digest(
-            emails=emails, classifications=cls, trash_tokens=tokens,
-            worker_url="https://w.example", as_of=date(2026, 4, 12),
-        )
-        assert "SUGGESTED TRASH (1)" in text
-        assert "https://w.example/trash?t=tok123" in html
-        # Plain-text fallback strips the URL
-        assert "https://w.example/trash?t=tok123" not in text
-
-    def test_html_escapes_subject(self) -> None:
-        emails = [_msg("<c@x>", "x@y", "<script>alert(1)</script>")]
-        cls = {"<c@x>": Classification(Category.NEUTRAL, "code snippet")}
-        html, _ = render_digest(
-            emails=emails, classifications=cls, trash_tokens={},
-            worker_url="https://w.example", as_of=date(2026, 4, 12),
-        )
-        assert "<script>" not in html
-        assert "&lt;script&gt;" in html
-```
-
-- [ ] **Step 2: Run — expect failure**
-
-```bash
-cd pipeline
-.venv/Scripts/pytest.exe tests/unit/gmail/test_digest_html.py -v
-```
-
-- [ ] **Step 3: Implement `pipeline/scripts/gmail/digest_html.py`**
-
-```python
-"""Render the triage digest in HTML + plain-text.
-
-Mirrors the <pre>-based pattern from etl.changelog: plain-text body wrapped
-in a single <pre> inside a minimal <html> skeleton with inline CSS. Links use
-<a> tags (work inside <pre>).
-"""
-from __future__ import annotations
-
-from datetime import date
-from html import escape
-
-from gmail.classify import Category, Classification
-from gmail.imap_client import ParsedMessage
-
-
-def _bucket(
-    emails: list[ParsedMessage], classifications: dict[str, Classification], category: Category,
-) -> list[tuple[ParsedMessage, Classification]]:
-    return [(e, classifications[e.msg_id]) for e in emails if classifications.get(e.msg_id) and classifications[e.msg_id].category == category]
-
-
-def render_digest(
-    *,
-    emails: list[ParsedMessage],
-    classifications: dict[str, Classification],
-    trash_tokens: dict[str, str],
-    worker_url: str,
-    as_of: date,
-) -> tuple[str, str]:
-    """Return (html, text). Text is the plain-text fallback (same body, links stripped)."""
-    important = _bucket(emails, classifications, Category.IMPORTANT)
-    neutral = _bucket(emails, classifications, Category.NEUTRAL)
-    trash = _bucket(emails, classifications, Category.TRASH_CANDIDATE)
-
-    date_str = as_of.strftime("%a %b %d")
-
-    # Plain-text body (no links at all — the HTML version layers hrefs on top of this shape)
-    text_lines: list[str] = []
-    text_lines.append(f"Gmail Triage — {date_str}")
-    text_lines.append("")
-    text_lines.append(f"IMPORTANT ({len(important)})")
-    text_lines.append("─" * 14)
-    for e, c in important:
-        text_lines.append(f"▸ {e.sender}  {e.subject}")
-        if c.summary:
-            text_lines.append(f"  {c.summary}")
-        text_lines.append("")
-    text_lines.append(f"OTHER ({len(neutral)})")
-    text_lines.append("─" * 10)
-    for e, _ in neutral:
-        text_lines.append(f"• {e.sender}  —  {e.subject}")
-    text_lines.append("")
-    text_lines.append(f"SUGGESTED TRASH ({len(trash)})")
-    text_lines.append("─" * 20)
-    for e, c in trash:
-        text_lines.append(f"☐ {e.sender}  {e.subject}")
-        if c.summary:
-            text_lines.append(f"  {c.summary}")
-    text = "\n".join(text_lines)
-
-    # HTML version: same shape, but with <a> tags inside a single <pre> block
-    html_lines: list[str] = []
-    html_lines.append(f"Gmail Triage — {escape(date_str)}")
-    html_lines.append("")
-    html_lines.append(f"IMPORTANT ({len(important)})")
-    html_lines.append("─" * 14)
-    for e, c in important:
-        gmail_link = f'https://mail.google.com/mail/u/0/#inbox/{escape(e.msg_id)}'
-        html_lines.append(f"▸ {escape(e.sender)}  {escape(e.subject)}")
-        if c.summary:
-            html_lines.append(f"  {escape(c.summary)}")
-        html_lines.append(f'  <a href="{gmail_link}">Open in Gmail</a>')
-        html_lines.append("")
-    html_lines.append(f"OTHER ({len(neutral)})")
-    html_lines.append("─" * 10)
-    for e, _ in neutral:
-        html_lines.append(f"• {escape(e.sender)}  —  {escape(e.subject)}")
-    html_lines.append("")
-    html_lines.append(f"SUGGESTED TRASH ({len(trash)})")
-    html_lines.append("─" * 20)
-    for e, c in trash:
-        tok = trash_tokens.get(e.msg_id, "")
-        delete_link = f'{escape(worker_url)}/trash?t={escape(tok)}' if tok else ""
-        suffix = f'  <a href="{delete_link}">Delete</a>' if tok else ""
-        html_lines.append(f"☐ {escape(e.sender)}  {escape(e.subject)}{suffix}")
-        if c.summary:
-            html_lines.append(f"  {escape(c.summary)}")
-
-    body = "\n".join(html_lines)
-    html = (
-        "<html><body style=\"font-family:-apple-system,Segoe UI,sans-serif;color:#222\">"
-        f"<h2 style=\"margin-bottom:8px\">Gmail Triage — {escape(date_str)}</h2>"
-        "<pre style=\"font-family:Consolas,Menlo,monospace;font-size:13px;"
-        "background:#f6f8fa;padding:14px 16px;border-radius:6px;"
-        "white-space:pre-wrap;line-height:1.45\">"
-        f"{body}"
-        "</pre></body></html>"
-    )
-    return html, text
-
-
-def build_subject(as_of: date, important_count: int, trash_count: int) -> str:
-    return f"📬 Gmail Triage — {as_of.strftime('%b %d')} ({important_count} important, {trash_count} trash)"
-```
-
-- [ ] **Step 4: Run — expect pass**
-
-```bash
-cd pipeline
-.venv/Scripts/pytest.exe tests/unit/gmail/test_digest_html.py -v
-```
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add pipeline/scripts/gmail/digest_html.py pipeline/tests/unit/gmail/test_digest_html.py
-git commit -m "feat(gmail-triage): HTML + plain-text digest renderer with escape tests"
-```
-
----
-
-## Task 12: Python — triage orchestrator (CLI)
+## Task 12: Python — triage CLI
 
 **Files:**
 - Create: `pipeline/scripts/gmail/triage.py`
 
-This is the entry point wired into GH Actions. It orchestrates the modules we just built. No new units — just plumbing. Tested end-to-end via `--dry-run`.
+Glue tying fetch → classify → sync. Tested end-to-end via `--dry-run`.
 
 - [ ] **Step 1: Implement `pipeline/scripts/gmail/triage.py`**
 
 ```python
-"""Gmail triage CLI entry point.
+"""Gmail triage CLI entry point (v2 — no digest, posts to Worker /mail/sync).
 
-    python scripts/gmail/triage.py --digest           # normal run: send digest email
-    python scripts/gmail/triage.py --digest --dry-run # print HTML to stdout, skip Worker + send
+    python scripts/gmail/triage.py --sync            # full run
+    python scripts/gmail/triage.py --sync --dry-run  # print rows, skip Worker
 
-Env vars (all required unless --dry-run):
-    PORTAL_SMTP_USER, PORTAL_SMTP_PASSWORD
-    PORTAL_GMAIL_WORKER_URL, PORTAL_GMAIL_WORKER_SECRET
-    PORTAL_GMAIL_TOKEN_SIGNING_KEY  (not used here — the Worker signs; we only POST)
+Env vars:
+    PORTAL_SMTP_USER, PORTAL_SMTP_PASSWORD     (Gmail IMAP login)
+    PORTAL_GMAIL_WORKER_URL                    (Worker base URL)
+    PORTAL_GMAIL_SYNC_SECRET                   (shared with Worker env SYNC_SECRET)
     ANTHROPIC_API_KEY
 """
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import sys
-from datetime import date
+from datetime import UTC, datetime
 from pathlib import Path
 
-# Add pipeline/ (for `etl`) and pipeline/scripts/ (for `gmail`) to sys.path.
-# Running `python scripts/gmail/triage.py` only puts scripts/gmail/ on sys.path
-# by default — neither etl nor the gmail package itself is importable without help.
-_pipeline_dir = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(_pipeline_dir))
-sys.path.insert(0, str(_pipeline_dir / "scripts"))
+# Add pipeline/scripts/ to sys.path so `from gmail.XXX import ...` works when
+# running this file directly. etl/ is not imported here (we dropped email_report).
+_scripts_dir = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_scripts_dir))
 
-from etl.email_report import EmailConfig, send as smtp_send  # noqa: E402
-from gmail.classify import Category, classify_emails  # noqa: E402
-from gmail.digest_html import build_subject, render_digest  # noqa: E402
+from gmail.classify import classify_emails  # noqa: E402
 from gmail.imap_client import ImapConfig, fetch_unread_last_24h  # noqa: E402
-from gmail.worker_sign import WorkerSignClient, WorkerUnavailable  # noqa: E402
+from gmail.worker_sync import WorkerSyncClient, WorkerSyncError  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("gmail.triage")
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Gmail triage digest")
-    p.add_argument("--digest", action="store_true", help="Fetch, classify, send digest")
-    p.add_argument("--dry-run", action="store_true", help="Print digest HTML to stdout, skip Worker + send")
+    p = argparse.ArgumentParser(description="Gmail triage: fetch + classify + sync to Worker")
+    p.add_argument("--sync", action="store_true", help="Run fetch+classify+sync")
+    p.add_argument("--dry-run", action="store_true", help="Print rows to stdout, skip Worker call")
     return p.parse_args(argv)
 
 
@@ -1535,7 +1446,7 @@ def _require_env(name: str) -> str:
     return v
 
 
-def run_digest(dry_run: bool) -> int:
+def run_sync(dry_run: bool) -> int:
     smtp_user = _require_env("PORTAL_SMTP_USER")
     smtp_password = _require_env("PORTAL_SMTP_PASSWORD")
     anthropic_key = _require_env("ANTHROPIC_API_KEY")
@@ -1544,57 +1455,55 @@ def run_digest(dry_run: bool) -> int:
     emails = fetch_unread_last_24h(ImapConfig(user=smtp_user, password=smtp_password))
     log.info("fetched %d emails", len(emails))
 
+    if not emails:
+        log.info("nothing to classify — exiting 0")
+        return 0
+
     log.info("classifying...")
     classifications = classify_emails(emails, api_key=anthropic_key)
 
-    trash_candidates = [e for e in emails if classifications.get(e.msg_id, None) and classifications[e.msg_id].category == Category.TRASH_CANDIDATE]
-    log.info("trash candidates: %d", len(trash_candidates))
-
-    # Get signed tokens for trash candidates
-    trash_tokens: dict[str, str] = {}
-    if trash_candidates and not dry_run:
-        worker_url = _require_env("PORTAL_GMAIL_WORKER_URL")
-        worker_secret = _require_env("PORTAL_GMAIL_WORKER_SECRET")
-        client = WorkerSignClient(base_url=worker_url, secret=worker_secret)
-        for e in trash_candidates:
-            try:
-                trash_tokens[e.msg_id] = client.sign(e.msg_id)
-            except WorkerUnavailable as err:
-                log.warning("sign failed for %s: %s — dropping trash link", e.msg_id, err)
-
-    worker_url_for_html = os.environ.get("PORTAL_GMAIL_WORKER_URL", "https://worker-gmail.invalid")
-    html, text = render_digest(
-        emails=emails, classifications=classifications, trash_tokens=trash_tokens,
-        worker_url=worker_url_for_html, as_of=date.today(),
-    )
-
-    important_count = sum(1 for c in classifications.values() if c.category == Category.IMPORTANT)
-    subject = build_subject(date.today(), important_count, len(trash_tokens))
+    classified_at = datetime.now(UTC).isoformat()
+    rows: list[dict[str, object]] = []
+    for e in emails:
+        c = classifications.get(e.msg_id)
+        if not c or not e.received_at:
+            # Skip emails we couldn't classify or couldn't date — either is a data-quality issue
+            # the UI would rather not see than show broken.
+            log.warning("skipping %s: classification=%s received_at=%s", e.msg_id, c, e.received_at)
+            continue
+        rows.append({
+            "msg_id": e.msg_id,
+            "received_at": e.received_at,
+            "classified_at": classified_at,
+            "sender": e.sender,
+            "subject": e.subject,
+            "summary": c.summary,
+            "category": c.category.value,
+        })
+    log.info("prepared %d rows for sync", len(rows))
 
     if dry_run:
-        print("=== SUBJECT ===")
-        print(subject)
-        print("=== HTML ===")
-        print(html)
-        print("=== TEXT ===")
-        print(text)
+        print(json.dumps({"classified_at": classified_at, "emails": rows}, indent=2))
         return 0
 
-    cfg = EmailConfig.from_env()
-    if cfg is None:
-        print("error: PORTAL_SMTP_USER / PORTAL_SMTP_PASSWORD not set for send", file=sys.stderr)
+    worker_url = _require_env("PORTAL_GMAIL_WORKER_URL")
+    sync_secret = _require_env("PORTAL_GMAIL_SYNC_SECRET")
+    client = WorkerSyncClient(base_url=worker_url, secret=sync_secret)
+    try:
+        result = client.sync(classified_at=classified_at, emails=rows)
+    except WorkerSyncError as e:
+        log.error("sync to Worker failed: %s", e)
         return 1
-    log.info("sending digest email...")
-    smtp_send(subject, html, text, cfg)
-    log.info("done")
+
+    log.info("sync done: inserted=%d skipped_existing=%d", result.inserted, result.skipped)
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
-    if args.digest:
-        return run_digest(dry_run=args.dry_run)
-    print("usage: triage.py --digest [--dry-run]", file=sys.stderr)
+    if args.sync:
+        return run_sync(dry_run=args.dry_run)
+    print("usage: triage.py --sync [--dry-run]", file=sys.stderr)
     return 2
 
 
@@ -1602,52 +1511,470 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
-- [ ] **Step 2: Dry-run smoke test (no real emails needed — just a failing IMAP login is acceptable)**
+- [ ] **Step 2: Dry-run smoke test**
 
 ```bash
 cd pipeline
-# With fake credentials to test the argparse + import path only:
-PORTAL_SMTP_USER=x@gmail.com PORTAL_SMTP_PASSWORD=x ANTHROPIC_API_KEY=sk-ant-fake \
-  .venv/Scripts/python.exe scripts/gmail/triage.py --digest --dry-run
+PORTAL_SMTP_USER=<real-gmail> PORTAL_SMTP_PASSWORD=<app-pw> ANTHROPIC_API_KEY=<sk-ant-...> \
+  .venv/Scripts/python.exe scripts/gmail/triage.py --sync --dry-run | head -40
 ```
 
-Expected: the script runs, attempts IMAP login, fails on fake credentials. Error should surface clearly. (For a true end-to-end dry run, use real credentials in your env and expect a live digest HTML on stdout.)
+Expected: JSON with `classified_at` + `emails` array. Verify categories look sensible.
 
-- [ ] **Step 3: Full end-to-end dry-run with real credentials**
-
-Requires `PORTAL_SMTP_USER`, `PORTAL_SMTP_PASSWORD`, `ANTHROPIC_API_KEY` in shell.
-
-```bash
-cd pipeline
-.venv/Scripts/python.exe scripts/gmail/triage.py --digest --dry-run > /tmp/digest.html
-# Inspect /tmp/digest.html to verify classifications and rendering
-```
-
-- [ ] **Step 4: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
 git add pipeline/scripts/gmail/triage.py
-git commit -m "feat(gmail-triage): CLI orchestrator wiring fetch→classify→sign→render→send"
+git commit -m "feat(gmail-triage): CLI orchestrator — fetch→classify→sync"
 ```
 
 ---
 
-## Task 13: GitHub Actions workflow
+## Task 13: Frontend — Zod schemas
 
 **Files:**
-- Create: `.github/workflows/gmail-digest.yml`
+- Create: `src/lib/schemas/mail.ts`
+
+- [ ] **Step 1: Create `src/lib/schemas/mail.ts`**
+
+```ts
+// ── Gmail triage schemas ─────────────────────────────────────────────────────
+
+import { z } from "zod";
+
+export const CategorySchema = z.enum(["IMPORTANT", "NEUTRAL", "TRASH_CANDIDATE"]);
+export type Category = z.infer<typeof CategorySchema>;
+
+export const StatusSchema = z.enum(["active", "trashed"]);
+export type Status = z.infer<typeof StatusSchema>;
+
+export const TriagedEmailSchema = z.object({
+  msg_id: z.string(),
+  received_at: z.string(),
+  classified_at: z.string(),
+  sender: z.string(),
+  subject: z.string(),
+  summary: z.string(),
+  category: CategorySchema,
+  status: StatusSchema,
+});
+export type TriagedEmail = z.infer<typeof TriagedEmailSchema>;
+
+export const MailListResponseSchema = z.object({
+  emails: z.array(TriagedEmailSchema),
+  as_of: z.string(),
+});
+export type MailListResponse = z.infer<typeof MailListResponseSchema>;
+
+export const TrashResponseSchema = z.object({
+  status: z.enum(["trashed", "already_gone", "auth_failed", "error"]),
+});
+export type TrashResponse = z.infer<typeof TrashResponseSchema>;
+```
+
+- [ ] **Step 2: Typecheck (from repo root)**
+
+```bash
+npm run build  # or `npx tsc --noEmit` if build is slow
+```
+
+Expected: no new type errors.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add src/lib/schemas/mail.ts
+git commit -m "feat(gmail-triage): Zod schemas for MailListResponse and TrashResponse"
+```
+
+---
+
+## Task 14: Frontend — `use-mail` hook
+
+**Files:**
+- Create: `src/lib/use-mail.ts`
+
+- [ ] **Step 1: Create `src/lib/use-mail.ts`**
+
+```ts
+"use client";
+
+// ── Gmail triage data hook ───────────────────────────────────────────────────
+
+import { useCallback, useEffect, useState } from "react";
+import {
+  MailListResponseSchema,
+  TrashResponseSchema,
+  type MailListResponse,
+  type TriagedEmail,
+} from "@/lib/schemas/mail";
+
+const WORKER_URL = process.env.NEXT_PUBLIC_GMAIL_WORKER_URL ?? "";
+const KEY_STORAGE = "portal:gmail:key";
+
+function resolveKey(): string | null {
+  if (typeof window === "undefined") return null;
+  // Prefer URL ?key=...: save it, strip it, and reload with clean URL.
+  const url = new URL(window.location.href);
+  const fromQuery = url.searchParams.get("key");
+  if (fromQuery) {
+    window.localStorage.setItem(KEY_STORAGE, fromQuery);
+    url.searchParams.delete("key");
+    window.history.replaceState(null, "", url.toString());
+    return fromQuery;
+  }
+  return window.localStorage.getItem(KEY_STORAGE);
+}
+
+export interface UseMailState {
+  loading: boolean;
+  error: string | null;
+  data: MailListResponse | null;
+  keyMissing: boolean;
+  deleteEmail: (msgId: string) => Promise<void>;
+  refetch: () => void;
+}
+
+export function useMail(): UseMailState {
+  const [data, setData] = useState<MailListResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [keyMissing, setKeyMissing] = useState(false);
+  const [refreshTick, setRefreshTick] = useState(0);
+
+  useEffect(() => {
+    const key = resolveKey();
+    if (!key) {
+      setKeyMissing(true);
+      setLoading(false);
+      return;
+    }
+    if (!WORKER_URL) {
+      setError("NEXT_PUBLIC_GMAIL_WORKER_URL not configured");
+      setLoading(false);
+      return;
+    }
+
+    const ctrl = new AbortController();
+    setLoading(true);
+    setError(null);
+
+    fetch(`${WORKER_URL}/mail/list`, {
+      headers: { "X-Mail-Key": key },
+      signal: ctrl.signal,
+    })
+      .then(async (r) => {
+        if (r.status === 401) {
+          window.localStorage.removeItem(KEY_STORAGE);
+          setKeyMissing(true);
+          return null;
+        }
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const json = await r.json();
+        return MailListResponseSchema.parse(json);
+      })
+      .then((parsed) => {
+        if (parsed) setData(parsed);
+      })
+      .catch((e: unknown) => {
+        if (e instanceof Error && e.name !== "AbortError") setError(e.message);
+      })
+      .finally(() => setLoading(false));
+
+    return () => ctrl.abort();
+  }, [refreshTick]);
+
+  const deleteEmail = useCallback(async (msgId: string) => {
+    const key = window.localStorage.getItem(KEY_STORAGE);
+    if (!key) throw new Error("no key");
+
+    // Optimistic: drop from local state immediately.
+    setData((prev) => prev && { ...prev, emails: prev.emails.filter((e) => e.msg_id !== msgId) });
+
+    const r = await fetch(`${WORKER_URL}/mail/trash`, {
+      method: "POST",
+      headers: { "X-Mail-Key": key, "Content-Type": "application/json" },
+      body: JSON.stringify({ msg_id: msgId }),
+    });
+    const json = await r.json();
+    const parsed = TrashResponseSchema.parse(json);
+
+    if (parsed.status === "trashed" || parsed.status === "already_gone") {
+      // Success — nothing to undo.
+      return;
+    }
+    // Rollback: re-fetch to restore the row.
+    setRefreshTick((t) => t + 1);
+    throw new Error(parsed.status);
+  }, []);
+
+  const refetch = useCallback(() => setRefreshTick((t) => t + 1), []);
+
+  return { loading, error, data, keyMissing, deleteEmail, refetch };
+}
+
+export function groupByCategory(emails: TriagedEmail[]): {
+  important: TriagedEmail[];
+  neutral: TriagedEmail[];
+  trash: TriagedEmail[];
+} {
+  return {
+    important: emails.filter((e) => e.category === "IMPORTANT"),
+    neutral: emails.filter((e) => e.category === "NEUTRAL"),
+    trash: emails.filter((e) => e.category === "TRASH_CANDIDATE"),
+  };
+}
+```
+
+- [ ] **Step 2: Typecheck**
+
+```bash
+npx tsc --noEmit
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add src/lib/use-mail.ts
+git commit -m "feat(gmail-triage): use-mail hook with key resolution + optimistic delete"
+```
+
+---
+
+## Task 15: Frontend — `/mail` page + components
+
+**Files:**
+- Create: `src/components/mail/mail-row.tsx`
+- Create: `src/components/mail/delete-button.tsx`
+- Create: `src/components/mail/mail-list.tsx`
+- Create: `src/app/mail/page.tsx`
+
+- [ ] **Step 1: Create `src/components/mail/delete-button.tsx`**
+
+```tsx
+"use client";
+
+import { useState } from "react";
+
+interface Props {
+  msgId: string;
+  onDelete: (msgId: string) => Promise<void>;
+}
+
+export function DeleteButton({ msgId, onDelete }: Props) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const handleClick = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      await onDelete(msgId);
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : "failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="inline-flex flex-col items-end gap-1">
+      <button
+        type="button"
+        onClick={handleClick}
+        disabled={busy}
+        className="rounded border border-red-200 bg-red-50 px-2 py-1 text-sm text-red-700 hover:bg-red-100 disabled:opacity-50"
+      >
+        {busy ? "Deleting..." : "Delete"}
+      </button>
+      {err && <span className="text-xs text-red-600">{err}</span>}
+    </div>
+  );
+}
+```
+
+- [ ] **Step 2: Create `src/components/mail/mail-row.tsx`**
+
+```tsx
+"use client";
+
+import type { TriagedEmail } from "@/lib/schemas/mail";
+import { DeleteButton } from "@/components/mail/delete-button";
+
+interface Props {
+  email: TriagedEmail;
+  onDelete?: (msgId: string) => Promise<void>;
+}
+
+export function MailRow({ email, onDelete }: Props) {
+  const gmailLink = `https://mail.google.com/mail/u/0/#inbox/${encodeURIComponent(email.msg_id)}`;
+  const canDelete = email.category === "TRASH_CANDIDATE" && onDelete;
+
+  return (
+    <div className="flex items-start justify-between gap-3 border-b border-gray-100 py-2 last:border-b-0">
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-medium text-gray-900">{email.subject || "(no subject)"}</div>
+        <div className="truncate text-xs text-gray-500">{email.sender}</div>
+        {email.summary && <div className="mt-1 text-xs text-gray-700">{email.summary}</div>}
+      </div>
+      <div className="flex flex-shrink-0 flex-col items-end gap-1">
+        <a href={gmailLink} target="_blank" rel="noreferrer" className="text-xs text-blue-600 underline">
+          Open in Gmail
+        </a>
+        {canDelete && <DeleteButton msgId={email.msg_id} onDelete={onDelete!} />}
+      </div>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 3: Create `src/components/mail/mail-list.tsx`**
+
+```tsx
+"use client";
+
+import type { TriagedEmail } from "@/lib/schemas/mail";
+import { MailRow } from "@/components/mail/mail-row";
+
+interface Props {
+  title: string;
+  emoji: string;
+  emails: TriagedEmail[];
+  onDelete?: (msgId: string) => Promise<void>;
+}
+
+export function MailSection({ title, emoji, emails, onDelete }: Props) {
+  return (
+    <section className="mb-6">
+      <h2 className="mb-2 text-base font-semibold text-gray-900">
+        {emoji} {title} ({emails.length})
+      </h2>
+      {emails.length === 0 ? (
+        <div className="text-sm text-gray-500 italic">None</div>
+      ) : (
+        <div className="rounded border border-gray-200 bg-white px-4">
+          {emails.map((e) => (
+            <MailRow key={e.msg_id} email={e} onDelete={onDelete} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+```
+
+- [ ] **Step 4: Create `src/app/mail/page.tsx`**
+
+```tsx
+"use client";
+
+import { groupByCategory, useMail } from "@/lib/use-mail";
+import { MailSection } from "@/components/mail/mail-list";
+
+export default function MailPage() {
+  const { loading, error, data, keyMissing, deleteEmail } = useMail();
+
+  if (keyMissing) {
+    return (
+      <main className="mx-auto max-w-3xl p-6">
+        <h1 className="mb-4 text-2xl font-bold">Mail</h1>
+        <div className="rounded bg-yellow-50 p-4 text-sm">
+          <p className="font-semibold">Key required</p>
+          <p className="mt-2 text-gray-700">
+            Append <code>?key=YOUR_32_CHAR_KEY</code> to this page's URL once. The key is
+            saved locally so future visits don't need it.
+          </p>
+        </div>
+      </main>
+    );
+  }
+  if (loading) return <main className="p-6"><p>Loading mail…</p></main>;
+  if (error) return <main className="p-6"><p className="text-red-700">Error: {error}</p></main>;
+  if (!data) return null;
+
+  const { important, neutral, trash } = groupByCategory(data.emails);
+  const asOf = new Date(data.as_of).toLocaleString();
+
+  return (
+    <main className="mx-auto max-w-3xl p-6">
+      <h1 className="mb-2 text-2xl font-bold">Mail</h1>
+      <p className="mb-6 text-sm text-gray-500">as of {asOf}</p>
+      <MailSection title="IMPORTANT" emoji="📌" emails={important} />
+      <MailSection title="OTHER" emoji="📨" emails={neutral} />
+      <MailSection title="SUGGESTED TRASH" emoji="🗑️" emails={trash} onDelete={deleteEmail} />
+    </main>
+  );
+}
+```
+
+- [ ] **Step 5: Typecheck + local dev test**
+
+```bash
+npm run build
+# Or for dev preview: npm run dev; open http://localhost:3000/mail?key=<USER_KEY>
+```
+
+Expected: build succeeds. Dev-mode page loads with "Loading mail…" then data.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/app/mail/ src/components/mail/
+git commit -m "feat(gmail-triage): /mail page + MailRow/MailSection/DeleteButton components"
+```
+
+---
+
+## Task 16: Frontend — add Mail nav link
+
+**Files:**
+- Modify: whichever file under `src/components/layout/` renders the Finance/Econ top-nav links. Common suspects: `src/components/layout/nav.tsx`, `src/components/layout/header.tsx`, or inline in `src/app/layout.tsx`.
+
+- [ ] **Step 1: Find the nav**
+
+```bash
+grep -rn "/finance\|/econ" src/components/layout/ src/app/layout.tsx
+```
+
+Identify the file where the Finance and Econ links live.
+
+- [ ] **Step 2: Add a Mail link**
+
+Add a new link next to Finance/Econ, matching the pattern (className, wrapping element) already used there.
+
+Example (shape depends on actual file):
+
+```tsx
+<Link href="/mail">Mail</Link>
+```
+
+- [ ] **Step 3: Verify — `npm run dev`, open page, confirm Mail link appears, click it, lands on `/mail?...`**
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add <modified-nav-file>
+git commit -m "feat(gmail-triage): add Mail to top-nav"
+```
+
+---
+
+## Task 17: GitHub Actions workflow
+
+**Files:**
+- Create: `.github/workflows/gmail-sync.yml`
 
 - [ ] **Step 1: Create the workflow**
 
 ```yaml
-name: Gmail Triage Digest
+name: Gmail Sync
 on:
   schedule:
     - cron: "0 22 * * *"     # 22:00 UTC = 07:00 +08 (no DST)
   workflow_dispatch: {}
 
 jobs:
-  digest:
+  sync:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -1664,74 +1991,79 @@ jobs:
 
       - name: Run triage
         working-directory: pipeline
-        run: python scripts/gmail/triage.py --digest
+        run: python scripts/gmail/triage.py --sync
         env:
-          PORTAL_SMTP_USER:               ${{ secrets.PORTAL_SMTP_USER }}
-          PORTAL_SMTP_PASSWORD:           ${{ secrets.PORTAL_SMTP_PASSWORD }}
-          PORTAL_GMAIL_WORKER_URL:        ${{ secrets.PORTAL_GMAIL_WORKER_URL }}
-          PORTAL_GMAIL_WORKER_SECRET:     ${{ secrets.PORTAL_GMAIL_WORKER_SECRET }}
-          PORTAL_GMAIL_TOKEN_SIGNING_KEY: ${{ secrets.PORTAL_GMAIL_TOKEN_SIGNING_KEY }}
-          ANTHROPIC_API_KEY:              ${{ secrets.ANTHROPIC_API_KEY }}
+          PORTAL_SMTP_USER:          ${{ secrets.PORTAL_SMTP_USER }}
+          PORTAL_SMTP_PASSWORD:      ${{ secrets.PORTAL_SMTP_PASSWORD }}
+          PORTAL_GMAIL_WORKER_URL:   ${{ secrets.PORTAL_GMAIL_WORKER_URL }}
+          PORTAL_GMAIL_SYNC_SECRET:  ${{ secrets.PORTAL_GMAIL_SYNC_SECRET }}
+          ANTHROPIC_API_KEY:         ${{ secrets.ANTHROPIC_API_KEY }}
 ```
 
-- [ ] **Step 2: Add the 6 repo secrets via GitHub UI**
+- [ ] **Step 2: Add the 5 repo secrets via GitHub Settings**
 
-Visit `https://github.com/Guoyuer/portal/settings/secrets/actions` → New repository secret, for each of:
-
+`https://github.com/Guoyuer/portal/settings/secrets/actions` → New repository secret:
 - `PORTAL_SMTP_USER`
 - `PORTAL_SMTP_PASSWORD`
-- `PORTAL_GMAIL_WORKER_URL` (e.g. `https://worker-gmail.<account>.workers.dev`)
-- `PORTAL_GMAIL_WORKER_SECRET` (same value as the Worker's `SIGNING_SECRET`)
-- `PORTAL_GMAIL_TOKEN_SIGNING_KEY` (not currently used on Python side; still set for future)
+- `PORTAL_GMAIL_WORKER_URL` (Worker deployed URL from Task 7)
+- `PORTAL_GMAIL_SYNC_SECRET` (same value as Worker's `SYNC_SECRET`)
 - `ANTHROPIC_API_KEY`
+
+Also add `NEXT_PUBLIC_GMAIL_WORKER_URL` to the Portal build env (Cloudflare Pages settings → Environment variables) so the `/mail` page can reach the Worker. Its value is the same Worker URL.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add .github/workflows/gmail-digest.yml
-git commit -m "feat(gmail-triage): GitHub Actions workflow (daily 07:00 +08)"
+git add .github/workflows/gmail-sync.yml
+git commit -m "feat(gmail-triage): GitHub Actions daily sync workflow"
 ```
 
-- [ ] **Step 4: Manually trigger the workflow via `gh workflow run gmail-digest.yml`**
-
-After push, run:
+- [ ] **Step 4: Push + trigger manually**
 
 ```bash
 git push
-gh workflow run gmail-digest.yml
+gh workflow run gmail-sync.yml
 gh run watch
 ```
 
-Expected: job succeeds, and your own Gmail receives a digest within ~1 min.
+Expected: job succeeds. Verify via `curl "$WORKER_URL/mail/list?key=$USER_KEY" | jq` that rows now exist in D1.
 
 ---
 
-## Task 14: Final verification
+## Task 18: End-to-end verification
 
-**Files:** none (manual verification)
+**Files:** none (manual).
 
-- [ ] **Step 1: Click a Delete link in the digest**
+- [ ] **Step 1: Visit `/mail` in a browser**
 
-Open the digest email in Gmail, click a "Delete" link next to a TRASH_CANDIDATE, click Confirm. Verify the message moves to Trash within 1–2 seconds.
+Navigate to `https://portal.example.com/mail?key=<USER_KEY>` once. Verify:
+- URL updates to `/mail` (key is saved to localStorage)
+- Page renders with 3 sections
+- Subject lines appear, summaries appear
+- "Open in Gmail" links work
+- Second visit (no key in URL) still loads
 
-- [ ] **Step 2: Click an Open in Gmail link**
+- [ ] **Step 2: Click Delete on a TRASH_CANDIDATE**
 
-Verify the deep link opens the target email in Gmail.
+Verify:
+- Row immediately disappears (optimistic)
+- No error shown
+- Open Gmail, confirm email is in Trash folder
 
-- [ ] **Step 3: Verify confirm-page tamper detection**
+- [ ] **Step 3: Invalid-key flow**
 
-Manually edit the URL (`?t=...Z` → `?t=...X`) and load it. Expected: "Invalid or expired link" page.
+In DevTools Application tab, delete the `portal:gmail:key` localStorage entry. Reload `/mail`. Expected: "Key required" prompt.
 
-- [ ] **Step 4: Run full Python test suite to make sure nothing regressed**
+- [ ] **Step 4: Run Python test suite**
 
 ```bash
 cd pipeline
 .venv/Scripts/pytest.exe -q
 ```
 
-Expected: all tests pass.
+Expected: all tests pass (including new gmail/ tests).
 
-- [ ] **Step 5: Ruff + mypy**
+- [ ] **Step 5: Ruff + mypy on new Python code**
 
 ```bash
 cd pipeline
@@ -1741,9 +2073,18 @@ cd pipeline
 
 Expected: clean.
 
-- [ ] **Step 6: Merge PR**
+- [ ] **Step 6: Full frontend build**
 
-Open a PR from `docs/gmail-triage-design` (or the feature branch this plan produces) → main. Title: `feat: Gmail auto-triage system`.
+```bash
+npm run build
+npm run test        # vitest unit tests
+```
+
+Expected: no build errors, existing vitest tests still pass.
+
+- [ ] **Step 7: Merge PR**
+
+Open PR: `docs/gmail-triage-design` (or renamed feature branch) → main. Title: `feat: Gmail auto-triage v2 (Portal /mail tab)`.
 
 ---
 
@@ -1751,22 +2092,32 @@ Open a PR from `docs/gmail-triage-design` (or the feature branch this plan produ
 
 | Spec section | Task(s) |
 |---|---|
-| Data flow §1 (digest generation) | T8 (IMAP), T9 (classify), T10 (sign), T11 (render), T12 (orchestrate), T13 (cron) |
-| Data flow §2 (click → trash) | T3 (/sign), T4 (GET /trash), T5 (IMAP client), T6 (POST /trash) |
-| Token format (HMAC + 7d expiry) | T2 |
-| Classification prompt + few-shot | T9 |
-| Digest HTML (`<pre>`-based) | T11 |
-| Setup — 7 steps | T7 (README), T13 (workflow + secrets), T6 (Worker deploy) |
-| Error handling (9 rows) | T9 (fallback), T10 (WorkerUnavailable), T6 (Worker error pages) |
-| Security (7 rows) | T3 (header auth), T4 (GET confirm), T6 (trash only, no EXPUNGE), T2 (HMAC timing-safe compare) |
-| Testing | T8, T9, T10, T11 tests; T3–T6 curl smoke tests |
-| Reuse etl.email_report + changelog HTML pattern | T11 (matches <pre> pattern), T12 (imports `send`) |
+| Architecture §1 (GH Actions cron) | T17 |
+| Architecture §2 (Python classifier) | T9 (imap), T10 (classify), T11 (sync), T12 (triage) |
+| Architecture §3 (Worker + D1) | T1–T7 |
+| Architecture §4 (Portal /mail) | T13–T16 |
+| D1 schema | T2 |
+| /mail/sync endpoint | T3 |
+| /mail/list endpoint | T4 |
+| /mail/trash endpoint | T6 |
+| IMAP client (hand-rolled) | T5 |
+| URL-key auth | T4 (authUser), T14 (resolveKey) |
+| SYNC_SECRET auth | T3 |
+| UI wireframe (3 sections + Delete + Open-in-Gmail) | T15 |
+| Optimistic delete | T14 (useMail.deleteEmail), T15 (MailRow) |
+| Classification prompt | T10 |
+| Setup (8 steps) | T7 (D1, Worker secrets, deploy), T17 (GH Secrets + workflow) |
+| Error handling | T6 (IMAP paths), T11 (sync errors), T14 (fetch errors) |
+| Security (URL key constant-time compare) | T4 (authUser) |
+| Retention (30-90d / UI shows 7d) | T2 (schema, no purge v1), T3 (db.ts SELECT) |
 
 No spec gaps.
 
 ## Notes for executor
 
-- **HMAC key format**: the Worker expects a hex string in `SIGNING_KEY`. Generate with `openssl rand -hex 32`. If you later decide to use raw bytes or base64 instead, update both `hexToBytes` call in `signToken`/`verifyToken` AND the `wrangler secret put` value.
-- **Gmail IMAP rate limit**: Gmail allows ~10 IMAP connections per account. Our usage is 1 per Worker `/trash` click + 1 per daily digest — no concern.
-- **Workers CPU budget**: the IMAP client reads text responses in chunks via a ReadableStream. CPU for protocol parsing should stay <10 ms. If deploy + test reveals CPU overages, the mitigation is to reduce the `readUntilTag` buffer size or skip optional response validation (e.g. trust that A2 SELECT succeeded if no `* BYE` seen).
-- **Cron drift**: GitHub Actions scheduled workflows can run up to ~15 min late during peak. Success criteria account for this.
+- **Order matters only loosely**: T1–T7 can run in parallel with T8–T12 (independent Python+Worker tracks). Frontend T13–T16 depends on Worker being reachable for dev-mode smoke tests but not for build.
+- **`INSERT OR IGNORE` intentional**: once a user clicks Delete, `status='trashed'` must survive the next daily sync that sees the same Message-ID. Do not change to `INSERT OR REPLACE`.
+- **CORS origin `*`** in Worker is acceptable for v1 because both `/mail/list` and `/mail/trash` are `USER_KEY`-gated. Tighten to the specific Portal domain if ever exposing unauthenticated routes.
+- **Cron drift**: GitHub scheduled workflows may run up to ~15 min late during peak. UI shows "as of <timestamp>" so drift is visible.
+- **Portal Pages env var**: `NEXT_PUBLIC_GMAIL_WORKER_URL` must be a build-time var because Next.js embeds it. If changing the Worker URL, redeploy the Pages project.
+- **Frontend styling**: the Tailwind classes above are reasonable defaults but should be harmonized with Portal's existing card styles (look at `src/components/finance/metric-cards.tsx` for reference). Use existing UI primitives if any match (`src/components/ui/`).
