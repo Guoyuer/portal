@@ -38,6 +38,10 @@ cd pipeline && .venv/Scripts/python.exe scripts/run_automation.py --force --loca
 # Register with Task Scheduler (daily 06:00) — schtasks still points at the PS1 shim
 schtasks /create /tn "PortalSync" /tr "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Users\guoyu\Projects\portal\pipeline\scripts\run_portal_sync.ps1" /sc daily /st 06:00
 
+# Gmail triage (classifier + Worker + /mail tab)
+cd pipeline && .venv/Scripts/python.exe scripts/gmail/triage.py --sync --dry-run  # local dry-run
+cd worker-gmail && npx wrangler deploy                # deploy Gmail Worker
+
 # E2E (mock API on port 4444 — no real backend needed)
 npx playwright test                                   # 5 Playwright spec files
 ```
@@ -59,6 +63,8 @@ Next.js static shell on Cloudflare Pages. Data served by Cloudflare Worker (`wor
 Frontend fetches all data in a single `GET /timeline` call (~4.6 MB JSON, ~385 KB gzipped by Cloudflare edge), then computes allocation, cashflow, activity, and reconciliation locally in `compute.ts` via `use-bundle.ts`. All daily data points are rendered directly (no downsampling). Brush drag is zero-latency (no network). Ticker charts fetch on-demand via `GET /prices/:symbol`.
 
 D1 schema: 10 base tables (incl. `categories`) + 12 camelCase views (incl. `v_market_meta` pivot, `v_econ_snapshot`, `v_econ_series_grouped`, `v_categories`). Worker serves 3 endpoints: `GET /timeline`, `GET /econ`, `GET /prices/:symbol`. Worker is a thin adapter: `SELECT` → `Zod.safeParse` → JSON. All shape work lives in the views; the only transform in TypeScript is `JSON.parse(sparkline)`, done via a Zod transform shared with the client. All data flows through D1.
+
+Gmail triage is a parallel module with its own stack: GitHub Actions cron runs `pipeline/scripts/gmail/triage.py` (IMAP fetch → Claude Haiku classify → POST to `worker-gmail`). `worker-gmail` is a separate Worker with its own D1 (`portal-gmail` → `triaged_emails` table), 3 routes (`/mail/sync`, `/mail/list`, `/mail/trash`), and a hand-rolled Gmail IMAP client over `cloudflare:sockets` for the trash operation. Frontend tab at `/mail` authenticates with a URL key (`?key=…`) cached in localStorage. See `docs/gmail-triage-design-2026-04-12.md`.
 
 `/timeline` is fail-open: the critical `v_daily` query returns 503 on failure, but optional sections (market, holdings, txns) degrade to `null` + a `errors: { market?, holdings?, txns? }` entry. Panels render explicit error cards — missing data never hides silently.
 
