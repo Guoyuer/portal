@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "worker-gmail",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "portal-gmail",
+      "database_id": "REPLACE_WITH_REAL_ID_AFTER_CREATE"
+    }
+  ]
+}
