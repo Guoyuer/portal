@@ -11,6 +11,11 @@ Exit code taxonomy:
     3 — sync failed
     4 — verify_positions failed (replay disagrees with Fidelity snapshot — do NOT sync)
 
+Email notifications (optional): set ``PORTAL_SMTP_USER`` + ``PORTAL_SMTP_PASSWORD``
+and the orchestrator sends a changelog email on every run that detected real
+changes, and on every failure. Silent no-change runs never email. See
+``docs/automation-setup.md`` for Gmail app-password setup.
+
 CLI (mirrors the previous PS1 flags):
     --force     Skip change detection
     --dry-run   Run build + verify but skip the sync step
@@ -20,6 +25,12 @@ Environment variables:
     PORTAL_HEALTHCHECK_URL   Healthchecks.io base URL (optional; silent if unset)
     PORTAL_DOWNLOADS         Downloads dir (default: %USERPROFILE%\\Downloads)
     PORTAL_DB_PATH           timemachine.db path (default: pipeline/data/timemachine.db)
+    PORTAL_SMTP_USER         Gmail address to send from (required for email)
+    PORTAL_SMTP_PASSWORD     Gmail app password (required for email)
+    PORTAL_SMTP_HOST         Default smtp.gmail.com
+    PORTAL_SMTP_PORT         Default 587
+    PORTAL_EMAIL_FROM        Default same as SMTP_USER
+    PORTAL_EMAIL_TO          Default same as SMTP_USER
     APPDATA                  Qianji DB root on Windows
     LOCALAPPDATA             Log dir root on Windows
 """
@@ -28,6 +39,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import re
 import subprocess
 import sys
 import urllib.error
@@ -35,12 +47,34 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import etl.dotenv_loader  # noqa: E402, F401  (side effect: load pipeline/.env)
+from etl.changelog import (  # noqa: E402
+    SyncChangelog,
+    SyncSnapshot,
+    build_subject,
+    capture,
+    diff,
+    empty_changelog,
+    format_html,
+    format_text,
+)
+from etl.email_report import EmailConfig, send  # noqa: E402
+
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
 _PIPELINE_DIR = _SCRIPT_DIR.parent
 _DATA_DIR = _PIPELINE_DIR / "data"
 _MARKER = _DATA_DIR / ".last_run"
+
+
+def get_db_path() -> Path:
+    """timemachine.db location. Overridable via PORTAL_DB_PATH (used in tests)."""
+    override = os.environ.get("PORTAL_DB_PATH")
+    if override:
+        return Path(override)
+    return _DATA_DIR / "timemachine.db"
 
 # Patterns monitored for change detection. Portfolio_Positions_*.csv IS watched
 # because a fresh snapshot is what triggers the [3b] ground-truth gate; the gate
@@ -180,8 +214,24 @@ def find_new_positions_csv(downloads: Path, marker: Path) -> Path | None:
 
 # ── Subprocess runner ─────────────────────────────────────────────────────────
 
+# Per-process buffer of captured script output lines. Cleared at the start of
+# each main() run so that warnings extracted for an email are scoped to the
+# current invocation only — without this, re-reading the per-day log file would
+# accumulate warnings from earlier runs on the same day, leading to duplicated
+# validation messages in the email body (see PR-S8 Bug 1).
+_SCRIPT_OUTPUT_BUFFER: list[str] = []
+
+
 def run_python_script(script: Path, *args: str) -> int:
-    """Invoke a sibling Python script, stream stdout/stderr into the logger. Returns exit code."""
+    """Invoke a sibling Python script, stream stdout/stderr into the logger.
+
+    Each emitted line is also appended to ``_SCRIPT_OUTPUT_BUFFER`` so that the
+    orchestrator can later extract warnings scoped to the *current* run
+    (without re-reading the per-day log file, which accumulates lines from
+    every prior invocation).
+
+    Returns the subprocess exit code.
+    """
     log = logging.getLogger(__name__)
     cmd = [sys.executable, str(script), *args]
     log.info("  > %s", " ".join(cmd))
@@ -196,9 +246,167 @@ def run_python_script(script: Path, *args: str) -> int:
     )
     assert proc.stdout is not None
     for line in proc.stdout:
-        log.info(line.rstrip("\n"))
+        stripped = line.rstrip("\n")
+        log.info(stripped)
+        _SCRIPT_OUTPUT_BUFFER.append(stripped)
     proc.wait()
     return proc.returncode
+
+
+def _reset_script_output_buffer() -> None:
+    """Clear the per-run capture buffer. Call once at the start of main()."""
+    _SCRIPT_OUTPUT_BUFFER.clear()
+
+
+def get_script_output_buffer() -> list[str]:
+    """Return a *copy* of the captured subprocess lines for THIS main() run."""
+    return list(_SCRIPT_OUTPUT_BUFFER)
+
+
+# ── Email reporting ───────────────────────────────────────────────────────────
+
+_STATUS_LABELS = {
+    EXIT_OK: "OK",
+    EXIT_BUILD_FAIL: "BUILD FAILED",
+    EXIT_PARITY_FAIL: "PARITY GATE FAILED",
+    EXIT_SYNC_FAIL: "SYNC FAILED",
+    EXIT_POSITIONS_FAIL: "POSITIONS GATE FAILED",
+}
+
+
+def _parse_warnings_from_lines(lines: list[str]) -> list[str]:
+    """Extract ``validate_build`` WARNING messages from an iterable of log lines.
+
+    Matches lines containing ``"WARNING"`` followed by a colon or space. Skips
+    healthcheck noise and de-duplicates exact repeats while preserving order
+    (defense in depth: even if a caller passes a multi-run buffer, repeated
+    warnings collapse to one entry).
+    """
+    warnings: list[str] = []
+    for line in lines:
+        m = re.search(r"WARNING[: ]\s*(.+)", line)
+        if not m:
+            continue
+        msg = m.group(1).strip()
+        if not msg or "healthcheck ping failed" in msg:
+            continue
+        warnings.append(msg)
+    # dict.fromkeys preserves first-seen order while dropping duplicates.
+    return list(dict.fromkeys(warnings))
+
+
+def extract_validation_warnings(log_file: Path | None = None) -> list[str]:
+    """Return validation WARNINGs captured from this run.
+
+    Primary source is the in-memory subprocess capture buffer, which guarantees
+    scoping to the CURRENT ``main()`` invocation. If that buffer is empty
+    (e.g. subprocess hooks were bypassed in a test or the caller passed a path
+    explicitly), falls back to parsing the tail of ``log_file`` starting from
+    the most recent ``"=" * 60`` banner — which matches the "Portal Sync"
+    opening block emitted by :func:`main` at each run.
+
+    This two-tier approach keeps warnings from prior runs on the same day
+    (the per-day log file is append-only) from leaking into the email body.
+    """
+    buffered = get_script_output_buffer()
+    if buffered:
+        return _parse_warnings_from_lines(buffered)
+
+    if log_file is None or not log_file.exists():
+        return []
+    try:
+        with log_file.open("r", encoding="utf-8", errors="replace") as fh:
+            all_lines = fh.readlines()
+    except OSError:
+        return []
+
+    # Find the start of the *current* run: the last "============" banner. The
+    # orchestrator writes three banner lines ("=" * 60, "Portal Sync", "=" * 60)
+    # at the top of each main() run; slicing from the last banner onward gives
+    # us only the current run's output.
+    banner = "=" * 60
+    last_banner_idx = -1
+    for i, line in enumerate(all_lines):
+        if banner in line:
+            last_banner_idx = i
+    tail = all_lines[last_banner_idx:] if last_banner_idx >= 0 else all_lines
+    return _parse_warnings_from_lines([ln.rstrip("\n") for ln in tail])
+
+
+def _build_context(
+    changelog: SyncChangelog,
+    exit_code: int,
+    log_file: Path,
+    snapshot_before: SyncSnapshot,
+    snapshot_after: SyncSnapshot | None,
+    error: str | None,
+    warnings: list[str] | None,
+) -> dict[str, object]:
+    """Assemble the template context dict consumed by format_text / format_html."""
+    before_dates = sorted(snapshot_before.computed_daily.keys()) if snapshot_before.computed_daily else []
+    after_dates: list[str] = []
+    econ_keys: list[str] = []
+    if snapshot_after is not None:
+        after_dates = sorted(snapshot_after.computed_daily.keys())
+        econ_keys = sorted(snapshot_after.econ_series_keys)
+    return {
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "status_label": _STATUS_LABELS.get(exit_code, f"EXIT {exit_code}"),
+        "exit_code": exit_code,
+        "log_file": str(log_file),
+        "error": error,
+        "warnings": warnings or [],
+        "before_dates": before_dates,
+        "after_dates": after_dates,
+        "econ_keys": econ_keys,
+    }
+
+
+def _send_report_email(
+    config: EmailConfig | None,
+    log: logging.Logger,
+    snapshot_before: SyncSnapshot,
+    snapshot_after: SyncSnapshot | None,
+    exit_code: int,
+    log_file: Path,
+    error: str | None = None,
+    validation_warnings: list[str] | None = None,
+) -> None:
+    """Build a changelog, decide whether to send, send if yes.
+
+    Policy:
+        exit_code != 0                                 -> always send
+        exit_code == 0 and has_meaningful_changes      -> send
+        exit_code == 0 and no meaningful changes       -> skip
+
+    Errors during SMTP are logged and swallowed — email must never affect the
+    sync exit code.
+    """
+    if config is None:
+        return
+
+    if snapshot_after is not None:
+        changelog = diff(snapshot_before, snapshot_after)
+    else:
+        changelog = empty_changelog()
+
+    should_send = exit_code != 0 or changelog.has_meaningful_changes()
+    if not should_send:
+        log.info("  Email skipped (no meaningful changes)")
+        return
+
+    context = _build_context(
+        changelog, exit_code, log_file, snapshot_before, snapshot_after, error, validation_warnings,
+    )
+    subject = build_subject(changelog, exit_code)
+    html = format_html(changelog, context)
+    text = format_text(changelog, context)
+
+    try:
+        send(subject, html, text, config)
+        log.info("  Email sent to %s", config.email_to)
+    except Exception as e:  # noqa: BLE001 — email failure must not abort sync
+        log.error("  Email send FAILED (not fatal): %s", e)
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
@@ -221,12 +429,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
 
+    # Reset the per-run subprocess capture so validation warnings extracted
+    # later in this invocation never include leftovers from a previous call
+    # to main() inside the same Python process (tests, or a hypothetical
+    # long-lived orchestrator).
+    _reset_script_output_buffer()
+
     log_dir = get_log_dir()
     log_file = setup_logging(log_dir)
     log = logging.getLogger(__name__)
 
     downloads = get_downloads_dir()
     qianji_db = get_qianji_db_path()
+    db_path = get_db_path()
 
     hostname = os.environ.get("COMPUTERNAME") or os.environ.get("HOSTNAME") or "?"
     log.info("=" * 60)
@@ -234,7 +449,16 @@ def main(argv: list[str] | None = None) -> int:
     log.info("  host=%s log=%s", hostname, log_file)
     log.info("=" * 60)
 
+    email_config = EmailConfig.from_env()
+    log.info(
+        "  Email reporting: %s",
+        "enabled" if email_config else "disabled (no PORTAL_SMTP_USER/PASSWORD)",
+    )
+
     ping_healthcheck("start")
+
+    # Snapshot BEFORE build so we can diff regardless of which exit branch fires.
+    snapshot_before = capture(db_path)
 
     # [1] Change detection
     if not args.force:
@@ -242,6 +466,7 @@ def main(argv: list[str] | None = None) -> int:
         if not changes_detected(_MARKER, downloads, qianji_db):
             log.info("  No changes detected. Use --force to override.")
             ping_healthcheck()  # no-change is a valid success outcome
+            # No-change is a silent success — never email.
             return EXIT_OK
     else:
         log.info("[1] Force mode — skipping change detection")
@@ -252,6 +477,12 @@ def main(argv: list[str] | None = None) -> int:
     if rc != 0:
         log.error("  BUILD FAILED (exit=%d)", rc)
         ping_healthcheck("fail")
+        _send_report_email(
+            email_config, log, snapshot_before, None,
+            EXIT_BUILD_FAIL, log_file,
+            error=f"build_timemachine_db.py exited with code {rc}",
+            validation_warnings=extract_validation_warnings(log_file),
+        )
         return EXIT_BUILD_FAIL
 
     # [3] Pre-sync gate: guard against local data loss + historical drift
@@ -261,6 +492,12 @@ def main(argv: list[str] | None = None) -> int:
         if rc != 0:
             log.error("  PRE-SYNC GATE FAILED (exit=%d) — SYNC BLOCKED", rc)
             ping_healthcheck("fail")
+            _send_report_email(
+                email_config, log, snapshot_before, capture(db_path),
+                EXIT_PARITY_FAIL, log_file,
+                error=f"verify_vs_prod.py exited with code {rc}",
+                validation_warnings=extract_validation_warnings(log_file),
+            )
             return EXIT_PARITY_FAIL
 
     # [3b] Optional Portfolio_Positions ground-truth gate
@@ -273,6 +510,12 @@ def main(argv: list[str] | None = None) -> int:
             if rc != 0:
                 log.error("  POSITIONS CHECK FAILED (exit=%d) — SYNC BLOCKED", rc)
                 ping_healthcheck("fail")
+                _send_report_email(
+                    email_config, log, snapshot_before, capture(db_path),
+                    EXIT_POSITIONS_FAIL, log_file,
+                    error=f"verify_positions.py exited with code {rc}",
+                    validation_warnings=extract_validation_warnings(log_file),
+                )
                 return EXIT_POSITIONS_FAIL
         else:
             log.info("[3b] No new Portfolio_Positions CSV — skipping ground-truth check")
@@ -287,6 +530,12 @@ def main(argv: list[str] | None = None) -> int:
         if rc != 0:
             log.error("  SYNC FAILED (exit=%d)", rc)
             ping_healthcheck("fail")
+            _send_report_email(
+                email_config, log, snapshot_before, capture(db_path),
+                EXIT_SYNC_FAIL, log_file,
+                error=f"sync_to_d1.py exited with code {rc}",
+                validation_warnings=extract_validation_warnings(log_file),
+            )
             return EXIT_SYNC_FAIL
 
     # Success: update marker
@@ -296,6 +545,11 @@ def main(argv: list[str] | None = None) -> int:
     log.info("  Done")
     log.info("=" * 60)
     ping_healthcheck()
+    _send_report_email(
+        email_config, log, snapshot_before, capture(db_path),
+        EXIT_OK, log_file,
+        validation_warnings=extract_validation_warnings(log_file),
+    )
     return EXIT_OK
 
 

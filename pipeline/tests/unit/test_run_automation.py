@@ -171,6 +171,8 @@ class TestExitCodeMapping:
         monkeypatch.setattr(run_automation, "run_python_script", fake)
         monkeypatch.setattr(run_automation, "_MARKER", tmp_path / ".last_run")
         monkeypatch.setattr(run_automation, "get_log_dir", lambda: tmp_path / "logs")
+        # Isolate DB path so capture() sees a missing / empty file rather than the real one.
+        monkeypatch.setenv("PORTAL_DB_PATH", str(tmp_path / "timemachine.db"))
         # Isolate from the real ~/Downloads so [3b] doesn't pick up real CSVs.
         iso_downloads = tmp_path / "iso_downloads"
         iso_downloads.mkdir(exist_ok=True)
@@ -178,8 +180,10 @@ class TestExitCodeMapping:
             (iso_downloads / fname).write_text("stub")
         monkeypatch.setattr(run_automation, "get_downloads_dir", lambda: iso_downloads)
         monkeypatch.setattr(run_automation, "get_qianji_db_path", lambda: None)
-        # Ensure no network pings
+        # Ensure no network pings + no email (env vars unset by default).
         monkeypatch.delenv("PORTAL_HEALTHCHECK_URL", raising=False)
+        monkeypatch.delenv("PORTAL_SMTP_USER", raising=False)
+        monkeypatch.delenv("PORTAL_SMTP_PASSWORD", raising=False)
         # Force path so change detection is bypassed (we always pass --force)
         rc = run_automation.main(argv)
         return rc, fake
@@ -410,3 +414,293 @@ class TestPathHelpers:
         monkeypatch.delenv("LOCALAPPDATA", raising=False)
         p = run_automation.get_log_dir()
         assert p.parts[-2:] == ("portal", "logs")
+
+
+# ── Email notifications ───────────────────────────────────────────────────────
+
+
+class TestEmailNotifications:
+    """Integration tests for the email-send branch of main().
+
+    Strategy: monkeypatch ``etl.email_report.send`` (the low-level SMTP call)
+    and ``run_automation.capture`` (to inject before/after snapshots). This
+    lets us assert send-or-skip policy without touching real SMTP or SQLite.
+    """
+
+    def _invoke_with_email(
+        self,
+        argv,
+        codes,
+        monkeypatch,
+        tmp_path,
+        *,
+        snapshot_before=None,
+        snapshot_after=None,
+        send_side_effect=None,
+        disable_email=False,
+    ):
+        """Same as TestExitCodeMapping._invoke but with email-config env vars + send mock."""
+        from etl.changelog import SyncSnapshot
+
+        fake = _FakeRun(codes)
+        monkeypatch.setattr(run_automation, "run_python_script", fake)
+        monkeypatch.setattr(run_automation, "_MARKER", tmp_path / ".last_run")
+        monkeypatch.setattr(run_automation, "get_log_dir", lambda: tmp_path / "logs")
+        monkeypatch.setenv("PORTAL_DB_PATH", str(tmp_path / "timemachine.db"))
+        iso_downloads = tmp_path / "iso_downloads"
+        iso_downloads.mkdir(exist_ok=True)
+        monkeypatch.setattr(run_automation, "get_downloads_dir", lambda: iso_downloads)
+        monkeypatch.setattr(run_automation, "get_qianji_db_path", lambda: None)
+        monkeypatch.delenv("PORTAL_HEALTHCHECK_URL", raising=False)
+
+        if disable_email:
+            monkeypatch.delenv("PORTAL_SMTP_USER", raising=False)
+            monkeypatch.delenv("PORTAL_SMTP_PASSWORD", raising=False)
+        else:
+            monkeypatch.setenv("PORTAL_SMTP_USER", "me@gmail.com")
+            monkeypatch.setenv("PORTAL_SMTP_PASSWORD", "apppw")
+
+        # Capture is called 1+ times (once before, possibly once after). Rotate
+        # through: [before, after, after, ...].
+        snapshots = [snapshot_before or SyncSnapshot()]
+        if snapshot_after is not None:
+            snapshots.append(snapshot_after)
+
+        def fake_capture(_path):
+            if len(snapshots) > 1:
+                return snapshots.pop(0)
+            return snapshots[0]
+
+        monkeypatch.setattr(run_automation, "capture", fake_capture)
+
+        # Mock the SMTP send path (imported into run_automation as `send`).
+        sent_calls = []
+
+        def fake_send(subject, html, text, config):
+            sent_calls.append({"subject": subject, "html": html, "text": text, "config": config})
+            if send_side_effect:
+                raise send_side_effect
+
+        monkeypatch.setattr(run_automation, "send", fake_send)
+
+        rc = run_automation.main(argv)
+        return rc, fake, sent_calls
+
+    def test_no_meaningful_changes_no_email(self, monkeypatch, tmp_path):
+        """Success with no new rows -> no email."""
+        from etl.changelog import SyncSnapshot
+
+        rc, _, sent = self._invoke_with_email(
+            ["--force"], [0, 0, 0], monkeypatch, tmp_path,
+            snapshot_before=SyncSnapshot(),
+            snapshot_after=SyncSnapshot(),  # identical -> no meaningful changes
+        )
+        assert rc == run_automation.EXIT_OK
+        assert sent == []
+
+    def test_meaningful_changes_sends_email(self, monkeypatch, tmp_path):
+        """Success with a new fidelity row -> one email, subject starts with [Portal Sync]."""
+        from etl.changelog import SyncSnapshot
+
+        before = SyncSnapshot()
+        after = SyncSnapshot(
+            fidelity_txns=frozenset({("2026-04-10", "buy", "VOO", 1.0, -500.0)}),
+        )
+        rc, _, sent = self._invoke_with_email(
+            ["--force"], [0, 0, 0], monkeypatch, tmp_path,
+            snapshot_before=before, snapshot_after=after,
+        )
+        assert rc == run_automation.EXIT_OK
+        assert len(sent) == 1
+        assert sent[0]["subject"].startswith("[Portal Sync] OK")
+        assert "VOO" in sent[0]["text"]
+
+    def test_build_failure_sends_email_with_exit_1(self, monkeypatch, tmp_path):
+        """Build fail -> email even though no snapshot_after available."""
+        from etl.changelog import SyncSnapshot
+
+        rc, _, sent = self._invoke_with_email(
+            ["--force"], [5], monkeypatch, tmp_path,
+            snapshot_before=SyncSnapshot(),
+            snapshot_after=None,  # build failed — no after snapshot
+        )
+        assert rc == run_automation.EXIT_BUILD_FAIL
+        assert len(sent) == 1
+        assert "FAIL" in sent[0]["subject"]
+        assert "1" in sent[0]["subject"]
+        # Body should mention the error
+        assert "build_timemachine_db.py" in sent[0]["text"]
+
+    def test_email_disabled_no_smtp_activity(self, monkeypatch, tmp_path, capsys):
+        """No SMTP_USER/PASSWORD -> no send call, log notes disabled."""
+        from etl.changelog import SyncSnapshot
+
+        rc, _, sent = self._invoke_with_email(
+            ["--force"], [0, 0, 0], monkeypatch, tmp_path,
+            snapshot_before=SyncSnapshot(),
+            snapshot_after=SyncSnapshot(
+                fidelity_txns=frozenset({("2026-04-10", "buy", "VOO", 1.0, -500.0)}),
+            ),
+            disable_email=True,
+        )
+        assert rc == run_automation.EXIT_OK
+        assert sent == []  # No SMTP activity even with meaningful changes
+        # run_automation installs its own handlers on stdout via setup_logging
+        captured = capsys.readouterr()
+        assert "Email reporting: disabled" in captured.out
+
+    def test_email_send_failure_does_not_fail_sync(self, monkeypatch, tmp_path, capsys):
+        """SMTP error is logged but must not affect the exit code."""
+        from etl.changelog import SyncSnapshot
+
+        rc, _, sent = self._invoke_with_email(
+            ["--force"], [0, 0, 0], monkeypatch, tmp_path,
+            snapshot_before=SyncSnapshot(),
+            snapshot_after=SyncSnapshot(
+                fidelity_txns=frozenset({("2026-04-10", "buy", "VOO", 1.0, -500.0)}),
+            ),
+            send_side_effect=ConnectionRefusedError("smtp down"),
+        )
+        # Sync must still return OK even though email throw
+        assert rc == run_automation.EXIT_OK
+        assert len(sent) == 1
+        captured = capsys.readouterr()
+        assert "Email send FAILED" in captured.out
+
+
+# ── extract_validation_warnings() ─────────────────────────────────────────────
+
+
+class TestExtractValidationWarnings:
+    def setup_method(self) -> None:
+        # Start each test with an empty capture buffer so "buffer-primary"
+        # and "log-file-fallback" paths are both exercised cleanly.
+        run_automation._reset_script_output_buffer()
+
+    def teardown_method(self) -> None:
+        run_automation._reset_script_output_buffer()
+
+    def test_returns_empty_when_log_missing(self, tmp_path):
+        assert run_automation.extract_validation_warnings(tmp_path / "nope.log") == []
+
+    def test_parses_warning_lines(self, tmp_path):
+        log = tmp_path / "sync.log"
+        log.write_text(
+            "2026-04-12 INFO [2] build\n"
+            "2026-04-12 WARNING: day_over_day 2023-07-04 -> 2023-07-05: 15.7% change\n"
+            "2026-04-12 INFO done\n"
+            "2026-04-12 WARNING date_gaps 8-day gap between dates\n",
+            encoding="utf-8",
+        )
+        warnings = run_automation.extract_validation_warnings(log)
+        assert len(warnings) == 2
+        assert "15.7%" in warnings[0]
+        assert "date_gaps" in warnings[1]
+
+    def test_skips_healthcheck_failures(self, tmp_path):
+        log = tmp_path / "sync.log"
+        log.write_text(
+            "2026-04-12 WARNING: healthcheck ping failed (ignored): network down\n",
+            encoding="utf-8",
+        )
+        assert run_automation.extract_validation_warnings(log) == []
+
+    # PR-S8 Bug 1 regression: per-run scoping + dedup
+    def test_extract_warnings_per_run_scope_from_log_banner(self, tmp_path):
+        """Log file containing 2 runs' worth of WARNINGs → only the current
+        (second) run's warnings are returned by the banner-scoped parser.
+
+        This covers the case where the in-memory capture buffer is empty
+        (e.g. a wrapper tool re-reads the log file directly); the function
+        should still scope to the *last* banner.
+        """
+        banner = "=" * 60
+        log = tmp_path / "sync-2026-04-12.log"
+        log.write_text(
+            # ── First run (stale, should be ignored) ──
+            f"2026-04-12T08:00:00 {banner}\n"
+            "2026-04-12T08:00:00   Portal Sync\n"
+            f"2026-04-12T08:00:00 {banner}\n"
+            "2026-04-12T08:00:01 WARNING: OLD_RUN day_over_day 2020-01-01 -> 2020-01-02: 99.9% change\n"
+            "2026-04-12T08:00:02 INFO done\n"
+            # ── Second run (current) ──
+            f"2026-04-12T12:00:00 {banner}\n"
+            "2026-04-12T12:00:00   Portal Sync\n"
+            f"2026-04-12T12:00:00 {banner}\n"
+            "2026-04-12T12:00:01 WARNING: CURRENT day_over_day 2023-07-04 -> 2023-07-05: 15.7% change\n",
+            encoding="utf-8",
+        )
+        warnings = run_automation.extract_validation_warnings(log)
+        assert len(warnings) == 1
+        assert "CURRENT" in warnings[0]
+        assert "OLD_RUN" not in warnings[0]
+
+    def test_extract_warnings_dedup(self, tmp_path):
+        """Exact-duplicate WARNING lines within the current run collapse to one."""
+        log = tmp_path / "sync.log"
+        log.write_text(
+            "2026-04-12T12:00:01 WARNING: day_over_day 2023-07-04 -> 2023-07-05: 15.7% change\n"
+            "2026-04-12T12:00:02 WARNING: day_over_day 2023-07-04 -> 2023-07-05: 15.7% change\n"
+            "2026-04-12T12:00:03 WARNING: day_over_day 2023-07-04 -> 2023-07-05: 15.7% change\n",
+            encoding="utf-8",
+        )
+        warnings = run_automation.extract_validation_warnings(log)
+        assert len(warnings) == 1
+        assert "15.7%" in warnings[0]
+
+    def test_extract_warnings_uses_capture_buffer_when_available(self):
+        """In-memory capture buffer is preferred over the log file (which may
+        contain warnings from older runs on the same day)."""
+        # Simulate what run_python_script would append across one run:
+        from scripts.run_automation import _SCRIPT_OUTPUT_BUFFER
+        _SCRIPT_OUTPUT_BUFFER.extend([
+            "2026-04-12T12:00:00 INFO [2] build",
+            "2026-04-12T12:00:01 WARNING: day_over_day 2023-07-04 -> 2023-07-05: 15.7% change",
+            "2026-04-12T12:00:01 WARNING: day_over_day 2023-07-04 -> 2023-07-05: 15.7% change",
+            "2026-04-12T12:00:02 INFO done",
+        ])
+        # log_file is ignored when the buffer is populated.
+        warnings = run_automation.extract_validation_warnings(log_file=None)
+        assert len(warnings) == 1  # deduped
+        assert "15.7%" in warnings[0]
+
+    def test_extract_warnings_buffer_scopes_to_current_main_run(
+        self, monkeypatch, tmp_path, caplog
+    ):
+        """End-to-end: main() resets the buffer at start → a second invocation
+        in the same process does NOT see warnings from the first."""
+        from etl.changelog import SyncSnapshot
+        from scripts.run_automation import _SCRIPT_OUTPUT_BUFFER
+
+        # Pre-seed the buffer as if a prior run had left stale warnings around.
+        _SCRIPT_OUTPUT_BUFFER.extend([
+            "2026-04-12T08:00:01 WARNING: STALE bad_data found",
+        ])
+
+        # Set up a successful main() invocation that doesn't actually call any
+        # subprocess scripts — we just want to verify the reset + downstream
+        # extractor sees an empty buffer.
+        class _Fake:
+            def __call__(self, script, *args):
+                return 0
+
+        monkeypatch.setattr(run_automation, "run_python_script", _Fake())
+        monkeypatch.setattr(run_automation, "_MARKER", tmp_path / ".last_run")
+        monkeypatch.setattr(run_automation, "get_log_dir", lambda: tmp_path / "logs")
+        monkeypatch.setenv("PORTAL_DB_PATH", str(tmp_path / "timemachine.db"))
+        iso_downloads = tmp_path / "iso_downloads"
+        iso_downloads.mkdir()
+        monkeypatch.setattr(run_automation, "get_downloads_dir", lambda: iso_downloads)
+        monkeypatch.setattr(run_automation, "get_qianji_db_path", lambda: None)
+        monkeypatch.delenv("PORTAL_HEALTHCHECK_URL", raising=False)
+        monkeypatch.delenv("PORTAL_SMTP_USER", raising=False)
+        monkeypatch.delenv("PORTAL_SMTP_PASSWORD", raising=False)
+
+        # Stub capture so no real DB is needed.
+        monkeypatch.setattr(run_automation, "capture", lambda _p: SyncSnapshot())
+
+        rc = run_automation.main(["--force"])
+        assert rc == run_automation.EXIT_OK
+        # Buffer should have been reset at start-of-main; since _Fake() did
+        # not write anything to the buffer, it stays empty post-run.
+        assert run_automation.get_script_output_buffer() == []

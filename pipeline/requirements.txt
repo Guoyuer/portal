@@ -7,3 +7,6 @@ httpx>=0.28,<1
 
 # Gmail auto-triage classifier (scripts/gmail/classify.py)
 anthropic>=0.40.0
+
+# .env auto-loader (dev convenience; existing env vars still win)
+python-dotenv>=1.2.0,<2
