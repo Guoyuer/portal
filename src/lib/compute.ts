@@ -120,7 +120,7 @@ export function computeCashflow(qianjiTxns: QianjiTxn[], start: string, end: str
 // Fidelity runDate is ISO YYYY-MM-DD (normalized at the pipeline ingestion
 // boundary) so string comparison and `new Date(...)` both just work.
 
-export const MATCH_WINDOW_MS = 7 * 86_400_000; // Qianji can lag Fidelity by up to 7 days
+const MATCH_WINDOW_MS = 7 * 86_400_000; // Qianji can lag Fidelity by up to 7 days
 
 export interface CrossCheck {
   fidelityTotal: number;
