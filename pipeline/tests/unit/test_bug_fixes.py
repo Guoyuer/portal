@@ -1,7 +1,8 @@
-"""Tests for pipeline bug fixes — ORDER BY id, silent drops, missing config.
+"""Regression tests for ingestion-pipeline invariants that previously broke.
 
-Each test class corresponds to a bug from docs/bug-report-ingestion-pipeline.md.
-Tests were written BEFORE fixes (TDD red phase).
+Each class pins one invariant (replay ordering, holding-period start, missing-
+price warning, unmapped-account warning, T-Bill CUSIP handling). Originally
+authored against archived bug reports; the names now describe behavior.
 """
 from __future__ import annotations
 
@@ -76,7 +77,7 @@ def _init_qianji(db_path: Path, assets: list[tuple[str, float, str]]) -> None:
 # ── BUG 1: Cost basis wrong due to ORDER BY id ───────────────────────────
 
 
-class TestBug1CostBasisOrder:
+class TestCostBasisOrderedByDate:
     """replay_from_db must produce correct cost basis regardless of insertion order.
 
     Root cause: ORDER BY id processes sells before buys when the buy was
@@ -160,7 +161,7 @@ class TestBug1CostBasisOrder:
 # ── BUG 2: first_held date wrong due to ORDER BY id ──────────────────────
 
 
-class TestBug2HoldingPeriods:
+class TestHoldingPeriodIsEarliestDate:
     """symbol_holding_periods_from_db must return the chronologically earliest
     transaction date, not the lowest-id transaction date.
     """
@@ -221,7 +222,7 @@ class TestBug2HoldingPeriods:
 # ── BUG 4: Positions without prices silently dropped ─────────────────────
 
 
-class TestBug4MissingPriceWarning:
+class TestMissingPriceWarns:
     """When a Fidelity position has shares but no price data, the pipeline
     must log a warning instead of silently dropping the value.
     """
@@ -286,7 +287,7 @@ class TestBug4MissingPriceWarning:
 # ── BUG 5: Unmapped Qianji accounts silently dropped ────────────────────
 
 
-class TestBug5UnmappedQianjiWarning:
+class TestUnmappedQianjiWarns:
     """When a USD Qianji account has a positive balance but is not in
     ticker_map, the pipeline must log a warning.
     """
@@ -381,7 +382,7 @@ class TestBug5UnmappedQianjiWarning:
 # ── BUG 6: T-Bills (CUSIPs) have no price → missing from net worth ──────
 
 
-class TestBug6TBillCusips:
+class TestTBillCusipsValuedAtFace:
     """T-Bill positions use CUSIPs (e.g. 912797FY8) which have no yfinance
     price data. They should be valued at face value ($1/unit) and categorized
     as Safe Net.

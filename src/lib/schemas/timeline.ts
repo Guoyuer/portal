@@ -140,6 +140,7 @@ export type DailyTicker = z.infer<typeof DailyTickerSchema>;
 export type FidelityTxn = z.infer<typeof FidelityTxnSchema>;
 export type QianjiTxn = z.infer<typeof QianjiTxnSchema>;
 export type TimelineData = z.infer<typeof TimelineDataSchema>;
+export type TimelineErrors = z.infer<typeof TimelineErrorsSchema>;
 export type IndexReturn = z.infer<typeof IndexReturnSchema>;
 export type MarketData = z.infer<typeof MarketDataSchema>;
 export type StockDetail = z.infer<typeof StockDetailSchema>;

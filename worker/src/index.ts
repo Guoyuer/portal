@@ -17,13 +17,13 @@ interface Env {
 
 // ── CORS ─────────────────────────────────────────────────────────────────
 
-const ALLOWED_ORIGINS = ["https://portal.guoyuer.com", "http://localhost:3000", "http://localhost:3100"];
+export const ALLOWED_ORIGINS = ["https://portal.guoyuer.com", "http://localhost:3000", "http://localhost:3100"];
 
-function isAllowedOrigin(origin: string | null): origin is string {
+export function isAllowedOrigin(origin: string | null): origin is string {
   return origin !== null && ALLOWED_ORIGINS.includes(origin);
 }
 
-function corsHeaders(origin: string | null): HeadersInit {
+export function corsHeaders(origin: string | null): HeadersInit {
   const base: Record<string, string> = {
     "Access-Control-Allow-Methods": "GET, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
@@ -36,7 +36,7 @@ function corsHeaders(origin: string | null): HeadersInit {
 
 // ── Validation + JSON helper ──────────────────────────────────────────────
 
-function validatedResponse<T>(
+export function validatedResponse<T>(
   schema: z.ZodType<T>,
   payload: unknown,
   origin: string | null,
@@ -54,7 +54,7 @@ function validatedResponse<T>(
   });
 }
 
-function dbError(origin: string | null, e: unknown): Response {
+export function dbError(origin: string | null, e: unknown): Response {
   return Response.json(
     { error: "Database query failed", detail: e instanceof Error ? e.message : "unknown" },
     { status: 502, headers: corsHeaders(origin) },
@@ -65,7 +65,7 @@ function dbError(origin: string | null, e: unknown): Response {
 
 type SettledResult<T> = { ok: true; value: T } | { ok: false; error: string };
 
-async function settled<T>(p: Promise<T>): Promise<SettledResult<T>> {
+export async function settled<T>(p: Promise<T>): Promise<SettledResult<T>> {
   try {
     return { ok: true, value: await p };
   } catch (e) {

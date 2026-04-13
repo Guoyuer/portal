@@ -154,6 +154,32 @@ class TestDayOverDayEdgeCases:
         assert len(fatals) == 0
         assert len(warnings) == 1
 
+    def test_old_anomaly_suppressed(self, tmp_path: Path) -> None:
+        """Anomalies older than 7 days before latest_date are not reported
+        (not actionable — historical data is immutable past the refresh window)."""
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        conn = get_connection(db_path)
+        # Jump on 2025-01-03 (old).
+        conn.execute(
+            "INSERT INTO computed_daily (date, total, us_equity, non_us_equity, crypto, safe_net)"
+            " VALUES ('2025-01-02', 50000, 27500, 7500, 1500, 13500)"
+        )
+        conn.execute(
+            "INSERT INTO computed_daily (date, total, us_equity, non_us_equity, crypto, safe_net)"
+            " VALUES ('2025-01-03', 125000, 68750, 18750, 3750, 33750)"  # +150%
+        )
+        # Latest date far ahead → 2025-01-03 falls outside the 7-day window.
+        conn.execute(
+            "INSERT INTO computed_daily (date, total, us_equity, non_us_equity, crypto, safe_net)"
+            " VALUES ('2025-02-10', 125050, 68775, 18755, 3751, 33769)"
+        )
+        conn.commit()
+        conn.close()
+        issues = validate_build(db_path)
+        day_over_day = [i for i in issues if i.name == "day_over_day"]
+        assert day_over_day == []
+
 
 class TestTotalVsTickersTolerance:
     def test_small_diff_within_tolerance(self, tmp_path: Path) -> None:

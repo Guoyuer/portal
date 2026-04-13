@@ -9,5 +9,5 @@
     "noEmit": true
   },
   "include": ["src", "../src/lib/schemas"],
-  "exclude": ["../src/lib/schemas/**/*.test.ts"]
+  "exclude": ["../src/lib/schemas/**/*.test.ts", "src/**/*.test.ts"]
 }
