@@ -13,12 +13,16 @@ import {
   corsHeaders,
   dbError,
   isAllowedOrigin,
+  isAllowedUser,
   settled,
+  unauthorized,
   validatedResponse,
 } from "./utils";
 
 interface Env {
   DB: D1Database;
+  REQUIRE_AUTH?: string;
+  ALLOWED_EMAIL?: string;
 }
 
 // ── /timeline ────────────────────────────────────────────────────────────
@@ -172,6 +176,8 @@ export default {
       }
       return new Response(null, { status: 204, headers: corsHeaders(origin) });
     }
+
+    if (!isAllowedUser(request, env)) return unauthorized(origin);
 
     const url = new URL(request.url);
 

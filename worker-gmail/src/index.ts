@@ -9,9 +9,23 @@ interface Env {
   USER_KEY: string;
   SMTP_USER: string;
   SMTP_PASSWORD: string;
+  // Optional: when set to "true" (production, behind CF Access), user
+  // requests must carry a valid Cf-Access-Authenticated-User-Email matching
+  // ALLOWED_EMAIL. When unset/empty, fall back to URL-key auth so
+  // `wrangler dev` and the pre-migration `.workers.dev` URL keep working.
+  REQUIRE_AUTH?: string;
+  ALLOWED_EMAIL?: string;
 }
 
 function authUser(request: Request, url: URL, env: Env): boolean {
+  // Prod mode: trust the CF Access JWT header (verified by Access before
+  // the request reaches us). `USER_KEY` becomes dead code once the dashboard
+  // migration is complete; follow-up PR will remove it + the frontend
+  // localStorage key path.
+  if (env.REQUIRE_AUTH === "true") {
+    const email = request.headers.get("Cf-Access-Authenticated-User-Email");
+    return email !== null && email === env.ALLOWED_EMAIL;
+  }
   const headerKey = request.headers.get("X-Mail-Key");
   const queryKey = url.searchParams.get("key");
   const provided = headerKey ?? queryKey ?? "";
