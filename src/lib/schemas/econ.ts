@@ -36,7 +36,6 @@ const EconSnapshotSchema = z.object({
   vix: z.number().optional(),
   dxy: z.number().optional(),
   oilWti: z.number().optional(),
-  goldPrice: z.number().optional(),
   usdCny: z.number().optional(),
 });
 

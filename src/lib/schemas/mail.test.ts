@@ -4,7 +4,6 @@ import { describe, expect, it } from "vitest";
 import {
   CategorySchema,
   MailListResponseSchema,
-  StatusSchema,
   TrashResponseSchema,
   TriagedEmailSchema,
 } from "@/lib/schemas/mail";
@@ -22,28 +21,14 @@ describe("CategorySchema", () => {
   });
 });
 
-describe("StatusSchema", () => {
-  it("accepts active and trashed", () => {
-    expect(StatusSchema.parse("active")).toBe("active");
-    expect(StatusSchema.parse("trashed")).toBe("trashed");
-  });
-
-  it("rejects unknowns", () => {
-    expect(() => StatusSchema.parse("pending")).toThrow();
-  });
-});
-
 describe("TriagedEmailSchema", () => {
   it("accepts a full valid email row", () => {
     const row = {
       msg_id: "<abc@x.com>",
-      received_at: "2026-04-12T10:00:00Z",
-      classified_at: "2026-04-12T22:00:00Z",
       sender: "a@b",
       subject: "hi",
       summary: "test",
       category: "IMPORTANT",
-      status: "active",
     };
     expect(TriagedEmailSchema.parse(row)).toEqual(row);
   });
