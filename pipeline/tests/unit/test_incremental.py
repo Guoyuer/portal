@@ -5,10 +5,11 @@ from datetime import date
 
 import pytest
 
-from etl.db import get_connection, init_db
-from etl.incremental import (
+from etl.db import (
     append_daily,
+    get_connection,
     get_last_computed_date,
+    init_db,
 )
 
 

@@ -1,7 +1,6 @@
 """Tests for Empower 401k DB ingestion — ``ingest_empower_qfx`` and ``ingest_empower_contributions``.
 
-Parsing and daily interpolation live in
-``etl.empower_401k``; those are covered in
+Parsing and daily interpolation live in ``etl.k401``; those are covered in
 ``tests/unit/test_empower_401k.py``. This file tests the DB-write side only.
 """
 
@@ -14,11 +13,11 @@ from pathlib import Path
 import pytest
 
 from etl.db import init_db
-from etl.empower_401k import Contribution
 from etl.ingest.empower_401k import (
     ingest_empower_contributions,
     ingest_empower_qfx,
 )
+from etl.k401 import Contribution
 
 
 class TestIngestEmpower:

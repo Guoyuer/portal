@@ -1,4 +1,8 @@
-"""Verify Qianji balance replay: reverse-replay from current balances."""
+"""Inspect Qianji balance replay: reverse-replay from current balances.
+
+Debug/inspect tool — prints balances, no drift gate. See `verify_positions.py`
+for the Fidelity gate automation uses.
+"""
 from __future__ import annotations
 
 import os

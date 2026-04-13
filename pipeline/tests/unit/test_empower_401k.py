@@ -1,4 +1,4 @@
-"""Tests for empower_401k: QFX parsing, contributions, and daily interpolation."""
+"""Tests for k401: QFX parsing, contributions, and daily interpolation."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from etl.empower_401k import (
+from etl.k401 import (
     Contribution,
     FundSnapshot,
     QuarterSnapshot,

@@ -71,26 +71,6 @@ const navItems = [
     ),
   },
   {
-    label: "Temp",
-    href: "/temp",
-    comingSoon: false,
-    icon: (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={2}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        className="h-5 w-5"
-      >
-        <path d="M12 2v10l4.24 4.24" />
-        <circle cx="12" cy="12" r="10" />
-      </svg>
-    ),
-  },
-  {
     label: "Economy",
     href: "/econ",
     comingSoon: false,

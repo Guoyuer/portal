@@ -29,7 +29,7 @@ Batch 4 structural-cleanup PRs (2026-04-12):
 | #102 | `refactor/build-script-split` | PR-D: `_ingest_and_fetch` → 4 named helpers |
 | #103 | `fix/fidelity-ingest-natural-key` | PR-E: INSERT OR IGNORE + natural-key dedup + `init_db` migration |
 
-Automation-readiness follow-ups (PRs #109–#114) landed shortly after — see `plan-automation-readiness-2026-04-12.md` for the execution record.
+Automation-readiness follow-ups (PRs #109–#114) landed shortly after — see `archive/plan-automation-readiness-2026-04-12.md` for the execution record.
 
 ---
 
