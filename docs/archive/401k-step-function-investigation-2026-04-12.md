@@ -71,7 +71,7 @@ Proposed:
 
 - `empower_contributions`: per-date BUYMF transactions (from QFX) with date + amount + ticker
 - `empower_snapshots`: quarter-end snapshot values per fund
-- Qianji `401k` account entries as backup contribution data when QFX missing
+- Qianji `401k` account entries as backup contribution data when QFX is missing
 
 ### Complications
 

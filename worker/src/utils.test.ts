@@ -7,7 +7,7 @@ import {
   isAllowedOrigin,
   settled,
   validatedResponse,
-} from "./index";
+} from "./utils";
 
 // ── isAllowedOrigin ─────────────────────────────────────────────────────
 

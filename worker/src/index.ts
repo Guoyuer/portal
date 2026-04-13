@@ -3,74 +3,22 @@
 // Critical (daily) failures return 503; optional (market/holdings/txns) failures
 // degrade to null + a human-readable entry in `errors`.
 
-import { z } from "zod";
 import {
   TimelineDataSchema,
   TickerPriceResponseSchema,
   EconDataSchema,
   type TimelineErrors,
 } from "../../src/lib/schemas";
+import {
+  corsHeaders,
+  dbError,
+  isAllowedOrigin,
+  settled,
+  validatedResponse,
+} from "./utils";
 
 interface Env {
   DB: D1Database;
-}
-
-// ── CORS ─────────────────────────────────────────────────────────────────
-
-export const ALLOWED_ORIGINS = ["https://portal.guoyuer.com", "http://localhost:3000", "http://localhost:3100"];
-
-export function isAllowedOrigin(origin: string | null): origin is string {
-  return origin !== null && ALLOWED_ORIGINS.includes(origin);
-}
-
-export function corsHeaders(origin: string | null): HeadersInit {
-  const base: Record<string, string> = {
-    "Access-Control-Allow-Methods": "GET, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-  };
-  if (isAllowedOrigin(origin)) {
-    base["Access-Control-Allow-Origin"] = origin;
-  }
-  return base;
-}
-
-// ── Validation + JSON helper ──────────────────────────────────────────────
-
-export function validatedResponse<T>(
-  schema: z.ZodType<T>,
-  payload: unknown,
-  origin: string | null,
-): Response {
-  const parsed = schema.safeParse(payload);
-  if (!parsed.success) {
-    const detail = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
-    return Response.json(
-      { error: "schema drift", detail },
-      { status: 500, headers: corsHeaders(origin) },
-    );
-  }
-  return Response.json(parsed.data, {
-    headers: { ...corsHeaders(origin), "Cache-Control": "no-cache" },
-  });
-}
-
-export function dbError(origin: string | null, e: unknown): Response {
-  return Response.json(
-    { error: "Database query failed", detail: e instanceof Error ? e.message : "unknown" },
-    { status: 502, headers: corsHeaders(origin) },
-  );
-}
-
-// ── Settled helper (optional queries) ────────────────────────────────────
-
-type SettledResult<T> = { ok: true; value: T } | { ok: false; error: string };
-
-export async function settled<T>(p: Promise<T>): Promise<SettledResult<T>> {
-  try {
-    return { ok: true, value: await p };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "unknown" };
-  }
 }
 
 // ── /timeline ────────────────────────────────────────────────────────────
