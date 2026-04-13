@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
+
+import pytest
 
 from etl.db import get_connection, init_db
 from etl.precompute import (
@@ -12,6 +15,13 @@ from etl.precompute import (
     precompute_holdings_detail,
     precompute_market,
 )
+
+
+@pytest.fixture(autouse=True)
+def _no_dxy_network():
+    """Stub fetch_dxy_monthly so precompute_market doesn't hit Yahoo."""
+    with patch("etl.market.yahoo.fetch_dxy_monthly", return_value=[]):
+        yield
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 

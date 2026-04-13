@@ -128,10 +128,12 @@ def precompute_market(db_path: Path) -> None:
     try:
         conn.execute("DELETE FROM computed_market_indices")
         conn.execute("DELETE FROM computed_market_indicators")
+        conn.execute("DELETE FROM econ_series")
 
         _precompute_indices(conn)
         _precompute_cny(conn)
         _precompute_fred(conn)
+        _precompute_dxy(conn)
 
         conn.commit()
     finally:
@@ -195,7 +197,6 @@ def _precompute_fred(conn: sqlite3.Connection) -> None:
                 )
 
     if "series" in fred:
-        conn.execute("DELETE FROM econ_series")
         econ_count = 0
         series: dict[str, list[dict[str, object]]] = fred["series"]  # type: ignore[assignment]
         for skey, points in series.items():
@@ -205,7 +206,21 @@ def _precompute_fred(conn: sqlite3.Connection) -> None:
                     (skey, pt["date"], pt["value"]),
                 )
                 econ_count += 1
-        log.info("Stored %d econ_series rows", econ_count)
+        log.info("Stored %d FRED econ_series rows", econ_count)
+
+
+def _precompute_dxy(conn: sqlite3.Connection) -> None:
+    """Fetch DXY (US Dollar Index) from Yahoo and append to econ_series."""
+    from .market.yahoo import fetch_dxy_monthly
+
+    points = fetch_dxy_monthly()
+    if not points:
+        return
+    conn.executemany(
+        "INSERT INTO econ_series (key, date, value) VALUES ('dxy', ?, ?)",
+        [(pt["date"], pt["value"]) for pt in points],
+    )
+    log.info("Stored %d DXY econ_series rows", len(points))
 
 
 # ── Holdings detail precomputation ─────────────────────────────────────────
