@@ -6,6 +6,22 @@
 	"compatibility_flags": [
 		"nodejs_compat"
 	],
+	// CF Access covers /mail/list and /mail/trash only (see the Portal Mail
+	// Access app — `self_hosted_domains` explicitly lists those two paths).
+	// /mail/sync stays reachable by the GH Actions cron which authenticates
+	// with `X-Sync-Secret`. `REQUIRE_AUTH=true` flips the authUser() branch
+	// from URL-key to `Cf-Access-Authenticated-User-Email` validation.
+	"routes": [
+		{ "pattern": "portal-mail.guoyuer.com", "custom_domain": true }
+	],
+	// Migration stage 1: Custom Domain live, `.workers.dev` still open, Worker
+	// does NOT require the CF Access header yet so URL-key auth keeps working
+	// during the frontend cutover. A follow-up PR flips REQUIRE_AUTH to "true"
+	// and drops the URL-key path + frontend localStorage key.
+	"vars": {
+		"REQUIRE_AUTH": "false",
+		"ALLOWED_EMAIL": "guoyuer1@gmail.com"
+	},
 	"d1_databases": [
 		{
 			"binding": "DB",

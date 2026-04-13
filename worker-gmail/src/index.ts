@@ -29,11 +29,23 @@ function authUser(request: Request, url: URL, env: Env): boolean {
   return diff === 0;
 }
 
-function corsHeaders(): Headers {
+const ALLOWED_ORIGINS = new Set([
+  "https://portal.guoyuer.com",
+  "http://localhost:3000",
+  "http://localhost:3100",
+]);
+
+function corsHeaders(origin: string | null): Headers {
   const h = new Headers();
-  h.set("Access-Control-Allow-Origin", "*");
+  // Echo a specific allowed origin (not `*`) so the browser can include the
+  // CF Access session cookie. Falls back to the production origin if the
+  // incoming request lacks a recognised Origin header.
+  const allowOrigin = origin && ALLOWED_ORIGINS.has(origin) ? origin : "https://portal.guoyuer.com";
+  h.set("Access-Control-Allow-Origin", allowOrigin);
+  h.set("Access-Control-Allow-Credentials", "true");
   h.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   h.set("Access-Control-Allow-Headers", "Content-Type, X-Mail-Key");
+  h.set("Vary", "Origin");
   // Prevent browser/CDN caching of user-specific classified mail
   h.set("Cache-Control", "no-store");
   return h;
@@ -137,13 +149,14 @@ export async function imapTrashMessage(
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    const origin = request.headers.get("Origin");
 
     // CORS preflight — handle before any path-specific routing. Only the
     // user-facing /mail/list and /mail/trash routes expect cross-origin
     // browser calls; /mail/sync is server-to-server and wouldn't preflight
     // in practice. Responding 204 for any OPTIONS is harmless.
     if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: corsHeaders() });
+      return new Response(null, { status: 204, headers: corsHeaders(origin) });
     }
 
     if (url.pathname === "/mail/sync" && request.method === "POST") {
@@ -172,43 +185,43 @@ export default {
     }
     if (url.pathname === "/mail/list" && request.method === "GET") {
       if (!authUser(request, url, env)) {
-        return Response.json({ error: "unauthorized" }, { status: 401, headers: corsHeaders() });
+        return Response.json({ error: "unauthorized" }, { status: 401, headers: corsHeaders(origin) });
       }
       const rows = await listActiveLast7Days(env.DB);
       return Response.json(
         { emails: rows, as_of: new Date().toISOString() },
-        { headers: corsHeaders() },
+        { headers: corsHeaders(origin) },
       );
     }
     if (url.pathname === "/mail/trash" && request.method === "POST") {
       if (!authUser(request, url, env)) {
-        return Response.json({ error: "unauthorized" }, { status: 401, headers: corsHeaders() });
+        return Response.json({ error: "unauthorized" }, { status: 401, headers: corsHeaders(origin) });
       }
       let body: { msg_id?: string };
       try {
         body = await request.json();
       } catch {
-        return Response.json({ error: "invalid json" }, { status: 400, headers: corsHeaders() });
+        return Response.json({ error: "invalid json" }, { status: 400, headers: corsHeaders(origin) });
       }
       if (!body.msg_id) {
-        return Response.json({ error: "missing msg_id" }, { status: 400, headers: corsHeaders() });
+        return Response.json({ error: "missing msg_id" }, { status: 400, headers: corsHeaders(origin) });
       }
 
       const result = await imapTrashMessage(env.SMTP_USER, env.SMTP_PASSWORD, body.msg_id);
 
       if (result === "trashed") {
         await markTrashed(env.DB, body.msg_id);
-        return Response.json({ status: "trashed" }, { headers: corsHeaders() });
+        return Response.json({ status: "trashed" }, { headers: corsHeaders(origin) });
       }
       if (result === "not_found") {
         // Email already gone from Gmail (user trashed elsewhere). Update D1 to match.
         await markTrashed(env.DB, body.msg_id);
-        return Response.json({ status: "already_gone" }, { headers: corsHeaders() });
+        return Response.json({ status: "already_gone" }, { headers: corsHeaders(origin) });
       }
       if (result === "auth_failed") {
-        return Response.json({ status: "auth_failed" }, { status: 503, headers: corsHeaders() });
+        return Response.json({ status: "auth_failed" }, { status: 503, headers: corsHeaders(origin) });
       }
-      return Response.json({ status: "error" }, { status: 503, headers: corsHeaders() });
+      return Response.json({ status: "error" }, { status: 503, headers: corsHeaders(origin) });
     }
     return new Response("Not found", { status: 404 });
   },
