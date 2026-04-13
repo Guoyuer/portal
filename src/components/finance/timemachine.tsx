@@ -58,7 +58,7 @@ function AreaTooltip({
 
 // ── TimemachineChart ──────────────────────────────────────────────────────
 
-export function TimemachineChart({
+function TimemachineChart({
   daily,
   brushStart,
   brushEnd,

@@ -26,7 +26,7 @@ function resolveKey(): string | null {
   return window.localStorage.getItem(KEY_STORAGE);
 }
 
-export interface UseMailState {
+interface UseMailState {
   loading: boolean;
   error: string | null;
   data: MailListResponse | null;

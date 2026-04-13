@@ -3,14 +3,12 @@
 // `@/lib/schemas` (client) or the relative `../../src/lib/schemas` (Worker).
 
 export {
-  SparklineSchema,
   TimelineDataSchema,
   type DailyPoint,
   type DailyTicker,
   type FidelityTxn,
   type QianjiTxn,
   type TimelineData,
-  type TimelineErrors,
   type IndexReturn,
   type MarketData,
   type MarketMeta,
@@ -29,5 +27,4 @@ export {
   TickerPriceResponseSchema,
   type TickerPricePoint,
   type TickerTransaction,
-  type TickerPriceResponse,
 } from "./ticker";

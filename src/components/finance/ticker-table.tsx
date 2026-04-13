@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/table";
 import { TickerChart } from "./ticker-chart";
 
-export const ACTIVITY_TOP_SYMBOLS = 5;
+const ACTIVITY_TOP_SYMBOLS = 5;
 
 export const TOTAL_ROW_CLASS = "font-bold border-t-2 border-b-2 border-foreground/20";
 
