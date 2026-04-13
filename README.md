@@ -50,6 +50,71 @@ graph TB
 
 **Key design:** Portal is a static shell (HTML + JS) deployed to Cloudflare Pages. The Cloudflare Worker serves `GET /timeline` from D1 (SQLite-compatible). The frontend fetches once on load, then computes allocation, cashflow, activity, and reconciliation locally in `use-bundle.ts`. Brush drag is zero-latency (no network round-trips).
 
+## Gmail Auto-Triage (`/mail` tab)
+
+Daily cron reads unread Gmail, classifies via Claude Haiku, and caches results in a separate D1. The `/mail` page shows three sections (IMPORTANT / NEUTRAL / TRASH_CANDIDATE); delete button on a row does an IMAP trash via the Worker.
+
+```mermaid
+graph TB
+    subgraph "GitHub Actions (daily 07:00)"
+        CRON["gmail-sync.yml<br/>cron: 0 22 * * * UTC"]
+        PY["triage.py<br/>IMAP fetch → Claude classify<br/>(batch 30 · strip ```json fences ·<br/>normalize msg_id brackets)"]
+    end
+
+    subgraph "Gmail"
+        IMAP["imap.gmail.com<br/>UNSEEN SINCE yesterday"]
+    end
+
+    subgraph "Anthropic"
+        HAIKU["Claude Haiku 4.5<br/>system + few-shot prompt"]
+    end
+
+    subgraph "worker-gmail (Cloudflare)"
+        WSYNC["POST /mail/sync<br/>(SYNC_SECRET)"]
+        WLIST["GET /mail/list<br/>(USER_KEY)"]
+        WTRASH["POST /mail/trash<br/>(USER_KEY)"]
+        D1M[(D1 portal-gmail<br/>triaged_emails)]
+        SOCK["cloudflare:sockets<br/>hand-rolled IMAP<br/>UID STORE +X-GM-LABELS \\Trash"]
+    end
+
+    subgraph "Browser (/mail)"
+        MAIL["Next.js page<br/>useMail hook<br/>localStorage key"]
+    end
+
+    CRON --> PY
+    PY -->|IMAP SEARCH + FETCH| IMAP
+    IMAP --> PY
+    PY -->|messages.create| HAIKU
+    HAIKU --> PY
+    PY -->|POST per batch| WSYNC
+    WSYNC -->|INSERT OR IGNORE| D1M
+
+    MAIL -->|X-Mail-Key| WLIST
+    WLIST -->|SELECT last 7d active| D1M
+    D1M --> WLIST
+    WLIST --> MAIL
+
+    MAIL -->|click Delete| WTRASH
+    WTRASH --> SOCK
+    SOCK -->|LOGIN + UID SEARCH +<br/>UID STORE +X-GM-LABELS| IMAP
+    WTRASH -->|UPDATE status=trashed| D1M
+
+    style PY fill:#10b981,color:#fff
+    style HAIKU fill:#7c3aed,color:#fff
+    style WSYNC fill:#2563eb,color:#fff
+    style WLIST fill:#2563eb,color:#fff
+    style WTRASH fill:#2563eb,color:#fff
+    style D1M fill:#2563eb,color:#fff
+    style IMAP fill:#dc2626,color:#fff
+```
+
+**Design decisions** (see `docs/gmail-triage-design-2026-04-12.md`):
+- One Gmail app password covers everything (SMTP send not needed since digest was dropped; IMAP read in Python + IMAP trash in Worker via `cloudflare:sockets` TCP).
+- `INSERT OR IGNORE` preserves user-set `status='trashed'` across daily re-syncs.
+- URL key (`USER_KEY`) stored in browser localStorage; strict constant-time compare on the Worker. `SYNC_SECRET` gates the GH Actions → Worker sync channel.
+- No `etl.email_report` / SMTP reuse — v1 surfaces triage in the UI, not as digest email.
+- Known follow-up: both Workers expose `.workers.dev` URLs with no CF Access. See `docs/security-worker-backdoor-2026-04-12.md`.
+
 ## Data Pipeline
 
 ```mermaid
