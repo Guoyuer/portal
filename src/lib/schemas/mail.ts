@@ -5,18 +5,12 @@ import { z } from "zod";
 export const CategorySchema = z.enum(["IMPORTANT", "NEUTRAL", "TRASH_CANDIDATE"]);
 export type Category = z.infer<typeof CategorySchema>;
 
-export const StatusSchema = z.enum(["active", "trashed"]);
-export type Status = z.infer<typeof StatusSchema>;
-
 export const TriagedEmailSchema = z.object({
   msg_id: z.string(),
-  received_at: z.string(),
-  classified_at: z.string(),
   sender: z.string(),
   subject: z.string(),
   summary: z.string(),
   category: CategorySchema,
-  status: StatusSchema,
 });
 export type TriagedEmail = z.infer<typeof TriagedEmailSchema>;
 
