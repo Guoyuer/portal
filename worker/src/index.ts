@@ -180,10 +180,14 @@ export default {
     const url = new URL(request.url);
     // In prod the Worker is mounted at `portal.guoyuer.com/api/*` so requests
     // arrive with an `/api` prefix; strip it so the rest of this handler and
-    // `wrangler dev --port 8787/timeline` share the same path table.
-    const pathname = url.pathname.startsWith("/api/")
-      ? url.pathname.slice(4)
-      : url.pathname;
+    // `wrangler dev` on `localhost:8787/timeline` share the same path table.
+    // A bare `/api` (no trailing slash) normalises to `/` so it falls through
+    // to the normal 404 instead of leaking the prefix into error responses.
+    const API_PREFIX = "/api";
+    let pathname = url.pathname;
+    if (pathname === API_PREFIX || pathname.startsWith(API_PREFIX + "/")) {
+      pathname = pathname.slice(API_PREFIX.length) || "/";
+    }
 
     if (pathname === "/econ") return handleEcon(env, origin);
 
