@@ -1,20 +1,15 @@
 import { upsertEmails, listActiveLast7Days, markTrashed } from "./db.js";
 import type { UpsertInput } from "./types.js";
 import { imapOk, parseSearchUid } from "./imap-parse.js";
+import { cfAccessEmailMatches, type AuthEnv } from "../../src/lib/worker-auth";
 import { connect } from "cloudflare:sockets";
 
-interface Env {
+interface Env extends AuthEnv {
   DB: D1Database;
   SYNC_SECRET: string;
   USER_KEY: string;
   SMTP_USER: string;
   SMTP_PASSWORD: string;
-  // Optional: when set to "true" (production, behind CF Access), user
-  // requests must carry a valid Cf-Access-Authenticated-User-Email matching
-  // ALLOWED_EMAIL. When unset/empty, fall back to URL-key auth so
-  // `wrangler dev` and the pre-migration `.workers.dev` URL keep working.
-  REQUIRE_AUTH?: string;
-  ALLOWED_EMAIL?: string;
 }
 
 function authUser(request: Request, url: URL, env: Env): boolean {
@@ -22,10 +17,7 @@ function authUser(request: Request, url: URL, env: Env): boolean {
   // the request reaches us). `USER_KEY` becomes dead code once the dashboard
   // migration is complete; follow-up PR will remove it + the frontend
   // localStorage key path.
-  if (env.REQUIRE_AUTH === "true") {
-    const email = request.headers.get("Cf-Access-Authenticated-User-Email");
-    return email !== null && email === env.ALLOWED_EMAIL;
-  }
+  if (env.REQUIRE_AUTH === "true") return cfAccessEmailMatches(request, env);
   const headerKey = request.headers.get("X-Mail-Key");
   const queryKey = url.searchParams.get("key");
   const provided = headerKey ?? queryKey ?? "";

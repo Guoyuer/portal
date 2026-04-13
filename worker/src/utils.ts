@@ -5,29 +5,11 @@
 
 import type { z } from "zod";
 
-// ── Auth (Cloudflare Access) ─────────────────────────────────────────────
-//
-// Production: the Custom Domain (`api.guoyuer.com`) sits behind a CF Access
-// application with Google SSO. Access verifies the JWT *before* the request
-// reaches this Worker and injects the authenticated email in the
-// `Cf-Access-Authenticated-User-Email` header. Trusting that header is safe
-// **only** when traffic is known to arrive via Access — hence the env gate.
-//
-// Dev / pre-migration: `REQUIRE_AUTH` is undefined or not "true", so the
-// helper short-circuits to `true` (no auth). This keeps `wrangler dev` and
-// the current `.workers.dev` URL working unchanged until the user finishes
-// the dashboard setup (Custom Domain + Access + disable workers.dev).
-
-export interface AuthEnv {
-  REQUIRE_AUTH?: string;
-  ALLOWED_EMAIL?: string;
-}
-
-export function isAllowedUser(request: Request, env: AuthEnv): boolean {
-  if (env.REQUIRE_AUTH !== "true") return true;
-  const email = request.headers.get("Cf-Access-Authenticated-User-Email");
-  return email !== null && email === env.ALLOWED_EMAIL;
-}
+// ── Auth response helper ─────────────────────────────────────────────────
+// The auth decision itself (`isAllowedUser`, `AuthEnv`) lives in the shared
+// `src/lib/worker-auth` module — both workers validate against the same
+// contract. Only the response wrapper is Worker-specific because it carries
+// portal-api's own CORS headers.
 
 export function unauthorized(origin: string | null): Response {
   return Response.json(

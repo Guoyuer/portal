@@ -9,20 +9,18 @@ import {
   EconDataSchema,
   type TimelineErrors,
 } from "../../src/lib/schemas";
+import { isAllowedUser, type AuthEnv } from "../../src/lib/worker-auth";
 import {
   corsHeaders,
   dbError,
   isAllowedOrigin,
-  isAllowedUser,
   settled,
   unauthorized,
   validatedResponse,
 } from "./utils";
 
-interface Env {
+interface Env extends AuthEnv {
   DB: D1Database;
-  REQUIRE_AUTH?: string;
-  ALLOWED_EMAIL?: string;
 }
 
 // ── /timeline ────────────────────────────────────────────────────────────
