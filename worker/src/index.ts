@@ -178,16 +178,26 @@ export default {
     if (!isAllowedUser(request, env)) return unauthorized(origin);
 
     const url = new URL(request.url);
+    // In prod the Worker is mounted at `portal.guoyuer.com/api/*` so requests
+    // arrive with an `/api` prefix; strip it so the rest of this handler and
+    // `wrangler dev` on `localhost:8787/timeline` share the same path table.
+    // A bare `/api` (no trailing slash) normalises to `/` so it falls through
+    // to the normal 404 instead of leaking the prefix into error responses.
+    const API_PREFIX = "/api";
+    let pathname = url.pathname;
+    if (pathname === API_PREFIX || pathname.startsWith(API_PREFIX + "/")) {
+      pathname = pathname.slice(API_PREFIX.length) || "/";
+    }
 
-    if (url.pathname === "/econ") return handleEcon(env, origin);
+    if (pathname === "/econ") return handleEcon(env, origin);
 
-    const priceMatch = url.pathname.match(/^\/prices\/([A-Za-z0-9.^=-]+)$/);
+    const priceMatch = pathname.match(/^\/prices\/([A-Za-z0-9.^=-]+)$/);
     if (priceMatch) {
       const symbol = decodeURIComponent(priceMatch[1]).toUpperCase();
       return handlePrices(env, origin, symbol);
     }
 
-    if (url.pathname === "/timeline") return handleTimeline(env, origin);
+    if (pathname === "/timeline") return handleTimeline(env, origin);
 
     return new Response("Not found", { status: 404, headers: corsHeaders(origin) });
   },
