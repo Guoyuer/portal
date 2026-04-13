@@ -281,7 +281,7 @@ pipeline/...                     ← data generation (if needed)
 
 ## Roadmap
 
-- [ ] Gmail module — important email auto-triage
+- [x] Gmail module — important email auto-triage (daily classification + one-click trash, see `docs/gmail-triage-design-2026-04-12.md`)
 - [ ] News aggregation — RSS feeds
 - [ ] AI-generated macro narrative — LLM summarizing economic conditions and cycle position
 
