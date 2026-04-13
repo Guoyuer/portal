@@ -1,4 +1,4 @@
-import { upsertEmails } from "./db.js";
+import { upsertEmails, listActiveLast7Days } from "./db.js";
 import type { UpsertInput } from "./types.js";
 
 interface Env {
@@ -7,6 +7,28 @@ interface Env {
   USER_KEY: string;
   SMTP_USER: string;
   SMTP_PASSWORD: string;
+}
+
+function authUser(request: Request, url: URL, env: Env): boolean {
+  const headerKey = request.headers.get("X-Mail-Key");
+  const queryKey = url.searchParams.get("key");
+  const provided = headerKey ?? queryKey ?? "";
+  if (!provided) return false;
+  // Constant-time compare
+  if (provided.length !== env.USER_KEY.length) return false;
+  let diff = 0;
+  for (let i = 0; i < provided.length; i++) diff |= provided.charCodeAt(i) ^ env.USER_KEY.charCodeAt(i);
+  return diff === 0;
+}
+
+function corsHeaders(): Headers {
+  const h = new Headers();
+  h.set("Access-Control-Allow-Origin", "*");
+  h.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  h.set("Access-Control-Allow-Headers", "Content-Type, X-Mail-Key");
+  // Prevent browser/CDN caching of user-specific classified mail
+  h.set("Cache-Control", "no-store");
+  return h;
 }
 
 export default {
@@ -38,7 +60,17 @@ export default {
       return Response.json({ inserted: result.inserted, skipped_existing: result.skipped });
     }
     if (url.pathname === "/mail/list" && request.method === "GET") {
-      return new Response("not implemented", { status: 501 });
+      if (!authUser(request, url, env)) {
+        return Response.json({ error: "unauthorized" }, { status: 401, headers: corsHeaders() });
+      }
+      const rows = await listActiveLast7Days(env.DB);
+      return Response.json(
+        { emails: rows, as_of: new Date().toISOString() },
+        { headers: corsHeaders() },
+      );
+    }
+    if (request.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: corsHeaders() });
     }
     if (url.pathname === "/mail/trash" && request.method === "POST") {
       return new Response("not implemented", { status: 501 });
