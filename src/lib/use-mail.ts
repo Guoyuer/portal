@@ -97,6 +97,12 @@ export function useMail(): UseMailState {
       headers: { "X-Mail-Key": key, "Content-Type": "application/json" },
       body: JSON.stringify({ msg_id: msgId }),
     });
+    if (r.status === 401) {
+      // Key expired or revoked — same recovery flow as the list fetch.
+      window.localStorage.removeItem(KEY_STORAGE);
+      setKeyMissing(true);
+      throw new Error("key invalid");
+    }
     const json = await r.json();
     const parsed = TrashResponseSchema.parse(json);
 

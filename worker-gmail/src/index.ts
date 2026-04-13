@@ -140,6 +140,14 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
+    // CORS preflight — handle before any path-specific routing. Only the
+    // user-facing /mail/list and /mail/trash routes expect cross-origin
+    // browser calls; /mail/sync is server-to-server and wouldn't preflight
+    // in practice. Responding 204 for any OPTIONS is harmless.
+    if (request.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: corsHeaders() });
+    }
+
     if (url.pathname === "/mail/sync" && request.method === "POST") {
       if (request.headers.get("X-Sync-Secret") !== env.SYNC_SECRET) {
         return Response.json({ error: "unauthorized" }, { status: 401 });
@@ -173,9 +181,6 @@ export default {
         { emails: rows, as_of: new Date().toISOString() },
         { headers: corsHeaders() },
       );
-    }
-    if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: corsHeaders() });
     }
     if (url.pathname === "/mail/trash" && request.method === "POST") {
       if (!authUser(request, url, env)) {
