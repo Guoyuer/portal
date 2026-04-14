@@ -679,7 +679,7 @@ class TestBuildAllocationRow:
             assets=self.ASSETS,
             cost_basis_by_ticker={},
         )
-        tickers = [t["ticker"] for t in row["tickers"]]  # type: ignore[attr-defined]
+        tickers = [t["ticker"] for t in row["tickers"]]
         assert "VXUS" not in tickers
 
     def test_negative_value_counts_as_liability(self) -> None:
