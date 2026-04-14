@@ -17,7 +17,7 @@ npm run build                                       # static build → out/
 npm run test                                        # vitest unit tests
 
 # Backend (Worker — same code for local dev and production)
-cd worker && npx wrangler dev --remote              # local proxy to remote D1 (port 8787)
+bash worker/dev-remote.sh                           # --remote through CF Access (sources worker/.env.access)
 cd worker && npx wrangler dev                       # local D1 (seed first with sync --local)
 
 # Python pipeline
