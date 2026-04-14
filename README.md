@@ -318,7 +318,7 @@ cp pipeline/.env.example pipeline/.env  # then edit
 
 # Environment (create .env.local)
 cat > .env.local <<EOF
-NEXT_PUBLIC_TIMELINE_URL=http://localhost:8787/timeline
+NEXT_PUBLIC_TIMELINE_URL=http://localhost:8787
 EOF
 
 # Worker (local proxy to remote D1)

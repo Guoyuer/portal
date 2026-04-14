@@ -12,11 +12,11 @@ describe("config URL derivation", () => {
     process.env = origEnv;
   });
 
-  it("derives Worker URLs from NEXT_PUBLIC_TIMELINE_URL", async () => {
-    process.env.NEXT_PUBLIC_TIMELINE_URL = "https://portal-api.guoyuer.workers.dev/timeline";
+  it("derives Worker URLs from NEXT_PUBLIC_TIMELINE_URL base", async () => {
+    process.env.NEXT_PUBLIC_TIMELINE_URL = "https://portal.guoyuer.com/api";
     const config = await import("./config");
-    expect(config.TIMELINE_URL).toBe("https://portal-api.guoyuer.workers.dev/timeline");
-    expect(config.ECON_URL).toBe("https://portal-api.guoyuer.workers.dev/econ");
+    expect(config.TIMELINE_URL).toBe("https://portal.guoyuer.com/api/timeline");
+    expect(config.ECON_URL).toBe("https://portal.guoyuer.com/api/econ");
   });
 
   it("falls back to localhost when env not set", async () => {

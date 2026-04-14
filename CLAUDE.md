@@ -46,7 +46,7 @@ cd worker-gmail && npx wrangler deploy                # deploy Gmail Worker
 npx playwright test                                   # 5 Playwright spec files
 
 # Manual Pages deploy (when CI's Worker deploy step is down or when iterating locally)
-MSYS_NO_PATHCONV=1 NEXT_PUBLIC_TIMELINE_URL='https://portal.guoyuer.com/api/timeline' \
+MSYS_NO_PATHCONV=1 NEXT_PUBLIC_TIMELINE_URL='https://portal.guoyuer.com/api' \
   NEXT_PUBLIC_GMAIL_WORKER_URL='/api/mail' npx next build
 npx wrangler pages deploy out --project-name=portal --commit-dirty=true
 ```
