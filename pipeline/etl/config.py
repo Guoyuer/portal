@@ -1,4 +1,4 @@
-"""Configuration loading, validation, and Qianji account classification."""
+"""Configuration loading and validation."""
 
 from __future__ import annotations
 
@@ -6,15 +6,7 @@ import json
 import logging
 from pathlib import Path
 
-from .types import (
-    EQUITY_CATEGORIES,
-    TIER_CASH,
-    TIER_CNY,
-    TIER_CREDIT,
-    TIER_FIDELITY,
-    Config,
-    ConfigError,
-)
+from .types import EQUITY_CATEGORIES, Config, ConfigError
 
 log = logging.getLogger(__name__)
 
@@ -100,16 +92,3 @@ def load_config(path: Path) -> Config:
     return cfg
 
 
-# ── Qianji account classification ───────────────────────────────────────────
-
-
-def classify_account(name: str, config: Config) -> str:
-    """Classify a Qianji account into a tier using config.qianji_accounts."""
-    qa = config["qianji_accounts"]
-    if name in qa.get("fidelity_tracked", []):
-        return TIER_FIDELITY
-    if name in qa.get("credit", []):
-        return TIER_CREDIT
-    if name in qa.get("cny", []):
-        return TIER_CNY
-    return TIER_CASH

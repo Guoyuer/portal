@@ -45,12 +45,6 @@ QJ_EXPENSE = "expense"
 QJ_TRANSFER = "transfer"
 QJ_REPAYMENT = "repayment"
 
-# Account classification tiers (returned by classify_account)
-TIER_FIDELITY = "fidelity"
-TIER_CREDIT = "credit"
-TIER_CNY = "cny"
-TIER_CASH = "cash"
-
 CURRENCY_RE = re.compile(r"[^0-9.-]")
 
 

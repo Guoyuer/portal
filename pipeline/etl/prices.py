@@ -14,10 +14,8 @@ import pandas as pd
 import yfinance as yf
 
 from .db import get_connection
-from .parsing import parse_us_date
 from .refresh import REFRESH_WINDOW_DAYS, refresh_window_start
-from .timemachine import MM_SYMBOLS, POSITION_PREFIXES, _load_raw_rows, _parse_date
-from .types import parse_float as _float
+from .timemachine import MM_SYMBOLS, POSITION_PREFIXES, _parse_date
 
 # ``REFRESH_WINDOW_DAYS`` and the refresh-window arithmetic live in
 # ``etl.refresh``. Re-imported at module scope so existing callers that
@@ -120,23 +118,9 @@ def _holding_periods_core(
     return result
 
 
-def symbol_holding_periods(store_path: Path) -> dict[str, tuple[date, date | None]]:
-    """Return {symbol: (first_buy_date, last_sell_date_or_None)} from Fidelity CSV."""
-    raw_rows = _load_raw_rows(store_path)
-    rows = [
-        (
-            parse_us_date(row["Run Date"], strict=True, row_context=store_path.name),
-            (row.get("Symbol") or "").strip(),
-            (row.get("Action") or "").upper(),
-            _float(row.get("Quantity", "")),
-        )
-        for row in raw_rows
-    ]
-    return _holding_periods_core(rows)
-
-
 def symbol_holding_periods_from_db(db_path: Path) -> dict[str, tuple[date, date | None]]:
-    """Like symbol_holding_periods but reads from fidelity_transactions table."""
+    """Return {symbol: (first_buy_date, last_sell_date_or_None)} from the
+    fidelity_transactions table."""
     conn = get_connection(db_path)
     try:
         db_rows = conn.execute(
