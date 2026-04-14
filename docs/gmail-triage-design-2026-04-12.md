@@ -343,7 +343,7 @@ Haiku 4.5, ~$0.001/day.
    ```
 5. **GitHub Secrets** — repo Settings → Secrets → Actions:
    - `PORTAL_SMTP_USER`, `PORTAL_SMTP_PASSWORD`, `ANTHROPIC_API_KEY`
-   - `PORTAL_GMAIL_WORKER_URL`, `PORTAL_GMAIL_SYNC_SECRET`
+   - `PORTAL_GMAIL_CRON_URL`, `PORTAL_GMAIL_SYNC_SECRET`
 6. **GitHub Actions workflow** — create `.github/workflows/gmail-sync.yml` with daily cron `"0 22 * * *"`.
 7. **Portal frontend** — deploy with new `/mail` route. No new env vars on the Pages side; the Worker URL is hardcoded or read from `process.env.NEXT_PUBLIC_GMAIL_WORKER_URL` at build time.
 8. **First visit**: open `https://portal.example.com/mail?key=<USER_KEY>` once in each browser you use.

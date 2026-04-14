@@ -75,12 +75,13 @@ jobs:
         run: npx playwright test
 
       # ── Rebuild for production deploy (real Worker URL) ────────
-      # NEXT_PUBLIC_GMAIL_WORKER_URL is NOT set here: the code default
-      # (`/api/mail` in src/lib/use-mail.ts) is the correct same-origin prod
-      # value. Reusing `secrets.PORTAL_GMAIL_WORKER_URL` is a trap — that
-      # secret holds the cron's external URL (`https://portal-mail.guoyuer.com`)
-      # for `pipeline/scripts/gmail/triage.py`, which would bake the wrong
-      # origin into the browser bundle and produce "Failed to fetch" on /mail.
+      # NEXT_PUBLIC_GMAIL_WORKER_URL is intentionally NOT set: since PR #139
+      # the mail worker is same-origin, so the code default (`/api/mail` in
+      # src/lib/use-mail.ts) is correct for prod. The env var exists only as
+      # a local-dev override (e.g. `wrangler dev` on :8788). Do NOT wire it
+      # to `secrets.PORTAL_GMAIL_CRON_URL` — that holds the cron's external
+      # URL for `pipeline/scripts/gmail/triage.py` and would bake the wrong
+      # origin into the browser bundle.
       - name: Build for production
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: npx next build

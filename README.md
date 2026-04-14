@@ -357,7 +357,7 @@ cd pipeline && .venv/Scripts/python.exe scripts/run_automation.py
 5. **GitHub Secrets**: `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `NEXT_PUBLIC_TIMELINE_URL`, `FRED_API_KEY`
 6. **Config**: Copy `config.example.json` → `config.json`, fill in your accounts
 7. **First build**: `cd pipeline && python3 scripts/build_timemachine_db.py && python3 scripts/sync_to_d1.py`
-8. **Gmail triage (optional)**: `cd worker-gmail && npx wrangler d1 create portal-gmail` → apply `schema.sql` → `wrangler secret put` for `SYNC_SECRET`, `USER_KEY`, `SMTP_USER`, `SMTP_PASSWORD` → `wrangler deploy`. Add GH secrets `PORTAL_SMTP_*`, `PORTAL_GMAIL_WORKER_URL`, `PORTAL_GMAIL_SYNC_SECRET`, `ANTHROPIC_API_KEY`. First visit: `/mail?key=<USER_KEY>` once.
+8. **Gmail triage (optional)**: `cd worker-gmail && npx wrangler d1 create portal-gmail` → apply `schema.sql` → `wrangler secret put` for `SYNC_SECRET`, `USER_KEY`, `SMTP_USER`, `SMTP_PASSWORD` → `wrangler deploy`. Add GH secrets `PORTAL_SMTP_*`, `PORTAL_GMAIL_CRON_URL`, `PORTAL_GMAIL_SYNC_SECRET`, `ANTHROPIC_API_KEY`. First visit: `/mail?key=<USER_KEY>` once.
 
 ## Adding a New Module
 

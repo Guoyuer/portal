@@ -5,7 +5,7 @@
 
 Env vars:
     PORTAL_SMTP_USER, PORTAL_SMTP_PASSWORD     (Gmail IMAP login)
-    PORTAL_GMAIL_WORKER_URL                    (Worker base URL)
+    PORTAL_GMAIL_CRON_URL                      (Worker base URL, external — e.g. https://portal-mail.guoyuer.com)
     PORTAL_GMAIL_SYNC_SECRET                   (shared with Worker env SYNC_SECRET)
     ANTHROPIC_API_KEY
 """
@@ -87,7 +87,7 @@ def run_sync(dry_run: bool) -> int:
         print(json.dumps({"classified_at": classified_at, "emails": rows}, indent=2))
         return 0
 
-    worker_url = _require_env("PORTAL_GMAIL_WORKER_URL")
+    worker_url = _require_env("PORTAL_GMAIL_CRON_URL")
     sync_secret = _require_env("PORTAL_GMAIL_SYNC_SECRET")
     client = WorkerSyncClient(base_url=worker_url, secret=sync_secret)
     try:
