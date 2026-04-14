@@ -31,6 +31,21 @@ Batch 4 structural-cleanup PRs (2026-04-12):
 
 Automation-readiness follow-ups (PRs #109–#114) landed shortly after — see `archive/plan-automation-readiness-2026-04-12.md` for the execution record.
 
+### 2026-04-13 batch — bug fix, test audit, endpoint security migration
+
+| PR | Branch | Summary |
+|---|---|---|
+| #134 | `fix/incremental-mutual-fund-weekend-floor` | `_find_price_date` walked back to `start`, not `prices.index[0]`; incremental Monday builds 302'd mutual-fund prices into `/dev/null` and dropped ~$35k from the computed_daily row. Regression test added. |
+| #135 | `cleanup/audit-completion` | Executes the 6 findings in `archive/test-suite-audit-2026-04-13.md` (FRED autouse fixture, dead-fixture delete, precompute test split, interactive-check → `e2e/manual/`, behavior-named `TestBug*`, new Worker unit tests) plus the 401k warning 7-day window (Option A in `archive/401k-step-function-investigation-2026-04-12.md`). |
+| #136 | `feat/worker-auth` | Adds the `REQUIRE_AUTH`/`ALLOWED_EMAIL` env-gated `isAllowedUser` + shared `src/lib/worker-auth.ts` helper. Inert by default — turns on when the dashboard migration is ready. |
+| #137 | `feat/worker-custom-domains` | Custom Domains (`portal-api.guoyuer.com`, `portal-mail.guoyuer.com`) + `Access-Control-Allow-Credentials` + frontend `credentials: 'include'`. Hit the cross-subdomain cookie wall in production and needed #138. |
+| #138 | `fix/api-same-origin` | Retire the `portal-api.guoyuer.com` Custom Domain path; mount portal-api as a zone route on `portal.guoyuer.com/api/*` so the existing Access cookie authenticates API calls. |
+| #139 | `feat/gmail-same-origin` | Same move for worker-gmail browser paths (`portal.guoyuer.com/api/mail/*`). Drops `USER_KEY` secret + `X-Mail-Key` header + frontend localStorage key path + `keyMissing` UI. |
+| #140 | `cleanup/post-migration` | Archive the security doc; delete `worker-auth` module + `isAllowedUser` + `unauthorized` + `REQUIRE_AUTH/ALLOWED_EMAIL` vars (Access gates everything — defense-in-depth was inert); strip `credentials: "include"` from frontend; remove failing CI `Deploy Worker` + `Apply D1 schema` steps (token scope issue); CLAUDE.md note on Git Bash MSYS path mangling. |
+| #141 | `fix/worker-gmail-path-lockdown` | Match `/api/mail/list` / `/api/mail/trash` / `/mail/sync` literally instead of strip-and-match. Makes `Portal Mail` Access app truly orphan — safe to delete. |
+
+Dashboard side (CLI-driven via the scoped setup token, then self-revoked): created/updated Access apps, deleted the `portal-api.guoyuer.com` Custom Domain, retired the `Portal API EMERGENCY LOCK` deny-all placeholder. `.workers.dev` closed on both Workers (automatic once `routes` are present in wrangler config).
+
 ---
 
 ## 4. Not doing (explicit)

@@ -20,31 +20,37 @@ graph TB
         RH[Robinhood CSV]
     end
 
-    subgraph Cloud["Cloudflare"]
+    subgraph Cloud["Cloudflare — portal.guoyuer.com (behind CF Access / Google SSO)"]
         D1[(D1 portal-db)]
-        WORKER["Worker — SELECT → JSON"]
-        PAGES["Pages — static shell"]
+        PAGES["/* — Pages static shell"]
+        WORKER_API["/api/* — portal-api Worker"]
+        WORKER_MAIL["/api/mail/* — worker-gmail Worker"]
     end
 
     subgraph Frontend["Browser"]
-        FETCH["fetch /timeline + /econ + /prices/:sym"]
+        ACCESS["CF Access — SSO cookie on portal.guoyuer.com"]
+        FETCH["same-origin fetch /api/timeline + /api/econ + /api/prices/:sym + /api/mail/*"]
         COMPUTE["compute.ts — allocation · cashflow · activity"]
         UI["React components"]
     end
 
     subgraph CI["GitHub Actions"]
         TEST["pytest + vitest + Playwright"]
-        DEPLOY["Deploy Pages + Worker"]
+        DEPLOY["Deploy Pages (Workers deployed manually)"]
     end
 
     QJ & FID & QFX & RH --> BUILD
     DETECT --> BUILD --> VALIDATE
     VALIDATE -->|PASS| DIFF --> D1
-    D1 --> WORKER --> FETCH --> COMPUTE --> UI
-    TEST --> DEPLOY --> PAGES & WORKER
+    D1 --> WORKER_API --> FETCH
+    D1 --> WORKER_MAIL --> FETCH
+    ACCESS --> FETCH --> COMPUTE --> UI
+    TEST --> DEPLOY --> PAGES
 ```
 
-**Principles:** D1 is persistent store, local DB is disposable cache. Diff sync pushes only new rows. Worker is a thin adapter (shape work in D1 views, Zod validation at boundary). Frontend computes everything locally after one fetch.
+**Principles:** D1 is persistent store, local DB is disposable cache. Diff sync pushes only new rows. Workers are thin adapters (shape work in D1 views, Zod validation at boundary). Frontend computes everything locally after one fetch.
+
+**Routing (2026-04-13 migration):** Both Workers mount as **zone routes on `portal.guoyuer.com`** — same origin as Pages. `portal.guoyuer.com/api/*` → portal-api; `portal.guoyuer.com/api/mail/*` → worker-gmail. One CF Access app on `portal.guoyuer.com` authenticates the page load and every subsequent API call with the same session cookie — no CORS preflight, no cross-subdomain cookie handshake. Only exception: `portal-mail.guoyuer.com/mail/sync` stays on a separate hostname with no Access in front so the GitHub Actions Gmail cron can reach it with just the `X-Sync-Secret` header. See `docs/archive/security-worker-backdoor-2026-04-12.md` for the history.
 
 ---
 
@@ -58,18 +64,25 @@ graph TB
 | `qianji_transactions` | Records (date, type, category, amount, isRetirement) | Range replace |
 | `categories` | Allocation metadata (key, name, displayOrder, targetPct) from `config.json` | Full replace |
 | `computed_market_indices` | Index returns + sparklines | Full replace |
-| `computed_market_indicators` | Scalar FRED indicators | Full replace |
 | `computed_holdings_detail` | Per-ticker performance | Full replace |
-| `econ_series` | FRED monthly time-series (~9 keys) | Full replace |
+| `econ_series` | Monthly time-series — FRED macro keys + `dxy` (Yahoo) + `usdCny` (Yahoo) | Full replace |
 | `sync_meta` | last_sync timestamp, last_date coverage | Full replace |
 | `replay_checkpoint` | Cached positions/cash/cost_basis (local only) | Not synced |
 | `calibration_log` | Drift between replay and positions CSV (local only) | Not synced |
 
-D1 has 12 camelCase views (one per logical bundle — `v_daily`, `v_daily_tickers`, `v_fidelity_txns`, `v_qianji_txns`, `v_categories`, `v_market_indices`, `v_market_indicators`, `v_market_meta` pivot, `v_holdings_detail`, `v_econ_series`, `v_econ_series_grouped`, `v_econ_snapshot`).
+D1 has 10 camelCase views — `v_daily`, `v_daily_tickers`, `v_fidelity_txns`, `v_qianji_txns`, `v_categories`, `v_market_indices`, `v_holdings_detail`, `v_econ_series`, `v_econ_series_grouped`, `v_econ_snapshot`.
 
-Worker endpoints: `GET /timeline` (parallel SELECTs across critical + optional views, ~4.6 MB / ~385 KB gzip), `GET /econ` (econ_series snapshot + grouped series), `GET /prices/:symbol` (daily close + transactions, on-demand per ticker click). All responses pass through `safeParse` at the Worker boundary — schema drift returns HTTP 500 with the Zod path instead of a silently garbage body.
+Worker endpoints (all under `portal.guoyuer.com/api/*`, `/api/` is stripped inside the Worker so internal paths stay `/timeline`, `/econ`, `/prices/:sym`, `/mail/list`, `/mail/trash`):
 
-`/timeline` is fail-open: the critical `v_daily` query returns 503 on failure, but optional sections (market, holdings, txns) degrade to `null` + an `errors: { market?, holdings?, txns? }` entry. Frontend panels render explicit error cards — missing data never hides silently.
+- `GET /api/timeline` — parallel SELECTs across critical + optional views, ~4.6 MB / ~385 KB gzip
+- `GET /api/econ` — econ_series snapshot + grouped series (includes `dxy`, `usdCny` alongside FRED keys)
+- `GET /api/prices/:symbol` — daily close + transactions, on-demand per ticker click
+- `GET /api/mail/list`, `POST /api/mail/trash` — Gmail triage (worker-gmail)
+- `POST /mail/sync` on `portal-mail.guoyuer.com` — GitHub Actions cron upserts classifications (SYNC_SECRET)
+
+All responses pass through `safeParse` at the Worker boundary — schema drift returns HTTP 500 with the Zod path instead of a silently garbage body.
+
+`/api/timeline` is fail-open: the critical `v_daily` query returns 503 on failure, but optional sections (market, holdings, txns) degrade to `null` + an `errors: { market?, holdings?, txns? }` entry. Frontend panels render explicit error cards — missing data never hides silently.
 
 ---
 
@@ -140,7 +153,7 @@ CLI flags: `--data-dir`, `--config`, `--downloads`, `--no-validate`, `--csv <pat
 | Check | Severity | Threshold |
 |-------|----------|-----------|
 | total ≈ SUM(tickers) per date | FATAL | >$1 diff |
-| Day-over-day change | FATAL / WARNING | >20% AND >$10K / >15% AND >$5K |
+| Day-over-day change | FATAL / WARNING | >20% AND >$10K / >15% AND >$5K (anchored to the latest `computed_daily` date; anomalies older than 7 days are suppressed — old 401k-snapshot step-functions aren't actionable) |
 | Holdings > $100 have recent price | FATAL | Missing from daily_close |
 | CNY rate freshness | WARNING | >7 days stale |
 | Date gaps | WARNING | >7 calendar days |
@@ -166,7 +179,8 @@ CLI flags: `--data-dir`, `--config`, `--downloads`, `--no-validate`, `--csv <pat
 | Backend | Cloudflare Worker + D1 (edge SQLite) |
 | Pipeline | Python 3.14, SQLite, yfinance, fredapi |
 | CI | GitHub Actions: pytest + vitest + Playwright (mock API) |
-| Deploy | Cloudflare Pages + Workers |
+| Deploy | Cloudflare Pages (CI, on push to main) + Workers (manual `wrangler deploy` — CI's `CLOUDFLARE_API_TOKEN` lacks `Zone → Workers Routes → Edit`) |
+| Auth | Cloudflare Access (Google SSO, allow-list = `guoyuer1@gmail.com`) on `portal.guoyuer.com/*` — gates page load and every `/api/*` call with the same session cookie |
 
 Enabled: React Compiler (auto-memo), View Transitions, content-visibility auto.
 
