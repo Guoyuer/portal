@@ -74,13 +74,25 @@ PIPELINE_DIR = Path(__file__).resolve().parent.parent
 
 @dataclass(frozen=True)
 class BuildPaths:
-    """Resolved filesystem paths for a single build invocation."""
+    """Resolved filesystem paths for a single build invocation.
+
+    ``db_path`` and ``robinhood_csv`` are derived from ``data_dir`` /
+    ``downloads`` rather than stored, so callers can't introduce a
+    divergence by passing, e.g., a custom ``data_dir`` with the wrong
+    ``db_path``.
+    """
     data_dir: Path
-    db_path: Path
     config: Path
     downloads: Path
-    robinhood_csv: Path
     csv: Path | None
+
+    @property
+    def db_path(self) -> Path:
+        return self.data_dir / "timemachine.db"
+
+    @property
+    def robinhood_csv(self) -> Path:
+        return self.downloads / "Robinhood_history.csv"
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -111,10 +123,8 @@ def _resolve_paths(args: argparse.Namespace) -> BuildPaths:
     downloads = args.downloads or Path(os.environ.get("PORTAL_DOWNLOADS", Path.home() / "Downloads"))
     return BuildPaths(
         data_dir=data_dir,
-        db_path=data_dir / "timemachine.db",
         config=config,
         downloads=downloads,
-        robinhood_csv=downloads / "Robinhood_history.csv",
         csv=args.csv,
     )
 
