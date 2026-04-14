@@ -204,10 +204,15 @@ def fetch_and_store_prices(
             fetch_start = min(hp_start, global_start) if global_start else hp_start
             need_end = hp_end or end
             cached_lo, cached_hi = _cached_range(conn, sym)
-            if cached_lo is None or cached_lo > fetch_start or (
-                cached_hi and cached_hi < need_end - timedelta(days=4)
-            ):
+            refresh_start = max(fetch_start, need_end - timedelta(days=REFRESH_WINDOW_DAYS))
+            if cached_lo is None or cached_lo > fetch_start:
+                # Historical gap — fetch the full range.
                 to_fetch[sym] = (fetch_start, need_end)
+            else:
+                # History covered — always refresh the recent window so new
+                # trading days and intraday updates land. _persist_close keeps
+                # dates older than refresh_cutoff immutable, so this is idempotent.
+                to_fetch[sym] = (refresh_start, need_end)
 
         if to_fetch:
             batch_start = min(s for s, _ in to_fetch.values())
