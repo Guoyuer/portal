@@ -65,6 +65,7 @@ from etl.prices import (
 )
 from etl.refresh import refresh_window_start
 from etl.timemachine import DEFAULT_QJ_DB
+from etl.types import AllocationRow
 from etl.validate import Severity, validate_build
 
 # ── Paths ────────────────────────────────────────────────────────────────────
@@ -96,18 +97,8 @@ class BuildPaths:
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """Parse command-line arguments.
-
-    ``mode`` accepts the legacy ``full``/``incremental`` strings for backward
-    compat with callers (run_automation.py) but is otherwise ignored — the
-    script always runs the refresh-window build, falling back to full when
-    the DB is missing.
-    """
+    """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="Build the timemachine SQLite database")
-    parser.add_argument(
-        "mode", nargs="?", default=None,
-        help="[deprecated, ignored] accepted for backward compat",
-    )
     parser.add_argument("--csv", type=Path, help="Path to a specific Fidelity CSV file")
     parser.add_argument("--no-validate", action="store_true", help="Skip post-build validation")
     parser.add_argument("--data-dir", type=Path, default=None, help="Override data directory (default: pipeline/data/)")
@@ -166,7 +157,7 @@ def _ingest_fidelity_csvs(paths: BuildPaths) -> None:
         """Return earliest YYYYMMDD date in a CSV for sorting."""
         text = path.read_text(encoding="utf-8-sig")
         import re
-        dates = re.findall(r"(\d{2}/\d{2}/\d{4})", text)
+        dates: list[str] = re.findall(r"(\d{2}/\d{2}/\d{4})", text)
         if not dates:
             return "99999999"
         return min(d[6:10] + d[0:2] + d[3:5] for d in dates)
@@ -377,18 +368,26 @@ def _ingest_and_fetch(
     return _compute_401k_daily(paths, qfx_snaps, qfx_contribs, earliest, end)
 
 
-def _print_summary(alloc):
+def _print_summary(alloc: list[AllocationRow]) -> None:
     if not alloc:
         return
     earliest, latest = alloc[0], alloc[-1]
-    print(f"\n  Earliest: {earliest['date']}  ${float(earliest['total']):,.0f}")  # type: ignore[arg-type]
-    print(f"  Latest:   {latest['date']}  ${float(latest['total']):,.0f}")  # type: ignore[arg-type]
+    print(f"\n  Earliest: {earliest['date']}  ${earliest['total']:,.0f}")
+    print(f"  Latest:   {latest['date']}  ${latest['total']:,.0f}")
 
 
 # ── Full rebuild ────────────────────────────────────────────────────────────
 
 
-def _full_build(paths: BuildPaths, config, start, end, k401_daily, *, no_validate: bool = False):
+def _full_build(
+    paths: BuildPaths,
+    config: dict[str, object],
+    start: date,
+    end: date,
+    k401_daily: dict[date, dict[str, float]],
+    *,
+    no_validate: bool = False,
+) -> list[AllocationRow]:
     print("\n[5] Computing full allocation...")
     alloc = compute_daily_allocation(paths.db_path, DEFAULT_QJ_DB, config, k401_daily, start, end, robinhood_csv=paths.robinhood_csv)
     print(f"  {len(alloc)} daily records")
@@ -402,11 +401,10 @@ def _full_build(paths: BuildPaths, config, start, end, k401_daily, *, no_validat
             conn.execute(
                 "INSERT INTO computed_daily (date, total, us_equity, non_us_equity, crypto, safe_net, liabilities)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (r["date"],
-                 float(r["total"]), float(r["us_equity"]), float(r["non_us_equity"]),  # type: ignore[arg-type]
-                 float(r["crypto"]), float(r["safe_net"]), float(r.get("liabilities", 0))),  # type: ignore[arg-type]
+                (r["date"], r["total"], r["us_equity"], r["non_us_equity"],
+                 r["crypto"], r["safe_net"], r["liabilities"]),
             )
-            for t in r.get("tickers", []):
+            for t in r["tickers"]:
                 conn.execute(
                     "INSERT OR REPLACE INTO computed_daily_tickers"
                     " (date, ticker, value, category, subtype, cost_basis, gain_loss, gain_loss_pct)"
@@ -420,9 +418,12 @@ def _full_build(paths: BuildPaths, config, start, end, k401_daily, *, no_validat
 
     # Ingest Qianji transactions for /cashflow endpoint
     qianji_records, _ = load_all_from_db(DEFAULT_QJ_DB)
-    retirement_cats = config.get("retirement_income_categories", []) or []
+    raw_cats = config.get("retirement_income_categories") or []
+    retirement_cats: list[str] = (
+        [str(x) for x in raw_cats] if isinstance(raw_cats, list) else []
+    )
     qj_count = ingest_qianji_transactions(
-        paths.db_path, qianji_records, retirement_categories=list(retirement_cats)
+        paths.db_path, qianji_records, retirement_categories=retirement_cats,
     )
     print(f"  {qj_count} Qianji transactions ingested")
 
@@ -447,7 +448,15 @@ def _full_build(paths: BuildPaths, config, start, end, k401_daily, *, no_validat
 # ── Incremental ─────────────────────────────────────────────────────────────
 
 
-def _build_refresh_window(paths: BuildPaths, config, start, end, k401_daily, *, no_validate: bool = False):
+def _build_refresh_window(
+    paths: BuildPaths,
+    config: dict[str, object],
+    start: date,
+    end: date,
+    k401_daily: dict[date, dict[str, float]],
+    *,
+    no_validate: bool = False,
+) -> list[AllocationRow]:
     """Recompute the REFRESH_WINDOW_DAYS tail of ``computed_daily``, filling any
     historical gap beyond the tail. Delegates to ``_full_build`` when the DB
     has no prior rows (first run, or after a manual reset)."""
@@ -502,7 +511,7 @@ def main() -> None:
     paths = _resolve_paths(args)
 
     print("=" * 60)
-    print(f"  Timemachine DB Builder  [{args.mode}]")
+    print("  Timemachine DB Builder")
     print("=" * 60)
 
     config = _load_config(paths.config)
@@ -515,9 +524,6 @@ def main() -> None:
     start = _derive_start_date(paths, fallback=end)
     print(f"  Range: {start} -> {end}")
 
-    if args.mode == "full":
-        print("  NOTE: 'full' mode is deprecated. To force a clean rebuild,")
-        print("        delete data/timemachine.db and re-run.")
     _build_refresh_window(paths, config, start, end, k401_daily, no_validate=args.no_validate)
 
     print("\n" + "=" * 60)

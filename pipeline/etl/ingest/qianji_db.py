@@ -181,7 +181,7 @@ def load_all_from_db(
 
 def ingest_qianji_transactions(
     db_path: Path,
-    records: list[dict[str, Any]],
+    records: list[QianjiRecord],
     *,
     retirement_categories: list[str] | None = None,
 ) -> int:

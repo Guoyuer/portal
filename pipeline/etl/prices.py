@@ -14,13 +14,8 @@ import pandas as pd
 import yfinance as yf
 
 from .db import get_connection
-from .refresh import REFRESH_WINDOW_DAYS, refresh_window_start
+from .refresh import refresh_window_start
 from .timemachine import MM_SYMBOLS, POSITION_PREFIXES, _parse_date
-
-# ``REFRESH_WINDOW_DAYS`` and the refresh-window arithmetic live in
-# ``etl.refresh``. Re-imported at module scope so existing callers that
-# reference ``etl.prices.REFRESH_WINDOW_DAYS`` keep working.
-_ = REFRESH_WINDOW_DAYS  # keep re-export even if unused in this module's body
 
 
 def _persist_close(

@@ -40,6 +40,7 @@ from .timemachine import (
     replay_qianji,
     replay_qianji_currencies,
 )
+from .types import AllocationRow, TickerDetail
 
 log = logging.getLogger(__name__)
 
@@ -91,14 +92,14 @@ def _categorize_ticker(
     value: float,
     assets: dict[str, object],
     cost_basis_by_ticker: dict[str, float],
-) -> dict[str, object]:
+) -> TickerDetail:
     """Classify a single ticker into a detail row with category/subtype/gain-loss."""
     if value < 0:
-        return {
-            "ticker": ticker, "value": round(value, 2),
-            "category": "Liability", "subtype": "",
-            "cost_basis": 0, "gain_loss": 0, "gain_loss_pct": 0,
-        }
+        return TickerDetail(
+            ticker=ticker, value=round(value, 2),
+            category="Liability", subtype="",
+            cost_basis=0, gain_loss=0, gain_loss_pct=0,
+        )
     asset_entry = assets.get(ticker)
     if not isinstance(asset_entry, dict):
         raise KeyError(f"Ticker {ticker!r} not in config.assets — add it to config.json to classify this holding")
@@ -109,11 +110,11 @@ def _categorize_ticker(
     cb = cost_basis_by_ticker.get(ticker, 0)
     gl = round(value - cb, 2) if cb > 0 else 0
     gl_pct = round(gl / cb * 100, 2) if cb > 0 else 0
-    return {
-        "ticker": ticker, "value": round(value, 2),
-        "category": cat, "subtype": sub,
-        "cost_basis": round(cb, 2), "gain_loss": gl, "gain_loss_pct": gl_pct,
-    }
+    return TickerDetail(
+        ticker=ticker, value=round(value, 2),
+        category=cat, subtype=sub,
+        cost_basis=round(cb, 2), gain_loss=gl, gain_loss_pct=gl_pct,
+    )
 
 
 # ── Per-source aggregation helpers ─────────────────────────────────────────
@@ -278,7 +279,7 @@ def step_one_day(
     state: ReplayState,
     sources: AllocationSources,
     current: date,
-) -> dict[str, object]:
+) -> AllocationRow:
     """Value the portfolio for a single day. Pure — no I/O, no arg mutation.
 
     Robinhood still re-runs its own replay from CSV on every call (no
@@ -317,12 +318,12 @@ def _build_allocation_row(
     ticker_values: dict[str, float],
     assets: dict[str, object],
     cost_basis_by_ticker: dict[str, float],
-) -> dict[str, object]:
+) -> AllocationRow:
     """Categorize each non-zero ticker and produce the per-day allocation dict."""
     category_totals: dict[str, float] = {}
     total = 0.0
     liabilities = 0.0
-    ticker_detail: list[dict[str, object]] = []
+    ticker_detail: list[TickerDetail] = []
 
     for ticker, value in ticker_values.items():
         if value == 0:
@@ -332,20 +333,19 @@ def _build_allocation_row(
         if value < 0:
             liabilities += value
         else:
-            cat_key = str(row["category"])
-            category_totals[cat_key] = category_totals.get(cat_key, 0) + value
+            category_totals[row["category"]] = category_totals.get(row["category"], 0) + value
             total += value
 
-    return {
-        "date": current.isoformat(),
-        "total": round(total, 2),
-        "us_equity": round(category_totals.get("US Equity", 0), 2),
-        "non_us_equity": round(category_totals.get("Non-US Equity", 0), 2),
-        "crypto": round(category_totals.get("Crypto", 0), 2),
-        "safe_net": round(category_totals.get("Safe Net", 0), 2),
-        "liabilities": round(liabilities, 2),
-        "tickers": ticker_detail,
-    }
+    return AllocationRow(
+        date=current.isoformat(),
+        total=round(total, 2),
+        us_equity=round(category_totals.get("US Equity", 0), 2),
+        non_us_equity=round(category_totals.get("Non-US Equity", 0), 2),
+        crypto=round(category_totals.get("Crypto", 0), 2),
+        safe_net=round(category_totals.get("Safe Net", 0), 2),
+        liabilities=round(liabilities, 2),
+        tickers=ticker_detail,
+    )
 
 
 # ── Daily allocation ───────────────────────────────────────────────────────
@@ -395,7 +395,7 @@ def compute_daily_allocation(
     end: date,
     *,
     robinhood_csv: Path | None = None,
-) -> list[dict[str, object]]:
+) -> list[AllocationRow]:
     """Compute daily allocation from start to end.
 
     Orchestrates replay refresh + per-day valuation. The math is in
@@ -422,7 +422,7 @@ def compute_daily_allocation(
     _conn.close()
     qj_txn_dates = set(_qianji_transaction_dates(qj_db))
 
-    results: list[dict[str, object]] = []
+    results: list[AllocationRow] = []
     state = ReplayState()
     last_fidelity_replay: date | None = None
     last_qj_replay: date | None = None
