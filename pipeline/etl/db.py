@@ -323,7 +323,7 @@ def get_last_computed_date(db_path: Path) -> date | None:
         conn.close()
 
 
-def append_daily(db_path: Path, rows: list[dict[str, object]]) -> int:
+def upsert_daily_rows(db_path: Path, rows: list[dict[str, object]]) -> int:
     """Upsert rows into computed_daily + computed_daily_tickers.
 
     Overwrites existing rows for the same date. Incremental builds recompute
