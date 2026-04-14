@@ -282,7 +282,11 @@ class TestExitCodeMapping:
         assert marker.read_text().strip()  # non-empty ISO timestamp
 
     def test_no_changes_returns_0_without_invoking_build(self, monkeypatch, tmp_path):
-        """Without --force: if change detection says no-change, exit 0 and don't call subprocesses."""
+        """Without --force: no CSV changes AND DB fresh → exit 0, no subprocess."""
+        from datetime import date
+
+        from etl.db import get_connection, init_db
+
         fake = _FakeRun([])
         monkeypatch.setattr(run_automation, "run_python_script", fake)
         monkeypatch.setattr(run_automation, "_MARKER", tmp_path / ".last_run")
@@ -291,8 +295,20 @@ class TestExitCodeMapping:
         monkeypatch.setattr(run_automation, "get_qianji_db_path", lambda: None)
         monkeypatch.delenv("PORTAL_HEALTHCHECK_URL", raising=False)
         (tmp_path / "empty_downloads").mkdir()
-        # Seed a fresh marker — no watched files newer than it.
         (tmp_path / ".last_run").write_text("seeded")
+
+        # Seed a fresh DB at the PORTAL_DB_PATH location so needs_catchup() returns False.
+        db_path = tmp_path / "tm.db"
+        monkeypatch.setenv("PORTAL_DB_PATH", str(db_path))
+        init_db(db_path)
+        conn = get_connection(db_path)
+        conn.execute(
+            "INSERT INTO computed_daily (date, total, us_equity, non_us_equity, crypto, safe_net)"
+            " VALUES (?, 100000, 55000, 15000, 3000, 27000)",
+            (date.today().isoformat(),),
+        )
+        conn.commit()
+        conn.close()
 
         rc = run_automation.main([])
         assert rc == run_automation.EXIT_OK
