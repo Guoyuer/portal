@@ -15,8 +15,10 @@ import {
 } from "@/lib/schemas/mail";
 
 // Same-origin path. Dev override (`npm run dev` against a local worker-gmail)
-// can still point elsewhere via NEXT_PUBLIC_GMAIL_WORKER_URL.
-const MAIL_BASE = process.env.NEXT_PUBLIC_GMAIL_WORKER_URL ?? "/api/mail";
+// can still point elsewhere via NEXT_PUBLIC_GMAIL_WORKER_URL. `||` — not `??` —
+// so an accidentally-empty env var still falls back to the same-origin default
+// rather than making `fetch("/list")` hit the Pages 404.
+const MAIL_BASE = process.env.NEXT_PUBLIC_GMAIL_WORKER_URL || "/api/mail";
 
 interface UseMailState {
   loading: boolean;
