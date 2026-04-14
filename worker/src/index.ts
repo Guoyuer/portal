@@ -10,6 +10,7 @@ import {
   type TimelineErrors,
 } from "../../src/lib/schemas";
 import {
+  cachedJson,
   dbError,
   errorResponse,
   notFoundResponse,
@@ -156,8 +157,15 @@ async function handlePrices(env: Env, symbol: string): Promise<Response> {
 
 // ── Entry ────────────────────────────────────────────────────────────────
 
+// Edge-cache TTLs (seconds). /timeline refreshes on nightly sync + local
+// sync; 60s staleness is invisible to a human reloading the dashboard.
+// /econ and /prices rarely change intraday so we cache harder.
+const TTL_TIMELINE_S = 60;
+const TTL_ECON_S = 600;
+const TTL_PRICES_S = 300;
+
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     // In prod the Worker is mounted at `portal.guoyuer.com/api/*` so requests
     // arrive with an `/api` prefix; strip it so the rest of this handler and
@@ -170,15 +178,19 @@ export default {
       pathname = pathname.slice(API_PREFIX.length) || "/";
     }
 
-    if (pathname === "/econ") return handleEcon(env);
+    if (pathname === "/econ") {
+      return cachedJson(request, ctx, TTL_ECON_S, () => handleEcon(env));
+    }
 
     const priceMatch = pathname.match(/^\/prices\/([A-Za-z0-9.^=-]+)$/);
     if (priceMatch) {
       const symbol = decodeURIComponent(priceMatch[1]).toUpperCase();
-      return handlePrices(env, symbol);
+      return cachedJson(request, ctx, TTL_PRICES_S, () => handlePrices(env, symbol));
     }
 
-    if (pathname === "/timeline") return handleTimeline(env);
+    if (pathname === "/timeline") {
+      return cachedJson(request, ctx, TTL_TIMELINE_S, () => handleTimeline(env));
+    }
 
     return notFoundResponse();
   },
