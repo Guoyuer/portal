@@ -448,6 +448,22 @@ def _full_build(
 # ── Incremental ─────────────────────────────────────────────────────────────
 
 
+def compute_inc_start(last: date, start: date, end: date) -> date:
+    """The first date the incremental build should recompute.
+
+    Always reaches back into the refresh-window tail so today's moving
+    snapshot and late Yahoo corrections land in ``computed_daily``; also
+    fills any historical gap if ``last`` sits further back than the tail
+    (e.g., after a long absence). The ``min()`` covers the gap case; the
+    outer ``max()`` clamps to the configured ``start``. Caller checks
+    whether the returned value exceeds ``end`` (meaning: nothing to do).
+
+    Public so tests can exercise it without building a full DB fixture.
+    """
+    refresh_floor = refresh_window_start(end)
+    return max(start, min(last + timedelta(days=1), refresh_floor))
+
+
 def _build_refresh_window(
     paths: BuildPaths,
     config: dict[str, object],
@@ -465,13 +481,7 @@ def _build_refresh_window(
         print("  No existing data — falling back to full build")
         return _full_build(paths, config, start, end, k401_daily, no_validate=no_validate)
 
-    # Always recompute the refresh-window tail so today's moving snapshot and
-    # late Yahoo corrections land in computed_daily; additionally fill any
-    # historical gap if last is further back than the tail (e.g., after a long
-    # absence). Rows older than the tail *and* already computed are immutable.
-    # The min() covers the gap case; the max() clamps to the configured start.
-    refresh_floor = refresh_window_start(end)
-    inc_start = max(start, min(last + timedelta(days=1), refresh_floor))
+    inc_start = compute_inc_start(last, start, end)
     if inc_start > end:
         print(f"  Already up to date (last: {last})")
         return []
