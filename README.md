@@ -70,15 +70,15 @@ graph TB
     end
 
     subgraph "worker-gmail (Cloudflare)"
-        WSYNC["POST /mail/sync<br/>(SYNC_SECRET)"]
-        WLIST["GET /mail/list<br/>(USER_KEY)"]
-        WTRASH["POST /mail/trash<br/>(USER_KEY)"]
+        WSYNC["POST /mail/sync<br/>(SYNC_SECRET)<br/>portal-mail.guoyuer.com"]
+        WLIST["GET /api/mail/list<br/>(CF Access)"]
+        WTRASH["POST /api/mail/trash<br/>(CF Access)"]
         D1M[(D1 portal-gmail<br/>triaged_emails)]
         SOCK["cloudflare:sockets<br/>hand-rolled IMAP<br/>UID STORE +X-GM-LABELS \\Trash"]
     end
 
     subgraph "Browser (/mail)"
-        MAIL["Next.js page<br/>useMail hook<br/>localStorage key"]
+        MAIL["Next.js page<br/>useMail hook<br/>same-origin fetch"]
     end
 
     CRON --> PY
@@ -89,7 +89,7 @@ graph TB
     PY -->|POST per batch| WSYNC
     WSYNC -->|INSERT OR IGNORE| D1M
 
-    MAIL -->|X-Mail-Key| WLIST
+    MAIL -->|same-origin fetch| WLIST
     WLIST -->|SELECT last 7d active| D1M
     D1M --> WLIST
     WLIST --> MAIL
@@ -108,12 +108,11 @@ graph TB
     style IMAP fill:#dc2626,color:#fff
 ```
 
-**Design decisions** (see `docs/gmail-triage-design-2026-04-12.md`):
+**Design decisions** (original spec: `docs/gmail-triage-design-2026-04-12.md`; browser auth superseded by PRs #137-#139 — see `docs/archive/security-worker-backdoor-2026-04-12.md`):
 - One Gmail app password covers everything (SMTP send not needed since digest was dropped; IMAP read in Python + IMAP trash in Worker via `cloudflare:sockets` TCP).
 - `INSERT OR IGNORE` preserves user-set `status='trashed'` across daily re-syncs.
-- URL key (`USER_KEY`) stored in browser localStorage; strict constant-time compare on the Worker. `SYNC_SECRET` gates the GH Actions → Worker sync channel.
+- Browser auth is Cloudflare Access on `portal.guoyuer.com` (same-origin `/api/mail/*`); no in-app URL key. `SYNC_SECRET` gates the GH Actions → Worker sync channel on `portal-mail.guoyuer.com/mail/sync`.
 - No `etl.email_report` / SMTP reuse — v1 surfaces triage in the UI, not as digest email.
-- Known follow-up: both Workers expose `.workers.dev` URLs with no CF Access. See `docs/security-worker-backdoor-2026-04-12.md`.
 
 ## Data Pipeline
 
@@ -357,7 +356,7 @@ cd pipeline && .venv/Scripts/python.exe scripts/run_automation.py
 5. **GitHub Secrets**: `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `NEXT_PUBLIC_TIMELINE_URL`, `FRED_API_KEY`
 6. **Config**: Copy `config.example.json` → `config.json`, fill in your accounts
 7. **First build**: `cd pipeline && python3 scripts/build_timemachine_db.py && python3 scripts/sync_to_d1.py`
-8. **Gmail triage (optional)**: `cd worker-gmail && npx wrangler d1 create portal-gmail` → apply `schema.sql` → `wrangler secret put` for `SYNC_SECRET`, `USER_KEY`, `SMTP_USER`, `SMTP_PASSWORD` → `wrangler deploy`. Add GH secrets `PORTAL_SMTP_*`, `PORTAL_GMAIL_CRON_URL`, `PORTAL_GMAIL_SYNC_SECRET`, `ANTHROPIC_API_KEY`. First visit: `/mail?key=<USER_KEY>` once.
+8. **Gmail triage (optional)**: `cd worker-gmail && npx wrangler d1 create portal-gmail` → apply `schema.sql` → `wrangler secret put` for `SYNC_SECRET`, `SMTP_USER`, `SMTP_PASSWORD` → `wrangler deploy`. Add GH secrets `PORTAL_SMTP_*`, `PORTAL_GMAIL_CRON_URL`, `PORTAL_GMAIL_SYNC_SECRET`, `ANTHROPIC_API_KEY`. Browser auth relies on the same Cloudflare Access app that gates `portal.guoyuer.com`.
 
 ## Adding a New Module
 

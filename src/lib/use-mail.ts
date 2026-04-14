@@ -14,13 +14,15 @@ import {
   type TriagedEmail,
 } from "@/lib/schemas/mail";
 
-// Prod is always same-origin (`/api/mail` on portal.guoyuer.com, see PR #139).
-// The env var exists only as a LOCAL-DEV override — e.g. `wrangler dev` on
-// :8788 — and must NOT be wired to a CI secret: the Python cron's
-// `PORTAL_GMAIL_CRON_URL` holds an external URL that would break the bundle.
-// `||` — not `??` — so an accidentally-empty env var still falls back to the
-// same-origin default instead of making `fetch("/list")` hit the Pages 404.
-const MAIL_BASE = process.env.NEXT_PUBLIC_GMAIL_WORKER_URL || "/api/mail";
+// Hardcoded same-origin — post-PR #139 the mail worker is always mounted at
+// `portal.guoyuer.com/api/mail/*`, so there is no legitimate prod override.
+// The old `NEXT_PUBLIC_GMAIL_WORKER_URL` env var was removed because (a) its
+// only documented reader was this file, (b) shipping it as a knob invited
+// exactly the class of "bake the wrong origin into the bundle" bug that
+// required PR #147 to fix, and (c) no dev flow actually uses it — if you
+// need to point at a local worker-gmail (`wrangler dev` on :8788), add a
+// Next rewrite or temporarily edit this line.
+const MAIL_BASE = "/api/mail";
 
 interface UseMailState {
   loading: boolean;
