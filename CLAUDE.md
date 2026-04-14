@@ -30,6 +30,9 @@ cd pipeline && python3 scripts/build_timemachine_db.py
 cd pipeline && python3 scripts/sync_to_d1.py        # push to remote D1 (diff, default)
 cd pipeline && python3 scripts/sync_to_d1.py --local # push to local D1
 
+# Regenerate Zod schemas from etl/types.py (parity-checked in pytest)
+cd pipeline && python3 tools/gen_zod.py --write ../src/lib/schemas/_generated.ts
+
 # Automated pipeline (orchestration in run_automation.py; PS1 is a thin Task Scheduler shim)
 cd pipeline && .venv/Scripts/python.exe scripts/run_automation.py            # detect-changes → build → verify → sync
 cd pipeline && .venv/Scripts/python.exe scripts/run_automation.py --dry-run   # build + verify, skip sync
@@ -60,7 +63,7 @@ npx wrangler pages deploy out --project-name=portal --commit-dirty=true
 
 ## Type contract
 
-Python `types.py` (snake_case) is source of truth → SQLite `timemachine.db` → D1 views (camelCase aliases) → Worker JSON → Zod `src/lib/schemas/` (camelCase mirror, shared with Worker via `include` in `worker/tsconfig.json`). Keep them in sync. D1 schema is auto-generated from `etl/db.py` via `gen_schema_sql.py`.
+Python `types.py` (snake_case) is source of truth → SQLite `timemachine.db` → D1 views (camelCase aliases) → Worker JSON → Zod `src/lib/schemas/` (camelCase mirror, shared with Worker via `include` in `worker/tsconfig.json`). D1 schema is auto-generated from `etl/db.py` via `gen_schema_sql.py`. Zod schemas for TypedDicts that have a direct projection (`AllocationRow`, `TickerDetail`, `FidelityTxn`, `QianjiTxn`) are auto-generated from `etl/types.py` via `pipeline/tools/gen_zod.py` → `src/lib/schemas/_generated.ts` (`timeline.ts` consumes these via `.omit()` / `.extend()` / re-export); a pytest parity check fails if the committed `_generated.ts` drifts from the Python source. Hand-written schemas remain for shapes without a TypedDict source (market indices, holdings detail, category meta).
 
 ## Architecture
 
