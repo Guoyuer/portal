@@ -1,9 +1,14 @@
-name: Prices Sync
+name: Nightly Sync
 
-# Fills daily_close (stock/ETF closes + USD/CNY) on D1 without needing the
-# local Windows machine. Only maintains symbols already in D1 — new symbols
-# still need the local pipeline's first-time seeding. Runs at 23:00 UTC
-# (07:00 +08 the next morning, well after US market close).
+# Two-stage nightly maintenance of D1 when the local Windows machine is
+# offline. Stage 1 fills daily_close (stock/ETF closes + USD/CNY) from
+# yfinance. Stage 2 projects computed_daily forward from the last
+# local-authoritative date using a pure-price model — the networth chart
+# keeps moving day-to-day even without a local sync. Local sync still
+# wins: its range-replace (sync_to_d1.py) overwrites projections on next
+# run. Only maintains symbols/dates already in D1 — first-time seeding
+# stays on the local pipeline. Runs at 23:00 UTC (07:00 +08 next morning,
+# well after US market close).
 on:
   schedule:
     - cron: "0 23 * * *"
@@ -31,9 +36,16 @@ jobs:
           pip install --upgrade pip
           pip install -r pipeline/requirements.txt
 
-      - name: Run nightly price sync
+      - name: Stage 1 — sync daily_close prices
         working-directory: pipeline
         run: python scripts/sync_prices_nightly.py
+        env:
+          CLOUDFLARE_API_TOKEN:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Stage 2 — project computed_daily forward
+        working-directory: pipeline
+        run: python scripts/project_networth_nightly.py
         env:
           CLOUDFLARE_API_TOKEN:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

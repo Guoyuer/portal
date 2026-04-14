@@ -18,6 +18,7 @@ import sys
 import tempfile
 from datetime import date, timedelta
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 import yfinance as yf
@@ -57,7 +58,7 @@ _POSITION_ACTION_TYPES = tuple(_ACTION_TYPE_TO_ACTION.keys())
 # ── wrangler helpers ────────────────────────────────────────────────────────
 
 
-def _wrangler_query(sql: str) -> list[dict]:
+def _wrangler_query(sql: str) -> list[dict[str, Any]]:
     """Run a SELECT against remote D1 via ``wrangler --json``.
 
     Wrangler emits a human banner before the JSON payload; we locate the

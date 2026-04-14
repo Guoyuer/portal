@@ -63,13 +63,20 @@ _D1_COLUMNS: dict[str, list[str] | None] = {
 }
 
 # Tables that use INSERT OR IGNORE in diff mode (append-only, have date PK)
-_DIFF_TABLES: set[str] = {"computed_daily", "computed_daily_tickers", "daily_close"}
+_DIFF_TABLES: set[str] = {"daily_close"}
 
 # Tables that use range-replace in diff mode (delete after cutoff, reinsert).
 # Value is a SQL expression that yields a YYYY-MM-DD–sortable string for date comparison.
+#
+# ``computed_daily`` + ``computed_daily_tickers`` sit here (not in
+# ``_DIFF_TABLES``) so the local sync's authoritative rows physically replace
+# any projected rows the nightly CI job wrote beyond the last local build —
+# INSERT OR IGNORE would skip them and leave stale projections in D1.
 _RANGE_TABLES: dict[str, str] = {
     "fidelity_transactions": "run_date",
     "qianji_transactions": "date",
+    "computed_daily": "date",
+    "computed_daily_tickers": "date",
 }
 
 
