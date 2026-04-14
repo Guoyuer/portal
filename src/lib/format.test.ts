@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { fmtCurrency, fmtCurrencyShort, fmtPct, fmtMonth, fmtMonthYear, fmtDateLong, fmtDateMedium, fmtDateMonthYear } from "./format";
+import { fmtCurrency, fmtCurrencyShort, fmtPct, fmtMonth, fmtMonthYear, fmtDateLong, fmtDateMedium, fmtDateMonthYear, parseLocalDate } from "./format";
 
 // ── fmtCurrency ─────────────────────────────────────────────────────────
 
@@ -145,6 +145,29 @@ describe("fmtDateMedium", () => {
   it("formats ISO date to short month form", () => {
     expect(fmtDateMedium("2026-01-15")).toBe("Jan 15, 2026");
     expect(fmtDateMedium("2025-12-31")).toBe("Dec 31, 2025");
+  });
+});
+
+// ── parseLocalDate ─────────────────────────────────────────────────────
+
+describe("parseLocalDate", () => {
+  // The whole point of this helper: `new Date("YYYY-MM-DD")` parses as UTC,
+  // which shifts to the previous calendar day in any westward timezone.
+  // parseLocalDate must produce a Date whose *local* components match the
+  // ISO string verbatim, regardless of the host timezone.
+  it("returns local midnight for the same calendar day", () => {
+    const d = parseLocalDate("2026-04-14");
+    expect(d.getFullYear()).toBe(2026);
+    expect(d.getMonth()).toBe(3); // April (0-indexed)
+    expect(d.getDate()).toBe(14);
+    expect(d.getHours()).toBe(0);
+    expect(d.getMinutes()).toBe(0);
+  });
+
+  it("round-trips through toLocaleDateString in en-US", () => {
+    // The user-visible symptom we are protecting against: a NY viewer
+    // seeing Apr 13 when the data row is Apr 14.
+    expect(parseLocalDate("2026-04-14").toLocaleDateString("en-US", { month: "short", day: "numeric" })).toBe("Apr 14");
   });
 });
 

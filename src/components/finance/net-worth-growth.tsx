@@ -1,5 +1,5 @@
 import type { SnapshotPoint } from "@/lib/computed-types";
-import { fmtCurrency, fmtPct } from "@/lib/format";
+import { fmtCurrency, fmtPct, parseLocalDate } from "@/lib/format";
 import { valueColor } from "@/lib/thresholds";
 import { SectionBody } from "@/components/finance/section";
 import { NetWorthTrendChart } from "@/components/finance/charts";
@@ -25,12 +25,12 @@ export function NetWorthGrowth({ data: trend }: { data: SnapshotPoint[] }) {
   const momDelta = latest.total - prev.total;
 
   // YoY: find entry ~12 months ago
-  const latestDate = new Date(latest.date);
+  const latestDate = parseLocalDate(latest.date);
   const yoyTarget = new Date(latestDate);
   yoyTarget.setFullYear(yoyTarget.getFullYear() - 1);
   const yoyEntry = trend.reduce((best, entry) => {
-    const d = new Date(entry.date);
-    return Math.abs(d.getTime() - yoyTarget.getTime()) < Math.abs(new Date(best.date).getTime() - yoyTarget.getTime()) ? entry : best;
+    const d = parseLocalDate(entry.date);
+    return Math.abs(d.getTime() - yoyTarget.getTime()) < Math.abs(parseLocalDate(best.date).getTime() - yoyTarget.getTime()) ? entry : best;
   });
   const yoy = yoyEntry.total > 0 ? (latest.total - yoyEntry.total) / yoyEntry.total * 100 : 0;
   const yoyDelta = latest.total - yoyEntry.total;

@@ -24,7 +24,7 @@ import type {
   MonthlyFlowPoint,
   SnapshotPoint,
 } from "@/lib/computed-types";
-import { fmtCurrencyShort, fmtDateMonthYear, fmtMonth, fmtMonthYear, fmtTick } from "@/lib/format";
+import { fmtCurrencyShort, fmtDateMonthYear, fmtMonth, fmtMonthYear, fmtTick, parseLocalDate } from "@/lib/format";
 import { getIsDark, useIsDark, useIsMobile } from "@/lib/hooks";
 import { tooltipStyle, gridStroke, axisProps } from "@/lib/chart-styles";
 
@@ -221,8 +221,9 @@ export function NetWorthTrendChart({
 
   if (data.length === 0) return null;
 
-  // Convert dates to timestamps for uniform time-axis spacing
-  const chartData = data.map((d) => ({ ...d, ts: new Date(d.date).getTime() }));
+  // Convert dates to timestamps for uniform time-axis spacing. Parse in
+  // local TZ so NY/LA viewers don't see every tick labelled one day early.
+  const chartData = data.map((d) => ({ ...d, ts: parseLocalDate(d.date).getTime() }));
 
   const [yMin, yMax] = niceYDomain(data);
   return (
