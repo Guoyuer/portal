@@ -6,6 +6,7 @@ The yfinance download is only triggered for gaps in the cache.
 from __future__ import annotations
 
 import sqlite3
+import sys
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -142,7 +143,14 @@ def _cached_range(conn: sqlite3.Connection, symbol: str) -> tuple[date | None, d
 
 
 def _build_split_factors(symbols: list[str]) -> dict[str, list[tuple[date, float]]]:
-    """Fetch split history for symbols and return {symbol: [(split_date, ratio), ...]}."""
+    """Fetch split history for symbols and return {symbol: [(split_date, ratio), ...]}.
+
+    A failure here silently dropped splits for the symbol, leaving
+    ``_reverse_split_factor`` unable to undo Yahoo's retroactive adjustment and
+    corrupting historical prices with no visible error. Failures now WARN on
+    stderr — the fetch continues (one missing symbol shouldn't fail the batch)
+    but the user can see which symbols didn't get split data.
+    """
     result: dict[str, list[tuple[date, float]]] = {}
     for sym in symbols:
         try:
@@ -157,7 +165,8 @@ def _build_split_factors(symbols: list[str]) -> dict[str, list[tuple[date, float
                 entries.append((d, float(ratio)))
             if entries:
                 result[sym] = sorted(entries)
-        except Exception:
+        except Exception as e:  # noqa: BLE001 — yfinance raises a grab-bag of exception types
+            print(f"  WARN: splits fetch failed for {sym}: {type(e).__name__}: {e}", file=sys.stderr)
             continue
     if result:
         print(f"  Splits found: {', '.join(f'{s} ({len(v)})' for s, v in result.items())}")

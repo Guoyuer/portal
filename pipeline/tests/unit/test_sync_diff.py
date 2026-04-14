@@ -11,7 +11,13 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from etl.db import get_connection, init_db
-from scripts.sync_to_d1 import _dump_table, _dump_table_diff, _dump_table_range, _escape
+from scripts.sync_to_d1 import (
+    _check_d1_column_drift,
+    _dump_table,
+    _dump_table_diff,
+    _dump_table_range,
+    _escape,
+)
 
 
 @pytest.fixture()
@@ -109,3 +115,40 @@ class TestEscape:
 
     def test_plain_string(self):
         assert _escape("hello") == "'hello'"
+
+
+class TestCheckD1ColumnDrift:
+    """Tripwire: fire when a local schema column isn't explicitly synced or omitted."""
+
+    def test_clean_schema_passes(self, db):
+        """Real local DB (per `init_db`) has every column declared in either bucket."""
+        conn = sqlite3.connect(str(db))
+        _check_d1_column_drift(conn)  # must not raise
+        conn.close()
+
+    def test_new_unclassified_column_raises(self, db, monkeypatch):
+        """A column in the schema that's in neither _D1_COLUMNS nor _D1_OMITTED → raise."""
+        conn = sqlite3.connect(str(db))
+        conn.execute("ALTER TABLE fidelity_transactions ADD COLUMN new_field TEXT")
+        conn.commit()
+
+        with pytest.raises(RuntimeError, match=r"new_field"):
+            _check_d1_column_drift(conn)
+        conn.close()
+
+    def test_declared_column_missing_from_schema_raises(self, monkeypatch):
+        """_D1_COLUMNS references a column that doesn't exist → raise."""
+        import tempfile
+
+        from etl.db import init_db
+        from scripts import sync_to_d1
+        tmpdir = tempfile.mkdtemp()
+        db = Path(tmpdir) / "tm.db"
+        init_db(db)
+        conn = sqlite3.connect(str(db))
+
+        bogus = {"daily_close": ["symbol", "date", "close", "does_not_exist"]}
+        monkeypatch.setattr(sync_to_d1, "_D1_COLUMNS", bogus)
+        with pytest.raises(RuntimeError, match=r"does_not_exist"):
+            _check_d1_column_drift(conn)
+        conn.close()

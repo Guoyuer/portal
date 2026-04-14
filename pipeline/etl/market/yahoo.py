@@ -60,12 +60,14 @@ def fetch_index_returns(tickers: list[str], period: str = "1mo") -> dict[str, An
                     "current": current,
                     "previous": previous,
                 }
-            except Exception:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001 — per-ticker parse is best-effort; keep others
+                log.warning("Index return for %s failed: %s", ticker, e)
                 continue
 
         log.info("Index returns (%s, %s): %s in %.1fs", period, tickers, list(result.keys()), time.time() - t0)
         return result
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — batch yfinance call; degrade to empty but be loud
+        log.warning("Index returns batch fetch failed (%s): %s", tickers, e)
         return {}
 
 
