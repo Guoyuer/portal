@@ -75,12 +75,18 @@ jobs:
         run: npx playwright test
 
       # ── Rebuild for production deploy (real Worker URL) ────────
+      # NEXT_PUBLIC_GMAIL_WORKER_URL is intentionally NOT set: since PR #139
+      # the mail worker is same-origin, so the code default (`/api/mail` in
+      # src/lib/use-mail.ts) is correct for prod. The env var exists only as
+      # a local-dev override (e.g. `wrangler dev` on :8788). Do NOT wire it
+      # to `secrets.PORTAL_GMAIL_CRON_URL` — that holds the cron's external
+      # URL for `pipeline/scripts/gmail/triage.py` and would bake the wrong
+      # origin into the browser bundle.
       - name: Build for production
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: npx next build
         env:
           NEXT_PUBLIC_TIMELINE_URL: ${{ secrets.NEXT_PUBLIC_TIMELINE_URL || 'https://portal.guoyuer.com/api' }}
-          NEXT_PUBLIC_GMAIL_WORKER_URL: ${{ secrets.PORTAL_GMAIL_WORKER_URL }}
 
       # Deploy only on main (not PRs).
       # Worker deploys are manual (`cd worker && wrangler deploy`) — the zone

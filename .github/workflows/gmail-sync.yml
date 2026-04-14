@@ -26,6 +26,6 @@ jobs:
         env:
           PORTAL_SMTP_USER:          ${{ secrets.PORTAL_SMTP_USER }}
           PORTAL_SMTP_PASSWORD:      ${{ secrets.PORTAL_SMTP_PASSWORD }}
-          PORTAL_GMAIL_WORKER_URL:   ${{ secrets.PORTAL_GMAIL_WORKER_URL }}
+          PORTAL_GMAIL_CRON_URL:     ${{ secrets.PORTAL_GMAIL_CRON_URL }}
           PORTAL_GMAIL_SYNC_SECRET:  ${{ secrets.PORTAL_GMAIL_SYNC_SECRET }}
           ANTHROPIC_API_KEY:         ${{ secrets.ANTHROPIC_API_KEY }}

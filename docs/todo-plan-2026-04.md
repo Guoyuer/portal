@@ -54,6 +54,7 @@ Follow-up from `docs/code-design-audit-2026-04-13.md`:
 |---|---|---|
 | (C01+C02) | `refactor/unify-env-url-convention` | `NEXT_PUBLIC_TIMELINE_URL` is now a *base* URL (`https://portal.guoyuer.com/api`), same shape as `NEXT_PUBLIC_GMAIL_WORKER_URL`. Deletes the `src/lib/config.ts` regex-strip; test fixture + playwright + CI fallback + README + CLAUDE.md updated. GH secret value updated to match. |
 | (C04) | `docs/allocation-dataclass-hint` | Top-of-file comment in `pipeline/etl/allocation.py` pointing at `AllocationRequest` dataclass as the migration target when the 7th data source lands. No behavior change. |
+| (C01 redux) | `claude/fix-mail-fetch-error-BhWXz` | Second firing of the same class of bug — "/mail: Failed to fetch" after the CORS drop in PR #146. Root cause wasn't just env-var shape (C01/C02's focus) but that **one GH secret (`PORTAL_GMAIL_WORKER_URL`) was serving two consumers with incompatible values**: cron wants the external `portal-mail.guoyuer.com`; frontend wants the same-origin `/api/mail`. CI baked the cron's value into the browser bundle. Fix: (a) drop the frontend CI override — code default `/api/mail` is the only correct prod value; (b) rename the secret to `PORTAL_GMAIL_CRON_URL` so the dual-audience confusion can't recur; (c) `??` → `\|\|` in `use-mail.ts` + `config.ts` so an empty GH secret (which arrives as `""`, not `undefined`) still falls back. |
 
 ---
 
