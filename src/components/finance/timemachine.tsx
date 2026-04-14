@@ -15,7 +15,7 @@ import {
 import type { TooltipContentProps } from "recharts/types/component/Tooltip";
 import type { CategoryMeta, DailyPoint } from "@/lib/schemas";
 import type { CashflowResponse, ActivityResponse } from "@/lib/computed-types";
-import { fmtCurrency, fmtCurrencyShort, fmtDateLong, fmtDateMedium, fmtDateMonthYear, fmtTick } from "@/lib/format";
+import { fmtCurrency, fmtCurrencyShort, fmtDateLong, fmtDateMedium, fmtDateMonthYear, fmtTick, parseLocalDate } from "@/lib/format";
 import { getIsDark, useIsDark, useIsMobile } from "@/lib/hooks";
 import { tooltipStyle, gridStroke, axisProps, brushColors } from "@/lib/chart-styles";
 import { CAT_COLOR_BY_KEY } from "@/lib/compute";
@@ -74,7 +74,7 @@ function TimemachineChart({
 
   // Slice to brush range so chart zooms with the brush
   const sliced = daily.slice(brushStart, brushEnd + 1);
-  const chartData = sliced.map((d) => ({ ...d, ts: new Date(d.date).getTime() }));
+  const chartData = sliced.map((d) => ({ ...d, ts: parseLocalDate(d.date).getTime() }));
   const keys = stackKeys(categories);
   const labels = catLabelsByKey(categories);
 
@@ -144,7 +144,7 @@ export function StickyBrush({
   onBrushChange: (state: { startIndex?: number; endIndex?: number }) => void;
 }) {
   const isDark = useIsDark();
-  const chartData = daily.map((d) => ({ ...d, ts: new Date(d.date).getTime() }));
+  const chartData = daily.map((d) => ({ ...d, ts: parseLocalDate(d.date).getTime() }));
   if (daily.length === 0) return null;
 
   const startLabel = fmtDateMedium(daily[brushStart].date);

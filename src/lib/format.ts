@@ -35,18 +35,29 @@ export function fmtMonthYear(m: string): string {
   return `${MONTH_NAMES[monthIdx] ?? m} ${year}`;
 }
 
-// ── Date formatting (timezone-safe — avoids UTC parse of "YYYY-MM-DD") ──
+// ── Date handling (timezone-safe — avoids UTC parse of "YYYY-MM-DD") ────
+
+/** Parse "YYYY-MM-DD" as *local* midnight, not UTC.
+ *
+ * ``new Date("2026-04-14")`` parses as UTC, so in any timezone west of UTC
+ * its ``toLocaleDateString`` renders as the previous calendar day (e.g. NY
+ * sees Apr 13). Chart X-axis timestamps need this helper — otherwise every
+ * daily tick shifts by one day for US-based viewers. The ``fmtDate*``
+ * formatters below already use this pattern inline.
+ */
+export function parseLocalDate(iso: string): Date {
+  const [y, m, d] = iso.split("-");
+  return new Date(+y, +m - 1, +d);
+}
 
 /** "2026-01-15" → "January 15, 2026" */
 export function fmtDateLong(iso: string): string {
-  const [y, m, d] = iso.split("-");
-  return new Date(+y, +m - 1, +d).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  return parseLocalDate(iso).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 }
 
 /** "2026-01-15" → "Jan 15, 2026" */
 export function fmtDateMedium(iso: string): string {
-  const [y, m, d] = iso.split("-");
-  return new Date(+y, +m - 1, +d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  return parseLocalDate(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
 /** "2026-01-15" → "Jan 2026" */
