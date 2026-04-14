@@ -1,7 +1,7 @@
 """Tests for prices.py: price loading, caching, and holding periods."""
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -362,12 +362,15 @@ class TestFetchGateRefreshesRecentWindow:
 
     def test_fetch_uses_refresh_window_not_full_history(self, tmp_path: Path) -> None:
         """When history is covered, fetch only the recent window (not from hp_start)."""
+        from etl.prices import REFRESH_WINDOW_DAYS
+
         db_path = tmp_path / "test.db"
         init_db(db_path)
         _seed_prices(db_path, [
             ("VOO", "2024-01-15", 440.50),
             ("VOO", "2026-04-11", 500.00),
         ])
+        end = date(2026, 4, 12)
 
         with patch("etl.prices.yf.download") as mock_dl, \
              patch("etl.prices._build_split_factors", return_value={}):
@@ -375,19 +378,14 @@ class TestFetchGateRefreshesRecentWindow:
                 {("Close", "VOO"): [505.0]},
                 index=pd.to_datetime(["2026-04-12"]),
             )
-            fetch_and_store_prices(
-                db_path,
-                {"VOO": (date(2024, 1, 15), None)},
-                date(2026, 4, 12),
-            )
-            # start kwarg should be the refresh window, not hp_start
+            fetch_and_store_prices(db_path, {"VOO": (date(2024, 1, 15), None)}, end)
             assert mock_dl.called
-            start_kw = mock_dl.call_args.kwargs["start"]
-            assert start_kw != "2024-01-15"  # not fetching full history
-            assert start_kw >= "2026-04-05"  # within REFRESH_WINDOW_DAYS=7
+            start_d = date.fromisoformat(mock_dl.call_args.kwargs["start"])
+            # Should be exactly the refresh floor (not hp_start 2024-01-15)
+            assert start_d == end - timedelta(days=REFRESH_WINDOW_DAYS)
 
     def test_fetch_triggered_when_cache_missing_entirely(self, tmp_path: Path) -> None:
-        """New symbol with no cache → fetch full range."""
+        """New symbol with no cache → fetch full range from hp_start."""
         db_path = tmp_path / "test.db"
         init_db(db_path)
 
@@ -398,10 +396,7 @@ class TestFetchGateRefreshesRecentWindow:
                 index=pd.to_datetime(["2026-04-12"]),
             )
             fetch_and_store_prices(
-                db_path,
-                {"NEW": (date(2026, 4, 1), None)},
-                date(2026, 4, 12),
+                db_path, {"NEW": (date(2026, 4, 1), None)}, date(2026, 4, 12),
             )
             assert mock_dl.called
-            start_kw = mock_dl.call_args.kwargs["start"]
-            assert start_kw == "2026-04-01"  # full history from hp_start
+            assert date.fromisoformat(mock_dl.call_args.kwargs["start"]) == date(2026, 4, 1)

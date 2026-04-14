@@ -434,8 +434,10 @@ def _incremental_build(paths: BuildPaths, config, start, end, k401_daily, *, no_
         return _full_build(paths, config, start, end, k401_daily, no_validate=no_validate)
 
     # Always recompute the REFRESH_WINDOW_DAYS tail so today's moving snapshot
-    # and any Yahoo late corrections land in computed_daily. Rows older than the
-    # window are immutable (matches the daily_close refresh invariant).
+    # and late Yahoo corrections land in computed_daily; additionally fill any
+    # historical gap if last is further back than the tail (e.g., after a long
+    # absence). Rows older than the tail *and* already computed are immutable.
+    # The min() covers the gap case; the max() clamps to the configured start.
     refresh_floor = end - timedelta(days=REFRESH_WINDOW_DAYS - 1)
     inc_start = max(start, min(last + timedelta(days=1), refresh_floor))
     if inc_start > end:
