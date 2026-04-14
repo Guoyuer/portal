@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from etl.db import get_connection, ingest_econ_series, init_db
+from etl.db import get_connection, init_db
+from tests.fixtures import ingest_econ_series
 
 
 @pytest.fixture()

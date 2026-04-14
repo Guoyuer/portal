@@ -7,11 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from etl.db import (
-    get_connection,
-    ingest_prices,
-    init_db,
-)
+from etl.db import get_connection, init_db
+from tests.fixtures import ingest_prices
 
 EXPECTED_TABLES = frozenset({
     "fidelity_transactions",

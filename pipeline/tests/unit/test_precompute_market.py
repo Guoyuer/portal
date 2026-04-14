@@ -7,8 +7,9 @@ from unittest.mock import patch
 
 import pytest
 
-from etl.db import get_connection, ingest_prices, init_db
+from etl.db import get_connection, init_db
 from etl.precompute import precompute_holdings_detail, precompute_market
+from tests.fixtures import ingest_prices
 
 
 @pytest.fixture(autouse=True)
