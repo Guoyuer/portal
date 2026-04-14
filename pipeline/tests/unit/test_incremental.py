@@ -6,10 +6,10 @@ from datetime import date
 import pytest
 
 from etl.db import (
-    append_daily,
     get_connection,
     get_last_computed_date,
     init_db,
+    upsert_daily_rows,
 )
 
 
@@ -48,16 +48,16 @@ class TestGetLastComputedDate:
         assert get_last_computed_date(db) == date(2025, 1, 3)
 
 
-# ── append_daily ────────────────────────────────────────────────────────────
+# ── upsert_daily_rows ────────────────────────────────────────────────────────────
 
 
-class TestAppendDaily:
+class TestUpsertDailyRows:
     def test_appends_new_rows(self, db):
         _insert_daily(db, [_DAY1])
         new = [{"date": "2025-01-03", "total": 110, "us_equity": 55,
                 "non_us_equity": 22, "crypto": 11, "safe_net": 22,
                 "liabilities": 0, "tickers": []}]
-        assert append_daily(db, new) == 1
+        assert upsert_daily_rows(db, new) == 1
         conn = get_connection(db)
         assert conn.execute("SELECT COUNT(*) FROM computed_daily").fetchone()[0] == 2
         conn.close()
@@ -73,7 +73,7 @@ class TestAppendDaily:
              "non_us_equity": 22, "crypto": 11, "safe_net": 22,
              "liabilities": 0, "tickers": []},
         ]
-        assert append_daily(db, new) == 2
+        assert upsert_daily_rows(db, new) == 2
         conn = get_connection(db)
         row = conn.execute("SELECT total FROM computed_daily WHERE date = '2025-01-02'").fetchone()
         conn.close()
@@ -86,7 +86,7 @@ class TestAppendDaily:
                 "tickers": [{"ticker": "VOO", "value": 50, "category": "US Equity",
                              "subtype": "S&P 500", "cost_basis": 40,
                              "gain_loss": 10, "gain_loss_pct": 25}]}]
-        append_daily(db, new)
+        upsert_daily_rows(db, new)
         conn = get_connection(db)
         row = conn.execute("SELECT ticker, value FROM computed_daily_tickers WHERE date = '2025-01-02'").fetchone()
         conn.close()
@@ -105,7 +105,7 @@ class TestAppendDaily:
                      "subtype": "Mid Cap", "cost_basis": 20,
                      "gain_loss": 5, "gain_loss_pct": 25},
                 ]}]
-        append_daily(db, old)
+        upsert_daily_rows(db, old)
         # Recompute without OLD
         new = [{"date": "2025-01-02", "total": 100, "us_equity": 50,
                 "non_us_equity": 20, "crypto": 10, "safe_net": 20,
@@ -113,7 +113,7 @@ class TestAppendDaily:
                 "tickers": [{"ticker": "VOO", "value": 75, "category": "US Equity",
                              "subtype": "S&P 500", "cost_basis": 40,
                              "gain_loss": 35, "gain_loss_pct": 87.5}]}]
-        append_daily(db, new)
+        upsert_daily_rows(db, new)
         conn = get_connection(db)
         tickers = conn.execute(
             "SELECT ticker FROM computed_daily_tickers WHERE date = '2025-01-02'"
@@ -122,4 +122,4 @@ class TestAppendDaily:
         assert {t[0] for t in tickers} == {"VOO"}  # OLD wiped
 
     def test_empty_input(self, db):
-        assert append_daily(db, []) == 0
+        assert upsert_daily_rows(db, []) == 0

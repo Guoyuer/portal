@@ -8,12 +8,13 @@ Integration script that:
   5. Computes daily allocation (reads prices from DB)
   6. Stores results
 
-Modes:
-  full            Full rebuild — recompute everything, overwrite DB (default)
-  incremental     Only compute dates after last persisted date
+Refreshes the last ``REFRESH_WINDOW_DAYS`` of ``computed_daily`` on every
+run, plus fills any historical gap beyond the window. If the DB is missing
+or empty, a full build runs automatically. To force a clean rebuild, delete
+``pipeline/data/timemachine.db`` before running.
 
 Usage:
-  python scripts/build_timemachine_db.py [full|incremental] [--csv PATH] [--no-validate]
+  python scripts/build_timemachine_db.py [--csv PATH] [--no-validate]
 """
 from __future__ import annotations
 
@@ -33,10 +34,10 @@ import etl.dotenv_loader  # noqa: E402, F401  (side effect: load pipeline/.env)
 from etl.allocation import compute_daily_allocation
 from etl.categories import ingest_categories
 from etl.db import (
-    append_daily,
     get_connection,
     get_last_computed_date,
     init_db,
+    upsert_daily_rows,
 )
 from etl.ingest.empower_401k import (
     ingest_empower_contributions,
@@ -83,9 +84,18 @@ class BuildPaths:
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """Parse command-line arguments."""
+    """Parse command-line arguments.
+
+    ``mode`` accepts the legacy ``full``/``incremental`` strings for backward
+    compat with callers (run_automation.py) but is otherwise ignored — the
+    script always runs the refresh-window build, falling back to full when
+    the DB is missing.
+    """
     parser = argparse.ArgumentParser(description="Build the timemachine SQLite database")
-    parser.add_argument("mode", nargs="?", default="full", choices=["full", "incremental"])
+    parser.add_argument(
+        "mode", nargs="?", default=None,
+        help="[deprecated, ignored] accepted for backward compat",
+    )
     parser.add_argument("--csv", type=Path, help="Path to a specific Fidelity CSV file")
     parser.add_argument("--no-validate", action="store_true", help="Skip post-build validation")
     parser.add_argument("--data-dir", type=Path, default=None, help="Override data directory (default: pipeline/data/)")
@@ -427,7 +437,10 @@ def _full_build(paths: BuildPaths, config, start, end, k401_daily, *, no_validat
 # ── Incremental ─────────────────────────────────────────────────────────────
 
 
-def _incremental_build(paths: BuildPaths, config, start, end, k401_daily, *, no_validate: bool = False):
+def _build_refresh_window(paths: BuildPaths, config, start, end, k401_daily, *, no_validate: bool = False):
+    """Recompute the REFRESH_WINDOW_DAYS tail of ``computed_daily``, filling any
+    historical gap beyond the tail. Delegates to ``_full_build`` when the DB
+    has no prior rows (first run, or after a manual reset)."""
     last = get_last_computed_date(paths.db_path)
     if last is None:
         print("  No existing data — falling back to full build")
@@ -450,7 +463,7 @@ def _incremental_build(paths: BuildPaths, config, start, end, k401_daily, *, no_
 
     if alloc:
         print("[6] Upserting to computed_daily...")
-        written = append_daily(paths.db_path, alloc)
+        written = upsert_daily_rows(paths.db_path, alloc)
         print(f"  {written} rows written")
 
     # Precompute market index data (always refresh on incremental)
@@ -493,9 +506,9 @@ def main() -> None:
     print(f"  Range: {start} -> {end}")
 
     if args.mode == "full":
-        _full_build(paths, config, start, end, k401_daily, no_validate=args.no_validate)
-    elif args.mode == "incremental":
-        _incremental_build(paths, config, start, end, k401_daily, no_validate=args.no_validate)
+        print("  NOTE: 'full' mode is deprecated. To force a clean rebuild,")
+        print("        delete data/timemachine.db and re-run.")
+    _build_refresh_window(paths, config, start, end, k401_daily, no_validate=args.no_validate)
 
     print("\n" + "=" * 60)
 

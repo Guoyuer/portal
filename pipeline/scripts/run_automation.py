@@ -538,9 +538,9 @@ def main(argv: list[str] | None = None) -> int:
     else:
         log.info("[1] Force mode — skipping change detection")
 
-    # [2] Build
-    log.info("[2] Incremental build...")
-    rc = run_python_script(_SCRIPT_DIR / "build_timemachine_db.py", "incremental")
+    # [2] Build (refresh window + gap-fill; first run falls back to full)
+    log.info("[2] Build...")
+    rc = run_python_script(_SCRIPT_DIR / "build_timemachine_db.py")
     if rc != 0:
         return _report_stage_failure(
             log, "BUILD", rc, EXIT_BUILD_FAIL, "build_timemachine_db.py",
