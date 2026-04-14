@@ -116,6 +116,55 @@ class TestChangesDetected:
         assert run_automation.changes_detected(marker, nonexistent, None) is False
 
 
+# ── needs_catchup() ───────────────────────────────────────────────────────────
+
+class TestNeedsCatchup:
+    """Guards the silent-skip gap: run even without CSV changes when the DB
+    has drifted behind the wall-clock trading day."""
+
+    def _seed_computed_daily(self, tmp_path, last_date: str):
+        from etl.db import get_connection, init_db
+        db = tmp_path / "tm.db"
+        init_db(db)
+        conn = get_connection(db)
+        conn.execute(
+            "INSERT INTO computed_daily (date, total, us_equity, non_us_equity, crypto, safe_net)"
+            " VALUES (?, 100000, 55000, 15000, 3000, 27000)",
+            (last_date,),
+        )
+        conn.commit()
+        conn.close()
+        return db
+
+    def test_empty_db_needs_catchup(self, tmp_path):
+        from etl.db import init_db
+        db = tmp_path / "tm.db"
+        init_db(db)
+        from datetime import date
+        assert run_automation.needs_catchup(db, today=date(2026, 4, 14)) is True
+
+    def test_fresh_db_skips(self, tmp_path):
+        from datetime import date
+        db = self._seed_computed_daily(tmp_path, "2026-04-13")
+        assert run_automation.needs_catchup(db, today=date(2026, 4, 14)) is False
+
+    def test_db_4_days_behind_still_ok(self, tmp_path):
+        """Standard long weekend (Fri→Tue = 4 days): tolerable."""
+        from datetime import date
+        db = self._seed_computed_daily(tmp_path, "2026-04-10")
+        assert run_automation.needs_catchup(db, today=date(2026, 4, 14)) is False
+
+    def test_db_5_days_behind_triggers_catchup(self, tmp_path):
+        from datetime import date
+        db = self._seed_computed_daily(tmp_path, "2026-04-09")
+        assert run_automation.needs_catchup(db, today=date(2026, 4, 14)) is True
+
+    def test_missing_db_file_triggers_catchup(self, tmp_path):
+        from datetime import date
+        nonexistent = tmp_path / "does-not-exist.db"
+        assert run_automation.needs_catchup(nonexistent, today=date(2026, 4, 14)) is True
+
+
 # ── parse_args() ──────────────────────────────────────────────────────────────
 
 class TestParseArgs:
@@ -233,7 +282,11 @@ class TestExitCodeMapping:
         assert marker.read_text().strip()  # non-empty ISO timestamp
 
     def test_no_changes_returns_0_without_invoking_build(self, monkeypatch, tmp_path):
-        """Without --force: if change detection says no-change, exit 0 and don't call subprocesses."""
+        """Without --force: no CSV changes AND DB fresh → exit 0, no subprocess."""
+        from datetime import date
+
+        from etl.db import get_connection, init_db
+
         fake = _FakeRun([])
         monkeypatch.setattr(run_automation, "run_python_script", fake)
         monkeypatch.setattr(run_automation, "_MARKER", tmp_path / ".last_run")
@@ -242,8 +295,20 @@ class TestExitCodeMapping:
         monkeypatch.setattr(run_automation, "get_qianji_db_path", lambda: None)
         monkeypatch.delenv("PORTAL_HEALTHCHECK_URL", raising=False)
         (tmp_path / "empty_downloads").mkdir()
-        # Seed a fresh marker — no watched files newer than it.
         (tmp_path / ".last_run").write_text("seeded")
+
+        # Seed a fresh DB at the PORTAL_DB_PATH location so needs_catchup() returns False.
+        db_path = tmp_path / "tm.db"
+        monkeypatch.setenv("PORTAL_DB_PATH", str(db_path))
+        init_db(db_path)
+        conn = get_connection(db_path)
+        conn.execute(
+            "INSERT INTO computed_daily (date, total, us_equity, non_us_equity, crypto, safe_net)"
+            " VALUES (?, 100000, 55000, 15000, 3000, 27000)",
+            (date.today().isoformat(),),
+        )
+        conn.commit()
+        conn.close()
 
         rc = run_automation.main([])
         assert rc == run_automation.EXIT_OK
