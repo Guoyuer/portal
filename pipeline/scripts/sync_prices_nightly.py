@@ -27,11 +27,11 @@ _PROJECT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PROJECT_DIR))
 
 from etl.prices import (  # noqa: E402
-    REFRESH_WINDOW_DAYS,
     _build_split_factors,
     _holding_periods_core,
     _reverse_split_factor,
 )
+from etl.refresh import refresh_window_start  # noqa: E402
 
 _WORKER_DIR = _PROJECT_DIR.parent / "worker"
 _D1_DATABASE = "portal-db"
@@ -144,11 +144,11 @@ def _fetch_equity_rows(
     today: date,
 ) -> list[tuple[str, str, float]]:
     """Fetch (cached_max + 1, rolled back by refresh window) → today for each equity symbol."""
-    # Reach back REFRESH_WINDOW_DAYS so Yahoo late corrections land even when
-    # cached_max already covers today. The min() below also preserves the
+    # Reach back into the refresh window so Yahoo late corrections land even
+    # when cached_max already covers today. The min() below also preserves the
     # historical-gap case: if cached_max is further back than the tail (rare
     # after a long outage), we still fetch from cached_max + 1 forward.
-    refresh_floor = today - timedelta(days=REFRESH_WINDOW_DAYS - 1)
+    refresh_floor = refresh_window_start(today)
     ranges: dict[str, tuple[date, date]] = {}
     for sym in equity_syms:
         period = holdings.get(sym)

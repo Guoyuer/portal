@@ -57,12 +57,12 @@ from etl.precompute import (
     precompute_market,
 )
 from etl.prices import (
-    REFRESH_WINDOW_DAYS,
     fetch_and_store_cny_rates,
     fetch_and_store_prices,
     load_proxy_prices,
     symbol_holding_periods_from_db,
 )
+from etl.refresh import refresh_window_start
 from etl.timemachine import DEFAULT_QJ_DB
 from etl.validate import Severity, validate_build
 
@@ -433,12 +433,12 @@ def _incremental_build(paths: BuildPaths, config, start, end, k401_daily, *, no_
         print("  No existing data — falling back to full build")
         return _full_build(paths, config, start, end, k401_daily, no_validate=no_validate)
 
-    # Always recompute the REFRESH_WINDOW_DAYS tail so today's moving snapshot
-    # and late Yahoo corrections land in computed_daily; additionally fill any
+    # Always recompute the refresh-window tail so today's moving snapshot and
+    # late Yahoo corrections land in computed_daily; additionally fill any
     # historical gap if last is further back than the tail (e.g., after a long
     # absence). Rows older than the tail *and* already computed are immutable.
     # The min() covers the gap case; the max() clamps to the configured start.
-    refresh_floor = end - timedelta(days=REFRESH_WINDOW_DAYS - 1)
+    refresh_floor = refresh_window_start(end)
     inc_start = max(start, min(last + timedelta(days=1), refresh_floor))
     if inc_start > end:
         print(f"  Already up to date (last: {last})")
