@@ -122,19 +122,20 @@ export async function imapTrashMessage(
   }
 }
 
-const API_PREFIX = "/api";
-
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    const pathname = url.pathname;
 
-    // Browser requests arrive at portal.guoyuer.com/api/mail/* and carry a
-    // leading /api; strip it so the internal path table stays identical
-    // between prod and `wrangler dev` on localhost:8788/mail/list.
-    let pathname = url.pathname;
-    if (pathname === API_PREFIX || pathname.startsWith(API_PREFIX + "/")) {
-      pathname = pathname.slice(API_PREFIX.length) || "/";
-    }
+    // Route table uses the FULL incoming path — the two audiences live at
+    // disjoint prefixes:
+    //   /api/mail/list, /api/mail/trash   → browser on portal.guoyuer.com
+    //                                       (pre-gated by the portal Access app)
+    //   /mail/sync                        → GitHub Actions cron on
+    //                                       portal-mail.guoyuer.com (SYNC_SECRET)
+    // Bare /mail/list and /mail/trash no longer respond: they'd only be
+    // reachable by hitting portal-mail.guoyuer.com directly, which this
+    // Worker intentionally does not expose to user sessions.
 
     if (pathname === "/mail/sync" && request.method === "POST") {
       if (request.headers.get("X-Sync-Secret") !== env.SYNC_SECRET) {
@@ -160,14 +161,14 @@ export default {
       const result = await upsertEmails(env.DB, body.emails);
       return Response.json({ inserted: result.inserted, skipped_existing: result.skipped });
     }
-    if (pathname === "/mail/list" && request.method === "GET") {
+    if (pathname === "/api/mail/list" && request.method === "GET") {
       const rows = await listActiveLast7Days(env.DB);
       return Response.json(
         { emails: rows, as_of: new Date().toISOString() },
         { headers: corsHeaders() },
       );
     }
-    if (pathname === "/mail/trash" && request.method === "POST") {
+    if (pathname === "/api/mail/trash" && request.method === "POST") {
       let body: { msg_id?: string };
       try {
         body = await request.json();
