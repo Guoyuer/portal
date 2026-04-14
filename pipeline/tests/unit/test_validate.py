@@ -201,6 +201,90 @@ class TestHoldingsPricesAreFresh:
         assert [i for i in issues if i.name == "holdings_prices_are_fresh"] == []
 
 
+class TestCostBasisNonneg:
+    """Cost basis is $ paid — always >= 0 (or NULL for legacy/book-value rows)."""
+
+    def test_negative_cost_basis_is_fatal(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "test.db"
+        _seed_clean_db(db_path)
+        conn = get_connection(db_path)
+        conn.execute(
+            "UPDATE computed_daily_tickers SET cost_basis = -100 "
+            "WHERE date = '2025-01-06' AND ticker = 'VOO'",
+        )
+        conn.commit()
+        conn.close()
+
+        issues = validate_build(db_path)
+        fatals = [i for i in issues if i.name == "cost_basis_nonneg"]
+        assert len(fatals) == 1
+        assert "VOO" in fatals[0].message
+
+    def test_zero_cost_basis_is_allowed(self, tmp_path: Path) -> None:
+        """Zero is a legitimate value (e.g. gifted shares, fully-depreciated lot)."""
+        db_path = tmp_path / "test.db"
+        _seed_clean_db(db_path)
+        conn = get_connection(db_path)
+        conn.execute(
+            "UPDATE computed_daily_tickers SET cost_basis = 0 "
+            "WHERE date = '2025-01-06' AND ticker = 'VOO'",
+        )
+        conn.commit()
+        conn.close()
+        issues = validate_build(db_path)
+        assert [i for i in issues if i.name == "cost_basis_nonneg"] == []
+
+
+class TestCategorySubtypeEnums:
+    """Unknown category / subtype values must surface — not silently render wrong."""
+
+    def test_unknown_category_is_fatal(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "test.db"
+        _seed_clean_db(db_path)
+        conn = get_connection(db_path)
+        conn.execute(
+            "UPDATE computed_daily_tickers SET category = 'Bogus' "
+            "WHERE date = '2025-01-06' AND ticker = 'VOO'",
+        )
+        conn.commit()
+        conn.close()
+
+        issues = validate_build(db_path)
+        fatals = [i for i in issues if i.name == "category_enum"]
+        assert len(fatals) == 1
+        assert "Bogus" in fatals[0].message
+
+    def test_unknown_subtype_is_fatal(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "test.db"
+        _seed_clean_db(db_path)
+        conn = get_connection(db_path)
+        conn.execute(
+            "UPDATE computed_daily_tickers SET subtype = 'zzz-unknown' "
+            "WHERE date = '2025-01-06' AND ticker = 'VOO'",
+        )
+        conn.commit()
+        conn.close()
+
+        issues = validate_build(db_path)
+        fatals = [i for i in issues if i.name == "subtype_enum"]
+        assert len(fatals) == 1
+        assert "zzz-unknown" in fatals[0].message
+
+    def test_liability_category_is_known(self, tmp_path: Path) -> None:
+        """Liability was missing from an early draft; now properly allowed."""
+        db_path = tmp_path / "test.db"
+        _seed_clean_db(db_path)
+        conn = get_connection(db_path)
+        conn.execute(
+            "UPDATE computed_daily_tickers SET category = 'Liability' "
+            "WHERE date = '2025-01-06' AND ticker = 'VOO'",
+        )
+        conn.commit()
+        conn.close()
+        issues = validate_build(db_path)
+        assert [i for i in issues if i.name == "category_enum"] == []
+
+
 class TestDateGaps:
     def test_large_gap_is_warning(self, tmp_path: Path) -> None:
         db_path = tmp_path / "test.db"
