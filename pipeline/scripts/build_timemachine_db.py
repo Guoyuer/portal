@@ -57,6 +57,7 @@ from etl.precompute import (
     precompute_market,
 )
 from etl.prices import (
+    REFRESH_WINDOW_DAYS,
     fetch_and_store_cny_rates,
     fetch_and_store_prices,
     load_proxy_prices,
@@ -432,19 +433,23 @@ def _incremental_build(paths: BuildPaths, config, start, end, k401_daily, *, no_
         print("  No existing data — falling back to full build")
         return _full_build(paths, config, start, end, k401_daily, no_validate=no_validate)
 
-    inc_start = last + timedelta(days=1)
+    # Always recompute the REFRESH_WINDOW_DAYS tail so today's moving snapshot
+    # and any Yahoo late corrections land in computed_daily. Rows older than the
+    # window are immutable (matches the daily_close refresh invariant).
+    refresh_floor = end - timedelta(days=REFRESH_WINDOW_DAYS - 1)
+    inc_start = max(start, min(last + timedelta(days=1), refresh_floor))
     if inc_start > end:
         print(f"  Already up to date (last: {last})")
         return []
 
     print(f"\n[5] Computing allocation {inc_start} -> {end} (incremental)...")
     alloc = compute_daily_allocation(paths.db_path, DEFAULT_QJ_DB, config, k401_daily, inc_start, end, robinhood_csv=paths.robinhood_csv)
-    print(f"  {len(alloc)} new daily records")
+    print(f"  {len(alloc)} daily records")
 
     if alloc:
-        print("[6] Appending to computed_daily...")
-        added = append_daily(paths.db_path, alloc)
-        print(f"  {added} rows appended")
+        print("[6] Upserting to computed_daily...")
+        written = append_daily(paths.db_path, alloc)
+        print(f"  {written} rows written")
 
     # Precompute market index data (always refresh on incremental)
     print("[M] Precomputing market data...")

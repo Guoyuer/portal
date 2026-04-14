@@ -324,22 +324,24 @@ def get_last_computed_date(db_path: Path) -> date | None:
 
 
 def append_daily(db_path: Path, rows: list[dict[str, object]]) -> int:
-    """Append new rows to computed_daily + computed_daily_tickers.
+    """Upsert rows into computed_daily + computed_daily_tickers.
 
-    Skips dates already in the DB.  Returns number of rows inserted.
+    Overwrites existing rows for the same date. Incremental builds recompute
+    the last REFRESH_WINDOW_DAYS days to pick up intraday price updates and
+    late Yahoo corrections, so duplicate dates must replace, not skip.
+    Child tickers for each replaced date are wiped first so a removed holding
+    doesn't leave an orphan row. Returns number of rows written.
     """
     if not rows:
         return 0
 
     conn = get_connection(db_path)
     try:
-        existing = {r[0] for r in conn.execute("SELECT date FROM computed_daily").fetchall()}
-        added = 0
         for r in rows:
-            if r["date"] in existing:
-                continue
+            conn.execute("DELETE FROM computed_daily_tickers WHERE date = ?", (r["date"],))
             conn.execute(
-                "INSERT INTO computed_daily (date, total, us_equity, non_us_equity, crypto, safe_net, liabilities)"
+                "INSERT OR REPLACE INTO computed_daily"
+                " (date, total, us_equity, non_us_equity, crypto, safe_net, liabilities)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (r["date"], r["total"], r["us_equity"], r["non_us_equity"],
                  r["crypto"], r["safe_net"], r.get("liabilities", 0)),
@@ -353,8 +355,7 @@ def append_daily(db_path: Path, rows: list[dict[str, object]]) -> int:
                     (r["date"], t["ticker"], t["value"], t["category"], t["subtype"],
                      t["cost_basis"], t["gain_loss"], t["gain_loss_pct"]),
                 )
-            added += 1
         conn.commit()
-        return added
+        return len(rows)
     finally:
         conn.close()

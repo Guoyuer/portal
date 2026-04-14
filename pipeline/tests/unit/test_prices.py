@@ -305,8 +305,8 @@ class TestHistoricalImmutabilityPrices:
         init_db(db_path)
         _seed_prices(db_path, [("VOO", "2024-01-15", 440.50)])
 
-        # Open-ended holding period forces the cache check to consider the
-        # cache stale (cached_hi well before end - 4 days) → triggers fetch.
+        # Open-ended holding period — the recent-window refresh always queues
+        # a fetch, so yfinance.download will be called.
         with patch("etl.prices.yf.download") as mock_dl, \
              patch("etl.prices._build_split_factors", return_value={}):
             mock_dl.return_value = pd.DataFrame(
@@ -327,3 +327,81 @@ class TestHistoricalImmutabilityPrices:
         ).fetchone()
         conn.close()
         assert r[0] == pytest.approx(440.50)  # historical value preserved
+
+
+class TestFetchGateRefreshesRecentWindow:
+    """Regression: the fetch gate must always refresh the recent window.
+
+    Earlier logic skipped the fetch when ``cached_hi`` was within 4 days of
+    ``need_end``, which silently left new trading days stale (observed:
+    cached_hi=04-10, need_end=04-14 → skip, missing 04-13 and 04-14 closes).
+    """
+
+    def test_fetch_triggered_when_cache_is_one_day_stale(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        # Cache ends 2026-04-11; need_end = 2026-04-12. Old logic would skip
+        # (04-11 < 04-08 is False). New logic must still fetch recent window.
+        _seed_prices(db_path, [
+            ("VOO", "2024-01-15", 440.50),
+            ("VOO", "2026-04-11", 500.00),
+        ])
+
+        with patch("etl.prices.yf.download") as mock_dl, \
+             patch("etl.prices._build_split_factors", return_value={}):
+            mock_dl.return_value = pd.DataFrame(
+                {("Close", "VOO"): [505.0]},
+                index=pd.to_datetime(["2026-04-12"]),
+            )
+            fetch_and_store_prices(
+                db_path,
+                {"VOO": (date(2024, 1, 15), None)},
+                date(2026, 4, 12),
+            )
+            assert mock_dl.called
+
+    def test_fetch_uses_refresh_window_not_full_history(self, tmp_path: Path) -> None:
+        """When history is covered, fetch only the recent window (not from hp_start)."""
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        _seed_prices(db_path, [
+            ("VOO", "2024-01-15", 440.50),
+            ("VOO", "2026-04-11", 500.00),
+        ])
+
+        with patch("etl.prices.yf.download") as mock_dl, \
+             patch("etl.prices._build_split_factors", return_value={}):
+            mock_dl.return_value = pd.DataFrame(
+                {("Close", "VOO"): [505.0]},
+                index=pd.to_datetime(["2026-04-12"]),
+            )
+            fetch_and_store_prices(
+                db_path,
+                {"VOO": (date(2024, 1, 15), None)},
+                date(2026, 4, 12),
+            )
+            # start kwarg should be the refresh window, not hp_start
+            assert mock_dl.called
+            start_kw = mock_dl.call_args.kwargs["start"]
+            assert start_kw != "2024-01-15"  # not fetching full history
+            assert start_kw >= "2026-04-05"  # within REFRESH_WINDOW_DAYS=7
+
+    def test_fetch_triggered_when_cache_missing_entirely(self, tmp_path: Path) -> None:
+        """New symbol with no cache → fetch full range."""
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+
+        with patch("etl.prices.yf.download") as mock_dl, \
+             patch("etl.prices._build_split_factors", return_value={}):
+            mock_dl.return_value = pd.DataFrame(
+                {("Close", "NEW"): [100.0]},
+                index=pd.to_datetime(["2026-04-12"]),
+            )
+            fetch_and_store_prices(
+                db_path,
+                {"NEW": (date(2026, 4, 1), None)},
+                date(2026, 4, 12),
+            )
+            assert mock_dl.called
+            start_kw = mock_dl.call_args.kwargs["start"]
+            assert start_kw == "2026-04-01"  # full history from hp_start
