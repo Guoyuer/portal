@@ -145,62 +145,54 @@ def _escape(value: object) -> str:
     return "'" + str(value).replace("'", "''") + "'"
 
 
-def _dump_table(conn: sqlite3.Connection, table: str) -> tuple[str, int]:
-    """Generate DELETE + INSERT statements for one table. Returns (sql, row_count)."""
+def _dump_table(
+    conn: sqlite3.Connection,
+    table: str,
+    *,
+    mode: str = "full",
+    date_expr: str | None = None,
+    since: str | None = None,
+) -> tuple[str, int]:
+    """Generate SQL for one table. ``mode`` picks the write semantics:
+
+    - ``"full"``   — DELETE FROM + INSERT INTO (wipe + replace).
+    - ``"diff"``   — INSERT OR IGNORE only (append-only, date PK).
+    - ``"range"``  — DELETE WHERE {date_expr} > {since} + INSERT INTO (range-
+                     replace). Requires ``date_expr`` and ``since``.
+
+    Returns ``(sql, row_count)``.
+    """
     cols = _D1_COLUMNS.get(table)
-    if cols:
-        col_list = ", ".join(cols)
-        cursor = conn.execute(f"SELECT {col_list} FROM {table}")  # noqa: S608
-    else:
-        cursor = conn.execute(f"SELECT * FROM {table}")  # noqa: S608
-    columns = [desc[0] for desc in cursor.description]
-    rows = cursor.fetchall()
-
-    lines: list[str] = [f"DELETE FROM {table};"]
-    for row in rows:
-        values = ", ".join(_escape(v) for v in row)
-        lines.append(f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({values});")
-
-    return "\n".join(lines), len(rows)
-
-
-def _dump_table_diff(conn: sqlite3.Connection, table: str) -> tuple[str, int]:
-    """Generate INSERT OR IGNORE statements (no DELETE). For append-only tables with a date PK."""
-    cols = _D1_COLUMNS.get(table)
-    if cols:
-        col_list = ", ".join(cols)
-        cursor = conn.execute(f"SELECT {col_list} FROM {table}")  # noqa: S608
-    else:
-        cursor = conn.execute(f"SELECT * FROM {table}")  # noqa: S608
-    columns = [desc[0] for desc in cursor.description]
-    rows = cursor.fetchall()
-
-    lines: list[str] = []
-    for row in rows:
-        values = ", ".join(_escape(v) for v in row)
-        lines.append(f"INSERT OR IGNORE INTO {table} ({', '.join(columns)}) VALUES ({values});")
-
-    return "\n".join(lines), len(rows)
-
-
-def _dump_table_range(conn: sqlite3.Connection, table: str, date_expr: str, since: str) -> tuple[str, int]:
-    """Delete rows after cutoff date, then INSERT new rows. For range-replace tables."""
-    cols = _D1_COLUMNS.get(table)
-    if cols:
-        col_list = ", ".join(cols)
+    col_list = ", ".join(cols) if cols else "*"
+    if mode == "range":
+        if date_expr is None or since is None:
+            msg = "mode='range' requires date_expr and since"
+            raise ValueError(msg)
         cursor = conn.execute(f"SELECT {col_list} FROM {table} WHERE {date_expr} > ?", (since,))  # noqa: S608
     else:
-        cursor = conn.execute(f"SELECT * FROM {table} WHERE {date_expr} > ?", (since,))  # noqa: S608
+        cursor = conn.execute(f"SELECT {col_list} FROM {table}")  # noqa: S608
     columns = [desc[0] for desc in cursor.description]
     rows = cursor.fetchall()
 
     # _escape quotes/escapes the cutoff identically to every row value, so the
-    # generated DELETE can't be broken by a typo'd `--since` argument (e.g.
-    # containing a single quote).
-    lines: list[str] = [f"DELETE FROM {table} WHERE {date_expr} > {_escape(since)};"]
+    # generated DELETE can't be broken by a typo'd `--since` argument.
+    if mode == "full":
+        lines: list[str] = [f"DELETE FROM {table};"]
+        insert_verb = "INSERT INTO"
+    elif mode == "diff":
+        lines = []
+        insert_verb = "INSERT OR IGNORE INTO"
+    elif mode == "range":
+        lines = [f"DELETE FROM {table} WHERE {date_expr} > {_escape(since)};"]
+        insert_verb = "INSERT INTO"
+    else:
+        msg = f"unknown mode: {mode!r}"
+        raise ValueError(msg)
+
+    cols_sql = ", ".join(columns)
     for row in rows:
         values = ", ".join(_escape(v) for v in row)
-        lines.append(f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({values});")
+        lines.append(f"{insert_verb} {table} ({cols_sql}) VALUES ({values});")
 
     return "\n".join(lines), len(rows)
 
@@ -275,13 +267,15 @@ def main() -> None:
 
     for table in TABLES_TO_SYNC:
         if mode == "diff" and table in _DIFF_TABLES:
-            sql, count = _dump_table_diff(conn, table)
+            sql, count = _dump_table(conn, table, mode="diff")
             print(f"  {table}: {count} rows (INSERT OR IGNORE)")
         elif mode == "diff" and table in _RANGE_TABLES:
-            sql, count = _dump_table_range(conn, table, _RANGE_TABLES[table], since)
+            sql, count = _dump_table(
+                conn, table, mode="range", date_expr=_RANGE_TABLES[table], since=since,
+            )
             print(f"  {table}: {count} rows (range-replace > {since})")
         else:
-            sql, count = _dump_table(conn, table)
+            sql, count = _dump_table(conn, table, mode="full")
             label = "full replace" if mode == "full" else "full replace (metadata table)"
             print(f"  {table}: {count} rows ({label})")
         all_sql.append(sql)

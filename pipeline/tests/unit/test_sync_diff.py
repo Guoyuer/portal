@@ -14,8 +14,6 @@ from etl.db import get_connection, init_db
 from scripts.sync_to_d1 import (
     _check_d1_column_drift,
     _dump_table,
-    _dump_table_diff,
-    _dump_table_range,
     _escape,
 )
 
@@ -44,7 +42,7 @@ def db(tmp_path):
 class TestFullMode:
     def test_generates_delete_and_insert(self, db):
         conn = sqlite3.connect(str(db))
-        sql, count = _dump_table(conn, "computed_daily")
+        sql, count = _dump_table(conn, "computed_daily", mode="full")
         conn.close()
         assert "DELETE FROM computed_daily;" in sql
         assert "INSERT INTO computed_daily" in sql
@@ -54,7 +52,7 @@ class TestFullMode:
 class TestDiffMode:
     def test_insert_or_ignore_no_delete(self, db):
         conn = sqlite3.connect(str(db))
-        sql, count = _dump_table_diff(conn, "computed_daily")
+        sql, count = _dump_table(conn, "computed_daily", mode="diff")
         conn.close()
         assert "DELETE" not in sql
         assert "INSERT OR IGNORE" in sql
@@ -63,9 +61,8 @@ class TestDiffMode:
     def test_diff_idempotent_on_target(self, db):
         """INSERT OR IGNORE on a DB with existing rows should not duplicate."""
         conn = sqlite3.connect(str(db))
-        sql, _ = _dump_table_diff(conn, "computed_daily")
+        sql, _ = _dump_table(conn, "computed_daily", mode="diff")
         conn.close()
-        # Execute the SQL on the same DB (simulating D1)
         target = sqlite3.connect(str(db))
         target.executescript(sql)
         count = target.execute("SELECT COUNT(*) FROM computed_daily").fetchone()[0]
@@ -76,7 +73,9 @@ class TestDiffMode:
 class TestRangeReplace:
     def test_deletes_after_since_and_inserts(self, db):
         conn = sqlite3.connect(str(db))
-        sql, count = _dump_table_range(conn, "qianji_transactions", "date", "2025-01-01")
+        sql, count = _dump_table(
+            conn, "qianji_transactions", mode="range", date_expr="date", since="2025-01-01",
+        )
         conn.close()
         assert "DELETE FROM qianji_transactions WHERE date > '2025-01-01';" in sql
         assert "INSERT INTO qianji_transactions" in sql
@@ -84,10 +83,24 @@ class TestRangeReplace:
 
     def test_no_rows_after_since(self, db):
         conn = sqlite3.connect(str(db))
-        sql, count = _dump_table_range(conn, "qianji_transactions", "date", "2025-12-31")
+        sql, count = _dump_table(
+            conn, "qianji_transactions", mode="range", date_expr="date", since="2025-12-31",
+        )
         conn.close()
         assert count == 0
         assert "DELETE FROM qianji_transactions" in sql
+
+    def test_range_requires_date_expr_and_since(self, db):
+        conn = sqlite3.connect(str(db))
+        with pytest.raises(ValueError, match=r"range.*date_expr.*since"):
+            _dump_table(conn, "qianji_transactions", mode="range")
+        conn.close()
+
+    def test_unknown_mode_raises(self, db):
+        conn = sqlite3.connect(str(db))
+        with pytest.raises(ValueError, match=r"unknown mode"):
+            _dump_table(conn, "qianji_transactions", mode="bogus")
+        conn.close()
 
 
 class TestGenSchema:

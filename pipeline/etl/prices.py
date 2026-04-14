@@ -53,6 +53,32 @@ def _persist_close(
     return True
 
 
+def _persist_close_batch(
+    conn: sqlite3.Connection,
+    symbol: str,
+    rows: list[tuple[date, float]],
+    refresh_cutoff_iso: str,
+) -> tuple[int, int]:
+    """Persist ``(date, close)`` rows for one symbol, honoring the refresh window.
+
+    Returns ``(new_historical, refreshed_recent)`` — counts of rows written to
+    the immutable history vs the refresh window. Used by both
+    ``fetch_and_store_prices`` and ``fetch_and_store_cny_rates``; factored out
+    to keep the accounting identical in both places.
+    """
+    new_historical = 0
+    refreshed_recent = 0
+    for d, value in rows:
+        d_iso = d.isoformat()
+        inserted = _persist_close(conn, symbol, d_iso, value, refresh_cutoff_iso)
+        if d_iso < refresh_cutoff_iso:
+            if inserted:
+                new_historical += 1
+        else:
+            refreshed_recent += 1
+    return new_historical, refreshed_recent
+
+
 # ── Symbol holding periods ──────────────────────────────────────────────────
 
 
@@ -250,26 +276,26 @@ def fetch_and_store_prices(
             split_factors = _build_split_factors(sorted(syms))
 
             refresh_cutoff_iso = refresh_window_start(end).isoformat()
-            new_historical = refreshed_recent = 0
+            total_new_historical = 0
+            total_refreshed_recent = 0
             for sym in close_df.columns:
                 hp_start, hp_end_raw = holding_periods.get(sym, (batch_start, None))
                 fetch_start = min(hp_start, global_start) if global_start else hp_start
                 hp_end = hp_end_raw or end
                 factors = split_factors.get(sym, [])
+                rows: list[tuple[date, float]] = []
                 for dt, price in close_df[sym].dropna().items():
                     d = dt.date() if hasattr(dt, "date") else dt
                     if d < fetch_start or d > hp_end:
                         continue
                     unadj = float(price) * _reverse_split_factor(d, factors)
-                    d_iso = d.isoformat()
-                    inserted = _persist_close(conn, sym, d_iso, unadj, refresh_cutoff_iso)
-                    if d_iso < refresh_cutoff_iso:
-                        if inserted:
-                            new_historical += 1
-                    else:
-                        refreshed_recent += 1
+                    rows.append((d, unadj))
+                nh, rr = _persist_close_batch(conn, sym, rows, refresh_cutoff_iso)
+                total_new_historical += nh
+                total_refreshed_recent += rr
             conn.commit()
-            print(f"Cached prices: {new_historical} new historical, {refreshed_recent} refreshed in window")
+            print(f"Cached prices: {total_new_historical} new historical, "
+                  f"{total_refreshed_recent} refreshed in window")
         else:
             print(f"All {len(holding_periods)} symbols cached")
     finally:
@@ -308,16 +334,13 @@ def fetch_and_store_cny_rates(db_path: Path, start: date, end: date) -> None:
             close = df["Close"]
         else:
             close = df.iloc[:, 0]
-        new_historical = refreshed_recent = 0
+        rows: list[tuple[date, float]] = []
         for dt, rate in close.dropna().items():
             d = dt.date() if hasattr(dt, "date") else dt
-            d_iso = d.isoformat() if hasattr(d, "isoformat") else str(d)
-            inserted = _persist_close(conn, sym, d_iso, float(rate), refresh_cutoff_iso)
-            if d_iso < refresh_cutoff_iso:
-                if inserted:
-                    new_historical += 1
-            else:
-                refreshed_recent += 1
+            rows.append((d, float(rate)))
+        new_historical, refreshed_recent = _persist_close_batch(
+            conn, sym, rows, refresh_cutoff_iso,
+        )
         conn.commit()
         print(f"CNY rates: {new_historical} new historical, {refreshed_recent} refreshed in window")
     finally:

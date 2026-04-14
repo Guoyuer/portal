@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 from dataclasses import dataclass
 from datetime import date, timedelta
 from enum import Enum
@@ -59,24 +60,20 @@ class CheckResult:
 # ── Individual checks ───────────────────────────────────────────────────────
 
 
-def _check_total_vs_tickers(db_path: Path) -> list[CheckResult]:
+def _check_total_vs_tickers(conn: sqlite3.Connection) -> list[CheckResult]:
     """Verify computed_daily.total matches SUM(computed_daily_tickers.value) per date."""
-    conn = get_connection(db_path)
-    try:
-        rows = conn.execute(
-            """
-            SELECT cd.date, cd.total, COALESCE(t.ticker_sum, 0) AS ticker_sum
-            FROM computed_daily cd
-            LEFT JOIN (
-                SELECT date, SUM(value) AS ticker_sum
-                FROM computed_daily_tickers
-                WHERE value > 0
-                GROUP BY date
-            ) t ON cd.date = t.date
-            """,
-        ).fetchall()
-    finally:
-        conn.close()
+    rows = conn.execute(
+        """
+        SELECT cd.date, cd.total, COALESCE(t.ticker_sum, 0) AS ticker_sum
+        FROM computed_daily cd
+        LEFT JOIN (
+            SELECT date, SUM(value) AS ticker_sum
+            FROM computed_daily_tickers
+            WHERE value > 0
+            GROUP BY date
+        ) t ON cd.date = t.date
+        """,
+    ).fetchall()
 
     results: list[CheckResult] = []
     for dt, total, ticker_sum in rows:
@@ -90,16 +87,12 @@ def _check_total_vs_tickers(db_path: Path) -> list[CheckResult]:
     return results
 
 
-def _check_day_over_day(db_path: Path) -> list[CheckResult]:
+def _check_day_over_day(conn: sqlite3.Connection) -> list[CheckResult]:
     """Flag suspicious day-over-day total changes within the recent window
     (anchored to the latest computed_daily date, not wall-clock today)."""
-    conn = get_connection(db_path)
-    try:
-        rows = conn.execute(
-            "SELECT date, total FROM computed_daily ORDER BY date",
-        ).fetchall()
-    finally:
-        conn.close()
+    rows = conn.execute(
+        "SELECT date, total FROM computed_daily ORDER BY date",
+    ).fetchall()
 
     if not rows:
         return []
@@ -131,82 +124,65 @@ def _check_day_over_day(db_path: Path) -> list[CheckResult]:
     return results
 
 
-def _check_holdings_have_prices(db_path: Path) -> list[CheckResult]:
+def _check_holdings_have_prices(conn: sqlite3.Connection) -> list[CheckResult]:
     """Every holding > $100 on latest date should have a row in daily_close."""
-    conn = get_connection(db_path)
-    try:
-        latest = conn.execute("SELECT MAX(date) FROM computed_daily_tickers").fetchone()
-        if latest is None or latest[0] is None:
-            return []
-        latest_date: str = latest[0]
+    latest = conn.execute("SELECT MAX(date) FROM computed_daily_tickers").fetchone()
+    if latest is None or latest[0] is None:
+        return []
+    latest_date: str = latest[0]
 
-        # Get tickers with value > 100 on latest date
-        tickers = conn.execute(
-            "SELECT ticker FROM computed_daily_tickers WHERE date = ? AND value > 100",
-            (latest_date,),
-        ).fetchall()
+    # Get tickers with value > 100 on latest date
+    tickers = conn.execute(
+        "SELECT ticker FROM computed_daily_tickers WHERE date = ? AND value > 100",
+        (latest_date,),
+    ).fetchall()
 
-        missing: list[str] = []
-        for (ticker,) in tickers:
-            if ticker in _NON_PRICE_TICKERS:
-                continue
-            price_row = conn.execute(
-                "SELECT 1 FROM daily_close WHERE symbol = ? LIMIT 1",
-                (ticker,),
-            ).fetchone()
-            if price_row is None:
-                missing.append(ticker)
-    finally:
-        conn.close()
+    missing: list[str] = []
+    for (ticker,) in tickers:
+        if ticker in _NON_PRICE_TICKERS:
+            continue
+        price_row = conn.execute(
+            "SELECT 1 FROM daily_close WHERE symbol = ? LIMIT 1",
+            (ticker,),
+        ).fetchone()
+        if price_row is None:
+            missing.append(ticker)
 
-    results: list[CheckResult] = []
     if missing:
-        results.append(CheckResult(
+        return [CheckResult(
             name="holdings_have_prices",
             severity=Severity.FATAL,
             message=f"{len(missing)} holding(s) > $100 without prices: {', '.join(sorted(missing))}",
-        ))
-    return results
+        )]
+    return []
 
 
-def _check_cny_rate_freshness(db_path: Path) -> list[CheckResult]:
+def _check_cny_rate_freshness(conn: sqlite3.Connection) -> list[CheckResult]:
     """Warn if latest CNY=X rate is more than 7 days behind latest computed date."""
-    conn = get_connection(db_path)
-    try:
-        cny_row = conn.execute(
-            "SELECT MAX(date) FROM daily_close WHERE symbol = 'CNY=X'",
-        ).fetchone()
-        daily_row = conn.execute(
-            "SELECT MAX(date) FROM computed_daily",
-        ).fetchone()
-    finally:
-        conn.close()
+    cny_row = conn.execute(
+        "SELECT MAX(date) FROM daily_close WHERE symbol = 'CNY=X'",
+    ).fetchone()
+    daily_row = conn.execute(
+        "SELECT MAX(date) FROM computed_daily",
+    ).fetchone()
 
     if cny_row is None or cny_row[0] is None or daily_row is None or daily_row[0] is None:
         return []
 
-    cny_date = cny_row[0]
-    daily_date = daily_row[0]
-
-    # Dates are ISO strings (YYYY-MM-DD), comparable lexicographically.
-    # Compute calendar day gap by parsing.
-    from datetime import date as _date
-
-    cny_d = _date.fromisoformat(cny_date)
-    daily_d = _date.fromisoformat(daily_date)
+    cny_d = date.fromisoformat(cny_row[0])
+    daily_d = date.fromisoformat(daily_row[0])
     gap = (daily_d - cny_d).days
 
-    results: list[CheckResult] = []
     if gap > 7:
-        results.append(CheckResult(
+        return [CheckResult(
             name="cny_rate_freshness",
             severity=Severity.WARNING,
-            message=f"Latest CNY=X rate is {gap} days old ({cny_date} vs computed {daily_date})",
-        ))
-    return results
+            message=f"Latest CNY=X rate is {gap} days old ({cny_row[0]} vs computed {daily_row[0]})",
+        )]
+    return []
 
 
-def _check_holdings_prices_are_fresh(db_path: Path) -> list[CheckResult]:
+def _check_holdings_prices_are_fresh(conn: sqlite3.Connection) -> list[CheckResult]:
     """Every held symbol's `daily_close` max date must be within 4 days of the latest
     `computed_daily`. Catches the class of bug where the fetch gate silently skipped a
     subset of symbols, leaving forward-fill to paper over multi-day price holes.
@@ -215,34 +191,30 @@ def _check_holdings_prices_are_fresh(db_path: Path) -> list[CheckResult]:
     federal holiday (e.g. Fri holiday + weekend = 3 days, or Mon holiday + weekend = 3
     days); anything beyond that is genuinely stale.
     """
-    conn = get_connection(db_path)
-    try:
-        latest = conn.execute("SELECT MAX(date) FROM computed_daily").fetchone()
-        if latest is None or latest[0] is None:
-            return []
-        latest_iso: str = latest[0]
+    latest = conn.execute("SELECT MAX(date) FROM computed_daily").fetchone()
+    if latest is None or latest[0] is None:
+        return []
+    latest_iso: str = latest[0]
 
-        # Held tickers on latest date, excluding book-value / proxy tickers that have
-        # no corresponding `daily_close` row by design.
-        tickers = conn.execute(
-            "SELECT ticker FROM computed_daily_tickers WHERE date = ? AND value > 100",
-            (latest_iso,),
-        ).fetchall()
+    # Held tickers on latest date, excluding book-value / proxy tickers that have
+    # no corresponding `daily_close` row by design.
+    tickers = conn.execute(
+        "SELECT ticker FROM computed_daily_tickers WHERE date = ? AND value > 100",
+        (latest_iso,),
+    ).fetchall()
 
-        stale: list[tuple[str, str]] = []  # (ticker, max_price_date)
-        for (ticker,) in tickers:
-            if ticker in _NON_PRICE_TICKERS:
-                continue
-            row = conn.execute(
-                "SELECT MAX(date) FROM daily_close WHERE symbol = ?",
-                (ticker,),
-            ).fetchone()
-            if row is None or row[0] is None:
-                # No price at all — already covered by _check_holdings_have_prices.
-                continue
-            stale.append((ticker, row[0]))
-    finally:
-        conn.close()
+    stale: list[tuple[str, str]] = []  # (ticker, max_price_date)
+    for (ticker,) in tickers:
+        if ticker in _NON_PRICE_TICKERS:
+            continue
+        row = conn.execute(
+            "SELECT MAX(date) FROM daily_close WHERE symbol = ?",
+            (ticker,),
+        ).fetchone()
+        if row is None or row[0] is None:
+            # No price at all — already covered by _check_holdings_have_prices.
+            continue
+        stale.append((ticker, row[0]))
 
     latest_d = date.fromisoformat(latest_iso)
     flagged = [
@@ -263,21 +235,17 @@ def _check_holdings_prices_are_fresh(db_path: Path) -> list[CheckResult]:
     )]
 
 
-def _check_cost_basis_nonneg(db_path: Path) -> list[CheckResult]:
+def _check_cost_basis_nonneg(conn: sqlite3.Connection) -> list[CheckResult]:
     """Cost basis is the $ paid to acquire a position — always non-negative.
 
-    NULL is allowed (legacy rows, or holdings valued by Qianji book value).
     A negative cost_basis would indicate a replay bug (e.g. net sell-shares
-    exceeded buy-shares with inverted sign).
+    exceeded buy-shares with inverted sign). Schema has NOT NULL; zero is
+    a legitimate legacy value for gifted or fully-depreciated lots.
     """
-    conn = get_connection(db_path)
-    try:
-        rows = conn.execute(
-            "SELECT date, ticker, cost_basis FROM computed_daily_tickers"
-            " WHERE cost_basis IS NOT NULL AND cost_basis < 0",
-        ).fetchall()
-    finally:
-        conn.close()
+    rows = conn.execute(
+        "SELECT date, ticker, cost_basis FROM computed_daily_tickers"
+        " WHERE cost_basis IS NOT NULL AND cost_basis < 0",
+    ).fetchall()
     if not rows:
         return []
     sample = ", ".join(f"{t}@{d}={cb:.2f}" for d, t, cb in rows[:5])
@@ -289,19 +257,15 @@ def _check_cost_basis_nonneg(db_path: Path) -> list[CheckResult]:
     )]
 
 
-def _check_category_subtype_enums(db_path: Path) -> list[CheckResult]:
+def _check_category_subtype_enums(conn: sqlite3.Connection) -> list[CheckResult]:
     """Every (category, subtype) in computed_daily_tickers must be in the known set.
 
     Guards against typos in the allocation classifier that would silently put
     holdings in a bucket the frontend doesn't know how to render.
     """
-    conn = get_connection(db_path)
-    try:
-        pairs = conn.execute(
-            "SELECT DISTINCT category, COALESCE(subtype, '') FROM computed_daily_tickers",
-        ).fetchall()
-    finally:
-        conn.close()
+    pairs = conn.execute(
+        "SELECT DISTINCT category, COALESCE(subtype, '') FROM computed_daily_tickers",
+    ).fetchall()
 
     results: list[CheckResult] = []
     bad_cats = sorted({cat for cat, _ in pairs if cat not in _KNOWN_CATEGORIES})
@@ -321,25 +285,19 @@ def _check_category_subtype_enums(db_path: Path) -> list[CheckResult]:
     return results
 
 
-def _check_date_gaps(db_path: Path) -> list[CheckResult]:
+def _check_date_gaps(conn: sqlite3.Connection) -> list[CheckResult]:
     """Warn if any gap between consecutive computed_daily dates exceeds 7 calendar days."""
-    conn = get_connection(db_path)
-    try:
-        rows = conn.execute(
-            "SELECT date FROM computed_daily ORDER BY date",
-        ).fetchall()
-    finally:
-        conn.close()
+    rows = conn.execute(
+        "SELECT date FROM computed_daily ORDER BY date",
+    ).fetchall()
 
     if len(rows) < 2:
         return []
 
-    from datetime import date as _date
-
     results: list[CheckResult] = []
     for i in range(1, len(rows)):
-        prev = _date.fromisoformat(rows[i - 1][0])
-        curr = _date.fromisoformat(rows[i][0])
+        prev = date.fromisoformat(rows[i - 1][0])
+        curr = date.fromisoformat(rows[i][0])
         gap = (curr - prev).days
         if gap > 7:
             results.append(CheckResult(
@@ -354,14 +312,26 @@ def _check_date_gaps(db_path: Path) -> list[CheckResult]:
 
 
 def validate_build(db_path: Path) -> list[CheckResult]:
-    """Run all post-build validation checks. Returns list of issues found."""
-    results: list[CheckResult] = []
-    results.extend(_check_total_vs_tickers(db_path))
-    results.extend(_check_day_over_day(db_path))
-    results.extend(_check_holdings_have_prices(db_path))
-    results.extend(_check_cny_rate_freshness(db_path))
-    results.extend(_check_holdings_prices_are_fresh(db_path))
-    results.extend(_check_cost_basis_nonneg(db_path))
-    results.extend(_check_category_subtype_enums(db_path))
-    results.extend(_check_date_gaps(db_path))
-    return results
+    """Run all post-build validation checks. Returns list of issues found.
+
+    Opens one DB connection for the whole run; each ``_check_*`` helper takes a
+    connection and returns its own findings.
+    """
+    checks = (
+        _check_total_vs_tickers,
+        _check_day_over_day,
+        _check_holdings_have_prices,
+        _check_cny_rate_freshness,
+        _check_holdings_prices_are_fresh,
+        _check_cost_basis_nonneg,
+        _check_category_subtype_enums,
+        _check_date_gaps,
+    )
+    conn = get_connection(db_path)
+    try:
+        results: list[CheckResult] = []
+        for check in checks:
+            results.extend(check(conn))
+        return results
+    finally:
+        conn.close()
