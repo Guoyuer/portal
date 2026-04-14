@@ -5,7 +5,6 @@ from __future__ import annotations
 import sqlite3
 from datetime import date
 from pathlib import Path
-from typing import Any
 
 from .types import AllocationRow
 
@@ -259,57 +258,6 @@ def get_connection(path: Path) -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     return conn
-
-
-# ── Econ series ingestion ──────────────────────────────────────────────────
-
-
-def ingest_econ_series(path: Path, series: dict[str, list[dict[str, Any]]]) -> int:
-    """Write FRED time-series to econ_series table. Returns row count."""
-    conn = get_connection(path)
-    try:
-        conn.execute("DELETE FROM econ_series")
-        count = 0
-        for key, points in series.items():
-            for pt in points:
-                conn.execute(
-                    "INSERT INTO econ_series (key, date, value) VALUES (?, ?, ?)",
-                    (key, pt["date"], pt["value"]),
-                )
-                count += 1
-        conn.commit()
-        return count
-    finally:
-        conn.close()
-
-
-# ── Price ingestion ────────────────────────────────────────────────────────
-
-
-def ingest_prices(db_path: Path, prices: dict[str, dict[str, float]]) -> None:
-    """Ingest daily close prices into the database.
-
-    Args:
-        db_path: Path to the SQLite database.
-        prices: ``{"VOO": {"2025-01-02": 500.0, ...}, ...}``
-    """
-    rows: list[tuple[str, str, float]] = []
-    for symbol, date_prices in prices.items():
-        for dt, close in date_prices.items():
-            rows.append((symbol, dt, close))
-
-    if not rows:
-        return
-
-    conn = get_connection(db_path)
-    try:
-        conn.executemany(
-            "INSERT OR REPLACE INTO daily_close (symbol, date, close) VALUES (?, ?, ?)",
-            rows,
-        )
-        conn.commit()
-    finally:
-        conn.close()
 
 
 # ── Incremental build helpers for computed_daily ───────────────────────────
