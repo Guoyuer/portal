@@ -297,6 +297,34 @@ def _reset_script_output_buffer() -> None:
     _SCRIPT_OUTPUT_BUFFER.clear()
 
 
+def _report_stage_failure(
+    log: logging.Logger,
+    label: str,
+    rc: int,
+    exit_code: int,
+    script_name: str,
+    email_config: EmailConfig | None,
+    snapshot_before: SyncSnapshot,
+    db_path: Path,
+    log_file: Path,
+) -> int:
+    """Shared error-report path used by every stage in ``main()``.
+
+    Logs the failure, pings healthcheck, sends the failure email, and returns
+    the stage-specific exit code. Collapses four near-identical blocks in
+    ``main()`` that differ only by ``label`` / ``exit_code`` / ``script_name``.
+    """
+    log.error("  %s FAILED (exit=%d)", label, rc)
+    ping_healthcheck("fail")
+    _send_report_email(
+        email_config, log, snapshot_before, capture(db_path),
+        exit_code, log_file,
+        error=f"{script_name} exited with code {rc}",
+        validation_warnings=extract_validation_warnings(log_file),
+    )
+    return exit_code
+
+
 def get_script_output_buffer() -> list[str]:
     """Return a *copy* of the captured subprocess lines for THIS main() run."""
     return list(_SCRIPT_OUTPUT_BUFFER)
@@ -514,30 +542,20 @@ def main(argv: list[str] | None = None) -> int:
     log.info("[2] Incremental build...")
     rc = run_python_script(_SCRIPT_DIR / "build_timemachine_db.py", "incremental")
     if rc != 0:
-        log.error("  BUILD FAILED (exit=%d)", rc)
-        ping_healthcheck("fail")
-        _send_report_email(
-            email_config, log, snapshot_before, None,
-            EXIT_BUILD_FAIL, log_file,
-            error=f"build_timemachine_db.py exited with code {rc}",
-            validation_warnings=extract_validation_warnings(log_file),
+        return _report_stage_failure(
+            log, "BUILD", rc, EXIT_BUILD_FAIL, "build_timemachine_db.py",
+            email_config, snapshot_before, db_path, log_file,
         )
-        return EXIT_BUILD_FAIL
 
     # [3] Pre-sync gate: guard against local data loss + historical drift
     if not args.local:
         log.info("[3] Verifying historical immutability + no local data loss vs prod D1...")
         rc = run_python_script(_SCRIPT_DIR / "verify_vs_prod.py")
         if rc != 0:
-            log.error("  PRE-SYNC GATE FAILED (exit=%d) — SYNC BLOCKED", rc)
-            ping_healthcheck("fail")
-            _send_report_email(
-                email_config, log, snapshot_before, capture(db_path),
-                EXIT_PARITY_FAIL, log_file,
-                error=f"verify_vs_prod.py exited with code {rc}",
-                validation_warnings=extract_validation_warnings(log_file),
+            return _report_stage_failure(
+                log, "PRE-SYNC GATE", rc, EXIT_PARITY_FAIL, "verify_vs_prod.py",
+                email_config, snapshot_before, db_path, log_file,
             )
-            return EXIT_PARITY_FAIL
 
     # [3b] Optional Portfolio_Positions ground-truth gate
     if not args.local:
@@ -547,15 +565,10 @@ def main(argv: list[str] | None = None) -> int:
             rc = run_python_script(_SCRIPT_DIR / "verify_positions.py",
                                    "--positions", str(positions_csv))
             if rc != 0:
-                log.error("  POSITIONS CHECK FAILED (exit=%d) — SYNC BLOCKED", rc)
-                ping_healthcheck("fail")
-                _send_report_email(
-                    email_config, log, snapshot_before, capture(db_path),
-                    EXIT_POSITIONS_FAIL, log_file,
-                    error=f"verify_positions.py exited with code {rc}",
-                    validation_warnings=extract_validation_warnings(log_file),
+                return _report_stage_failure(
+                    log, "POSITIONS CHECK", rc, EXIT_POSITIONS_FAIL, "verify_positions.py",
+                    email_config, snapshot_before, db_path, log_file,
                 )
-                return EXIT_POSITIONS_FAIL
         else:
             log.info("[3b] No new Portfolio_Positions CSV — skipping ground-truth check")
 
@@ -567,15 +580,10 @@ def main(argv: list[str] | None = None) -> int:
         sync_args: tuple[str, ...] = ("--local",) if args.local else ()
         rc = run_python_script(_SCRIPT_DIR / "sync_to_d1.py", *sync_args)
         if rc != 0:
-            log.error("  SYNC FAILED (exit=%d)", rc)
-            ping_healthcheck("fail")
-            _send_report_email(
-                email_config, log, snapshot_before, capture(db_path),
-                EXIT_SYNC_FAIL, log_file,
-                error=f"sync_to_d1.py exited with code {rc}",
-                validation_warnings=extract_validation_warnings(log_file),
+            return _report_stage_failure(
+                log, "SYNC", rc, EXIT_SYNC_FAIL, "sync_to_d1.py",
+                email_config, snapshot_before, db_path, log_file,
             )
-            return EXIT_SYNC_FAIL
 
     # Success: update marker
     _MARKER.parent.mkdir(parents=True, exist_ok=True)
