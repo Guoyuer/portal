@@ -19,7 +19,7 @@ export default defineConfig({
       reuseExistingServer: true,
     },
     {
-      command: "npx cross-env NEXT_PUBLIC_TIMELINE_URL=http://localhost:4444/timeline npx next build && npx cross-env PORT=3100 npx serve out --single",
+      command: "npx cross-env NEXT_PUBLIC_TIMELINE_URL=http://localhost:4444 npx next build && npx cross-env PORT=3100 npx serve out --single",
       port: 3100,
       reuseExistingServer: true,
       timeout: 60_000,

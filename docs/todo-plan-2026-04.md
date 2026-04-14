@@ -46,6 +46,15 @@ Automation-readiness follow-ups (PRs #109–#114) landed shortly after — see `
 
 Dashboard side (CLI-driven via the scoped setup token, then self-revoked): created/updated Access apps, deleted the `portal-api.guoyuer.com` Custom Domain, retired the `Portal API EMERGENCY LOCK` deny-all placeholder. `.workers.dev` closed on both Workers (automatic once `routes` are present in wrangler config).
 
+### 2026-04-14 batch — audit-driven cleanup
+
+Follow-up from `docs/code-design-audit-2026-04-13.md`:
+
+| PR | Branch | Summary |
+|---|---|---|
+| (C01+C02) | `refactor/unify-env-url-convention` | `NEXT_PUBLIC_TIMELINE_URL` is now a *base* URL (`https://portal.guoyuer.com/api`), same shape as `NEXT_PUBLIC_GMAIL_WORKER_URL`. Deletes the `src/lib/config.ts` regex-strip; test fixture + playwright + CI fallback + README + CLAUDE.md updated. GH secret value updated to match. |
+| (C04) | `docs/allocation-dataclass-hint` | Top-of-file comment in `pipeline/etl/allocation.py` pointing at `AllocationRequest` dataclass as the migration target when the 7th data source lands. No behavior change. |
+
 ---
 
 ## 4. Not doing (explicit)
@@ -57,11 +66,15 @@ Dashboard side (CLI-driven via the scoped setup token, then self-revoked): creat
 
 ## Deferred ideas
 
-Real improvements, but no near-term commitment. Don't start without a design conversation.
+Real improvements, but no near-term commitment. Don't start without a design conversation. Organized into two tracks: *audit-surfaced* (came out of the 2026-04-13 post-migration review) vs. *strategic* (pre-existing ideas that predate the migration).
 
-- **Two-column `daily_close` (close + adj_close)** — store both Yahoo Close and Adj Close; delete `_reverse_split_factor`. Requires schema migration across local + D1.
-- **Retry + validation layer for Yahoo fetches** — assert returned dates cover the requested range, retry 2–3 times, raise on final failure. Complements PR-X.
-- **SQL-pushdown for hot compute paths** — per-date category aggregation via `SUM(CASE WHEN category=…)`; 52w high/low via SQL window function. Profile first.
+| Audit-surfaced (from `docs/code-design-audit-2026-04-13.md`) | Strategic (pre-existing) |
+|---|---|
+| **C03** — Promote `log.warning` in `_add_fidelity_positions:136` to a fatal when the ticker's held value > $1000 AND the price is missing. Low-cost insurance against the next weekend-floor-class bug. (~20 LoC) | **Two-column `daily_close` (close + adj_close)** — store both Yahoo Close and Adj Close; delete `_reverse_split_factor`. ~−28 LoC net, but needs D1 ALTER + backfill + picking which column is canonical. |
+| **C04** — Dataclass refactor of `compute_daily_allocation` signature (6 positional → `AllocationRequest`). Trigger: when the 7th data source lands. Top-of-file comment now points at this as the migration target. (~40 LoC) | **Yahoo-fetch retry + validation layer** — assert returned dates cover the requested range, retry 2–3 times, raise on final failure. Complements the PR-X daily_close invariant. |
+| **C05** — Split `pipeline/etl/timemachine.py` (602 LoC) into `etl/replay/fidelity.py` + `etl/replay/qianji.py` + `etl/replay/__init__.py`. Trigger: next real change on either replay. (0 net LoC, move-only) | **SQL-pushdown for hot compute paths** — per-date category aggregation via `SUM(CASE WHEN category=…)`; 52w high/low via SQL window function. Profile first. |
+| **C06** — Accept Python `types.py` ↔ TS `src/lib/schemas/` duplication. Cost of codegen > value at current schema-churn rate. | |
+| **C07** — Replace Worker if-ladder routing with [itty-router](https://itty.dev/itty-router/) or Hono. Trigger: next endpoint added on either Worker. (~30 LoC added) | |
 
 ---
 
