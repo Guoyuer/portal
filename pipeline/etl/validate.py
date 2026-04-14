@@ -18,6 +18,17 @@ log = logging.getLogger(__name__)
 # investigate an incoming data issue.
 _DAY_OVER_DAY_WINDOW_DAYS = 7
 
+# Known valid categories in ``computed_daily_tickers``. Updated when a new
+# asset class lands; unknown values surface as a validation FATAL so a typo
+# in the allocation classifier is caught at build time.
+_KNOWN_CATEGORIES: frozenset[str] = frozenset({
+    "US Equity", "Non-US Equity", "Crypto", "Safe Net", "Liability",
+})
+
+# Known valid subtypes (empty string = unclassified, e.g. Crypto / Safe Net /
+# Liability). Unknown values surface as FATAL.
+_KNOWN_SUBTYPES: frozenset[str] = frozenset({"", "broad", "growth"})
+
 # Tickers valued from Qianji balances, Fidelity cash, or face value — no
 # `daily_close` row by design, so price-freshness checks skip them.
 _NON_PRICE_TICKERS = frozenset({
@@ -252,6 +263,64 @@ def _check_holdings_prices_are_fresh(db_path: Path) -> list[CheckResult]:
     )]
 
 
+def _check_cost_basis_nonneg(db_path: Path) -> list[CheckResult]:
+    """Cost basis is the $ paid to acquire a position — always non-negative.
+
+    NULL is allowed (legacy rows, or holdings valued by Qianji book value).
+    A negative cost_basis would indicate a replay bug (e.g. net sell-shares
+    exceeded buy-shares with inverted sign).
+    """
+    conn = get_connection(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT date, ticker, cost_basis FROM computed_daily_tickers"
+            " WHERE cost_basis IS NOT NULL AND cost_basis < 0",
+        ).fetchall()
+    finally:
+        conn.close()
+    if not rows:
+        return []
+    sample = ", ".join(f"{t}@{d}={cb:.2f}" for d, t, cb in rows[:5])
+    more = f" (+{len(rows) - 5} more)" if len(rows) > 5 else ""
+    return [CheckResult(
+        name="cost_basis_nonneg",
+        severity=Severity.FATAL,
+        message=f"{len(rows)} ticker-date(s) with negative cost_basis: {sample}{more}",
+    )]
+
+
+def _check_category_subtype_enums(db_path: Path) -> list[CheckResult]:
+    """Every (category, subtype) in computed_daily_tickers must be in the known set.
+
+    Guards against typos in the allocation classifier that would silently put
+    holdings in a bucket the frontend doesn't know how to render.
+    """
+    conn = get_connection(db_path)
+    try:
+        pairs = conn.execute(
+            "SELECT DISTINCT category, COALESCE(subtype, '') FROM computed_daily_tickers",
+        ).fetchall()
+    finally:
+        conn.close()
+
+    results: list[CheckResult] = []
+    bad_cats = sorted({cat for cat, _ in pairs if cat not in _KNOWN_CATEGORIES})
+    bad_subs = sorted({sub for _, sub in pairs if sub not in _KNOWN_SUBTYPES})
+    if bad_cats:
+        results.append(CheckResult(
+            name="category_enum",
+            severity=Severity.FATAL,
+            message=f"Unknown category value(s): {bad_cats}. Add to _KNOWN_CATEGORIES or fix classifier.",
+        ))
+    if bad_subs:
+        results.append(CheckResult(
+            name="subtype_enum",
+            severity=Severity.FATAL,
+            message=f"Unknown subtype value(s): {bad_subs}. Add to _KNOWN_SUBTYPES or fix classifier.",
+        ))
+    return results
+
+
 def _check_date_gaps(db_path: Path) -> list[CheckResult]:
     """Warn if any gap between consecutive computed_daily dates exceeds 7 calendar days."""
     conn = get_connection(db_path)
@@ -292,5 +361,7 @@ def validate_build(db_path: Path) -> list[CheckResult]:
     results.extend(_check_holdings_have_prices(db_path))
     results.extend(_check_cny_rate_freshness(db_path))
     results.extend(_check_holdings_prices_are_fresh(db_path))
+    results.extend(_check_cost_basis_nonneg(db_path))
+    results.extend(_check_category_subtype_enums(db_path))
     results.extend(_check_date_gaps(db_path))
     return results
