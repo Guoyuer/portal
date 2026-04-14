@@ -1,26 +1,15 @@
 import { describe, it, expect, vi } from "vitest";
-import { z } from "zod";
-import { cachedJson, dbError, settled, validatedResponse, type CacheLike } from "./utils";
+import { cachedJson, dbError, jsonResponse, settled, type CacheLike } from "./utils";
 
-// ── validatedResponse ───────────────────────────────────────────────────
+// ── jsonResponse ────────────────────────────────────────────────────────
 
-describe("validatedResponse", () => {
-  const schema = z.object({ x: z.number(), y: z.string() });
-
-  it("returns 200 + parsed JSON when payload matches", async () => {
-    const res = validatedResponse(schema, { x: 1, y: "ok" });
+describe("jsonResponse", () => {
+  it("returns 200 JSON with CORS + no-cache headers", async () => {
+    const res = jsonResponse({ x: 1, y: "ok" });
     expect(res.status).toBe(200);
     expect(res.headers.get("Cache-Control")).toBe("no-cache");
     expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
     await expect(res.json()).resolves.toEqual({ x: 1, y: "ok" });
-  });
-
-  it("returns 500 with detail on schema mismatch", async () => {
-    const res = validatedResponse(schema, { x: "not-a-number" });
-    expect(res.status).toBe(500);
-    const body = (await res.json()) as { error: string; detail: string };
-    expect(body.error).toBe("schema drift");
-    expect(body.detail).toContain("x");
   });
 });
 
