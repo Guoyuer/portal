@@ -5,6 +5,14 @@ This module reconstructs historical asset allocation by combining:
   - Historical prices (from timemachine.db.daily_close)
   - Qianji account balances (from Qianji SQLite DB)
   - 401k values (pre-computed via proxy interpolation)
+
+Refactor hint (audit C04, ``docs/code-design-audit-2026-04-13.md``):
+``compute_daily_allocation`` currently takes 6 positional args + 1 keyword,
+and each new data source adds another positional. When the 7th source lands,
+migrate the signature to an ``AllocationRequest`` dataclass and make the
+internal ``_add_*`` helpers return ``dict[str, float]`` instead of mutating
+``ticker_values`` in place. That also makes per-source unit tests trivial
+(today they need the full dict assembled first).
 """
 from __future__ import annotations
 
