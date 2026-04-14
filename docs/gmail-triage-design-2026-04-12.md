@@ -1,5 +1,17 @@
 # Gmail Auto-Triage — Design v2 (2026-04-12)
 
+> **Historical design doc — browser auth superseded.** PRs #137-#139 (2026-04-13)
+> migrated browser-facing paths from `worker-gmail.<acct>.workers.dev` with the
+> `USER_KEY`/`X-Mail-Key`/`?key=` scheme to same-origin `portal.guoyuer.com/api/mail/*`
+> gated by the existing Cloudflare Access app. `USER_KEY`, `resolveKey()`, the
+> `?key=` URL handling, and localStorage persistence are all gone. PR #141
+> locked the Worker path table to `/api/mail/{list,trash}` + `/mail/sync`.
+> Everything below about the `USER_KEY` flow is kept for archival context only —
+> the current contract lives in `src/lib/use-mail.ts` + `worker-gmail/src/index.ts`.
+> Server-to-server sync (cron → `portal-mail.guoyuer.com/mail/sync` with
+> `SYNC_SECRET`) is unchanged. See `docs/archive/security-worker-backdoor-2026-04-12.md`
+> for the migration rationale.
+
 > v2 pivot (2026-04-12): dropped digest email delivery. Portal is user's one-stop entry, so triage results surface in a new `/mail` tab instead of landing in Gmail inbox. Same GH Actions + app password + IMAP foundation. New: D1 storage + Portal React page. Out: SMTP send, HMAC signed links, `etl.email_report` reuse.
 
 ## Goal

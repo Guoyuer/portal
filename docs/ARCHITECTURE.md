@@ -72,12 +72,12 @@ graph TB
 
 D1 has 10 camelCase views — `v_daily`, `v_daily_tickers`, `v_fidelity_txns`, `v_qianji_txns`, `v_categories`, `v_market_indices`, `v_holdings_detail`, `v_econ_series`, `v_econ_series_grouped`, `v_econ_snapshot`.
 
-Worker endpoints (all under `portal.guoyuer.com/api/*`, `/api/` is stripped inside the Worker so internal paths stay `/timeline`, `/econ`, `/prices/:sym`, `/mail/list`, `/mail/trash`):
+Worker endpoints. Path-handling differs by Worker: portal-api strips `/api/` internally (so handlers match on `/timeline`, `/econ`, `/prices/:sym`); worker-gmail matches the full incoming path literally (post-PR #141), so browser routes are `/api/mail/list` + `/api/mail/trash` and the cron route is bare `/mail/sync` — the two prefixes disambiguate audience:
 
 - `GET /api/timeline` — parallel SELECTs across critical + optional views, ~4.6 MB / ~385 KB gzip
 - `GET /api/econ` — econ_series snapshot + grouped series (includes `dxy`, `usdCny` alongside FRED keys)
 - `GET /api/prices/:symbol` — daily close + transactions, on-demand per ticker click
-- `GET /api/mail/list`, `POST /api/mail/trash` — Gmail triage (worker-gmail)
+- `GET /api/mail/list`, `POST /api/mail/trash` — Gmail triage (worker-gmail, browser, CF Access)
 - `POST /mail/sync` on `portal-mail.guoyuer.com` — GitHub Actions cron upserts classifications (SYNC_SECRET)
 
 All responses pass through `safeParse` at the Worker boundary — schema drift returns HTTP 500 with the Zod path instead of a silently garbage body.

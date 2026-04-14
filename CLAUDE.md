@@ -46,8 +46,7 @@ cd worker-gmail && npx wrangler deploy                # deploy Gmail Worker
 npx playwright test                                   # 5 Playwright spec files
 
 # Manual Pages deploy (when CI's Worker deploy step is down or when iterating locally)
-MSYS_NO_PATHCONV=1 NEXT_PUBLIC_TIMELINE_URL='https://portal.guoyuer.com/api' \
-  NEXT_PUBLIC_GMAIL_WORKER_URL='/api/mail' npx next build
+MSYS_NO_PATHCONV=1 NEXT_PUBLIC_TIMELINE_URL='https://portal.guoyuer.com/api' npx next build
 npx wrangler pages deploy out --project-name=portal --commit-dirty=true
 ```
 
@@ -71,7 +70,7 @@ Frontend fetches all data in a single `GET /timeline` call (~4.6 MB JSON, ~385 K
 
 D1 schema: 10 base tables (incl. `categories`) + 12 camelCase views (incl. `v_market_meta` pivot, `v_econ_snapshot`, `v_econ_series_grouped`, `v_categories`). Worker serves 3 endpoints: `GET /timeline`, `GET /econ`, `GET /prices/:symbol`. Worker is a thin adapter: `SELECT` → `Zod.safeParse` → JSON. All shape work lives in the views; the only transform in TypeScript is `JSON.parse(sparkline)`, done via a Zod transform shared with the client. All data flows through D1.
 
-Gmail triage is a parallel module with its own stack: GitHub Actions cron runs `pipeline/scripts/gmail/triage.py` (IMAP fetch → Claude Haiku classify → POST to `worker-gmail`). `worker-gmail` is a separate Worker with its own D1 (`portal-gmail` → `triaged_emails` table), 3 routes (`/mail/sync`, `/mail/list`, `/mail/trash`), and a hand-rolled Gmail IMAP client over `cloudflare:sockets` for the trash operation. Frontend tab at `/mail` authenticates with a URL key (`?key=…`) cached in localStorage. See `docs/gmail-triage-design-2026-04-12.md`.
+Gmail triage is a parallel module with its own stack: GitHub Actions cron runs `pipeline/scripts/gmail/triage.py` (IMAP fetch → Claude Haiku classify → POST to `worker-gmail`). `worker-gmail` is a separate Worker with its own D1 (`portal-gmail` → `triaged_emails` table) and a hand-rolled Gmail IMAP client over `cloudflare:sockets` for the trash operation. Route table is split by audience: cron hits `portal-mail.guoyuer.com/mail/sync` (SYNC_SECRET-gated); the browser hits same-origin `portal.guoyuer.com/api/mail/{list,trash}` pre-gated by the same Cloudflare Access app that protects the Pages site — no per-app key. See `docs/gmail-triage-design-2026-04-12.md` (frozen original spec; browser auth superseded by PRs #137-#141).
 
 `/timeline` is fail-open: the critical `v_daily` query returns 503 on failure, but optional sections (market, holdings, txns) degrade to `null` + a `errors: { market?, holdings?, txns? }` entry. Panels render explicit error cards — missing data never hides silently.
 
