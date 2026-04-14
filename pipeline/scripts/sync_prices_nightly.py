@@ -144,8 +144,10 @@ def _fetch_equity_rows(
     today: date,
 ) -> list[tuple[str, str, float]]:
     """Fetch (cached_max + 1, rolled back by refresh window) → today for each equity symbol."""
-    # Always reach back REFRESH_WINDOW_DAYS so Yahoo late corrections land even
-    # when cached_max has already reached today.
+    # Reach back REFRESH_WINDOW_DAYS so Yahoo late corrections land even when
+    # cached_max already covers today. The min() below also preserves the
+    # historical-gap case: if cached_max is further back than the tail (rare
+    # after a long outage), we still fetch from cached_max + 1 forward.
     refresh_floor = today - timedelta(days=REFRESH_WINDOW_DAYS - 1)
     ranges: dict[str, tuple[date, date]] = {}
     for sym in equity_syms:
