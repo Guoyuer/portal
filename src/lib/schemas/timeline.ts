@@ -5,6 +5,13 @@
 
 import { z } from "zod";
 
+import {
+  AllocationRowSchema,
+  FidelityTxnSchema as GeneratedFidelityTxnSchema,
+  QianjiTxnSchema as GeneratedQianjiTxnSchema,
+  TickerDetailSchema,
+} from "./_generated";
+
 // ── Sparkline transform (D1 stores sparkline as a JSON string) ───────────
 // Used by IndexReturnSchema below but also re-exported via the barrel so
 // both client and Worker can reuse the same transform.
@@ -53,52 +60,27 @@ const StockDetailSchema = z.object({
   vsHigh: z.number().nullable().default(null),
 });
 
-// ── Timemachine ─────────────────────────────────────────────────────────
-
-const DailyPointSchema = z.object({
-  date: z.string(),
-  total: z.number(),
-  usEquity: z.number(),
-  nonUsEquity: z.number(),
-  crypto: z.number(),
-  safeNet: z.number(),
-  liabilities: z.number().default(0),
-});
+// ── Timemachine (derived from generated AllocationRow) ─────────────────
+// DailyPoint is AllocationRow minus the nested `tickers` — those rows are
+// flattened into a top-level `dailyTickers` array at the D1-view layer.
+const DailyPointSchema = AllocationRowSchema.omit({ tickers: true });
 
 // ── Raw transaction schemas (bundled in /timeline) ──────────────────────
-
-const DailyTickerSchema = z.object({
+// DailyTicker = TickerDetail + `date` (denormalized from the parent row
+// when flattened for the API).
+const DailyTickerSchema = TickerDetailSchema.extend({
   date: z.string(),
-  ticker: z.string(),
-  value: z.number(),
-  category: z.string(),
-  subtype: z.string(),
-  costBasis: z.number(),
-  gainLoss: z.number(),
-  gainLossPct: z.number(),
 });
 
-const FidelityTxnSchema = z.object({
-  runDate: z.string(),
-  actionType: z.string(),
-  symbol: z.string(),
-  amount: z.number(),
-  quantity: z.number(),
-  price: z.number(),
-});
+// FidelityTxn is the pure 1:1 subset/rename of FidelityTransaction — use
+// the generated schema directly.
+const FidelityTxnSchema = GeneratedFidelityTxnSchema;
 
-const QianjiTxnSchema = z.object({
-  date: z.string(),
-  type: z.string(),
-  category: z.string(),
-  amount: z.number(),
-  // SQLite returns INTEGER; accept 0/1 and coerce to boolean. Mocks/tests may
-  // pass a bare boolean. Absent → false.
-  isRetirement: z
-    .union([z.boolean(), z.number()])
-    .optional()
-    .transform((v) => (v === undefined ? false : Boolean(v))),
-});
+// QianjiTxn's `isRetirement` uses the generator's coerce_bool mode:
+// D1 returns SQLite INTEGER 0/1 for logically-boolean columns (no native
+// BOOLEAN), so the schema accepts `boolean | number` and coerces via
+// Boolean(). Keeps the Worker a thin SELECT→JSON adapter.
+const QianjiTxnSchema = GeneratedQianjiTxnSchema;
 
 // ── Category metadata (target weights + display order from pipeline) ────
 
