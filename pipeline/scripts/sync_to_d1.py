@@ -62,6 +62,58 @@ _D1_COLUMNS: dict[str, list[str] | None] = {
     "daily_close": ["symbol", "date", "close"],
 }
 
+# Columns we intentionally DO NOT sync to D1 (redact / reduce payload).
+# Every column in the local schema must appear in either ``_D1_COLUMNS`` or
+# this opt-out set; otherwise ``_check_d1_column_drift`` refuses to run. This
+# forces a conscious decision when a new column lands in ``etl/db.py``.
+_D1_OMITTED: dict[str, set[str]] = {
+    "fidelity_transactions": {
+        "id", "account", "account_number", "action", "description",
+        "lot_type", "settlement_date",
+    },
+    "qianji_transactions": {"account", "note"},
+    "daily_close": set(),
+}
+
+
+def _check_d1_column_drift(conn: sqlite3.Connection) -> None:
+    """Abort sync if `_D1_COLUMNS` + `_D1_OMITTED` don't cover the local schema.
+
+    Catches the silent-drift bug class: someone adds a column to `etl/db.py`
+    but forgets to update `_D1_COLUMNS` here, so the new column never reaches
+    D1 and the Worker reads through a pre-migration view. Every table column
+    must be explicitly placed in exactly one bucket: synced (``_D1_COLUMNS``)
+    or intentionally dropped (``_D1_OMITTED``). A column in neither → raise.
+    """
+    errors: list[str] = []
+    for table, declared in _D1_COLUMNS.items():
+        if declared is None:
+            continue
+        actual = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}  # noqa: S608
+        declared_set = set(declared)
+        omitted = _D1_OMITTED.get(table, set())
+
+        missing_from_schema = declared_set - actual
+        if missing_from_schema:
+            errors.append(
+                f"{table}: _D1_COLUMNS references columns missing from local schema: "
+                f"{sorted(missing_from_schema)}"
+            )
+
+        unclassified = actual - declared_set - omitted
+        if unclassified:
+            errors.append(
+                f"{table}: new local column(s) not declared as either synced "
+                f"(_D1_COLUMNS) or intentionally omitted (_D1_OMITTED): "
+                f"{sorted(unclassified)}"
+            )
+    if errors:
+        msg = (
+            "_D1_COLUMNS / _D1_OMITTED drift detected in sync_to_d1.py:\n  "
+            + "\n  ".join(errors)
+        )
+        raise RuntimeError(msg)
+
 # Tables that use INSERT OR IGNORE in diff mode (append-only, have date PK)
 _DIFF_TABLES: set[str] = {"daily_close"}
 
@@ -142,7 +194,10 @@ def _dump_table_range(conn: sqlite3.Connection, table: str, date_expr: str, sinc
     columns = [desc[0] for desc in cursor.description]
     rows = cursor.fetchall()
 
-    lines: list[str] = [f"DELETE FROM {table} WHERE {date_expr} > '{since}';"]
+    # _escape quotes/escapes the cutoff identically to every row value, so the
+    # generated DELETE can't be broken by a typo'd `--since` argument (e.g.
+    # containing a single quote).
+    lines: list[str] = [f"DELETE FROM {table} WHERE {date_expr} > {_escape(since)};"]
     for row in rows:
         values = ", ".join(_escape(v) for v in row)
         lines.append(f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({values});")
@@ -204,6 +259,9 @@ def main() -> None:
     conn = sqlite3.connect(str(_DB_PATH))
     conn.row_factory = None  # ensure tuples
 
+    # Fail fast if the local schema has drifted from our column whitelist.
+    _check_d1_column_drift(conn)
+
     mode = "full" if args.full else "diff"
     since = args.since
     if mode == "diff" and since is None:
@@ -250,10 +308,15 @@ def main() -> None:
         print(combined)
         return
 
-    # Write to temp file and execute via wrangler
-    tmp = Path(tempfile.mktemp(suffix=".sql", prefix="d1_sync_"))
+    # Write to temp file and execute via wrangler. NamedTemporaryFile gets us
+    # a unique filename safely (mktemp() is deprecated and racy when two
+    # runners collide — e.g. Task Scheduler + manual invocation).
+    with tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", suffix=".sql", prefix="d1_sync_", delete=False,
+    ) as tmpf:
+        tmpf.write(combined)
+        tmp = Path(tmpf.name)
     try:
-        tmp.write_text(combined, encoding="utf-8")
         print(f"\nExecuting {total_rows} rows against D1 ({len(combined):,} bytes)...")
 
         # Use shell=True on Windows so npx.cmd is found
