@@ -29,6 +29,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from typing import cast
 
 import pandas as pd
 
@@ -225,13 +226,13 @@ def _add_robinhood(
     if not (rh_replay_fn and robinhood_csv):
         return {}
     rh_result = rh_replay_fn(robinhood_csv, as_of=current)
-    positions: dict[str, float] = rh_result["positions"]  # type: ignore[assignment]
+    positions = cast(dict[str, float], rh_result["positions"])
     for sym, qty in positions.items():
         if sym in prices.columns and price_date in prices.index:
             price = prices.loc[price_date, sym]
             if pd.notna(price):
                 ticker_values[sym] = ticker_values.get(sym, 0) + qty * float(price)
-    return rh_result.get("cost_basis", {})  # type: ignore[return-value]
+    return cast(dict[str, float], rh_result.get("cost_basis", {}))
 
 
 # ── Pure per-day step ──────────────────────────────────────────────────────
@@ -359,11 +360,11 @@ def _build_sources(
     robinhood_csv: Path | None,
 ) -> AllocationSources:
     """Load prices + config-derived routing tables into an AllocationSources."""
-    assets: dict[str, object] = config["assets"]  # type: ignore[assignment]
-    qj_accounts: dict[str, object] = config.get("qianji_accounts", {})  # type: ignore[assignment]
-    ticker_map: dict[str, str] = qj_accounts.get("ticker_map", {})  # type: ignore[assignment]
+    assets = cast(dict[str, object], config["assets"])
+    qj_accounts = cast(dict[str, object], config.get("qianji_accounts", {}))
+    ticker_map = cast(dict[str, str], qj_accounts.get("ticker_map", {}))
     ticker_map.setdefault("401k", "401k sp500")
-    fidelity_accounts: dict[str, str] = config.get("fidelity_accounts", {})  # type: ignore[assignment]
+    fidelity_accounts = cast(dict[str, str], config.get("fidelity_accounts", {}))
 
     rh_replay_fn: Callable[..., dict[str, object]] | None = (
         replay_robinhood if robinhood_csv and robinhood_csv.exists() else None

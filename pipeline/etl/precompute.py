@@ -8,6 +8,7 @@ import sqlite3
 from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
+from typing import cast
 
 from .types import TRADING_DAYS_MONTH, TRADING_DAYS_YEAR
 
@@ -182,7 +183,7 @@ def _precompute_fred(conn: sqlite3.Connection) -> None:
         return
 
     econ_count = 0
-    series: dict[str, list[dict[str, object]]] = fred["series"]  # type: ignore[assignment]
+    series = cast(dict[str, list[dict[str, object]]], fred["series"])
     for skey, points in series.items():
         for pt in points:
             conn.execute(

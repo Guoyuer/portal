@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from typing import cast
 
 from .types import EQUITY_CATEGORIES, Config, ConfigError
 
@@ -23,8 +24,10 @@ def validate_config(data: dict[str, object]) -> list[str]:
     if errors:
         return errors
 
-    assets: dict[str, object] = data["assets"]  # type: ignore[assignment]
-    weights: dict[str, object] = data["target_weights"]  # type: ignore[assignment]
+    # isinstance checks above confirm these are dicts; cast narrows for mypy
+    # without an extra runtime assertion.
+    assets = cast(dict[str, object], data["assets"])
+    weights = cast(dict[str, object], data["target_weights"])
     order = data.get("category_order", [])
 
     for ticker, info in assets.items():
