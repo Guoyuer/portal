@@ -10,9 +10,9 @@ import {
   type TimelineErrors,
 } from "../../src/lib/schemas";
 import {
-  corsHeaders,
   dbError,
-  isAllowedOrigin,
+  errorResponse,
+  notFoundResponse,
   settled,
   validatedResponse,
 } from "./utils";
@@ -23,7 +23,7 @@ interface Env {
 
 // ── /timeline ────────────────────────────────────────────────────────────
 
-async function handleTimeline(env: Env, origin: string | null): Promise<Response> {
+async function handleTimeline(env: Env): Promise<Response> {
   // Critical: `daily` and `categories` must succeed — the allocation UI is
   // unusable without either. Everything else can fail-open.
   let daily;
@@ -34,21 +34,15 @@ async function handleTimeline(env: Env, origin: string | null): Promise<Response
       env.DB.prepare("SELECT * FROM v_categories").all(),
     ]);
   } catch (e) {
-    return dbError(origin, e);
+    return dbError(e);
   }
 
   if (!daily.results.length) {
-    return Response.json(
-      { error: "No data available" },
-      { status: 503, headers: corsHeaders(origin) },
-    );
+    return errorResponse({ error: "No data available" }, 503);
   }
 
   if (!categories.results.length) {
-    return Response.json(
-      { error: "No category metadata" },
-      { status: 503, headers: corsHeaders(origin) },
-    );
+    return errorResponse({ error: "No category metadata" }, 503);
   }
 
   // Optional queries — each failure becomes a null section + errors entry.
@@ -97,12 +91,12 @@ async function handleTimeline(env: Env, origin: string | null): Promise<Response
     errors,
   };
 
-  return validatedResponse(TimelineDataSchema, payload, origin);
+  return validatedResponse(TimelineDataSchema, payload);
 }
 
 // ── /econ ────────────────────────────────────────────────────────────────
 
-async function handleEcon(env: Env, origin: string | null): Promise<Response> {
+async function handleEcon(env: Env): Promise<Response> {
   try {
     const [seriesRows, snapshotRows, syncMetaRows] = await Promise.all([
       env.DB.prepare("SELECT key, points FROM v_econ_series_grouped").all(),
@@ -132,15 +126,15 @@ async function handleEcon(env: Env, origin: string | null): Promise<Response> {
       snapshot,
       series,
     };
-    return validatedResponse(EconDataSchema, payload, origin);
+    return validatedResponse(EconDataSchema, payload);
   } catch (e) {
-    return dbError(origin, e);
+    return dbError(e);
   }
 }
 
 // ── /prices/:symbol ──────────────────────────────────────────────────────
 
-async function handlePrices(env: Env, origin: string | null, symbol: string): Promise<Response> {
+async function handlePrices(env: Env, symbol: string): Promise<Response> {
   try {
     const [priceRows, txnRows] = await Promise.all([
       env.DB.prepare("SELECT date, close FROM daily_close WHERE symbol = ? ORDER BY date")
@@ -154,9 +148,9 @@ async function handlePrices(env: Env, origin: string | null, symbol: string): Pr
       prices: priceRows.results,
       transactions: txnRows.results,
     };
-    return validatedResponse(TickerPriceResponseSchema, payload, origin);
+    return validatedResponse(TickerPriceResponseSchema, payload);
   } catch (e) {
-    return dbError(origin, e);
+    return dbError(e);
   }
 }
 
@@ -164,15 +158,6 @@ async function handlePrices(env: Env, origin: string | null, symbol: string): Pr
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    const origin = request.headers.get("Origin");
-
-    if (request.method === "OPTIONS") {
-      if (!isAllowedOrigin(origin)) {
-        return new Response(null, { status: 403 });
-      }
-      return new Response(null, { status: 204, headers: corsHeaders(origin) });
-    }
-
     const url = new URL(request.url);
     // In prod the Worker is mounted at `portal.guoyuer.com/api/*` so requests
     // arrive with an `/api` prefix; strip it so the rest of this handler and
@@ -185,16 +170,16 @@ export default {
       pathname = pathname.slice(API_PREFIX.length) || "/";
     }
 
-    if (pathname === "/econ") return handleEcon(env, origin);
+    if (pathname === "/econ") return handleEcon(env);
 
     const priceMatch = pathname.match(/^\/prices\/([A-Za-z0-9.^=-]+)$/);
     if (priceMatch) {
       const symbol = decodeURIComponent(priceMatch[1]).toUpperCase();
-      return handlePrices(env, origin, symbol);
+      return handlePrices(env, symbol);
     }
 
-    if (pathname === "/timeline") return handleTimeline(env, origin);
+    if (pathname === "/timeline") return handleTimeline(env);
 
-    return new Response("Not found", { status: 404, headers: corsHeaders(origin) });
+    return notFoundResponse();
   },
 } satisfies ExportedHandler<Env>;

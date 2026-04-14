@@ -17,16 +17,6 @@ interface Env {
   SMTP_PASSWORD: string;
 }
 
-function corsHeaders(): Headers {
-  const h = new Headers();
-  // Same origin after the migration — the browser does not need CORS to talk
-  // to /api/mail/* on portal.guoyuer.com. These headers remain as a no-op
-  // safety net (and still apply on the portal-mail.guoyuer.com sync path,
-  // which is server-to-server and ignores them anyway).
-  h.set("Cache-Control", "no-store");
-  return h;
-}
-
 // ── IMAP client (Gmail-specific, minimal) ────────────────────────────────────
 
 const enc = new TextEncoder();
@@ -163,9 +153,11 @@ export default {
     }
     if (pathname === "/api/mail/list" && request.method === "GET") {
       const rows = await listActiveLast7Days(env.DB);
+      // Cache-Control: no-store so the browser re-fetches fresh state after a
+      // trash action (the optimistic UI rollback relies on a follow-up list).
       return Response.json(
         { emails: rows, as_of: new Date().toISOString() },
-        { headers: corsHeaders() },
+        { headers: { "Cache-Control": "no-store" } },
       );
     }
     if (pathname === "/api/mail/trash" && request.method === "POST") {
@@ -173,28 +165,28 @@ export default {
       try {
         body = await request.json();
       } catch {
-        return Response.json({ error: "invalid json" }, { status: 400, headers: corsHeaders() });
+        return Response.json({ error: "invalid json" }, { status: 400 });
       }
       if (!body.msg_id) {
-        return Response.json({ error: "missing msg_id" }, { status: 400, headers: corsHeaders() });
+        return Response.json({ error: "missing msg_id" }, { status: 400 });
       }
 
       const result = await imapTrashMessage(env.SMTP_USER, env.SMTP_PASSWORD, body.msg_id);
 
       if (result === "trashed") {
         await markTrashed(env.DB, body.msg_id);
-        return Response.json({ status: "trashed" }, { headers: corsHeaders() });
+        return Response.json({ status: "trashed" });
       }
       if (result === "not_found") {
         // Email already gone from Gmail (user trashed elsewhere). Update D1 to match.
         await markTrashed(env.DB, body.msg_id);
-        return Response.json({ status: "already_gone" }, { headers: corsHeaders() });
+        return Response.json({ status: "already_gone" });
       }
       if (result === "auth_failed") {
-        return Response.json({ status: "auth_failed" }, { status: 503, headers: corsHeaders() });
+        return Response.json({ status: "auth_failed" }, { status: 503 });
       }
-      return Response.json({ status: "error" }, { status: 503, headers: corsHeaders() });
+      return Response.json({ status: "error" }, { status: 503 });
     }
-    return new Response("Not found", { status: 404, headers: corsHeaders() });
+    return new Response("Not found", { status: 404 });
   },
 } satisfies ExportedHandler<Env>;
