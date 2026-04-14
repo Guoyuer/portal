@@ -172,3 +172,100 @@ class TestComputeIncStart:
             date(2026, 4, 14), date(2026, 4, 20), date(2026, 4, 14),
         )
         assert inc > date(2026, 4, 14)
+
+
+# ── _build_refresh_window orchestration (integration smoke) ────────────────
+
+
+class TestBuildRefreshWindowOrchestration:
+    """End-to-end wiring of `_build_refresh_window`.
+
+    compute_daily_allocation has extensive unit tests. compute_inc_start has
+    its own. This class covers the glue: does the wrapper read `last` from
+    the DB, pass the correct (inc_start, end) downstream, and upsert results?
+    """
+
+    def _seeded_db(self, tmp_path, last_date: str):
+        """Return a BuildPaths backed by a DB with one computed_daily row."""
+        from scripts.build_timemachine_db import BuildPaths
+        paths = BuildPaths(data_dir=tmp_path, config=tmp_path / "cfg.json",
+                           downloads=tmp_path, csv=None)
+        init_db(paths.db_path)  # property → tmp_path/timemachine.db
+        conn = get_connection(paths.db_path)
+        conn.execute(
+            "INSERT INTO computed_daily (date, total, us_equity, non_us_equity,"
+            " crypto, safe_net, liabilities) VALUES (?, 100000, 60000, 15000, 5000, 20000, 0)",
+            (last_date,),
+        )
+        conn.commit()
+        conn.close()
+        return paths
+
+    def test_passes_correct_range_to_compute(self, tmp_path, monkeypatch):
+        """Wrapper reads last=2026-04-13, end=2026-04-14 → inc_start=2026-04-08."""
+        from scripts import build_timemachine_db
+
+        paths = self._seeded_db(tmp_path, "2026-04-13")
+
+        captured: dict[str, object] = {}
+
+        def _fake_compute(*args, **kwargs):
+            captured["inc_start"] = args[4]  # positional: db_path, qj_db, config, k401, start, end
+            captured["end"] = args[5]
+            return []
+
+        monkeypatch.setattr(build_timemachine_db, "compute_daily_allocation", _fake_compute)
+        monkeypatch.setattr(build_timemachine_db, "precompute_market", lambda _p: None)
+        monkeypatch.setattr(build_timemachine_db, "precompute_holdings_detail", lambda _p: None)
+
+        build_timemachine_db._build_refresh_window(
+            paths, {}, date(2023, 1, 1), date(2026, 4, 14), {}, no_validate=True,
+        )
+        assert captured["inc_start"] == date(2026, 4, 8)  # refresh_window_start(2026-04-14)
+        assert captured["end"] == date(2026, 4, 14)
+
+    def test_falls_back_to_full_build_when_db_empty(self, tmp_path, monkeypatch):
+        """No rows in computed_daily → full rebuild from `start`."""
+        from scripts import build_timemachine_db
+        from scripts.build_timemachine_db import BuildPaths, _build_refresh_window
+
+        paths = BuildPaths(data_dir=tmp_path, config=tmp_path / "cfg.json",
+                           downloads=tmp_path, csv=None)
+        init_db(paths.db_path)  # empty
+
+        called = {"full_build": False}
+
+        def _fake_full(*args, **kwargs):
+            called["full_build"] = True
+            return []
+
+        monkeypatch.setattr(build_timemachine_db, "_full_build", _fake_full)
+        _build_refresh_window(paths, {}, date(2023, 1, 1), date(2026, 4, 14), {})
+        assert called["full_build"] is True
+
+    def test_upserts_returned_rows(self, tmp_path, monkeypatch):
+        """Rows returned by compute_daily_allocation land in computed_daily."""
+        from scripts import build_timemachine_db
+
+        paths = self._seeded_db(tmp_path, "2026-04-13")
+        monkeypatch.setattr(build_timemachine_db, "compute_daily_allocation",
+                            lambda *a, **kw: [{
+                                "date": "2026-04-14", "total": 105000,
+                                "us_equity": 62000, "non_us_equity": 15500,
+                                "crypto": 5500, "safe_net": 22000, "liabilities": 0,
+                                "tickers": [],
+                            }])
+        monkeypatch.setattr(build_timemachine_db, "precompute_market", lambda _p: None)
+        monkeypatch.setattr(build_timemachine_db, "precompute_holdings_detail", lambda _p: None)
+
+        build_timemachine_db._build_refresh_window(
+            paths, {}, date(2023, 1, 1), date(2026, 4, 14), {}, no_validate=True,
+        )
+        # The new row should be in the DB.
+        conn = get_connection(paths.db_path)
+        row = conn.execute(
+            "SELECT total FROM computed_daily WHERE date = '2026-04-14'"
+        ).fetchone()
+        conn.close()
+        assert row is not None
+        assert row[0] == 105000
