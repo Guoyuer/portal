@@ -1,7 +1,7 @@
 """Tests for prices.py: price loading, caching, and holding periods."""
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
@@ -362,7 +362,7 @@ class TestFetchGateRefreshesRecentWindow:
 
     def test_fetch_uses_refresh_window_not_full_history(self, tmp_path: Path) -> None:
         """When history is covered, fetch only the recent window (not from hp_start)."""
-        from etl.prices import REFRESH_WINDOW_DAYS
+        from etl.refresh import refresh_window_start
 
         db_path = tmp_path / "test.db"
         init_db(db_path)
@@ -381,8 +381,8 @@ class TestFetchGateRefreshesRecentWindow:
             fetch_and_store_prices(db_path, {"VOO": (date(2024, 1, 15), None)}, end)
             assert mock_dl.called
             start_d = date.fromisoformat(mock_dl.call_args.kwargs["start"])
-            # Should be exactly the refresh floor (not hp_start 2024-01-15)
-            assert start_d == end - timedelta(days=REFRESH_WINDOW_DAYS)
+            # Should be exactly the refresh-window start (not hp_start 2024-01-15)
+            assert start_d == refresh_window_start(end)
 
     def test_fetch_triggered_when_cache_missing_entirely(self, tmp_path: Path) -> None:
         """New symbol with no cache → fetch full range from hp_start."""

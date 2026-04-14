@@ -14,18 +14,14 @@ import yfinance as yf
 
 from .db import get_connection
 from .parsing import parse_us_date
+from .refresh import REFRESH_WINDOW_DAYS, refresh_window_start
 from .timemachine import MM_SYMBOLS, POSITION_PREFIXES, _load_raw_rows, _parse_date
 from .types import parse_float as _float
 
-# ── Daily-close write invariant ─────────────────────────────────────────────
-
-REFRESH_WINDOW_DAYS = 7
-"""Dates within this many days of ``end`` may be refreshed (Yahoo publishes late
-corrections for the most recent few sessions). Older dates are treated as
-immutable historical fact — once stored, ``_persist_close`` refuses to overwrite
-them. This protects the DB from future fetches that return partial or wrong
-data (observed: transient Yahoo flakiness; also guards against logic bugs in
-``_reverse_split_factor`` corrupting already-correct rows)."""
+# ``REFRESH_WINDOW_DAYS`` and the refresh-window arithmetic live in
+# ``etl.refresh``. Re-imported at module scope so existing callers that
+# reference ``etl.prices.REFRESH_WINDOW_DAYS`` keep working.
+_ = REFRESH_WINDOW_DAYS  # keep re-export even if unused in this module's body
 
 
 def _persist_close(
@@ -204,15 +200,15 @@ def fetch_and_store_prices(
             fetch_start = min(hp_start, global_start) if global_start else hp_start
             need_end = hp_end or end
             cached_lo, cached_hi = _cached_range(conn, sym)
-            refresh_start = max(fetch_start, need_end - timedelta(days=REFRESH_WINDOW_DAYS))
+            window_start = max(fetch_start, refresh_window_start(need_end))
             if cached_lo is None or cached_lo > fetch_start:
                 # Historical gap — fetch the full range.
                 to_fetch[sym] = (fetch_start, need_end)
             else:
                 # History covered — always refresh the recent window so new
                 # trading days and intraday updates land. _persist_close keeps
-                # dates older than refresh_cutoff immutable, so this is idempotent.
-                to_fetch[sym] = (refresh_start, need_end)
+                # dates older than the window immutable, so this is idempotent.
+                to_fetch[sym] = (window_start, need_end)
 
         if to_fetch:
             batch_start = min(s for s, _ in to_fetch.values())
@@ -244,7 +240,7 @@ def fetch_and_store_prices(
             # Fetch split data to reverse Yahoo's retroactive split adjustment
             split_factors = _build_split_factors(sorted(syms))
 
-            refresh_cutoff_iso = (end - timedelta(days=REFRESH_WINDOW_DAYS)).isoformat()
+            refresh_cutoff_iso = refresh_window_start(end).isoformat()
             new_historical = refreshed_recent = 0
             for sym in close_df.columns:
                 hp_start, hp_end_raw = holding_periods.get(sym, (batch_start, None))
@@ -279,7 +275,7 @@ def fetch_and_store_cny_rates(db_path: Path, start: date, end: date) -> None:
     partial or wrong Yahoo response cannot corrupt already-captured history.
     """
     sym = "CNY=X"
-    refresh_cutoff_iso = (end - timedelta(days=REFRESH_WINDOW_DAYS)).isoformat()
+    refresh_cutoff_iso = refresh_window_start(end).isoformat()
     conn = get_connection(db_path)
     try:
         print(f"Fetching USD/CNY rates {start} -> {end}...")
