@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from ..parsing import parse_us_date
+from ..types import RobinhoodReplayResult
 from ..types import parse_float as _parse_float
 
 
@@ -63,7 +64,7 @@ def load_robinhood_csv(csv_path: Path) -> list[dict[str, Any]]:
     return rows
 
 
-def replay_robinhood(csv_path: Path, as_of: date | None = None) -> dict[str, Any]:
+def replay_robinhood(csv_path: Path, as_of: date | None = None) -> RobinhoodReplayResult:
     """Replay Robinhood transactions up to as_of, return positions and cost basis.
 
     Returns:
@@ -111,9 +112,9 @@ def replay_robinhood(csv_path: Path, as_of: date | None = None) -> dict[str, Any
     positions = {k: round(v, 6) for k, v in positions.items() if abs(v) > 0.001}
     cost_basis = {k: round(v, 2) for k, v in cost_basis.items() if k in positions}
 
-    return {
-        "positions": positions,
-        "cost_basis": cost_basis,
-        "cash": round(cash, 2),
-        "dividends": round(dividends, 2),
-    }
+    return RobinhoodReplayResult(
+        positions=positions,
+        cost_basis=cost_basis,
+        cash=round(cash, 2),
+        dividends=round(dividends, 2),
+    )
