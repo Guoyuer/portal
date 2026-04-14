@@ -2,8 +2,6 @@
 // Pure helpers used by the main Worker entrypoint. Kept separate so tests
 // can import without pulling in the default handler.
 
-import type { z } from "zod";
-
 // Worker is mounted same-origin as Pages in prod (portal.guoyuer.com/api/*),
 // so the browser never applies CORS. The wildcard Allow-Origin keeps cross-
 // origin local dev (Next at :3000 → wrangler dev at :8787) working without
@@ -13,19 +11,12 @@ const RESPONSE_HEADERS: HeadersInit = {
   "Cache-Control": "no-cache",
 };
 
-export function validatedResponse<T>(
-  schema: z.ZodType<T>,
-  payload: unknown,
-): Response {
-  const parsed = schema.safeParse(payload);
-  if (!parsed.success) {
-    const detail = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
-    return Response.json(
-      { error: "schema drift", detail },
-      { status: 500, headers: RESPONSE_HEADERS },
-    );
-  }
-  return Response.json(parsed.data, { headers: RESPONSE_HEADERS });
+/** Success JSON response. No runtime schema validation — the frontend's
+ *  Zod parse in ``use-bundle.ts`` is the single source of truth for drift
+ *  detection; validating twice on the same shared schema was pure CPU tax
+ *  (~200ms per ``/timeline`` call on the 4.6 MB payload). */
+export function jsonResponse(payload: unknown): Response {
+  return Response.json(payload, { headers: RESPONSE_HEADERS });
 }
 
 export function dbError(e: unknown): Response {

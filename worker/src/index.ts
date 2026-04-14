@@ -1,21 +1,22 @@
 // ── Worker: thin API adapter over D1 ─────────────────────────────────────
-// All data-shape work lives in D1 views; this file is SELECT → Zod validate → JSON.
+// All data-shape work lives in D1 views; this file is SELECT → shape → JSON.
 // Critical (daily) failures return 503; optional (market/holdings/txns) failures
 // degrade to null + a human-readable entry in `errors`.
+//
+// Schema drift is checked once, on the frontend (use-bundle.ts). The Worker
+// does NOT re-validate the payload with Zod — doubling the parse on the
+// shared schema burned ~200ms CPU per /timeline call with zero extra
+// safety, because both sides run the exact same definitions from
+// src/lib/schemas.
 
-import {
-  TimelineDataSchema,
-  TickerPriceResponseSchema,
-  EconDataSchema,
-  type TimelineErrors,
-} from "../../src/lib/schemas";
+import type { TimelineErrors } from "../../src/lib/schemas";
 import {
   cachedJson,
   dbError,
   errorResponse,
+  jsonResponse,
   notFoundResponse,
   settled,
-  validatedResponse,
 } from "./utils";
 
 interface Env {
@@ -92,7 +93,7 @@ async function handleTimeline(env: Env): Promise<Response> {
     errors,
   };
 
-  return validatedResponse(TimelineDataSchema, payload);
+  return jsonResponse(payload);
 }
 
 // ── /econ ────────────────────────────────────────────────────────────────
@@ -127,7 +128,7 @@ async function handleEcon(env: Env): Promise<Response> {
       snapshot,
       series,
     };
-    return validatedResponse(EconDataSchema, payload);
+    return jsonResponse(payload);
   } catch (e) {
     return dbError(e);
   }
@@ -149,7 +150,7 @@ async function handlePrices(env: Env, symbol: string): Promise<Response> {
       prices: priceRows.results,
       transactions: txnRows.results,
     };
-    return validatedResponse(TickerPriceResponseSchema, payload);
+    return jsonResponse(payload);
   } catch (e) {
     return dbError(e);
   }
