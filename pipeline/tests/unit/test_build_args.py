@@ -13,21 +13,6 @@ from scripts.build_timemachine_db import BuildPaths, _parse_args, _resolve_paths
 
 
 class TestParseArgs:
-    def test_mode_defaults_to_none(self):
-        """`mode` is deprecated and ignored — default None."""
-        args = _parse_args([])
-        assert args.mode is None
-
-    def test_legacy_incremental_accepted(self):
-        """Backward compat: `incremental` string still parses."""
-        args = _parse_args(["incremental"])
-        assert args.mode == "incremental"
-
-    def test_legacy_full_accepted(self):
-        """Backward compat: `full` string still parses (no-ops)."""
-        args = _parse_args(["full"])
-        assert args.mode == "full"
-
     def test_csv_flag(self, tmp_path):
         csv = tmp_path / "test.csv"
         csv.touch()
@@ -54,12 +39,6 @@ class TestParseArgs:
     def test_downloads_override(self, tmp_path):
         args = _parse_args(["--downloads", str(tmp_path)])
         assert args.downloads == tmp_path
-
-    def test_mode_with_flags(self):
-        args = _parse_args(["incremental", "--no-validate"])
-        assert args.mode == "incremental"
-        assert args.no_validate is True
-
 
 class TestResolvePaths:
     def test_default_paths(self):

@@ -7,6 +7,8 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from .types import AllocationRow
+
 # ── Schema DDL ───────────────────────────────────────────────────────────────
 
 _TABLES = """
@@ -323,7 +325,7 @@ def get_last_computed_date(db_path: Path) -> date | None:
         conn.close()
 
 
-def upsert_daily_rows(db_path: Path, rows: list[dict[str, object]]) -> int:
+def upsert_daily_rows(db_path: Path, rows: list[AllocationRow]) -> int:
     """Upsert rows into computed_daily + computed_daily_tickers.
 
     Overwrites existing rows for the same date. Incremental builds recompute
@@ -344,10 +346,9 @@ def upsert_daily_rows(db_path: Path, rows: list[dict[str, object]]) -> int:
                 " (date, total, us_equity, non_us_equity, crypto, safe_net, liabilities)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (r["date"], r["total"], r["us_equity"], r["non_us_equity"],
-                 r["crypto"], r["safe_net"], r.get("liabilities", 0)),
+                 r["crypto"], r["safe_net"], r["liabilities"]),
             )
-            tickers: list[dict[str, object]] = r.get("tickers") or []  # type: ignore[assignment]
-            for t in tickers:
+            for t in r["tickers"]:
                 conn.execute(
                     "INSERT OR REPLACE INTO computed_daily_tickers"
                     " (date, ticker, value, category, subtype, cost_basis, gain_loss, gain_loss_pct)"

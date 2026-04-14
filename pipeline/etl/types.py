@@ -116,6 +116,31 @@ class QianjiRecord(TypedDict):
     note: str
 
 
+class TickerDetail(TypedDict):
+    """One ticker's contribution on a given day (child of AllocationRow)."""
+    ticker: str
+    value: float
+    category: str
+    subtype: str
+    cost_basis: float
+    gain_loss: float
+    gain_loss_pct: float
+
+
+class AllocationRow(TypedDict):
+    """One day's full portfolio allocation, as produced by
+    :func:`etl.allocation.step_one_day` and consumed by
+    :func:`etl.db.upsert_daily_rows`."""
+    date: str
+    total: float
+    us_equity: float
+    non_us_equity: float
+    crypto: float
+    safe_net: float
+    liabilities: float
+    tickers: list[TickerDetail]
+
+
 # ── Exceptions ──────────────────────────────────────────────────────────────
 
 
