@@ -86,6 +86,26 @@ class Config(TypedDict):
     fidelity_accounts: NotRequired[dict[str, str]]
 
 
+class RawConfig(TypedDict, total=False):
+    """Raw shape of config.json as it sits on disk. Matches the JSON keys
+    directly (unlike :class:`Config`, which is the normalized form produced
+    by :func:`etl.config.load_config` with renamed / defaulted fields).
+
+    The pipeline mostly reads the raw form because it wants the original
+    key names (``target_weights`` vs ``weights``, ``category_order`` vs
+    ``order``) and a few raw-only fields (``retirement_income_categories``).
+    All fields are optional via ``total=False``; callers use ``.get()``.
+    """
+    assets: dict[str, AssetInfo]
+    target_weights: dict[str, float]
+    category_order: list[str]
+    aliases: dict[str, str]
+    goal: float
+    qianji_accounts: QianjiAccountsConfig
+    fidelity_accounts: dict[str, str]
+    retirement_income_categories: list[str]
+
+
 # ── Record types (parsed from CSV/DB) ──────────────────────────────────────
 
 
@@ -114,6 +134,14 @@ class QianjiRecord(TypedDict):
     account_from: str
     account_to: str
     note: str
+
+
+class RobinhoodReplayResult(TypedDict):
+    """Return shape of :func:`etl.ingest.robinhood_history.replay_robinhood`."""
+    positions: dict[str, float]
+    cost_basis: dict[str, float]
+    cash: float
+    dividends: float
 
 
 class TickerDetail(TypedDict):

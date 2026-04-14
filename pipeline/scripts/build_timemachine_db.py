@@ -65,7 +65,7 @@ from etl.prices import (
 )
 from etl.refresh import refresh_window_start
 from etl.timemachine import DEFAULT_QJ_DB
-from etl.types import AllocationRow
+from etl.types import AllocationRow, RawConfig
 from etl.validate import Severity, validate_build
 
 # ── Paths ────────────────────────────────────────────────────────────────────
@@ -123,9 +123,19 @@ def _resolve_paths(args: argparse.Namespace) -> BuildPaths:
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 
-def _load_config(path: Path) -> dict[str, object]:
-    data: dict[str, object] = json.loads(path.read_text(encoding="utf-8"))
-    return data
+def _load_config(path: Path) -> RawConfig:
+    """Parse config.json into a typed ``RawConfig`` TypedDict.
+
+    Validation is best-effort: TypedDict doesn't enforce structure at runtime,
+    but downstream typed access via ``.get()`` + TypedDict field types gives
+    mypy enough narrowing to drop the ``cast()`` calls that used to surround
+    every field read.
+    """
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        msg = f"Config root must be an object, got {type(data).__name__}"
+        raise ValueError(msg)
+    return data  # type: ignore[return-value]  # shape-validated at runtime by `etl.config.validate_config` on first downstream use
 
 
 def _ingest_fidelity_csvs(paths: BuildPaths) -> None:
@@ -236,7 +246,7 @@ def _derive_start_date(paths: BuildPaths, fallback: date) -> date:
 
 def _init_db_and_ingest_sources(
     paths: BuildPaths,
-    config: dict[str, object],
+    config: RawConfig,
 ) -> tuple[list[QuarterSnapshot], list[Contribution]]:
     """Steps 1-3: init DB, ingest Fidelity + Empower 401k sources.
 
@@ -355,7 +365,7 @@ def _compute_401k_daily(
 
 def _ingest_and_fetch(
     paths: BuildPaths,
-    config: dict[str, object],
+    config: RawConfig,
     end: date,
 ) -> dict[date, dict[str, float]]:
     """Steps 1-5: init DB, ingest sources, fetch prices, build 401k daily map."""
@@ -381,7 +391,7 @@ def _print_summary(alloc: list[AllocationRow]) -> None:
 
 def _full_build(
     paths: BuildPaths,
-    config: dict[str, object],
+    config: RawConfig,
     start: date,
     end: date,
     k401_daily: dict[date, dict[str, float]],
@@ -418,10 +428,7 @@ def _full_build(
 
     # Ingest Qianji transactions for /cashflow endpoint
     qianji_records, _ = load_all_from_db(DEFAULT_QJ_DB)
-    raw_cats = config.get("retirement_income_categories") or []
-    retirement_cats: list[str] = (
-        [str(x) for x in raw_cats] if isinstance(raw_cats, list) else []
-    )
+    retirement_cats = list(config.get("retirement_income_categories") or [])
     qj_count = ingest_qianji_transactions(
         paths.db_path, qianji_records, retirement_categories=retirement_cats,
     )
@@ -466,7 +473,7 @@ def compute_inc_start(last: date, start: date, end: date) -> date:
 
 def _build_refresh_window(
     paths: BuildPaths,
-    config: dict[str, object],
+    config: RawConfig,
     start: date,
     end: date,
     k401_daily: dict[date, dict[str, float]],

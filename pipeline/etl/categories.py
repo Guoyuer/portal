@@ -8,9 +8,9 @@ names; this module bridges the two.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from .db import get_connection
+from .types import RawConfig
 
 # ── Public API ──────────────────────────────────────────────────────────────
 
@@ -23,30 +23,15 @@ CATEGORY_NAME_TO_KEY: dict[str, str] = {
 }
 
 
-def ingest_categories(db_path: Path, config: dict[str, Any]) -> int:
+def ingest_categories(db_path: Path, config: RawConfig) -> int:
     """Replace the categories table from config.json's target_weights + order.
 
-    Parameters
-    ----------
-    db_path
-        Path to timemachine.db.
-    config
-        Parsed config.json dict. Reads ``target_weights`` (dict[name, pct])
-        and ``category_order`` (list of names).
-
-    Returns
-    -------
-    int
-        Number of rows written.
-
-    Notes
-    -----
-    Names not mapped in :data:`CATEGORY_NAME_TO_KEY` are skipped (not an error —
-    the pipeline is forward-compatible with future categories that lack a
-    frontend key yet).
+    Names not mapped in :data:`CATEGORY_NAME_TO_KEY` are skipped (not an
+    error — the pipeline is forward-compatible with future categories that
+    lack a frontend key yet). Returns rows written.
     """
-    weights: dict[str, float] = config.get("target_weights", {}) or {}
-    order: list[str] = config.get("category_order", []) or list(weights.keys())
+    weights = config.get("target_weights", {})
+    order = config.get("category_order") or list(weights.keys())
 
     rows: list[tuple[str, str, int, float]] = []
     display_order = 0

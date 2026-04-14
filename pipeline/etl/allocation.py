@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -40,7 +40,7 @@ from .timemachine import (
     replay_qianji,
     replay_qianji_currencies,
 )
-from .types import AllocationRow, TickerDetail
+from .types import AllocationRow, AssetInfo, RawConfig, RobinhoodReplayResult, TickerDetail
 
 log = logging.getLogger(__name__)
 
@@ -90,7 +90,7 @@ def _find_price_date(prices: pd.DataFrame, target: date) -> date:
 def _categorize_ticker(
     ticker: str,
     value: float,
-    assets: dict[str, object],
+    assets: Mapping[str, AssetInfo],
     cost_basis_by_ticker: dict[str, float],
 ) -> TickerDetail:
     """Classify a single ticker into a detail row with category/subtype/gain-loss."""
@@ -101,7 +101,7 @@ def _categorize_ticker(
             cost_basis=0, gain_loss=0, gain_loss_pct=0,
         )
     asset_entry = assets.get(ticker)
-    if not isinstance(asset_entry, dict):
+    if asset_entry is None:
         raise KeyError(f"Ticker {ticker!r} not in config.assets — add it to config.json to classify this holding")
     cat = asset_entry.get("category", "")
     sub = asset_entry.get("subtype", "")
@@ -165,7 +165,7 @@ def _add_fidelity_positions(
 def _add_fidelity_cash(
     ticker_values: dict[str, float],
     fidelity_cash: dict[str, float],
-    fidelity_accounts: dict[str, str],
+    fidelity_accounts: Mapping[str, str],
 ) -> None:
     """Route Fidelity cash balances to each account's money market fund ticker (fallback FZFXX)."""
     for acct_num, bal in fidelity_cash.items():
@@ -178,7 +178,7 @@ def _add_qianji_balances(
     qj_balances: dict[str, float],
     currencies: dict[str, str],
     ticker_map: dict[str, str],
-    assets: dict[str, object],
+    assets: Mapping[str, AssetInfo],
     cny_rate: float,
     skip_accounts: frozenset[str],
 ) -> None:
@@ -215,7 +215,7 @@ def _add_401k(
 
 def _add_robinhood(
     ticker_values: dict[str, float],
-    rh_replay_fn: Callable[..., dict[str, object]] | None,
+    rh_replay_fn: Callable[..., RobinhoodReplayResult] | None,
     robinhood_csv: Path | None,
     current: date,
     prices: pd.DataFrame,
@@ -225,13 +225,12 @@ def _add_robinhood(
     if not (rh_replay_fn and robinhood_csv):
         return {}
     rh_result = rh_replay_fn(robinhood_csv, as_of=current)
-    positions: dict[str, float] = rh_result["positions"]  # type: ignore[assignment]
-    for sym, qty in positions.items():
+    for sym, qty in rh_result["positions"].items():
         if sym in prices.columns and price_date in prices.index:
             price = prices.loc[price_date, sym]
             if pd.notna(price):
                 ticker_values[sym] = ticker_values.get(sym, 0) + qty * float(price)
-    return rh_result.get("cost_basis", {})  # type: ignore[return-value]
+    return rh_result["cost_basis"]
 
 
 # ── Pure per-day step ──────────────────────────────────────────────────────
@@ -249,13 +248,13 @@ class AllocationSources:
 
     prices: pd.DataFrame
     cny_rates: dict[date, float]
-    assets: dict[str, object]
+    assets: Mapping[str, AssetInfo]
     ticker_map: dict[str, str]
-    fidelity_accounts: dict[str, str]
+    fidelity_accounts: Mapping[str, str]
     qianji_currencies: dict[str, str]
     skip_qj_accounts: frozenset[str]
     k401_daily: dict[date, dict[str, float]]
-    rh_replay_fn: Callable[..., dict[str, object]] | None = None
+    rh_replay_fn: Callable[..., RobinhoodReplayResult] | None = None
     robinhood_csv: Path | None = None
 
 
@@ -316,7 +315,7 @@ def step_one_day(
 def _build_allocation_row(
     current: date,
     ticker_values: dict[str, float],
-    assets: dict[str, object],
+    assets: Mapping[str, AssetInfo],
     cost_basis_by_ticker: dict[str, float],
 ) -> AllocationRow:
     """Categorize each non-zero ticker and produce the per-day allocation dict."""
@@ -354,18 +353,18 @@ def _build_allocation_row(
 def _build_sources(
     db_path: Path,
     qj_db: Path,
-    config: dict[str, object],
+    config: RawConfig,
     k401_daily: dict[date, dict[str, float]],
     robinhood_csv: Path | None,
 ) -> AllocationSources:
     """Load prices + config-derived routing tables into an AllocationSources."""
-    assets: dict[str, object] = config["assets"]  # type: ignore[assignment]
-    qj_accounts: dict[str, object] = config.get("qianji_accounts", {})  # type: ignore[assignment]
-    ticker_map: dict[str, str] = qj_accounts.get("ticker_map", {})  # type: ignore[assignment]
+    assets = config.get("assets", {})
+    qj_accounts = config.get("qianji_accounts", {})
+    ticker_map = dict(qj_accounts.get("ticker_map", {}))
     ticker_map.setdefault("401k", "401k sp500")
-    fidelity_accounts: dict[str, str] = config.get("fidelity_accounts", {})  # type: ignore[assignment]
+    fidelity_accounts = config.get("fidelity_accounts", {})
 
-    rh_replay_fn: Callable[..., dict[str, object]] | None = (
+    rh_replay_fn: Callable[..., RobinhoodReplayResult] | None = (
         replay_robinhood if robinhood_csv and robinhood_csv.exists() else None
     )
     skip_qj = _FIDELITY_REPLAY_ACCOUNTS | {"401k"}
@@ -389,7 +388,7 @@ def _build_sources(
 def compute_daily_allocation(
     db_path: Path,
     qj_db: Path,
-    config: dict[str, object],
+    config: RawConfig,
     k401_daily: dict[date, dict[str, float]],
     start: date,
     end: date,

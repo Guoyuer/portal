@@ -23,8 +23,12 @@ def validate_config(data: dict[str, object]) -> list[str]:
     if errors:
         return errors
 
-    assets: dict[str, object] = data["assets"]  # type: ignore[assignment]
-    weights: dict[str, object] = data["target_weights"]  # type: ignore[assignment]
+    # isinstance checks above confirmed both are dicts; re-assert for mypy
+    # (inline narrowing doesn't survive the intermediate `if errors: return`).
+    assets = data["assets"]
+    weights = data["target_weights"]
+    assert isinstance(assets, dict)
+    assert isinstance(weights, dict)
     order = data.get("category_order", [])
 
     for ticker, info in assets.items():
