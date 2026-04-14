@@ -18,6 +18,17 @@ log = logging.getLogger(__name__)
 # investigate an incoming data issue.
 _DAY_OVER_DAY_WINDOW_DAYS = 7
 
+# Tickers valued from Qianji balances, Fidelity cash, or face value — no
+# `daily_close` row by design, so price-freshness checks skip them.
+_NON_PRICE_TICKERS = frozenset({
+    "SPAXX", "FZFXX", "FDRXX",  # Fidelity money market (cash sweep)
+    "Debit Cash", "I Bonds", "CNY Assets", "Gift Card", "Cash",  # Qianji book-value
+    "Amex HYSA", "Amex Saving", "USDC", "T-Bills",  # Qianji + CUSIPs
+    "Robinhood",  # Qianji book-value
+    "401k sp500", "401k ex-us", "401k tech",  # Empower proxy
+    "Alipay Funds", "Managed Fund", "蓝天宇代管",  # CNY assets
+})
+
 
 # ── Types ───────────────────────────────────────────────────────────────────
 
@@ -124,18 +135,9 @@ def _check_holdings_have_prices(db_path: Path) -> list[CheckResult]:
             (latest_date,),
         ).fetchall()
 
-        # Tickers valued from Qianji balances, Fidelity cash, or face value — no daily_close needed
-        non_price_tickers = frozenset({
-            "SPAXX", "FZFXX", "FDRXX",  # money market (cash)
-            "Debit Cash", "I Bonds", "CNY Assets", "Gift Card", "Cash",  # Qianji book-value
-            "Amex HYSA", "Amex Saving", "USDC", "T-Bills",  # Qianji + CUSIPs
-            "Robinhood",  # Qianji book-value
-            "401k sp500", "401k ex-us", "401k tech",  # Empower proxy
-            "Alipay Funds", "Managed Fund", "蓝天宇代管",  # CNY assets
-        })
         missing: list[str] = []
         for (ticker,) in tickers:
-            if ticker in non_price_tickers:
+            if ticker in _NON_PRICE_TICKERS:
                 continue
             price_row = conn.execute(
                 "SELECT 1 FROM daily_close WHERE symbol = ? LIMIT 1",
@@ -193,6 +195,63 @@ def _check_cny_rate_freshness(db_path: Path) -> list[CheckResult]:
     return results
 
 
+def _check_holdings_prices_are_fresh(db_path: Path) -> list[CheckResult]:
+    """Every held symbol's `daily_close` max date must be within 4 days of the latest
+    `computed_daily`. Catches the class of bug where the fetch gate silently skipped a
+    subset of symbols, leaving forward-fill to paper over multi-day price holes.
+
+    Threshold: 4 calendar days — covers a standard Fri→Mon gap (3 days) plus one
+    federal holiday (e.g. Fri holiday + weekend = 3 days, or Mon holiday + weekend = 3
+    days); anything beyond that is genuinely stale.
+    """
+    conn = get_connection(db_path)
+    try:
+        latest = conn.execute("SELECT MAX(date) FROM computed_daily").fetchone()
+        if latest is None or latest[0] is None:
+            return []
+        latest_iso: str = latest[0]
+
+        # Held tickers on latest date, excluding book-value / proxy tickers that have
+        # no corresponding `daily_close` row by design.
+        tickers = conn.execute(
+            "SELECT ticker FROM computed_daily_tickers WHERE date = ? AND value > 100",
+            (latest_iso,),
+        ).fetchall()
+
+        stale: list[tuple[str, str]] = []  # (ticker, max_price_date)
+        for (ticker,) in tickers:
+            if ticker in _NON_PRICE_TICKERS:
+                continue
+            row = conn.execute(
+                "SELECT MAX(date) FROM daily_close WHERE symbol = ?",
+                (ticker,),
+            ).fetchone()
+            if row is None or row[0] is None:
+                # No price at all — already covered by _check_holdings_have_prices.
+                continue
+            stale.append((ticker, row[0]))
+    finally:
+        conn.close()
+
+    latest_d = date.fromisoformat(latest_iso)
+    flagged = [
+        (t, px) for t, px in stale
+        if (latest_d - date.fromisoformat(px)).days > 4
+    ]
+    if not flagged:
+        return []
+    sample = ", ".join(f"{t}@{px}" for t, px in sorted(flagged)[:5])
+    more = f" (+{len(flagged) - 5} more)" if len(flagged) > 5 else ""
+    return [CheckResult(
+        name="holdings_prices_are_fresh",
+        severity=Severity.FATAL,
+        message=(
+            f"{len(flagged)} held symbol(s) have stale prices (>4 days behind "
+            f"computed {latest_iso}): {sample}{more}"
+        ),
+    )]
+
+
 def _check_date_gaps(db_path: Path) -> list[CheckResult]:
     """Warn if any gap between consecutive computed_daily dates exceeds 7 calendar days."""
     conn = get_connection(db_path)
@@ -232,5 +291,6 @@ def validate_build(db_path: Path) -> list[CheckResult]:
     results.extend(_check_day_over_day(db_path))
     results.extend(_check_holdings_have_prices(db_path))
     results.extend(_check_cny_rate_freshness(db_path))
+    results.extend(_check_holdings_prices_are_fresh(db_path))
     results.extend(_check_date_gaps(db_path))
     return results

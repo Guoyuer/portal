@@ -135,6 +135,72 @@ class TestCnyRateFreshness:
         assert "CNY=X" in warnings[0].message
 
 
+class TestHoldingsPricesAreFresh:
+    """Regression: bug #156 class — forward-fill masks stale prices when fetch skips."""
+
+    def test_stale_price_for_held_symbol_is_fatal(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "test.db"
+        _seed_clean_db(db_path)
+
+        # VOO last has a price dated 2024-11-01, but latest computed_daily is
+        # 2025-01-06 — 66-day gap (>4). Should surface as FATAL, matching the
+        # exact staleness pattern that silently produced wrong totals in #156.
+        conn = get_connection(db_path)
+        conn.execute("DELETE FROM daily_close WHERE symbol = 'VOO'")
+        conn.execute(
+            "INSERT INTO daily_close (symbol, date, close) VALUES ('VOO', '2024-11-01', 100.0)"
+        )
+        conn.commit()
+        conn.close()
+
+        issues = validate_build(db_path)
+        fatals = [i for i in issues if i.severity == Severity.FATAL and i.name == "holdings_prices_are_fresh"]
+        assert len(fatals) == 1
+        assert "VOO" in fatals[0].message
+
+    def test_weekend_gap_does_not_fire(self, tmp_path: Path) -> None:
+        """Fri→Mon spans 3 days — within the 4-day tolerance."""
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        conn = get_connection(db_path)
+        # Monday computed_daily
+        conn.execute(
+            "INSERT INTO computed_daily (date, total, us_equity, non_us_equity, crypto, safe_net)"
+            " VALUES ('2025-01-06', 100000, 55000, 15000, 3000, 27000)"
+        )
+        conn.execute(
+            "INSERT INTO computed_daily_tickers (date, ticker, value, category) VALUES ('2025-01-06', 'VOO', 55000, 'US Equity')"
+        )
+        # VOO's last close is Friday — 3 days behind, tolerable
+        conn.execute("INSERT INTO daily_close (symbol, date, close) VALUES ('VOO', '2025-01-03', 100.0)")
+        conn.execute("INSERT INTO daily_close (symbol, date, close) VALUES ('CNY=X', '2025-01-06', 7.25)")
+        conn.commit()
+        conn.close()
+
+        issues = validate_build(db_path)
+        fatals = [i for i in issues if i.severity == Severity.FATAL and i.name == "holdings_prices_are_fresh"]
+        assert fatals == []
+
+    def test_book_value_tickers_are_excluded(self, tmp_path: Path) -> None:
+        """`Cash`, `SPAXX`, `401k sp500` etc. are valued without daily_close — skip them."""
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        conn = get_connection(db_path)
+        conn.execute(
+            "INSERT INTO computed_daily (date, total, us_equity, non_us_equity, crypto, safe_net)"
+            " VALUES ('2025-01-06', 100000, 0, 0, 0, 100000)"
+        )
+        conn.execute(
+            "INSERT INTO computed_daily_tickers (date, ticker, value, category) VALUES ('2025-01-06', 'Cash', 100000, 'Safe Net')"
+        )
+        conn.execute("INSERT INTO daily_close (symbol, date, close) VALUES ('CNY=X', '2025-01-06', 7.25)")
+        conn.commit()
+        conn.close()
+
+        issues = validate_build(db_path)
+        assert [i for i in issues if i.name == "holdings_prices_are_fresh"] == []
+
+
 class TestDateGaps:
     def test_large_gap_is_warning(self, tmp_path: Path) -> None:
         db_path = tmp_path / "test.db"

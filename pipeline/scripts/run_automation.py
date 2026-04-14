@@ -44,7 +44,7 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -164,6 +164,12 @@ def ping_healthcheck(suffix: str = "") -> None:
 
 # ── Change detection ──────────────────────────────────────────────────────────
 
+# Threshold for "DB is stale" — beyond this many calendar days behind today,
+# run the pipeline even when no upstream CSV changed. Covers a standard
+# weekend (2) + possible Monday holiday (3) + 1 day slack.
+_STALE_DB_THRESHOLD_DAYS = 4
+
+
 def changes_detected(
     marker: Path,
     downloads: Path,
@@ -189,6 +195,39 @@ def changes_detected(
                     log.info("  Change detected: new %s (%s)", pattern, candidate.name)
                     return True
 
+    return False
+
+
+def needs_catchup(db_path: Path, today: date | None = None) -> bool:
+    """True if ``computed_daily``'s latest row is too stale to skip the build.
+
+    Guards against the silent skip where ``changes_detected`` returns False
+    because no CSV moved but the DB itself hasn't been refreshed in days —
+    yfinance has new closes, we should pick them up.
+    """
+    from etl.db import get_last_computed_date  # lazy; avoids circular import at module load
+
+    log = logging.getLogger(__name__)
+    today = today or date.today()
+
+    try:
+        last = get_last_computed_date(db_path)
+    except Exception as e:  # noqa: BLE001 — DB unreadable is itself a reason to rebuild
+        log.info("  Catchup needed: could not read last computed date (%s)", e)
+        return True
+
+    if last is None:
+        log.info("  Catchup needed: computed_daily is empty")
+        return True
+
+    gap = (today - last).days
+    if gap > _STALE_DB_THRESHOLD_DAYS:
+        log.info("  Catchup needed: computed_daily latest=%s (%d days behind)",
+                 last.isoformat(), gap)
+        return True
+
+    log.info("  No catchup needed: computed_daily latest=%s (%d days behind)",
+             last.isoformat(), gap)
     return False
 
 
@@ -460,11 +499,11 @@ def main(argv: list[str] | None = None) -> int:
     # Snapshot BEFORE build so we can diff regardless of which exit branch fires.
     snapshot_before = capture(db_path)
 
-    # [1] Change detection
+    # [1] Change detection + DB freshness catchup
     if not args.force:
-        log.info("[1] Checking for data changes...")
-        if not changes_detected(_MARKER, downloads, qianji_db):
-            log.info("  No changes detected. Use --force to override.")
+        log.info("[1] Checking for data changes + DB freshness...")
+        if not changes_detected(_MARKER, downloads, qianji_db) and not needs_catchup(db_path):
+            log.info("  Validated up to date. Use --force to override.")
             ping_healthcheck()  # no-change is a valid success outcome
             # No-change is a silent success — never email.
             return EXIT_OK

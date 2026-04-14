@@ -116,6 +116,55 @@ class TestChangesDetected:
         assert run_automation.changes_detected(marker, nonexistent, None) is False
 
 
+# ── needs_catchup() ───────────────────────────────────────────────────────────
+
+class TestNeedsCatchup:
+    """Guards the silent-skip gap: run even without CSV changes when the DB
+    has drifted behind the wall-clock trading day."""
+
+    def _seed_computed_daily(self, tmp_path, last_date: str):
+        from etl.db import get_connection, init_db
+        db = tmp_path / "tm.db"
+        init_db(db)
+        conn = get_connection(db)
+        conn.execute(
+            "INSERT INTO computed_daily (date, total, us_equity, non_us_equity, crypto, safe_net)"
+            " VALUES (?, 100000, 55000, 15000, 3000, 27000)",
+            (last_date,),
+        )
+        conn.commit()
+        conn.close()
+        return db
+
+    def test_empty_db_needs_catchup(self, tmp_path):
+        from etl.db import init_db
+        db = tmp_path / "tm.db"
+        init_db(db)
+        from datetime import date
+        assert run_automation.needs_catchup(db, today=date(2026, 4, 14)) is True
+
+    def test_fresh_db_skips(self, tmp_path):
+        from datetime import date
+        db = self._seed_computed_daily(tmp_path, "2026-04-13")
+        assert run_automation.needs_catchup(db, today=date(2026, 4, 14)) is False
+
+    def test_db_4_days_behind_still_ok(self, tmp_path):
+        """Standard long weekend (Fri→Tue = 4 days): tolerable."""
+        from datetime import date
+        db = self._seed_computed_daily(tmp_path, "2026-04-10")
+        assert run_automation.needs_catchup(db, today=date(2026, 4, 14)) is False
+
+    def test_db_5_days_behind_triggers_catchup(self, tmp_path):
+        from datetime import date
+        db = self._seed_computed_daily(tmp_path, "2026-04-09")
+        assert run_automation.needs_catchup(db, today=date(2026, 4, 14)) is True
+
+    def test_missing_db_file_triggers_catchup(self, tmp_path):
+        from datetime import date
+        nonexistent = tmp_path / "does-not-exist.db"
+        assert run_automation.needs_catchup(nonexistent, today=date(2026, 4, 14)) is True
+
+
 # ── parse_args() ──────────────────────────────────────────────────────────────
 
 class TestParseArgs:
