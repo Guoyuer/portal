@@ -13,12 +13,12 @@ from pathlib import Path
 
 import pytest
 
-from etl.ingest.fidelity_history import (
+from etl.migrations.add_fidelity_action_kind import migrate
+from etl.sources import ActionKind
+from etl.sources.fidelity import (
     _classify_action,
     classify_fidelity_action,
 )
-from etl.migrations.add_fidelity_action_kind import migrate
-from etl.sources import ActionKind
 
 
 class TestClassifyFidelityAction:

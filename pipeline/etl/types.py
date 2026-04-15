@@ -20,7 +20,7 @@ MIN_RECORDS_FOR_COMPLETE_MONTH = 25  # fewer records → likely partial month
 TRADING_DAYS_MONTH = 23  # index offset for ~22 trading days back (~1 month)
 TRADING_DAYS_YEAR = 252  # ~1 year of US trading days (used for 52-week windows & sparklines)
 
-# Fidelity transaction action types (used in fidelity_history.py, report.py, reconcile.py)
+# Fidelity transaction action types (used in etl/sources/fidelity.py)
 ACT_DEPOSIT = "deposit"
 ACT_BUY = "buy"
 ACT_SELL = "sell"

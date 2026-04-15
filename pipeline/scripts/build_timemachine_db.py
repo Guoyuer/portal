@@ -44,7 +44,6 @@ from etl.ingest.empower_401k import (
     ingest_empower_contributions,
     ingest_empower_qfx,
 )
-from etl.ingest.fidelity_history import ingest_fidelity_csv
 from etl.ingest.qianji_db import ingest_qianji_transactions, load_all_from_db
 from etl.k401 import (
     PROXY_TICKERS,
@@ -192,45 +191,56 @@ def _load_config(path: Path) -> RawConfig:
 
 
 def _ingest_fidelity_csvs(paths: BuildPaths) -> None:
-    """Ingest all Fidelity CSVs from Downloads directly into the database.
+    """Ingest all Fidelity CSVs via :class:`FidelitySource`.
 
-    Each CSV covers a date range. ``ingest_fidelity_csv()`` handles overlap
-    by deleting existing rows in the CSV's date range before inserting —
-    so processing files in chronological order naturally deduplicates.
+    Each CSV covers a date range. :meth:`FidelitySource._ingest_one_csv`
+    handles overlap by deleting existing rows in the CSV's date range
+    before inserting — so processing files in chronological order (the
+    order ``FidelitySource.ingest`` already uses) naturally deduplicates.
     """
-    # Use explicit --csv path if provided
+    from etl.sources.fidelity import (
+        FidelitySource,
+        FidelitySourceConfig,
+        _csv_earliest_date,
+    )
+
+    # Use explicit --csv path if provided. Build a minimal source instance
+    # just to reuse the per-file ingest method.
     if paths.csv is not None:
         if not paths.csv.exists():
             print(f"  ERROR: --csv file not found: {paths.csv}")
             sys.exit(1)
         print(f"  Using single CSV: {paths.csv}")
-        ingest_fidelity_csv(paths.db_path, paths.csv)
+        single_src = FidelitySource(
+            FidelitySourceConfig(
+                downloads_dir=paths.downloads,
+                fidelity_accounts={},
+                mutual_funds=frozenset(),
+            ),
+            paths.db_path,
+        )
+        single_src._ingest_one_csv(paths.csv)
         return
 
-    # Scan downloads directory for Accounts_History*.csv
     raw_csvs = sorted(paths.downloads.glob("Accounts_History*.csv"))
     if not raw_csvs:
         print(f"  ERROR: No Accounts_History CSVs found in {paths.downloads}")
         sys.exit(1)
 
-    # Sort by earliest date in each file (chronological ingestion).
-    # Raw Fidelity CSVs carry MM/DD/YYYY; convert to YYYYMMDD for a
-    # lexicographically sortable key.
-    def _csv_start_date(path: Path) -> str:
-        """Return earliest YYYYMMDD date in a CSV for sorting."""
-        text = path.read_text(encoding="utf-8-sig")
-        import re
-        dates: list[str] = re.findall(r"(\d{2}/\d{2}/\d{4})", text)
-        if not dates:
-            return "99999999"
-        return min(d[6:10] + d[0:2] + d[3:5] for d in dates)
-
-    raw_csvs.sort(key=_csv_start_date)
+    raw_csvs.sort(key=_csv_earliest_date)
     print(f"  Found {len(raw_csvs)} CSVs in {paths.downloads}, ingesting chronologically...")
 
+    bulk_src = FidelitySource(
+        FidelitySourceConfig(
+            downloads_dir=paths.downloads,
+            fidelity_accounts={},
+            mutual_funds=frozenset(),
+        ),
+        paths.db_path,
+    )
     total = 0
     for csv_path in raw_csvs:
-        count = ingest_fidelity_csv(paths.db_path, csv_path)
+        count = bulk_src._ingest_one_csv(csv_path)
         print(f"    {csv_path.name}: {count} total rows")
         total = count
 

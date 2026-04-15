@@ -15,7 +15,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from etl.ingest.fidelity_history import classify_fidelity_action
+from etl.sources.fidelity import classify_fidelity_action
 
 
 def migrate(db_path: Path) -> int:

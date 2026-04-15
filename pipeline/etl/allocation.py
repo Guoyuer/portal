@@ -1,25 +1,25 @@
-"""Compute daily portfolio allocation from Fidelity replay + Qianji + 401k.
+"""Compute daily portfolio allocation from the :class:`InvestmentSource` registry + Qianji + 401k.
 
 This module reconstructs historical asset allocation by combining:
-  - Fidelity positions (from transaction CSV replay)
+  - Investment-source positions (each source returns a list of PositionRow;
+    currently only :class:`FidelitySource` is registered — Robinhood and
+    Empower 401k are migrated in Phases 4-5).
   - Historical prices (from timemachine.db.daily_close)
   - Qianji account balances (from Qianji SQLite DB)
-  - 401k values (pre-computed via proxy interpolation)
+  - 401k values (pre-computed via proxy interpolation, legacy path)
 
 The per-day math is isolated in ``step_one_day(state, sources, current)`` —
 a pure function with no I/O. ``compute_daily_allocation`` is the orchestrator
-that refreshes ``ReplayState`` when Fidelity/Qianji transactions change, then
-delegates the valuation to ``step_one_day``. Anything that has full per-day
-state in hand (e.g. a CI projection script reconstructing state from D1) can
-call ``step_one_day`` directly without touching the Python replay engines.
+that refreshes ``ReplayState`` when Qianji transactions change, then delegates
+the valuation to ``step_one_day``. Anything that has full per-day state in
+hand (e.g. a CI projection script reconstructing state from D1) can call
+``step_one_day`` directly without touching the Python replay engines.
 
 Refactor hint (audit C04, ``docs/code-design-audit-2026-04-13.md``):
-``compute_daily_allocation`` currently takes 6 positional args + 1 keyword,
-and each new data source adds another positional. When the 7th source lands,
-migrate the signature to an ``AllocationRequest`` dataclass and make the
-internal ``_add_*`` helpers return ``dict[str, float]`` instead of mutating
-``ticker_values`` in place. That also makes per-source unit tests trivial
-(today they need the full dict assembled first).
+``compute_daily_allocation`` currently takes 6 positional args + 1 keyword.
+Once Phases 4-5 land every source in the registry and the legacy ``_add_*``
+helpers have been deleted, migrate the signature to an ``AllocationRequest``
+dataclass — tests become trivial.
 """
 from __future__ import annotations
 
@@ -43,10 +43,6 @@ from .timemachine import (
 from .types import AllocationRow, AssetInfo, RawConfig, RobinhoodReplayResult, TickerDetail
 
 log = logging.getLogger(__name__)
-
-# yfinance labels mutual fund NAV with date T but it's actually T+1's NAV.
-# Use T-1 price for mutual funds to align with the correct trading day.
-_MUTUAL_FUNDS = frozenset({"FXAIX", "FSSNX", "FNJHX"})
 
 _FIDELITY_REPLAY_ACCOUNTS = frozenset({
     "Fidelity taxable",
@@ -137,42 +133,6 @@ def _resolve_date_windows(
     return price_date, mf_price_date, cny_rates[cny_date]
 
 
-def _add_fidelity_positions(
-    ticker_values: dict[str, float],
-    positions: dict[tuple[str, str], float],
-    prices: pd.DataFrame,
-    price_date: date,
-    mf_price_date: date,
-) -> None:
-    """Add Fidelity positions (qty × price) into ticker_values.
-
-    CUSIPs (8+ chars starting with digit) are valued at face and aggregated as T-Bills.
-    Mutual funds use T-1 price to correct for yfinance's off-by-one NAV dating.
-    """
-    for (_acct, sym), qty in positions.items():
-        if sym[0].isdigit() and len(sym) >= 8:
-            ticker_values["T-Bills"] = ticker_values.get("T-Bills", 0) + qty
-            continue
-        p_date = mf_price_date if sym in _MUTUAL_FUNDS else price_date
-        if sym in prices.columns and p_date in prices.index:
-            price = prices.loc[p_date, sym]
-            if pd.notna(price):
-                ticker_values[sym] = ticker_values.get(sym, 0) + qty * float(price)
-        else:
-            log.warning("No price for %s on %s (holding %.3f shares) — excluded from allocation", sym, p_date, qty)
-
-
-def _add_fidelity_cash(
-    ticker_values: dict[str, float],
-    fidelity_cash: dict[str, float],
-    fidelity_accounts: Mapping[str, str],
-) -> None:
-    """Route Fidelity cash balances to each account's money market fund ticker (fallback FZFXX)."""
-    for acct_num, bal in fidelity_cash.items():
-        mm_ticker = fidelity_accounts.get(acct_num, "FZFXX")
-        ticker_values[mm_ticker] = ticker_values.get(mm_ticker, 0) + bal
-
-
 def _add_qianji_balances(
     ticker_values: dict[str, float],
     qj_balances: dict[str, float],
@@ -250,7 +210,6 @@ class AllocationSources:
     cny_rates: dict[date, float]
     assets: Mapping[str, AssetInfo]
     ticker_map: dict[str, str]
-    fidelity_accounts: Mapping[str, str]
     qianji_currencies: dict[str, str]
     skip_qj_accounts: frozenset[str]
     k401_daily: dict[date, dict[str, float]]
@@ -376,7 +335,6 @@ def _build_sources(
     qj_accounts = config.get("qianji_accounts", {})
     ticker_map = dict(qj_accounts.get("ticker_map", {}))
     ticker_map.setdefault("401k", "401k sp500")
-    fidelity_accounts = config.get("fidelity_accounts", {})
 
     rh_replay_fn: Callable[..., RobinhoodReplayResult] | None = (
         replay_robinhood if robinhood_csv and robinhood_csv.exists() else None
@@ -396,7 +354,6 @@ def _build_sources(
         cny_rates=load_cny_rates(db_path),
         assets=assets,
         ticker_map=ticker_map,
-        fidelity_accounts=fidelity_accounts,
         qianji_currencies=replay_qianji_currencies(qj_db),
         skip_qj_accounts=skip_qj,
         k401_daily=k401_daily,

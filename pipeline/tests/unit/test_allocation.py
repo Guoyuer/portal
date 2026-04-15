@@ -23,8 +23,6 @@ if "yfinance" not in sys.modules:
 
 from etl.allocation import (  # noqa: E402
     _add_401k,
-    _add_fidelity_cash,
-    _add_fidelity_positions,
     _add_qianji_balances,
     _build_allocation_row,
     _categorize_ticker,
@@ -489,79 +487,6 @@ class TestCategorizeTicker:
         import pytest as _pytest
         with _pytest.raises(KeyError, match="no 'category'"):
             _categorize_ticker("X", 100.0, {"X": {"subtype": "foo"}}, {})
-
-
-# ── _add_fidelity_cash ─────────────────────────────────────────────────────
-
-
-class TestAddFidelityCash:
-    def test_known_accounts_route_to_mapped_ticker(self) -> None:
-        ticker_values: dict[str, float] = {}
-        _add_fidelity_cash(
-            ticker_values,
-            fidelity_cash={"Z29133576": 1000.0, "238986483": 2000.0},
-            fidelity_accounts={"Z29133576": "FZFXX", "238986483": "FDRXX"},
-        )
-        assert ticker_values == {"FZFXX": 1000.0, "FDRXX": 2000.0}
-
-    def test_unknown_account_falls_back_to_fzfxx(self) -> None:
-        ticker_values: dict[str, float] = {}
-        _add_fidelity_cash(ticker_values, {"UNKNOWN": 500.0}, fidelity_accounts={})
-        assert ticker_values == {"FZFXX": 500.0}
-
-    def test_accumulates_into_existing_values(self) -> None:
-        ticker_values: dict[str, float] = {"FZFXX": 100.0}
-        _add_fidelity_cash(ticker_values, {"Z29133576": 50.0}, {"Z29133576": "FZFXX"})
-        assert ticker_values == {"FZFXX": 150.0}
-
-
-# ── _add_fidelity_positions ────────────────────────────────────────────────
-
-
-class TestAddFidelityPositions:
-    def _prices(self, dt: str = "2025-01-02") -> pd.DataFrame:
-        return pd.DataFrame(
-            index=pd.to_datetime([dt]).date,
-            data={"VTI": [250.0], "FXAIX": [200.0]},
-        )
-
-    def test_regular_ticker_multiplied_by_price(self) -> None:
-        ticker_values: dict[str, float] = {}
-        _add_fidelity_positions(
-            ticker_values,
-            positions={("TAXABLE", "VTI"): 10.0},
-            prices=self._prices(),
-            price_date=date(2025, 1, 2),
-            mf_price_date=date(2025, 1, 2),
-        )
-        assert ticker_values == {"VTI": 2500.0}
-
-    def test_cusip_aggregates_as_t_bills_at_face(self) -> None:
-        ticker_values: dict[str, float] = {}
-        _add_fidelity_positions(
-            ticker_values,
-            positions={("TAXABLE", "91282CEZ0"): 5000.0},  # 9-char CUSIP starting with digit
-            prices=self._prices(),
-            price_date=date(2025, 1, 2),
-            mf_price_date=date(2025, 1, 2),
-        )
-        assert ticker_values == {"T-Bills": 5000.0}
-
-    def test_mutual_fund_uses_mf_price_date(self) -> None:
-        """FXAIX (mutual fund) should use mf_price_date, not price_date."""
-        prices = pd.DataFrame(
-            index=pd.to_datetime(["2025-01-01", "2025-01-02"]).date,
-            data={"FXAIX": [100.0, 200.0]},  # Different price on each date
-        )
-        ticker_values: dict[str, float] = {}
-        _add_fidelity_positions(
-            ticker_values,
-            positions={("TAXABLE", "FXAIX"): 5.0},
-            prices=prices,
-            price_date=date(2025, 1, 2),
-            mf_price_date=date(2025, 1, 1),  # T-1
-        )
-        assert ticker_values == {"FXAIX": 500.0}  # 5 * 100 (T-1 price), not 5 * 200
 
 
 # ── _add_qianji_balances ───────────────────────────────────────────────────
