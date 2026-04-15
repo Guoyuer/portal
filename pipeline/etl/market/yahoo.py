@@ -10,9 +10,9 @@ import logging
 import time
 from typing import Any
 
-import pandas as pd
 import yfinance as yf
 
+from ._series import to_monthly_records
 from ._yfinance import extract_close
 
 log = logging.getLogger(__name__)
@@ -95,10 +95,7 @@ def fetch_dxy_monthly() -> list[dict[str, Any]]:
             return []
 
         monthly = closes.resample("ME").last().dropna()
-        records = [
-            {"date": pd.Timestamp(dt).strftime("%Y-%m"), "value": round(float(val), 2)}
-            for dt, val in monthly.items()
-        ]
+        records = to_monthly_records(monthly)
         log.info("DXY: %d monthly observations", len(records))
         return records
     except Exception as e:  # noqa: BLE001

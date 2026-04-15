@@ -13,6 +13,8 @@ from typing import Any
 import pandas as pd
 from fredapi import Fred
 
+from ._series import resample_daily_to_monthly, to_monthly_records
+
 log = logging.getLogger(__name__)
 
 # ── Series configuration ────────────────────────────────────────────────────
@@ -42,23 +44,6 @@ _CPI_EXTRA_MONTHS = 13  # 12 for YoY + 1 buffer
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
-
-
-def _to_monthly_records(series: pd.Series) -> list[dict[str, Any]]:
-    """Convert a pandas Series to ``[{"date": "YYYY-MM", "value": float}]``."""
-    records: list[dict[str, Any]] = []
-    for dt, val in series.items():
-        if pd.notna(val):
-            records.append({"date": pd.Timestamp(dt).strftime("%Y-%m"), "value": round(float(val), 2)})
-    return records
-
-
-def _resample_daily_to_monthly(series: pd.Series) -> pd.Series:
-    """Resample a daily series to month-end using the last valid observation."""
-    series = series.dropna()
-    if series.empty:
-        return series
-    return series.resample("ME").last().dropna()
 
 
 def _compute_yoy_pct(series: pd.Series) -> pd.Series:
@@ -108,12 +93,12 @@ def fetch_fred_data(api_key: str) -> dict[str, object] | None:
     for fred_id, key in _DAILY_SERIES.items():
         try:
             raw = fred.get_series(fred_id, observation_start=start.strftime("%Y-%m-%d"))
-            monthly = _resample_daily_to_monthly(raw)
+            monthly = resample_daily_to_monthly(raw)
             if monthly.empty:
                 log.warning("FRED %s: empty after resample", fred_id)
                 continue
             snapshot[key] = round(float(monthly.iloc[-1]), 2)
-            series[key] = _to_monthly_records(monthly)
+            series[key] = to_monthly_records(monthly)
         except Exception:
             log.warning("FRED %s fetch failed", fred_id, exc_info=True)
 
@@ -138,7 +123,7 @@ def fetch_fred_data(api_key: str) -> dict[str, object] | None:
                 log.warning("FRED %s: no data", fred_id)
                 continue
             snapshot[key] = round(float(raw.iloc[-1]), 2)
-            series[key] = _to_monthly_records(raw)
+            series[key] = to_monthly_records(raw)
         except Exception:
             log.warning("FRED %s fetch failed", fred_id, exc_info=True)
 
@@ -153,7 +138,7 @@ def fetch_fred_data(api_key: str) -> dict[str, object] | None:
             # Trim to the original lookback window (drop the extra lookback months)
             yoy = yoy[yoy.index >= pd.Timestamp(start)]
             snapshot[key] = round(float(yoy.iloc[-1]), 2)
-            series[key] = _to_monthly_records(yoy)
+            series[key] = to_monthly_records(yoy)
         except Exception:
             log.warning("FRED %s fetch failed", fred_id, exc_info=True)
 
