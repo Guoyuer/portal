@@ -62,7 +62,7 @@ def _decode_curr(extra_str: str | None) -> dict[str, Any] | None:
     return curr if isinstance(curr, dict) else None
 
 
-def parse_qj_amount(money: float, extra_str: str | None) -> float:
+def parse_qj_amount(money: float, extra_str: str | None, cny_rate: float | None = None) -> float:
     """Return the base-currency (USD) amount for a Qianji bill.
 
     Qianji's ``extra.curr`` encodes currency conversion metadata:
@@ -71,14 +71,34 @@ def parse_qj_amount(money: float, extra_str: str | None) -> float:
       - ``ts`` / ``tv`` — target currency + amount (transfers only)
 
     For cashflow aggregation we need USD, so return ``bv`` when the bill
-    crossed currencies and ``bv != sv`` (unconverted rows use ``bv == sv``).
+    crossed currencies and ``bv != sv``.
+
+    **Qianji data quirk:** Some bills have ``ss != bs`` (e.g. source CNY, base
+    USD) but ``bv == sv`` — Qianji labelled the base as USD but the user
+    never entered the conversion. When this happens:
+      - If ``cny_rate`` is provided and ``ss == "CNY"`` and ``bs == "USD"``,
+        convert ``money`` (source CNY) using the live rate.
+      - Else log a warning and fall back to ``money`` unchanged.
     """
     curr = _decode_curr(extra_str)
     if curr is None:
         return float(money)
     ss, bs, bv, sv = curr.get("ss"), curr.get("bs"), curr.get("bv"), curr.get("sv")
-    if ss and bs and ss != bs and bv is not None and sv is not None and abs(bv - sv) > _CONVERSION_TOLERANCE:
-        return float(bv)
+    if ss and bs and ss != bs and bv is not None and sv is not None:
+        if abs(bv - sv) > _CONVERSION_TOLERANCE:
+            return float(bv)
+        # Unconverted quirk: ss != bs but bv == sv.
+        if ss == "CNY" and bs == "USD" and cny_rate:
+            log.warning(
+                "Qianji bill with unconverted CNY→USD label (bv=sv=%.2f); "
+                "converting source amount %.2f CNY → USD at live rate %.4f",
+                sv, money, cny_rate,
+            )
+            return float(money) / cny_rate
+        log.warning(
+            "Qianji bill with unconverted cross-currency label (ss=%s bs=%s "
+            "bv==sv=%.2f); returning source amount unchanged", ss, bs, sv,
+        )
     return float(money)
 
 
@@ -98,8 +118,14 @@ def parse_qj_target_amount(money: float, extra_str: str | None) -> float:
     return float(money)
 
 
-def _load_records(conn: sqlite3.Connection) -> list[QianjiRecord]:
-    """Load cashflow records from an open DB connection."""
+def _load_records(conn: sqlite3.Connection, cny_rate: float | None = None) -> list[QianjiRecord]:
+    """Load cashflow records from an open DB connection.
+
+    ``cny_rate`` (optional) is passed through to :func:`parse_qj_amount` so
+    the data-quirk fallback (``ss != bs`` but ``bv == sv``) can convert
+    CNY source amounts to USD. When not provided, quirky rows emit a
+    warning and fall back to ``money`` unchanged.
+    """
     categories = dict(conn.execute("SELECT id, name FROM category"))
     records: list[QianjiRecord] = []
     cny_converted = 0
@@ -108,7 +134,7 @@ def _load_records(conn: sqlite3.Connection) -> list[QianjiRecord]:
         if mapped_type is None:
             continue
         dt = datetime.fromtimestamp(ts, tz=UTC)
-        amount = parse_qj_amount(money, extra_str)
+        amount = parse_qj_amount(money, extra_str, cny_rate=cny_rate)
         if abs(amount - float(money)) > 0.01:
             cny_converted += 1
         records.append(
@@ -151,12 +177,23 @@ def _fetch_live_cny_rate() -> float:
     return rate
 
 
-def _build_snapshot(db_path: Path, balances: dict[str, tuple[float, str]]) -> dict[str, Any]:
-    """Build a snapshot dict from balances and DB file modification time."""
+def _build_snapshot(
+    db_path: Path,
+    balances: dict[str, tuple[float, str]],
+    cny_rate: float,
+) -> dict[str, Any]:
+    """Build a snapshot dict from balances, DB file modification time, and a pre-fetched CNY rate.
+
+    The rate is passed in (rather than fetched here) so ``load_all_from_db``
+    can share one Yahoo call across both :func:`_load_records` (for the
+    cross-currency data-quirk fallback in :func:`parse_qj_amount`) and this
+    snapshot — the user's monthly cashflow math and their balance snapshot
+    must use the same rate, and two separate fetches would risk drift.
+    """
     mtime = os.path.getmtime(db_path)
     return {
         "date": datetime.fromtimestamp(mtime, tz=UTC).strftime("%Y-%m-%d"),
-        "cny_rate": _fetch_live_cny_rate(),
+        "cny_rate": cny_rate,
         "balances": {name: bal for name, (bal, _) in balances.items()},
         "currencies": {name: curr for name, (_, curr) in balances.items()},
     }
@@ -167,17 +204,19 @@ def load_all_from_db(
 ) -> tuple[list[QianjiRecord], dict[str, Any]]:
     """Load both cashflow records and balances in a single DB connection.
 
-    Returns (cashflow_records, balance_snapshot). If DB doesn't exist,
-    returns ([], {}).
+    Fetches the live USD/CNY rate once and shares it with both the record
+    loader (for the unconverted-label data quirk — see :func:`parse_qj_amount`)
+    and the snapshot. Returns ``([], {})`` when the DB doesn't exist.
     """
     if not db_path.exists():
         return [], {}
 
+    cny_rate = _fetch_live_cny_rate()
     conn = get_readonly_connection(db_path)
     try:
-        records = _load_records(conn)
+        records = _load_records(conn, cny_rate=cny_rate)
         balances = _load_balances(conn)
-        snapshot = _build_snapshot(db_path, balances)
+        snapshot = _build_snapshot(db_path, balances, cny_rate)
         return records, snapshot
     finally:
         conn.close()

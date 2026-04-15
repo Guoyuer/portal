@@ -96,6 +96,34 @@ class TestParseQjAmount:
     def test_empty_string_returns_money(self):
         assert parse_qj_amount(50.0, "") == 50.0
 
+    # ── Unconverted-label data quirk ─────────────────────────────────────
+    # Qianji sometimes labels ``bs`` as the base currency (USD) but never
+    # actually runs the conversion, producing ``ss != bs but bv == sv``.
+    # When the user supplies a live CNY rate and the source is CNY,
+    # ``parse_qj_amount`` converts ``money`` (source CNY) to USD.
+
+    def test_unconverted_cny_to_usd_with_rate_converts(self):
+        """ss=CNY bs=USD bv==sv=5000 — with rate, convert money/rate."""
+        extra = _extra("CNY", 5000.0, None, 0.0, "USD", 5000.0)
+        # 5000 CNY / 7.0 ≈ 714.2857
+        assert parse_qj_amount(5000.0, extra, cny_rate=7.0) == pytest.approx(714.2857, rel=1e-3)
+
+    def test_unconverted_cny_to_usd_without_rate_returns_money(self):
+        """Same quirk but no rate → logs warning, falls back to money unchanged."""
+        extra = _extra("CNY", 5000.0, None, 0.0, "USD", 5000.0)
+        # No rate → stays at 5000 (the old, wrong-but-safe behavior)
+        assert parse_qj_amount(5000.0, extra) == 5000.0
+
+    def test_unconverted_non_cny_quirk_with_rate_returns_money(self):
+        """Rate is CNY-specific — EUR→USD quirk with rate still falls back."""
+        extra = _extra("EUR", 100.0, None, 0.0, "USD", 100.0)
+        assert parse_qj_amount(100.0, extra, cny_rate=7.0) == 100.0
+
+    def test_unconverted_quirk_zero_rate_returns_money(self):
+        """cny_rate=0 is falsy → skip conversion (division would blow up)."""
+        extra = _extra("CNY", 5000.0, None, 0.0, "USD", 5000.0)
+        assert parse_qj_amount(5000.0, extra, cny_rate=0.0) == 5000.0
+
 
 # ── parse_qj_target_amount ────────────────────────────────────────────────────
 
@@ -222,6 +250,21 @@ class TestLoadRecords:
         records = _load_records(conn)
         assert len(records) == 1
         assert records[0]["note"] == "active"
+
+    def test_cny_rate_passed_through_to_parse_qj_amount(self):
+        """`_load_records` must thread cny_rate into parse_qj_amount so the
+        unconverted-label data quirk (ss=CNY bs=USD bv==sv) gets converted.
+        Without this hook, cross-currency expenses in that shape bypass the
+        rate entirely and inflate the USD cashflow figure by ~7×.
+        """
+        conn = sqlite3.connect(":memory:")
+        ts = int(datetime(2025, 1, 1, tzinfo=UTC).timestamp())
+        extra = _extra("CNY", 5000.0, None, 0.0, "USD", 5000.0)  # quirk
+        _make_db(conn, [(1, 0, 5000.0, "Alipay", None, None, ts, None, extra, 1)])
+        # Without rate: warn + fall back to money (5000).
+        assert _load_records(conn)[0]["amount"] == 5000.0
+        # With rate: convert 5000 CNY / 7.0 ≈ 714.29.
+        assert _load_records(conn, cny_rate=7.0)[0]["amount"] == pytest.approx(714.2857, rel=1e-3)
 
 
 # ── _load_balances ────────────────────────────────────────────────────────────
