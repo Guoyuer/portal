@@ -12,6 +12,7 @@ from tests.fixtures import ingest_prices
 
 EXPECTED_TABLES = frozenset({
     "fidelity_transactions",
+    "robinhood_transactions",
     "daily_close",
     "empower_snapshots",
     "empower_funds",

@@ -29,6 +29,26 @@ CREATE TABLE IF NOT EXISTS fidelity_transactions (
     settlement_date TEXT NOT NULL DEFAULT ''
 );
 
+-- Robinhood transaction rows (from activity report CSV).
+-- Schema mirrors fidelity_transactions' primitive-native columns (txn_date,
+-- action_kind, ticker, quantity, amount_usd) so the source-agnostic
+-- replay_transactions primitive in etl/replay.py can replay this table
+-- without any column aliasing.
+CREATE TABLE IF NOT EXISTS robinhood_transactions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    txn_date        TEXT NOT NULL,
+    action          TEXT NOT NULL DEFAULT '',  -- raw Trans Code from CSV (Buy/Sell/CDIV/...)
+    action_kind     TEXT NOT NULL,             -- normalized ActionKind enum (buy/sell/...)
+    ticker          TEXT NOT NULL DEFAULT '',
+    quantity        REAL NOT NULL DEFAULT 0,
+    amount_usd      REAL NOT NULL DEFAULT 0,
+    raw_description TEXT NOT NULL DEFAULT '',
+    -- Dedup on re-ingest: running the CSV through ingest twice must not
+    -- double positions. Robinhood CSVs do not include a transaction id,
+    -- so we dedup on the natural key (date + ticker + action + qty + amt).
+    UNIQUE (txn_date, ticker, action, quantity, amount_usd)
+);
+
 -- Daily close prices + CNY rates (symbol='CNY=X' for rates)
 CREATE TABLE IF NOT EXISTS daily_close (
     symbol TEXT NOT NULL,
@@ -162,6 +182,7 @@ CREATE TABLE IF NOT EXISTS categories (
 _INDEXES = """
 CREATE INDEX IF NOT EXISTS idx_fidelity_date     ON fidelity_transactions(run_date);
 CREATE INDEX IF NOT EXISTS idx_fidelity_acct_sym ON fidelity_transactions(account_number, symbol);
+CREATE INDEX IF NOT EXISTS idx_robinhood_date    ON robinhood_transactions(txn_date);
 CREATE INDEX IF NOT EXISTS idx_daily_close_date  ON daily_close(date);
 CREATE INDEX IF NOT EXISTS idx_daily_tickers_date ON computed_daily_tickers(date);
 CREATE INDEX IF NOT EXISTS idx_qianji_txn_date ON qianji_transactions(date);
