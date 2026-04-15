@@ -89,7 +89,8 @@
     ],
     "ticker_map": {
       "Chase Debit": "Debit Cash",
-      "Amex HYSA": "Amex HYSA"
+      "Amex HYSA": "Amex HYSA",
+      "建行卡": "CNY Cash"
     }
   },
   "fidelity_accounts": {

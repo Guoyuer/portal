@@ -374,8 +374,8 @@ class TestUnmappedQianjiWarns:
         unmapped_warnings = [r for r in caplog.records if "ticker_map" in r.message.lower() or "unmapped" in r.message.lower()]
         assert len(unmapped_warnings) == 0
 
-    def test_cny_account_not_warned(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
-        """CNY accounts without ticker_map entry go to CNY Cash — no warning."""
+    def test_unmapped_cny_account_warned_and_excluded(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+        """CNY accounts without ticker_map entry warn + are excluded (symmetric with USD)."""
         db = tmp_path / "tm.db"
         qj = tmp_path / "qj.db"
         init_db(db)
@@ -389,19 +389,23 @@ class TestUnmappedQianjiWarns:
         conn.close()
 
         config = {
-            "assets": {"VTI": {"category": "US Equity"}, "CNY Cash": {"category": "Safe Net"}},
+            "assets": {"VTI": {"category": "US Equity"}},
             "qianji_accounts": {
                 "fidelity_tracked": [],
-                "ticker_map": {},  # no mapping for Alipay — but it's CNY, so OK
+                "ticker_map": {},  # no mapping for Alipay — now warn + exclude (no silent fallback)
             },
         }
 
         with caplog.at_level(logging.WARNING, logger="etl.allocation"):
-            compute_daily_allocation(db, qj, config, date(2025, 1, 2), date(2025, 1, 2))
+            results = compute_daily_allocation(db, qj, config, date(2025, 1, 2), date(2025, 1, 2))
 
-        # CNY accounts should NOT trigger unmapped warnings
+        # CNY accounts WITHOUT a ticker_map entry now warn (symmetric with USD).
         unmapped = [r for r in caplog.records if "Alipay" in r.message and "ticker_map" in r.message.lower()]
-        assert len(unmapped) == 0
+        assert len(unmapped) > 0, "Expected a warning about unmapped CNY account"
+        # And the account is excluded from allocation — no CNY-denominated ticker appears.
+        tickers = {t["ticker"] for t in results[0]["tickers"]}
+        assert "Alipay" not in tickers
+        assert "CNY Cash" not in tickers
 
 
 # ── BUG 6: T-Bills (CUSIPs) have no price → missing from net worth ──────

@@ -6,12 +6,15 @@ Tests the full integration: replay → price lookup → categorization.
 """
 from __future__ import annotations
 
+import logging
 import sqlite3
 import sys
 from datetime import date
 from pathlib import Path
 from types import ModuleType
 from unittest.mock import MagicMock
+
+import pytest
 
 # Ensure yfinance is importable even when not installed.
 # The allocation tests don't call yfinance — it's only a transitive import
@@ -110,7 +113,7 @@ def _make_config() -> dict:
             "fidelity_tracked": ["Fidelity taxable", "Roth IRA", "Fidelity Cash Management"],
             "credit": [],
             "cny": ["Alipay"],
-            "ticker_map": {"HYSA": "HYSA"},
+            "ticker_map": {"HYSA": "HYSA", "Alipay": "CNY Cash"},
         },
         "fidelity_accounts": {
             "Z29133576": "FZFXX",
@@ -513,18 +516,41 @@ class TestAddQianjiBalances:
         )
         assert ticker_values == {"Alipay Funds": 1000.0}
 
-    def test_unmapped_cny_falls_back_to_cny_cash(self) -> None:
+    def test_mapped_cny_goes_to_cny_cash(self) -> None:
+        """CNY accounts with an explicit ticker_map entry route to the mapped ticker."""
         ticker_values: dict[str, float] = {}
         _add_qianji_balances(
             ticker_values,
-            qj_balances={"RandomCNY": 7250.0},
-            currencies={"RandomCNY": "CNY"},
-            ticker_map={},
-            assets={},
+            qj_balances={"建行卡": 7250.0},
+            currencies={"建行卡": "CNY"},
+            ticker_map={"建行卡": "CNY Cash"},
+            assets={"CNY Cash": {"category": "Safe Net"}},
             cny_rate=7.25,
             skip_accounts=frozenset(),
         )
         assert ticker_values == {"CNY Cash": 1000.0}
+
+    def test_unmapped_cny_warns_and_excluded(
+        self, caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Unmapped CNY accounts warn + are excluded, symmetric with USD."""
+        ticker_values: dict[str, float] = {}
+        with caplog.at_level(logging.WARNING, logger="etl.allocation"):
+            _add_qianji_balances(
+                ticker_values,
+                qj_balances={"RandomCNY": 7250.0},
+                currencies={"RandomCNY": "CNY"},
+                ticker_map={},
+                assets={},
+                cny_rate=7.25,
+                skip_accounts=frozenset(),
+            )
+        assert ticker_values == {}
+        warnings = [r for r in caplog.records if "RandomCNY" in r.message]
+        assert len(warnings) == 1
+        assert "ticker_map" in warnings[0].message
+        assert "CNY" in warnings[0].message  # currency preserved
+        assert "7250" in warnings[0].message  # original balance preserved
 
     def test_negative_balance_treated_as_liability(self) -> None:
         ticker_values: dict[str, float] = {}
