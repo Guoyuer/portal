@@ -207,16 +207,6 @@ def _ingest_fidelity_csvs(paths: BuildPaths) -> None:
     print(f"  {total} rows after ingestion")
 
 
-def _ingest_robinhood_csv(paths: BuildPaths) -> None:
-    """Ingest Robinhood activity CSVs via :mod:`etl.sources.robinhood`.
-
-    Silent no-op when no CSV matches (user has no Robinhood holdings).
-    Uses the same ``downloads/`` glob as Fidelity — users drop fresh
-    ``Robinhood_history*.csv`` files into the shared downloads folder.
-    """
-    robinhood_src.ingest(paths.db_path, {"robinhood_downloads": paths.downloads})
-
-
 def _qianji_401k_fallback_contribs(last_qfx_date: date | None) -> list[Contribution]:
     """Read Qianji 401k contributions made *after* the last QFX snapshot.
 
@@ -313,8 +303,11 @@ def _init_db_and_ingest_sources(
     # [min_date, max_date] + INSERT everything) — identical to Fidelity.
     # Migration below is a no-op on fresh DBs (schema already correct).
     _migrate_drop_robinhood_unique(paths.db_path)
+    # Silent no-op when no CSV matches (user has no Robinhood holdings). Uses
+    # the same ``downloads/`` glob as Fidelity — users drop fresh
+    # ``Robinhood_history*.csv`` files into the shared downloads folder.
     print("[2b] Ingesting Robinhood transactions...")
-    _ingest_robinhood_csv(paths)
+    robinhood_src.ingest(paths.db_path, {"robinhood_downloads": paths.downloads})
 
     # ── Step 3: Ingest Empower QFX + Qianji fallback contributions ──
     print("[3] Ingesting Empower 401k...")

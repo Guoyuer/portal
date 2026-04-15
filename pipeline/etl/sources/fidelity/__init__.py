@@ -34,7 +34,6 @@ from .parse import (
     classify_fidelity_action,
     load_transactions,
 )
-from .pricing import _DEFAULT_MUTUAL_FUNDS
 
 # Fidelity-specific money-market fund tickers. Treated as $1/share cash, so
 # they stay out of the per-share position accumulator and instead flow
@@ -45,7 +44,6 @@ MM_SYMBOLS: frozenset[str] = frozenset({"SPAXX", "FZFXX", "FDRXX"})
 __all__ = [
     "MM_SYMBOLS",
     "TABLE",
-    "_DEFAULT_MUTUAL_FUNDS",
     "_classify_action",
     "_csv_earliest_date",
     "_ingest_one_csv",
