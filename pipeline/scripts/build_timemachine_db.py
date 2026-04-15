@@ -19,6 +19,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import os
 import sqlite3
@@ -104,6 +105,18 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--data-dir", type=Path, default=None, help="Override data directory (default: pipeline/data/)")
     parser.add_argument("--config", type=Path, default=None, help="Override config.json path")
     parser.add_argument("--downloads", type=Path, default=None, help="Override downloads directory")
+    parser.add_argument(
+        "--prices-from-csv",
+        type=Path,
+        default=None,
+        help="Read prices from this CSV instead of Yahoo. "
+             "CSV columns: date (YYYY-MM-DD) + one column per ticker. For test fixtures only.",
+    )
+    parser.add_argument(
+        "--dry-run-market",
+        action="store_true",
+        help="Skip Yahoo market-index fetches (used with --prices-from-csv for offline regression fixtures).",
+    )
     return parser.parse_args(argv)
 
 
@@ -121,6 +134,43 @@ def _resolve_paths(args: argparse.Namespace) -> BuildPaths:
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
+
+
+def _load_prices_from_csv(db_path: Path, csv_path: Path) -> None:
+    """Load prices from a CSV into daily_close, bypassing Yahoo.
+
+    CSV format: ``date`` column (YYYY-MM-DD) plus one column per ticker.
+    Empty cells are skipped. Used for offline regression fixtures — real builds
+    still fetch from Yahoo via :func:`fetch_and_store_prices`.
+    """
+    with csv_path.open(encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
+    if not rows:
+        return
+
+    symbols = [c for c in (reader.fieldnames or []) if c and c != "date"]
+    conn = get_connection(db_path)
+    try:
+        for row in rows:
+            date_iso = (row.get("date") or "").strip()
+            if not date_iso:
+                continue
+            for sym in symbols:
+                raw = (row.get(sym) or "").strip()
+                if not raw:
+                    continue
+                try:
+                    close = float(raw)
+                except ValueError:
+                    continue
+                conn.execute(
+                    "INSERT OR REPLACE INTO daily_close (symbol, date, close) VALUES (?, ?, ?)",
+                    (sym, date_iso, close),
+                )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def _load_config(path: Path) -> RawConfig:
@@ -320,6 +370,8 @@ def _fetch_all_prices(
     periods: dict[str, tuple[date, date | None]],
     earliest: date,
     end: date,
+    *,
+    prices_from_csv: Path | None = None,
 ) -> None:
     """Bulk-fetch + persist ticker prices and CNY rates for the given periods.
 
@@ -329,7 +381,16 @@ def _fetch_all_prices(
     transaction overall (e.g. a cash deposit that happens before any buy) —
     because allocation converts CNY-denominated balances from day one. We
     therefore derive the CNY start from ``MIN(run_date)`` directly.
+
+    When ``prices_from_csv`` is set, loads prices from that CSV instead of
+    Yahoo (for offline regression fixtures). Yahoo is still skipped for CNY
+    too — callers provide all needed series in the CSV.
     """
+    if prices_from_csv is not None:
+        print(f"  Loading prices from CSV (Yahoo skipped): {prices_from_csv}")
+        _load_prices_from_csv(paths.db_path, prices_from_csv)
+        return
+
     _conn = get_connection(paths.db_path)
     # Use computed_daily start as global_start so ticker charts cover the full brush range
     cd_start_row = _conn.execute("SELECT MIN(date) FROM computed_daily").fetchone()
@@ -367,13 +428,15 @@ def _ingest_and_fetch(
     paths: BuildPaths,
     config: RawConfig,
     end: date,
+    *,
+    prices_from_csv: Path | None = None,
 ) -> dict[date, dict[str, float]]:
     """Steps 1-5: init DB, ingest sources, fetch prices, build 401k daily map."""
     qfx_snaps, qfx_contribs = _init_db_and_ingest_sources(paths, config)
 
     print("[4] Fetching prices...")
     periods, earliest = _compute_holding_periods(paths, end, qfx_snaps)
-    _fetch_all_prices(paths, periods, earliest, end)
+    _fetch_all_prices(paths, periods, earliest, end, prices_from_csv=prices_from_csv)
 
     return _compute_401k_daily(paths, qfx_snaps, qfx_contribs, earliest, end)
 
@@ -397,6 +460,7 @@ def _full_build(
     k401_daily: dict[date, dict[str, float]],
     *,
     no_validate: bool = False,
+    dry_run_market: bool = False,
 ) -> list[AllocationRow]:
     print("\n[5] Computing full allocation...")
     alloc = compute_daily_allocation(paths.db_path, DEFAULT_QJ_DB, config, k401_daily, start, end, robinhood_csv=paths.robinhood_csv)
@@ -434,15 +498,19 @@ def _full_build(
     )
     print(f"  {qj_count} Qianji transactions ingested")
 
-    # Precompute market index data
-    print("[M] Precomputing market data...")
-    precompute_market(paths.db_path)
-    print("  Done")
+    if dry_run_market:
+        print("[M] Market precompute skipped (--dry-run-market)")
+        print("[H] Holdings detail precompute skipped (--dry-run-market)")
+    else:
+        # Precompute market index data
+        print("[M] Precomputing market data...")
+        precompute_market(paths.db_path)
+        print("  Done")
 
-    # Precompute holdings detail
-    print("[H] Precomputing holdings detail...")
-    precompute_holdings_detail(paths.db_path)
-    print("  Done")
+        # Precompute holdings detail
+        print("[H] Precomputing holdings detail...")
+        precompute_holdings_detail(paths.db_path)
+        print("  Done")
 
     _print_summary(alloc)
 
@@ -479,6 +547,7 @@ def _build_refresh_window(
     k401_daily: dict[date, dict[str, float]],
     *,
     no_validate: bool = False,
+    dry_run_market: bool = False,
 ) -> list[AllocationRow]:
     """Recompute the REFRESH_WINDOW_DAYS tail of ``computed_daily``, filling any
     historical gap beyond the tail. Delegates to ``_full_build`` when the DB
@@ -486,7 +555,10 @@ def _build_refresh_window(
     last = get_last_computed_date(paths.db_path)
     if last is None:
         print("  No existing data — falling back to full build")
-        return _full_build(paths, config, start, end, k401_daily, no_validate=no_validate)
+        return _full_build(
+            paths, config, start, end, k401_daily,
+            no_validate=no_validate, dry_run_market=dry_run_market,
+        )
 
     inc_start = compute_inc_start(last, start, end)
     if inc_start > end:
@@ -502,15 +574,19 @@ def _build_refresh_window(
         written = upsert_daily_rows(paths.db_path, alloc)
         print(f"  {written} rows written")
 
-    # Precompute market index data (always refresh on incremental)
-    print("[M] Precomputing market data...")
-    precompute_market(paths.db_path)
-    print("  Done")
+    if dry_run_market:
+        print("[M] Market precompute skipped (--dry-run-market)")
+        print("[H] Holdings detail precompute skipped (--dry-run-market)")
+    else:
+        # Precompute market index data (always refresh on incremental)
+        print("[M] Precomputing market data...")
+        precompute_market(paths.db_path)
+        print("  Done")
 
-    # Precompute holdings detail (always refresh on incremental)
-    print("[H] Precomputing holdings detail...")
-    precompute_holdings_detail(paths.db_path)
-    print("  Done")
+        # Precompute holdings detail (always refresh on incremental)
+        print("[H] Precomputing holdings detail...")
+        precompute_holdings_detail(paths.db_path)
+        print("  Done")
 
     _print_summary(alloc)
 
@@ -535,13 +611,19 @@ def main() -> None:
     end = date.today()
 
     # Ingest all sources, fetch prices (populates DB)
-    k401_daily = _ingest_and_fetch(paths, config, end)
+    k401_daily = _ingest_and_fetch(
+        paths, config, end, prices_from_csv=args.prices_from_csv,
+    )
 
     # Derive date range from ingested fidelity transactions
     start = _derive_start_date(paths, fallback=end)
     print(f"  Range: {start} -> {end}")
 
-    _build_refresh_window(paths, config, start, end, k401_daily, no_validate=args.no_validate)
+    _build_refresh_window(
+        paths, config, start, end, k401_daily,
+        no_validate=args.no_validate,
+        dry_run_market=args.dry_run_market,
+    )
 
     print("\n" + "=" * 60)
 
