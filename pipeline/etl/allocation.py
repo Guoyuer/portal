@@ -34,9 +34,9 @@ import pandas as pd
 
 from .ingest.robinhood_history import replay_robinhood
 from .prices import load_cny_rates, load_prices
+from .sources import InvestmentSource, PriceContext, SourceKind, build_investment_sources
+from .sources import fidelity as _fidelity_source_module  # noqa: F401 — import side-effect registers FidelitySource
 from .timemachine import (
-    _parse_date,
-    replay_from_db,
     replay_qianji,
     replay_qianji_currencies,
 )
@@ -256,6 +256,11 @@ class AllocationSources:
     k401_daily: dict[date, dict[str, float]]
     rh_replay_fn: Callable[..., RobinhoodReplayResult] | None = None
     robinhood_csv: Path | None = None
+    # Registered :class:`InvestmentSource` instances — populated by
+    # ``_build_sources`` via :func:`build_investment_sources`. Currently only
+    # Fidelity is migrated; other sources (Robinhood, 401k) still run through
+    # their legacy ``_add_*`` helpers until Phases 4-5 land.
+    investment_sources: list[InvestmentSource] = field(default_factory=list)
 
 
 @dataclass
@@ -281,18 +286,29 @@ def step_one_day(
 ) -> AllocationRow:
     """Value the portfolio for a single day. Pure — no I/O, no arg mutation.
 
-    Robinhood still re-runs its own replay from CSV on every call (no
-    cached state), matching the pre-refactor behaviour.
+    Fidelity routes through the :class:`InvestmentSource` registry
+    (``sources.investment_sources``). Robinhood and 401k still run their
+    legacy ``_add_*`` helpers and are migrated in Phases 4-5.
     """
     price_date, mf_price_date, cny_rate = _resolve_date_windows(
         sources.prices, sources.cny_rates, current
     )
 
     ticker_values: dict[str, float] = {}
-    _add_fidelity_positions(
-        ticker_values, state.positions, sources.prices, price_date, mf_price_date
-    )
-    _add_fidelity_cash(ticker_values, state.cash, sources.fidelity_accounts)
+    cost_basis_by_ticker: dict[str, float] = {}
+
+    # ── Fidelity via the registry ──
+    ctx = PriceContext(prices=sources.prices, price_date=price_date, mf_price_date=mf_price_date)
+    for src in sources.investment_sources:
+        if src.kind != SourceKind.FIDELITY:
+            continue
+        for row in src.positions_at(current, ctx):
+            ticker_values[row.ticker] = ticker_values.get(row.ticker, 0.0) + row.value_usd
+            if row.cost_basis_usd is not None:
+                cost_basis_by_ticker[row.ticker] = (
+                    cost_basis_by_ticker.get(row.ticker, 0.0) + row.cost_basis_usd
+                )
+
     _add_qianji_balances(
         ticker_values, state.qj_balances, sources.qianji_currencies,
         sources.ticker_map, sources.assets, cny_rate, sources.skip_qj_accounts,
@@ -303,9 +319,6 @@ def step_one_day(
         current, sources.prices, price_date,
     )
 
-    cost_basis_by_ticker: dict[str, float] = {}
-    for (_acct, sym), cb in state.cost_basis.items():
-        cost_basis_by_ticker[sym] = cost_basis_by_ticker.get(sym, 0) + cb
     for sym, cb in rh_cost_basis.items():
         cost_basis_by_ticker[sym] = cost_basis_by_ticker.get(sym, 0) + cb
 
@@ -356,6 +369,7 @@ def _build_sources(
     config: RawConfig,
     k401_daily: dict[date, dict[str, float]],
     robinhood_csv: Path | None,
+    investment_sources: list[InvestmentSource] | None = None,
 ) -> AllocationSources:
     """Load prices + config-derived routing tables into an AllocationSources."""
     assets = config.get("assets", {})
@@ -371,6 +385,12 @@ def _build_sources(
     if rh_replay_fn:
         skip_qj = skip_qj | {"Robinhood"}
 
+    # If the caller didn't supply an explicit list of sources, build them from
+    # ``config`` here so legacy call sites (tests, ad-hoc scripts) keep
+    # working without threading a new argument through.
+    if investment_sources is None:
+        investment_sources = build_investment_sources(dict(config), db_path)
+
     return AllocationSources(
         prices=load_prices(db_path),
         cny_rates=load_cny_rates(db_path),
@@ -382,6 +402,7 @@ def _build_sources(
         k401_daily=k401_daily,
         rh_replay_fn=rh_replay_fn,
         robinhood_csv=robinhood_csv,
+        investment_sources=investment_sources,
     )
 
 
@@ -394,12 +415,14 @@ def compute_daily_allocation(
     end: date,
     *,
     robinhood_csv: Path | None = None,
+    investment_sources: list[InvestmentSource] | None = None,
 ) -> list[AllocationRow]:
     """Compute daily allocation from start to end.
 
-    Orchestrates replay refresh + per-day valuation. The math is in
-    ``step_one_day``; this function just decides when to re-run the
-    Fidelity/Qianji replays to keep ``ReplayState`` current.
+    Orchestrates per-day valuation. The math is in ``step_one_day``; this
+    function just decides when to re-run the Qianji replay to keep
+    ``ReplayState`` current. Fidelity now self-manages its replay inside
+    :class:`FidelitySource.positions_at` and no longer needs state here.
 
     Args:
         db_path: Path to timemachine.db (prices + CNY rates).
@@ -408,22 +431,24 @@ def compute_daily_allocation(
         k401_daily: Pre-computed 401k daily values by config ticker.
         start: First date to compute.
         end: Last date to compute.
+        robinhood_csv: Optional Robinhood CSV; routes through the legacy
+            helper until Phase 4.
+        investment_sources: Pre-built registry instances. Optional: omitted
+            callers fall back to :func:`build_investment_sources` against
+            ``config``.
 
     Returns:
         list of per-day allocation dicts (see ``_build_allocation_row``).
     """
-    sources = _build_sources(db_path, qj_db, config, k401_daily, robinhood_csv)
+    sources = _build_sources(
+        db_path, qj_db, config, k401_daily, robinhood_csv,
+        investment_sources=investment_sources,
+    )
 
-    _conn = sqlite3.connect(str(db_path))
-    fidelity_txn_dates = sorted({
-        _parse_date(r[0]) for r in _conn.execute("SELECT DISTINCT run_date FROM fidelity_transactions")
-    })
-    _conn.close()
     qj_txn_dates = set(_qianji_transaction_dates(qj_db))
 
     results: list[AllocationRow] = []
     state = ReplayState()
-    last_fidelity_replay: date | None = None
     last_qj_replay: date | None = None
     qj_replayed = False
 
@@ -433,16 +458,7 @@ def compute_daily_allocation(
             current += timedelta(days=1)
             continue
 
-        # Replay Fidelity only when the most-recent transaction date changes
-        latest_fidelity = max((d for d in fidelity_txn_dates if d <= current), default=None)
-        if latest_fidelity != last_fidelity_replay:
-            result = replay_from_db(db_path, current)
-            state.positions = result["positions"]
-            state.cash = result["cash"]
-            state.cost_basis = result.get("cost_basis") or {}
-            last_fidelity_replay = latest_fidelity
-
-        # Replay Qianji only when new balances exist in the window
+        # Replay Qianji only when new balances exist in the window.
         needs_qj = not qj_replayed or any(
             d > (last_qj_replay or date.min) and d <= current for d in qj_txn_dates
         )

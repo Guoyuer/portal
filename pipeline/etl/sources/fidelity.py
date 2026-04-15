@@ -27,6 +27,7 @@ behaviour-preserving refactor.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -41,6 +42,8 @@ from etl.sources import (
     PriceContext,
     SourceKind,
 )
+
+log = logging.getLogger(__name__)
 
 # Default set of mutual-fund tickers that need T-1 price lookup. Mirrors the
 # legacy ``allocation._MUTUAL_FUNDS`` constant so that behaviour stays
@@ -143,7 +146,9 @@ class FidelitySource:
                 ))
                 continue
 
-            # Regular symbol: price-lookup against PriceContext.
+            # Regular symbol: price-lookup against PriceContext. Missing
+            # prices get logged (mirrors the legacy ``_add_fidelity_positions``
+            # warning) and the row is excluded from the output.
             p_date = prices.mf_price_date if sym in self._config.mutual_funds else prices.price_date
             if sym in prices.prices.columns and p_date in prices.prices.index:
                 price = prices.prices.loc[p_date, sym]
@@ -155,9 +160,11 @@ class FidelitySource:
                         cost_basis_usd=cb,
                         account=acct,
                     ))
-            # Missing price: skip silently — matches legacy
-            # ``_add_fidelity_positions`` behaviour (logs a warning but
-            # excludes the holding; log line stays with the caller).
+                    continue
+            log.warning(
+                "No price for %s on %s (holding %.3f shares) — excluded from allocation",
+                sym, p_date, qty,
+            )
 
         # ── Per-account cash routed to each account's MM fund.
         for acct, bal in cash_by_account.items():

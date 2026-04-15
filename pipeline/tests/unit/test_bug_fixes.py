@@ -251,7 +251,11 @@ class TestMissingPriceWarns:
             },
         }
 
-        with caplog.at_level(logging.WARNING, logger="etl.allocation"):
+        # After the data-source abstraction refactor, the missing-price
+        # warning is emitted by ``etl.sources.fidelity`` rather than
+        # ``etl.allocation``. Watch the root logger so either location is
+        # caught.
+        with caplog.at_level(logging.WARNING):
             compute_daily_allocation(db, qj, config, {}, date(2025, 1, 2), date(2025, 1, 2))
 
         # Must warn about SGOV having no price
@@ -277,7 +281,7 @@ class TestMissingPriceWarns:
             "qianji_accounts": {"fidelity_tracked": [], "ticker_map": {}},
         }
 
-        with caplog.at_level(logging.WARNING, logger="etl.allocation"):
+        with caplog.at_level(logging.WARNING):
             compute_daily_allocation(db, qj, config, {}, date(2025, 1, 2), date(2025, 1, 2))
 
         price_warnings = [r for r in caplog.records if "price" in r.message.lower()]

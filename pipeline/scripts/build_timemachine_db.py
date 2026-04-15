@@ -66,6 +66,8 @@ from etl.prices import (
     symbol_holding_periods_from_db,
 )
 from etl.refresh import refresh_window_start
+from etl.sources import build_investment_sources
+from etl.sources import fidelity as _fidelity_source_module  # noqa: F401 — import side-effect registers FidelitySource
 from etl.timemachine import DEFAULT_QJ_DB
 from etl.types import AllocationRow, RawConfig
 from etl.validate import Severity, validate_build
@@ -471,7 +473,13 @@ def _full_build(
     dry_run_market: bool = False,
 ) -> list[AllocationRow]:
     print("\n[5] Computing full allocation...")
-    alloc = compute_daily_allocation(paths.db_path, DEFAULT_QJ_DB, config, k401_daily, start, end, robinhood_csv=paths.robinhood_csv)
+    raw_sources_cfg = dict(config) | {"fidelity_downloads": paths.downloads}
+    investment_sources = build_investment_sources(raw_sources_cfg, paths.db_path)
+    alloc = compute_daily_allocation(
+        paths.db_path, DEFAULT_QJ_DB, config, k401_daily, start, end,
+        robinhood_csv=paths.robinhood_csv,
+        investment_sources=investment_sources,
+    )
     print(f"  {len(alloc)} daily records")
 
     print("[6] Writing computed_daily...")
@@ -574,7 +582,13 @@ def _build_refresh_window(
         return []
 
     print(f"\n[5] Computing allocation {inc_start} -> {end} (incremental)...")
-    alloc = compute_daily_allocation(paths.db_path, DEFAULT_QJ_DB, config, k401_daily, inc_start, end, robinhood_csv=paths.robinhood_csv)
+    raw_sources_cfg = dict(config) | {"fidelity_downloads": paths.downloads}
+    investment_sources = build_investment_sources(raw_sources_cfg, paths.db_path)
+    alloc = compute_daily_allocation(
+        paths.db_path, DEFAULT_QJ_DB, config, k401_daily, inc_start, end,
+        robinhood_csv=paths.robinhood_csv,
+        investment_sources=investment_sources,
+    )
     print(f"  {len(alloc)} daily records")
 
     if alloc:
