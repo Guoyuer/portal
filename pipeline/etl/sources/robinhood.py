@@ -1,6 +1,6 @@
 """Robinhood source — persists transactions to robinhood_transactions and uses shared replay.
 
-Replaces the on-the-fly CSV replay that previously existed in
+Replaces the on-the-fly CSV replay from the now-removed
 ``etl/ingest/robinhood_history.py``. Robinhood is the first real consumer of
 the source-agnostic :func:`etl.replay.replay_transactions` primitive:
 ingestion writes rows into the ``robinhood_transactions`` table with
