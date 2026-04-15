@@ -120,12 +120,35 @@ def test_compare_recent_totals_within_dollar():
     assert all(r.ok for r in results)
 
 
-def test_compare_recent_totals_big_drift():
-    """Shared date with big drift must FAIL (INSERT OR IGNORE → prod frozen)."""
-    local = [{"date": "2026-04-12", "total": 422369.00}]
-    prod = [{"date": "2026-04-12", "total": 411000.00}]
-    results = compare_recent_totals(local, prod, tolerance_dollars=1.0)
+def test_compare_recent_totals_historical_big_drift_fails():
+    """Drift on an OLDER date (outside refresh window) must FAIL.
+
+    Historical rows should be immutable — a mismatch there implies a logic
+    change that would silently rewrite prod history when sync runs.
+    """
+    local = [{"date": "2025-01-01", "total": 422369.00}]
+    prod = [{"date": "2025-01-01", "total": 411000.00}]
+    results = compare_recent_totals(
+        local, prod, tolerance_dollars=1.0, today=date(2026, 4, 15),
+    )
     assert any(not r.ok for r in results)
+
+
+def test_compare_recent_totals_refresh_window_drift_allowed():
+    """Drift WITHIN the refresh window (last 7 days) is the expected flow.
+
+    ``upsert_daily_rows`` re-writes the last REFRESH_WINDOW_DAYS on every
+    build (fresh Yahoo prices) and ``sync_to_d1`` full-replaces
+    ``computed_daily`` in prod. Drift in that window means local has
+    fresher values that sync will cleanly propagate — not a failure.
+    """
+    local = [{"date": "2026-04-14", "total": 429932.33}]
+    prod = [{"date": "2026-04-14", "total": 425033.92}]  # $4898 drift
+    results = compare_recent_totals(
+        local, prod, tolerance_dollars=1.0, today=date(2026, 4, 15),
+    )
+    assert all(r.ok for r in results)
+    assert any("refresh window — will sync" in r.detail for r in results)
 
 
 def test_compare_recent_totals_missing_in_prod_skipped():

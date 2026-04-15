@@ -603,6 +603,18 @@ def _build_refresh_window(
         written = upsert_daily_rows(paths.db_path, alloc)
         print(f"  {written} rows written")
 
+    # ``qianji_transactions`` is a full snapshot of current Qianji state
+    # (DELETE+INSERT), not a time-range. Incremental runs must still
+    # re-ingest it or the /cashflow view drifts from reality whenever the
+    # user edits a bill in Qianji — or, as in the balance-adjustment and
+    # timezone fixes, whenever ingest logic itself changes.
+    qianji_records, _ = load_all_from_db(DEFAULT_QJ_DB)
+    retirement_cats = list(config.get("retirement_income_categories") or [])
+    qj_count = ingest_qianji_transactions(
+        paths.db_path, qianji_records, retirement_categories=retirement_cats,
+    )
+    print(f"  {qj_count} Qianji transactions re-ingested")
+
     if dry_run_market:
         print("[M] Market precompute skipped (--dry-run-market)")
         print("[H] Holdings detail precompute skipped (--dry-run-market)")

@@ -67,6 +67,19 @@ _WORKER_DIR = _PROJECT_DIR.parent / "worker"
 _TABLES_FOR_COUNT = ["fidelity_transactions", "qianji_transactions", "computed_daily", "daily_close"]
 _CLOSE_TOLERANCE = 0.0001
 _TOTAL_TOLERANCE_DOLLARS = 1.0
+_RECENT_WINDOW_DAYS = 7
+
+# Tables whose sync mode is ``INSERT OR IGNORE`` (append-only with a natural
+# PK) — for these, ``local < prod`` is safe: the sync preserves prod's extra
+# rows instead of replacing them. Mirrors ``sync_to_d1._DIFF_TABLES`` so the
+# gate's definition of "data loss" tracks what the sync actually does.
+try:
+    from scripts.sync_to_d1 import _DIFF_TABLES as _SYNC_DIFF_TABLES
+    _DIFF_TABLES: set[str] = _SYNC_DIFF_TABLES
+except ImportError:
+    # Running verify in isolation (e.g. tests that don't add scripts/ to
+    # path). Fall back to the known set; mismatch would surface quickly.
+    _DIFF_TABLES = {"daily_close"}
 
 
 # ── Types ─────────────────────────────────────────────────────────────────
@@ -99,8 +112,15 @@ def _query_prod(sql: str) -> list[dict[str, Any]]:
 
 # ── Comparisons ────────────────────────────────────────────────────────────
 
-def compare_row_counts(table: str, local: int, prod: int) -> CheckResult:
-    """OK when local >= prod. FAIL only when local is SHORT (data loss risk)."""
+def compare_row_counts(
+    table: str, local: int, prod: int, expected_drop: int = 0,
+) -> CheckResult:
+    """OK when local >= prod, OR when the shortfall matches the operator's
+    declared ``expected_drop``, OR when the table's sync mode is DIFF
+    (INSERT OR IGNORE preserves prod extras — no data loss possible).
+    FAIL only when local is unexpectedly SHORT for a table whose sync
+    would actually delete prod rows.
+    """
     if local == prod:
         return CheckResult(ok=True, table=table, detail=f"{local} rows (match)")
     if local > prod:
@@ -108,9 +128,21 @@ def compare_row_counts(table: str, local: int, prod: int) -> CheckResult:
             ok=True, table=table,
             detail=f"local={local} prod={prod} (local ahead by {local - prod} — will sync)",
         )
+    shortfall = prod - local
+    if expected_drop and shortfall == expected_drop:
+        return CheckResult(
+            ok=True, table=table,
+            detail=f"local={local} prod={prod} (short by {shortfall} — declared via --expected-drops)",
+        )
+    if table in _DIFF_TABLES:
+        # DIFF sync = INSERT OR IGNORE. Prod extras are preserved.
+        return CheckResult(
+            ok=True, table=table,
+            detail=f"local={local} prod={prod} (short by {shortfall} — {table} sync is INSERT OR IGNORE, prod extras preserved)",
+        )
     return CheckResult(
         ok=False, table=table,
-        detail=f"local={local} prod={prod} (local SHORT by {prod - local} — DATA LOSS RISK)",
+        detail=f"local={local} prod={prod} (local SHORT by {shortfall} — DATA LOSS RISK)",
     )
 
 
@@ -160,14 +192,22 @@ def compare_recent_totals(
     local: list[dict[str, Any]],
     prod: list[dict[str, Any]],
     tolerance_dollars: float = _TOTAL_TOLERANCE_DOLLARS,
+    today: date | None = None,
 ) -> list[CheckResult]:
-    """Compare only dates present in BOTH sides.
+    """Compare dates present in BOTH sides, with refresh-window awareness.
 
-    Dates only in local are skipped (sync will propagate them — normal).
-    `computed_daily` is INSERT OR IGNORE, so prod rows are frozen; any
-    value drift for a shared date implies a logic change that would
-    desync downstream consumers. FAIL in that case.
+    The pipeline recomputes the last ``_RECENT_WINDOW_DAYS`` of
+    ``computed_daily`` on every build to absorb intraday price updates
+    and late Yahoo corrections; ``upsert_daily_rows`` is INSERT OR
+    REPLACE, and prod's ``computed_daily`` sync is a full DELETE+INSERT.
+    So drift on dates WITHIN the refresh window is the expected flow —
+    local's fresh values will cleanly replace prod's on sync.
+
+    Drift on older dates is a genuine red flag: those rows should be
+    immutable, and a mismatch implies a logic change that would silently
+    rewrite prod history. FAIL in that case.
     """
+    cutoff = ((today or date.today()) - timedelta(days=_RECENT_WINDOW_DAYS)).isoformat()
     prod_map = {r["date"]: float(r["total"]) for r in prod}
     results: list[CheckResult] = []
     for r in local:
@@ -175,17 +215,26 @@ def compare_recent_totals(
         lv = float(r["total"])
         pv = prod_map.get(d)
         if pv is None:
-            # Only in local — sync will insert. Not a drift failure.
             results.append(CheckResult(
                 ok=True, table="computed_daily",
                 detail=f"{d} only in local (will sync)",
             ))
             continue
-        if abs(lv - pv) > tolerance_dollars:
-            results.append(CheckResult(ok=False, table="computed_daily",
-                                        detail=f"{d} local={lv:.2f} prod={pv:.2f} diff={lv - pv:+.2f}"))
-        else:
+        diff = lv - pv
+        within_tol = abs(diff) <= tolerance_dollars
+        if within_tol:
             results.append(CheckResult(ok=True, table="computed_daily", detail=f"{d} within ${tolerance_dollars}"))
+        elif d >= cutoff:
+            # Recent window — drift is expected; full-replace sync resolves it.
+            results.append(CheckResult(
+                ok=True, table="computed_daily",
+                detail=f"{d} local={lv:.2f} prod={pv:.2f} diff={diff:+.2f} (refresh window — will sync)",
+            ))
+        else:
+            results.append(CheckResult(
+                ok=False, table="computed_daily",
+                detail=f"{d} local={lv:.2f} prod={pv:.2f} diff={diff:+.2f} (historical — immutable)",
+            ))
     return results
 
 
@@ -195,11 +244,38 @@ def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Parity check: local timemachine.db vs prod D1")
     p.add_argument("--sample-size", type=int, default=10, help="Random daily_close samples (default 10)")
     p.add_argument("--verbose", action="store_true", help="Print all comparisons, not just mismatches")
+    p.add_argument(
+        "--expected-drops",
+        action="append", default=[],
+        metavar="TABLE=N",
+        help=(
+            "Declare an intentional row-count drop for TABLE. N is the exact "
+            "number of rows local should be SHORT by vs prod; the check "
+            "passes when the shortfall matches. Repeat for each table. "
+            "Example: --expected-drops qianji_transactions=11 (drops the "
+            "11 balance-adjustment rows filtered out at ingest)."
+        ),
+    )
     return p.parse_args()
+
+
+def _parse_expected_drops(specs: list[str]) -> dict[str, int]:
+    """Parse ``TABLE=N`` flags into ``{table: N}``."""
+    out: dict[str, int] = {}
+    for spec in specs:
+        if "=" not in spec:
+            raise SystemExit(f"--expected-drops expects TABLE=N, got: {spec!r}")
+        k, v = spec.split("=", 1)
+        try:
+            out[k.strip()] = int(v)
+        except ValueError as e:
+            raise SystemExit(f"--expected-drops {spec!r}: N must be an integer") from e
+    return out
 
 
 def main() -> None:
     args = _parse_args()
+    expected_drops = _parse_expected_drops(args.expected_drops)
 
     if not _DB_PATH.exists():
         print(f"Error: local DB not found: {_DB_PATH}", file=sys.stderr)
@@ -208,6 +284,8 @@ def main() -> None:
     print("=" * 60)
     print("  verify_vs_prod: local timemachine.db vs Cloudflare D1")
     print("=" * 60)
+    if expected_drops:
+        print(f"  Declared drops: {expected_drops}")
 
     conn = sqlite3.connect(str(_DB_PATH))
     conn.row_factory = sqlite3.Row
@@ -220,7 +298,7 @@ def main() -> None:
         local_n = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]  # noqa: S608
         prod_rows = _query_prod(f"SELECT COUNT(*) AS n FROM {table}")
         prod_n = int(prod_rows[0]["n"]) if prod_rows else 0
-        r = compare_row_counts(table, local_n, prod_n)
+        r = compare_row_counts(table, local_n, prod_n, expected_drop=expected_drops.get(table, 0))
         all_results.append(r)
         marker = "✓" if r.ok else "✗"
         print(f"  {marker} {table}: {r.detail}")

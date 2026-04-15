@@ -488,6 +488,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                    help="Run build + verify but skip the final sync")
     p.add_argument("--local", action="store_true",
                    help="Sync to local D1 (wrangler --local); skips verify_vs_prod")
+    p.add_argument(
+        "--expected-drops",
+        action="append", default=[],
+        metavar="TABLE=N",
+        help=(
+            "Declare an intentional row-count drop on TABLE of exactly N rows "
+            "(passes through to verify_vs_prod). Use when an ingest-logic "
+            "change legitimately removes rows from the local DB that still "
+            "exist in prod — e.g. after filtering balance-adjustment bills. "
+            "Repeatable."
+        ),
+    )
     return p.parse_args(argv)
 
 
@@ -550,7 +562,10 @@ def main(argv: list[str] | None = None) -> int:
     # [3] Pre-sync gate: guard against local data loss + historical drift
     if not args.local:
         log.info("[3] Verifying historical immutability + no local data loss vs prod D1...")
-        rc = run_python_script(_SCRIPT_DIR / "verify_vs_prod.py")
+        gate_args: list[str] = []
+        for spec in args.expected_drops:
+            gate_args.extend(["--expected-drops", spec])
+        rc = run_python_script(_SCRIPT_DIR / "verify_vs_prod.py", *gate_args)
         if rc != 0:
             return _report_stage_failure(
                 log, "PRE-SYNC GATE", rc, EXIT_PARITY_FAIL, "verify_vs_prod.py",
