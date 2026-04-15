@@ -20,6 +20,7 @@ from typing import Any
 
 from .db import get_connection
 from .ingest.qianji_db import DEFAULT_DB_PATH, parse_qj_target_amount
+from .sources.fidelity import MM_SYMBOLS
 from .types import parse_float as _float
 
 #: Public re-export of the Qianji DB path. Module-level assignment makes mypy
@@ -27,14 +28,6 @@ from .types import parse_float as _float
 DEFAULT_QJ_DB = DEFAULT_DB_PATH
 
 log = logging.getLogger(__name__)
-
-# ── Constants ─────────────────────────────────────────────────────────────────
-
-# Money market funds ($1/share, treated as cash). Re-exported here for the
-# checkpoint + calibration helpers; the canonical definition (and the one
-# the replay primitive consumes) lives in :mod:`etl.sources.fidelity`.
-MM_SYMBOLS = frozenset({"SPAXX", "FZFXX", "FDRXX"})
-
 
 # ── Checkpoint save/load ──────────────────────────────────────────────────────
 
@@ -309,7 +302,6 @@ def main() -> None:
 
     # Deferred import sidesteps the ``etl.replay`` ↔ ``etl.sources`` cycle.
     from etl.replay import replay_transactions
-    from etl.sources.fidelity import MM_SYMBOLS as _MM
     from etl.sources.fidelity import TABLE as _T
 
     db = Path(args.db)
@@ -320,9 +312,9 @@ def main() -> None:
         db, _T, as_of,
         date_col="run_date", ticker_col="symbol", amount_col="amount",
         account_col="account_number",
-        exclude_tickers=_MM,
+        exclude_tickers=MM_SYMBOLS,
         track_cash=True, lot_type_col="lot_type",
-        mm_drip_tickers=_MM,
+        mm_drip_tickers=MM_SYMBOLS,
     )
 
     print(f"As of: {as_of}")
