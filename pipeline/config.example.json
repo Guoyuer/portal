@@ -416,7 +416,9 @@
       "Amex Saving": "Amex Saving",
       "USDC": "USDC",
       "HYSA": "Amex HYSA",
-      "Debit": "Debit Cash"
+      "Debit": "Debit Cash",
+      "Bank Card": "CNY Cash",
+      "WeChat Pay": "CNY Cash"
     }
   },
   "fidelity_accounts": {
