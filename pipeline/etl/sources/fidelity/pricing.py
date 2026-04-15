@@ -21,10 +21,21 @@ from etl.sources import PositionRow, PriceContext
 
 log = logging.getLogger(__name__)
 
-# Default set of mutual-fund tickers that need T-1 price lookup. Mirrors the
-# legacy ``allocation._MUTUAL_FUNDS`` constant so that behaviour stays
-# unchanged when ``config`` is missing the ``mutual_funds`` key.
-_DEFAULT_MUTUAL_FUNDS: frozenset[str] = frozenset({"FXAIX", "FSSNX", "FNJHX"})
+# Default set of mutual-fund tickers that need T-1 price lookup.
+#
+# yfinance stamps open-end mutual-fund NAV with the PREVIOUS trading day's
+# date (Yahoo posts the NAV after US market close, so the day-of query
+# returns empty and the next morning returns yesterday's NAV). ETFs +
+# closed-end funds trade intraday and report T-0 correctly.
+#
+# Every Fidelity-ecosystem open-end mutual fund we hold needs to be here.
+# Missing ones silently fall through to the T-0 path → no price on the
+# current date → ``pricing.position_rows`` logs a warning and excludes the
+# row from allocation, causing the holding to vanish from the dashboard.
+# FTIHX (Fidelity Total International Index) was one such case that went
+# undetected for months; its stored ``daily_close`` plateaued at
+# 2025-12-15 because subsequent T-0 lookups kept returning empty.
+_DEFAULT_MUTUAL_FUNDS: frozenset[str] = frozenset({"FXAIX", "FSSNX", "FNJHX", "FTIHX"})
 
 
 def mutual_funds(config: dict[str, object]) -> frozenset[str]:
