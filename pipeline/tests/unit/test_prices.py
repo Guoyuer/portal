@@ -260,13 +260,20 @@ class TestHistoricalImmutabilityCnyRates:
         assert existing[0] == pytest.approx(7.2135)  # preserved
         assert gap[0] == pytest.approx(6.9052)       # filled
 
-    def test_recent_row_updated_within_refresh_window(
+    def test_recent_row_NOT_refreshed(
         self, tmp_path: Path,
     ) -> None:
+        """CNY=X is INSERT OR IGNORE for every date (not just historical).
+
+        Equity prices refresh within a 7-day window so intraday ticks land,
+        but FX rates are intentionally pinned the moment they're first
+        captured — intraday USD/CNY drift otherwise makes two back-to-back
+        rebuilds produce different computed_daily hashes. See commit
+        ``5a0468d`` (stabilize CNY=X) for the full reasoning.
+        """
         db_path = tmp_path / "test.db"
         init_db(db_path)
-        # Build end is 2026-04-12; refresh window is 7 days → 2026-04-05 onward.
-        _seed_prices(db_path, [("CNY=X", "2026-04-10", 7.20)])
+        _seed_prices(db_path, [("CNY=X", "2026-04-10", 7.20)])  # already captured
 
         with patch("etl.prices.yf.download") as mock_dl:
             mock_dl.return_value = _cny_df([("2026-04-10", 7.25)])  # Yahoo correction
@@ -277,7 +284,7 @@ class TestHistoricalImmutabilityCnyRates:
             "SELECT close FROM daily_close WHERE symbol='CNY=X' AND date='2026-04-10'",
         ).fetchone()
         conn.close()
-        assert r[0] == pytest.approx(7.25)  # refreshed
+        assert r[0] == pytest.approx(7.20)  # first-capture value pinned
 
 
 class TestHistoricalImmutabilityPrices:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
 
 PIPELINE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -12,7 +13,7 @@ def test_prices_from_csv_flag_bypasses_yahoo(tmp_path: Path) -> None:
     prices_csv.write_text("date,FXAIX\n2024-01-02,150.50\n", encoding="utf-8")
     result = subprocess.run(
         [
-            str(PIPELINE_DIR / ".venv" / "Scripts" / "python.exe"),
+            sys.executable,
             "scripts/build_timemachine_db.py",
             "--prices-from-csv",
             str(prices_csv),
