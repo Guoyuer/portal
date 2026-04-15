@@ -54,6 +54,7 @@ from etl.k401 import (
     load_all_qfx,
 )
 from etl.migrations.add_fidelity_action_kind import migrate as _migrate_fidelity_action_kind
+from etl.migrations.drop_robinhood_unique import migrate as _migrate_drop_robinhood_unique
 from etl.precompute import (
     precompute_holdings_detail,
     precompute_market,
@@ -67,6 +68,9 @@ from etl.prices import (
 from etl.refresh import refresh_window_start
 from etl.sources import build_investment_sources
 from etl.sources import fidelity as _fidelity_source_module  # noqa: F401 — import side-effect registers FidelitySource
+from etl.sources import (
+    robinhood as _robinhood_source_module,  # noqa: F401 — import side-effect registers RobinhoodSource
+)
 from etl.timemachine import DEFAULT_QJ_DB
 from etl.types import AllocationRow, RawConfig
 from etl.validate import Severity, validate_build
@@ -247,6 +251,21 @@ def _ingest_fidelity_csvs(paths: BuildPaths) -> None:
     print(f"  {total} rows after ingestion")
 
 
+def _ingest_robinhood_csv(paths: BuildPaths) -> None:
+    """Ingest the Robinhood activity CSV via :class:`RobinhoodSource`.
+
+    Silent no-op when the CSV is absent (user has no Robinhood holdings) —
+    :meth:`RobinhoodSource.ingest` handles the missing-file case internally.
+    """
+    from etl.sources.robinhood import RobinhoodSource, RobinhoodSourceConfig
+
+    src = RobinhoodSource(
+        RobinhoodSourceConfig(csv_path=paths.robinhood_csv),
+        paths.db_path,
+    )
+    src.ingest()
+
+
 def _load_401k_contributions(
     qfx_contribs: list[Contribution],
     last_qfx_date: date | None,
@@ -336,6 +355,18 @@ def _init_db_and_ingest_sources(
     print("[2] Ingesting Fidelity transactions...")
     _ingest_fidelity_csvs(paths)
 
+    # ── Step 2b: Ingest Robinhood ──
+    # The original Task-17 schema carried a UNIQUE(txn_date, ticker, action,
+    # quantity, amount_usd) constraint for idempotent re-ingest, but that
+    # silently collapsed legitimate same-day duplicate trades (breaking L1
+    # parity with legacy ``replay_robinhood``). Idempotency now comes from
+    # :meth:`RobinhoodSource.ingest`'s range-replace (DELETE within CSV's
+    # [min_date, max_date] + INSERT everything) — identical to Fidelity.
+    # Migration below is a no-op on fresh DBs (schema already correct).
+    _migrate_drop_robinhood_unique(paths.db_path)
+    print("[2b] Ingesting Robinhood transactions...")
+    _ingest_robinhood_csv(paths)
+
     # ── Step 3: Ingest Empower QFX ──
     print("[3] Ingesting Empower 401k...")
     qfx_files = sorted(paths.downloads.glob("Bloomberg.Download*.qfx"))
@@ -375,12 +406,22 @@ def _compute_holding_periods(
     for idx_ticker in ("^GSPC", "^NDX", "000300.SS"):
         periods[idx_ticker] = (earliest, None)
 
-    # Add Robinhood symbols that aren't in Fidelity
-    if paths.robinhood_csv.exists():
-        from etl.ingest.robinhood_history import load_robinhood_csv
-        rh_syms = {r["instrument"] for r in load_robinhood_csv(paths.robinhood_csv) if r["instrument"]}
-        for sym in rh_syms - set(periods.keys()):
-            periods[sym] = (earliest, None)
+    # Add Robinhood symbols that aren't in Fidelity — query the
+    # ``robinhood_transactions`` table that :class:`RobinhoodSource.ingest`
+    # populated in step 3b. (Reading from the DB here instead of the CSV
+    # means a user whose CSV was deleted after an earlier build still has
+    # their prices refetched.)
+    conn = get_connection(paths.db_path)
+    try:
+        rh_syms = {
+            sym for (sym,) in conn.execute(
+                "SELECT DISTINCT ticker FROM robinhood_transactions WHERE ticker != ''"
+            )
+        }
+    finally:
+        conn.close()
+    for sym in rh_syms - set(periods.keys()):
+        periods[sym] = (earliest, None)
 
     return periods, earliest
 
@@ -483,11 +524,13 @@ def _full_build(
     dry_run_market: bool = False,
 ) -> list[AllocationRow]:
     print("\n[5] Computing full allocation...")
-    raw_sources_cfg = dict(config) | {"fidelity_downloads": paths.downloads}
+    raw_sources_cfg = dict(config) | {
+        "fidelity_downloads": paths.downloads,
+        "robinhood_csv": paths.robinhood_csv,
+    }
     investment_sources = build_investment_sources(raw_sources_cfg, paths.db_path)
     alloc = compute_daily_allocation(
         paths.db_path, DEFAULT_QJ_DB, config, k401_daily, start, end,
-        robinhood_csv=paths.robinhood_csv,
         investment_sources=investment_sources,
     )
     print(f"  {len(alloc)} daily records")
@@ -592,11 +635,13 @@ def _build_refresh_window(
         return []
 
     print(f"\n[5] Computing allocation {inc_start} -> {end} (incremental)...")
-    raw_sources_cfg = dict(config) | {"fidelity_downloads": paths.downloads}
+    raw_sources_cfg = dict(config) | {
+        "fidelity_downloads": paths.downloads,
+        "robinhood_csv": paths.robinhood_csv,
+    }
     investment_sources = build_investment_sources(raw_sources_cfg, paths.db_path)
     alloc = compute_daily_allocation(
         paths.db_path, DEFAULT_QJ_DB, config, k401_daily, inc_start, end,
-        robinhood_csv=paths.robinhood_csv,
         investment_sources=investment_sources,
     )
     print(f"  {len(alloc)} daily records")

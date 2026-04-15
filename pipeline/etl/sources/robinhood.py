@@ -128,49 +128,77 @@ class RobinhoodSource:
     def ingest(self) -> None:
         """Parse the CSV and persist rows into ``robinhood_transactions``.
 
-        Idempotent: the ``UNIQUE(txn_date, ticker, action, quantity, amount_usd)``
-        constraint plus ``INSERT OR IGNORE`` means running ingest twice over
-        the same CSV leaves the table unchanged. If the CSV file doesn't
-        exist (user doesn't use Robinhood), this is a silent no-op.
+        Idempotent via range-replace (mirrors
+        :meth:`FidelitySource._ingest_one_csv`): the rows in the CSV's
+        ``[min_date, max_date]`` window are DELETEd and then the full parsed
+        set is INSERTed. Re-running the build on the same CSV yields bit-
+        identical DB state. Legitimate same-day duplicate trades are
+        preserved — Robinhood CSVs do occasionally emit two rows with
+        identical date/ticker/action/qty/amount (two physical buys of
+        identical size), and discarding one silently would understate
+        positions.
+
+        If the CSV file doesn't exist (user doesn't use Robinhood), this is
+        a silent no-op.
         """
         if not self._config.csv_path.exists():
             return
 
+        text = self._config.csv_path.read_text(encoding="utf-8-sig")
+        reader = csv.DictReader(text.splitlines())
+        rows: list[tuple[str, str, str, str, float, float, str]] = []
+        iso_dates: list[str] = []
+        for row in reader:
+            activity_date = (row.get("Activity Date") or "").strip()
+            # Skip blank / footer rows — only rows with a parseable
+            # MM/DD/YYYY (or M/D/YYYY) date are real transactions.
+            if not re.match(r"\d{1,2}/\d{1,2}/\d{4}", activity_date):
+                continue
+
+            d = datetime.strptime(activity_date, "%m/%d/%Y").date()
+            action_raw = (row.get("Trans Code") or "").strip()
+            kind = classify_robinhood_action(action_raw)
+            ticker = (row.get("Instrument") or "").strip()
+            quantity = self._parse_float(row.get("Quantity", ""))
+            # Canonical sign convention (shared with Fidelity + consumed
+            # by :func:`etl.replay.replay_transactions`): BUY qty > 0,
+            # SELL qty < 0. Robinhood's CSV stores SELL qty as positive,
+            # so normalize here at ingest time.
+            if kind == ActionKind.SELL:
+                quantity = -abs(quantity)
+            amount = _parse_amount(row.get("Amount", ""))
+            description = (row.get("Description") or "").strip()
+            iso = d.isoformat()
+            rows.append((
+                iso,
+                action_raw,
+                kind.value,
+                ticker,
+                quantity,
+                amount,
+                description,
+            ))
+            iso_dates.append(iso)
+
         conn = sqlite3.connect(str(self._db_path))
         try:
-            text = self._config.csv_path.read_text(encoding="utf-8-sig")
-            reader = csv.DictReader(text.splitlines())
-            rows: list[tuple[str, str, str, str, float, float, str]] = []
-            for row in reader:
-                activity_date = (row.get("Activity Date") or "").strip()
-                # Skip blank / footer rows — only rows with a parseable
-                # MM/DD/YYYY (or M/D/YYYY) date are real transactions.
-                if not re.match(r"\d{1,2}/\d{1,2}/\d{4}", activity_date):
-                    continue
-
-                d = datetime.strptime(activity_date, "%m/%d/%Y").date()
-                action_raw = (row.get("Trans Code") or "").strip()
-                kind = classify_robinhood_action(action_raw)
-                ticker = (row.get("Instrument") or "").strip()
-                quantity = self._parse_float(row.get("Quantity", ""))
-                amount = _parse_amount(row.get("Amount", ""))
-                description = (row.get("Description") or "").strip()
-                rows.append((
-                    d.isoformat(),
-                    action_raw,
-                    kind.value,
-                    ticker,
-                    quantity,
-                    amount,
-                    description,
-                ))
-
-            conn.executemany(
-                f"INSERT OR IGNORE INTO {self._config.table} "  # noqa: S608 — table name is a trusted ClassVar
-                "(txn_date, action, action_kind, ticker, quantity, amount_usd, raw_description) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                rows,
-            )
+            if iso_dates:
+                # Range-replace: wipe any existing rows in the CSV's window,
+                # then insert the fresh set. Protects against partial CSVs
+                # (e.g. a 3-month export later replaced by a 12-month export
+                # with updated back-fills) leaving stale rows behind.
+                min_date, max_date = min(iso_dates), max(iso_dates)
+                conn.execute(
+                    f"DELETE FROM {self._config.table} "  # noqa: S608 — trusted ClassVar
+                    "WHERE txn_date BETWEEN ? AND ?",
+                    (min_date, max_date),
+                )
+                conn.executemany(
+                    f"INSERT INTO {self._config.table} "  # noqa: S608 — trusted ClassVar
+                    "(txn_date, action, action_kind, ticker, quantity, amount_usd, raw_description) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    rows,
+                )
             conn.commit()
         finally:
             conn.close()

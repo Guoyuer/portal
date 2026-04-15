@@ -34,6 +34,15 @@ CREATE TABLE IF NOT EXISTS fidelity_transactions (
 -- action_kind, ticker, quantity, amount_usd) so the source-agnostic
 -- replay_transactions primitive in etl/replay.py can replay this table
 -- without any column aliasing.
+--
+-- Idempotency note: we intentionally do NOT add a UNIQUE(txn_date, ticker,
+-- action, quantity, amount_usd) constraint. Robinhood CSVs legitimately
+-- contain duplicate rows (e.g. two recurring buys of identical lot/price on
+-- the same day → 2 physical shares bought, not 1), and :class:`FidelitySource`
+-- documents this explicitly: "preserving both matches reality better than
+-- collapsing them." Idempotent re-ingest is instead guaranteed by the
+-- range-replace pattern in :meth:`RobinhoodSource.ingest`
+-- (DELETE within the CSV's [min_date, max_date] + INSERT everything).
 CREATE TABLE IF NOT EXISTS robinhood_transactions (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     txn_date        TEXT NOT NULL,
@@ -42,11 +51,7 @@ CREATE TABLE IF NOT EXISTS robinhood_transactions (
     ticker          TEXT NOT NULL DEFAULT '',
     quantity        REAL NOT NULL DEFAULT 0,
     amount_usd      REAL NOT NULL DEFAULT 0,
-    raw_description TEXT NOT NULL DEFAULT '',
-    -- Dedup on re-ingest: running the CSV through ingest twice must not
-    -- double positions. Robinhood CSVs do not include a transaction id,
-    -- so we dedup on the natural key (date + ticker + action + qty + amt).
-    UNIQUE (txn_date, ticker, action, quantity, amount_usd)
+    raw_description TEXT NOT NULL DEFAULT ''
 );
 
 -- Daily close prices + CNY rates (symbol='CNY=X' for rates)

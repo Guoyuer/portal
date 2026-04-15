@@ -16,25 +16,25 @@ def test_robinhood_transactions_schema(tmp_path: Path) -> None:
     assert {"id", "txn_date", "action", "action_kind", "ticker", "quantity", "amount_usd"}.issubset(cols)
 
 
-def test_robinhood_transactions_unique_constraint_dedups(tmp_path: Path) -> None:
-    """Re-inserting the same (txn_date, ticker, action, quantity, amount_usd) row is a no-op under INSERT OR IGNORE."""
+def test_robinhood_transactions_allows_duplicate_rows(tmp_path: Path) -> None:
+    """Same-day duplicate trades (identical txn_date/ticker/action/qty/amount)
+    are preserved as two rows — Robinhood CSVs legitimately emit such pairs
+    for recurring orders of identical size. Idempotent re-ingest is handled
+    by the range-replace pattern in :meth:`RobinhoodSource.ingest`, not by
+    a UNIQUE constraint at the schema level.
+    """
     db = tmp_path / "tm.db"
     init_db(db)
     conn = sqlite3.connect(str(db))
     row = ("2024-01-05", "Buy", "buy", "VTI", 5.0, -1150.0, "Vanguard")
-    conn.execute(
-        "INSERT OR IGNORE INTO robinhood_transactions "
-        "(txn_date, action, action_kind, ticker, quantity, amount_usd, raw_description) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        row,
-    )
-    conn.execute(
-        "INSERT OR IGNORE INTO robinhood_transactions "
-        "(txn_date, action, action_kind, ticker, quantity, amount_usd, raw_description) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        row,
-    )
+    for _ in range(2):
+        conn.execute(
+            "INSERT INTO robinhood_transactions "
+            "(txn_date, action, action_kind, ticker, quantity, amount_usd, raw_description) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            row,
+        )
     conn.commit()
     count = conn.execute("SELECT COUNT(*) FROM robinhood_transactions").fetchone()[0]
     conn.close()
-    assert count == 1
+    assert count == 2

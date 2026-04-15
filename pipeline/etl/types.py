@@ -136,14 +136,6 @@ class QianjiRecord(TypedDict):
     note: str
 
 
-class RobinhoodReplayResult(TypedDict):
-    """Return shape of :func:`etl.ingest.robinhood_history.replay_robinhood`."""
-    positions: dict[str, float]
-    cost_basis: dict[str, float]
-    cash: float
-    dividends: float
-
-
 class TickerDetail(TypedDict):
     """One ticker's contribution on a given day (child of AllocationRow)."""
     ticker: str

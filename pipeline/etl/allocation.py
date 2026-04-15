@@ -2,8 +2,8 @@
 
 This module reconstructs historical asset allocation by combining:
   - Investment-source positions (each source returns a list of PositionRow;
-    currently only :class:`FidelitySource` is registered — Robinhood and
-    Empower 401k are migrated in Phases 4-5).
+    Fidelity and Robinhood are routed through the registry; Empower 401k is
+    migrated in Phase 5).
   - Historical prices (from timemachine.db.daily_close)
   - Qianji account balances (from Qianji SQLite DB)
   - 401k values (pre-computed via proxy interpolation, legacy path)
@@ -17,7 +17,7 @@ hand (e.g. a CI projection script reconstructing state from D1) can call
 
 Refactor hint (audit C04, ``docs/code-design-audit-2026-04-13.md``):
 ``compute_daily_allocation`` currently takes 6 positional args + 1 keyword.
-Once Phases 4-5 land every source in the registry and the legacy ``_add_*``
+Once Phase 5 lands every source in the registry and the legacy ``_add_*``
 helpers have been deleted, migrate the signature to an ``AllocationRequest``
 dataclass — tests become trivial.
 """
@@ -25,22 +25,23 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
 
-from .ingest.robinhood_history import replay_robinhood
 from .prices import load_cny_rates, load_prices
 from .sources import InvestmentSource, PriceContext, SourceKind, build_investment_sources
 from .sources import fidelity as _fidelity_source_module  # noqa: F401 — import side-effect registers FidelitySource
+from .sources import robinhood as _robinhood_source_module  # noqa: F401 — import side-effect registers RobinhoodSource
+from .sources.robinhood import RobinhoodSource
 from .timemachine import (
     replay_qianji,
     replay_qianji_currencies,
 )
-from .types import AllocationRow, AssetInfo, RawConfig, RobinhoodReplayResult, TickerDetail
+from .types import AllocationRow, AssetInfo, RawConfig, TickerDetail
 
 log = logging.getLogger(__name__)
 
@@ -173,26 +174,6 @@ def _add_401k(
         ticker_values[ticker] = ticker_values.get(ticker, 0) + val
 
 
-def _add_robinhood(
-    ticker_values: dict[str, float],
-    rh_replay_fn: Callable[..., RobinhoodReplayResult] | None,
-    robinhood_csv: Path | None,
-    current: date,
-    prices: pd.DataFrame,
-    price_date: date,
-) -> dict[str, float]:
-    """Add Robinhood positions (qty × price). Returns cost-basis dict by symbol."""
-    if not (rh_replay_fn and robinhood_csv):
-        return {}
-    rh_result = rh_replay_fn(robinhood_csv, as_of=current)
-    for sym, qty in rh_result["positions"].items():
-        if sym in prices.columns and price_date in prices.index:
-            price = prices.loc[price_date, sym]
-            if pd.notna(price):
-                ticker_values[sym] = ticker_values.get(sym, 0) + qty * float(price)
-    return rh_result["cost_basis"]
-
-
 # ── Pure per-day step ──────────────────────────────────────────────────────
 
 
@@ -213,12 +194,10 @@ class AllocationSources:
     qianji_currencies: dict[str, str]
     skip_qj_accounts: frozenset[str]
     k401_daily: dict[date, dict[str, float]]
-    rh_replay_fn: Callable[..., RobinhoodReplayResult] | None = None
-    robinhood_csv: Path | None = None
     # Registered :class:`InvestmentSource` instances — populated by
-    # ``_build_sources`` via :func:`build_investment_sources`. Currently only
-    # Fidelity is migrated; other sources (Robinhood, 401k) still run through
-    # their legacy ``_add_*`` helpers until Phases 4-5 land.
+    # ``_build_sources`` via :func:`build_investment_sources`. Fidelity and
+    # Robinhood are now routed through this list; Empower 401k still runs
+    # through the legacy ``_add_*`` helpers until Phase 5 lands.
     investment_sources: list[InvestmentSource] = field(default_factory=list)
 
 
@@ -245,9 +224,9 @@ def step_one_day(
 ) -> AllocationRow:
     """Value the portfolio for a single day. Pure — no I/O, no arg mutation.
 
-    Fidelity routes through the :class:`InvestmentSource` registry
-    (``sources.investment_sources``). Robinhood and 401k still run their
-    legacy ``_add_*`` helpers and are migrated in Phases 4-5.
+    Fidelity and Robinhood route through the :class:`InvestmentSource`
+    registry (``sources.investment_sources``). Empower 401k still runs its
+    legacy ``_add_*`` helper and is migrated in Phase 5.
     """
     price_date, mf_price_date, cny_rate = _resolve_date_windows(
         sources.prices, sources.cny_rates, current
@@ -256,10 +235,13 @@ def step_one_day(
     ticker_values: dict[str, float] = {}
     cost_basis_by_ticker: dict[str, float] = {}
 
-    # ── Fidelity via the registry ──
+    # ── Transaction-level brokers (Fidelity, Robinhood) via the registry ──
+    # Empower (kind=EMPOWER) is filtered out here until Phase 5 lands its
+    # snapshot-based source — its values still flow through the legacy
+    # ``_add_401k`` path.
     ctx = PriceContext(prices=sources.prices, price_date=price_date, mf_price_date=mf_price_date)
     for src in sources.investment_sources:
-        if src.kind != SourceKind.FIDELITY:
+        if src.kind not in (SourceKind.FIDELITY, SourceKind.ROBINHOOD):
             continue
         for row in src.positions_at(current, ctx):
             ticker_values[row.ticker] = ticker_values.get(row.ticker, 0.0) + row.value_usd
@@ -273,13 +255,6 @@ def step_one_day(
         sources.ticker_map, sources.assets, cny_rate, sources.skip_qj_accounts,
     )
     _add_401k(ticker_values, sources.k401_daily, current)
-    rh_cost_basis = _add_robinhood(
-        ticker_values, sources.rh_replay_fn, sources.robinhood_csv,
-        current, sources.prices, price_date,
-    )
-
-    for sym, cb in rh_cost_basis.items():
-        cost_basis_by_ticker[sym] = cost_basis_by_ticker.get(sym, 0) + cb
 
     return _build_allocation_row(current, ticker_values, sources.assets, cost_basis_by_ticker)
 
@@ -327,7 +302,6 @@ def _build_sources(
     qj_db: Path,
     config: RawConfig,
     k401_daily: dict[date, dict[str, float]],
-    robinhood_csv: Path | None,
     investment_sources: list[InvestmentSource] | None = None,
 ) -> AllocationSources:
     """Load prices + config-derived routing tables into an AllocationSources."""
@@ -336,18 +310,23 @@ def _build_sources(
     ticker_map = dict(qj_accounts.get("ticker_map", {}))
     ticker_map.setdefault("401k", "401k sp500")
 
-    rh_replay_fn: Callable[..., RobinhoodReplayResult] | None = (
-        replay_robinhood if robinhood_csv and robinhood_csv.exists() else None
-    )
-    skip_qj = _FIDELITY_REPLAY_ACCOUNTS | {"401k"}
-    if rh_replay_fn:
-        skip_qj = skip_qj | {"Robinhood"}
-
     # If the caller didn't supply an explicit list of sources, build them from
     # ``config`` here so legacy call sites (tests, ad-hoc scripts) keep
     # working without threading a new argument through.
     if investment_sources is None:
         investment_sources = build_investment_sources(dict(config), db_path)
+
+    # Skip the "Robinhood" Qianji account iff a RobinhoodSource with an
+    # existing CSV is registered — otherwise the Qianji balance remains the
+    # sole source of truth (legacy behaviour for users who never exported the
+    # CSV). Fidelity replay-accounts are always skipped because Fidelity
+    # positions are authoritative from transaction replay whenever the DB
+    # has any fidelity_transactions rows at all.
+    skip_qj = _FIDELITY_REPLAY_ACCOUNTS | {"401k"}
+    for src in investment_sources:
+        if isinstance(src, RobinhoodSource) and src._config.csv_path.exists():
+            skip_qj = skip_qj | {"Robinhood"}
+            break
 
     return AllocationSources(
         prices=load_prices(db_path),
@@ -357,8 +336,6 @@ def _build_sources(
         qianji_currencies=replay_qianji_currencies(qj_db),
         skip_qj_accounts=skip_qj,
         k401_daily=k401_daily,
-        rh_replay_fn=rh_replay_fn,
-        robinhood_csv=robinhood_csv,
         investment_sources=investment_sources,
     )
 
@@ -371,15 +348,15 @@ def compute_daily_allocation(
     start: date,
     end: date,
     *,
-    robinhood_csv: Path | None = None,
     investment_sources: list[InvestmentSource] | None = None,
 ) -> list[AllocationRow]:
     """Compute daily allocation from start to end.
 
     Orchestrates per-day valuation. The math is in ``step_one_day``; this
     function just decides when to re-run the Qianji replay to keep
-    ``ReplayState`` current. Fidelity now self-manages its replay inside
-    :class:`FidelitySource.positions_at` and no longer needs state here.
+    ``ReplayState`` current. Fidelity and Robinhood self-manage their
+    replay inside :meth:`InvestmentSource.positions_at`; neither needs
+    state here.
 
     Args:
         db_path: Path to timemachine.db (prices + CNY rates).
@@ -388,8 +365,6 @@ def compute_daily_allocation(
         k401_daily: Pre-computed 401k daily values by config ticker.
         start: First date to compute.
         end: Last date to compute.
-        robinhood_csv: Optional Robinhood CSV; routes through the legacy
-            helper until Phase 4.
         investment_sources: Pre-built registry instances. Optional: omitted
             callers fall back to :func:`build_investment_sources` against
             ``config``.
@@ -398,7 +373,7 @@ def compute_daily_allocation(
         list of per-day allocation dicts (see ``_build_allocation_row``).
     """
     sources = _build_sources(
-        db_path, qj_db, config, k401_daily, robinhood_csv,
+        db_path, qj_db, config, k401_daily,
         investment_sources=investment_sources,
     )
 
