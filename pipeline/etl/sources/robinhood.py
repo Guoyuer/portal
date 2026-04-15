@@ -26,7 +26,6 @@ from datetime import date, datetime
 from pathlib import Path
 
 from etl.parsing import read_csv_rows
-from etl.replay import replay_transactions
 from etl.sources import ActionKind, PositionRow, PriceContext
 from etl.sources._ingest import range_replace_insert
 
@@ -221,9 +220,16 @@ def positions_at(
     mirroring Fidelity's behaviour.
     """
     del config  # Robinhood has no per-call config knobs.
-    states = replay_transactions(db_path, TABLE, as_of)
+    # Deferred import — ``etl.replay`` imports ``etl.sources.ActionKind``, and
+    # importing it at module scope would re-trigger source-package loading
+    # while that package is still being initialised.
+    from etl.replay import replay_transactions
+
+    result = replay_transactions(db_path, TABLE, as_of)
     rows: list[PositionRow] = []
-    for ticker, st in states.items():
+    # Robinhood has no account column — the primitive groups every row under
+    # the empty account key, so the tuple's account component is discarded.
+    for (_acct, ticker), st in result.positions.items():
         price = prices.lookup(ticker)
         if price is not None:
             rows.append(PositionRow(

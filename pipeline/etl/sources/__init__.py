@@ -23,7 +23,15 @@ import pandas as pd
 
 class ActionKind(StrEnum):
     """Normalized transaction action types. Each source translates its raw
-    action strings (e.g. 'YOU BOUGHT', 'Buy') into one of these at ingest time."""
+    action strings (e.g. 'YOU BOUGHT', 'Buy') into one of these at ingest time.
+
+    The position-only kinds (``REDEMPTION`` / ``DISTRIBUTION`` / ``EXCHANGE`` /
+    ``TRANSFER``) change share count without touching cost basis —
+    :func:`etl.replay.replay_transactions` applies ``qty += q`` for these
+    and leaves ``cost`` alone. They mirror Fidelity's legacy
+    ``POSITION_PREFIXES`` (``REDEMPTION PAYOUT``, ``TRANSFERRED FROM/TO``,
+    ``DISTRIBUTION``, ``EXCHANGED TO``).
+    """
     BUY = "buy"
     SELL = "sell"
     DIVIDEND = "dividend"
@@ -31,6 +39,9 @@ class ActionKind(StrEnum):
     WITHDRAWAL = "withdrawal"
     DEPOSIT = "deposit"
     TRANSFER = "transfer"
+    REDEMPTION = "redemption"
+    DISTRIBUTION = "distribution"
+    EXCHANGE = "exchange"
     OTHER = "other"
 
 

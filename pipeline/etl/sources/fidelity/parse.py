@@ -108,12 +108,13 @@ _ACTION_TYPE_TO_KIND: dict[str, ActionKind] = {
     ACT_ROTH_CONVERSION: ActionKind.TRANSFER,
     # IRA cash contributions function as deposits into the retirement account.
     ACT_IRA_CONTRIBUTION: ActionKind.DEPOSIT,
-    # Position-prefix-but-not-cost-basis-impacting actions. ``_replay_core``
-    # in :mod:`etl.timemachine` still handles their qty effects directly via
-    # the raw action string; the primitive is intentionally conservative.
-    ACT_DISTRIBUTION: ActionKind.OTHER,
-    ACT_REDEMPTION: ActionKind.OTHER,
-    ACT_EXCHANGE: ActionKind.OTHER,
+    # Position-prefix-but-not-cost-basis-impacting actions. The primitive's
+    # widened vocabulary handles qty updates for each one (``qty += q``)
+    # while leaving cost basis alone — mirrors the legacy
+    # ``POSITION_PREFIXES`` behaviour.
+    ACT_DISTRIBUTION: ActionKind.DISTRIBUTION,
+    ACT_REDEMPTION: ActionKind.REDEMPTION,
+    ACT_EXCHANGE: ActionKind.EXCHANGE,
     # Non-position, non-cashflow pass-throughs.
     ACT_INTEREST: ActionKind.OTHER,
     ACT_FOREIGN_TAX: ActionKind.OTHER,

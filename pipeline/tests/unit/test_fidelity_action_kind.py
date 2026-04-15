@@ -45,10 +45,11 @@ class TestClassifyFidelityAction:
             ("EARLY DIST FROM IRA", ActionKind.TRANSFER),
             # IRA cash contributions function as deposits
             ("CASH CONTRIBUTION", ActionKind.DEPOSIT),
-            # Position-prefix but not cost-basis-impacting — bucket to OTHER
-            ("REDEMPTION PAYOUT SGOV", ActionKind.OTHER),
-            ("DISTRIBUTION VTI", ActionKind.OTHER),
-            ("EXCHANGED TO FZFXX", ActionKind.OTHER),
+            # Position-prefix but not cost-basis-impacting — qty-only kinds
+            # that the replay primitive handles via ``qty += q``.
+            ("REDEMPTION PAYOUT SGOV", ActionKind.REDEMPTION),
+            ("DISTRIBUTION VTI", ActionKind.DISTRIBUTION),
+            ("EXCHANGED TO FZFXX", ActionKind.EXCHANGE),
             # Pass-through / informational
             ("INTEREST EARNED", ActionKind.OTHER),
             ("FOREIGN TAX WITHHELD", ActionKind.OTHER),
@@ -175,3 +176,47 @@ class TestBackfillMigration:
         row = conn.execute("SELECT action_kind FROM fidelity_transactions").fetchone()
         conn.close()
         assert row[0] == ActionKind.BUY.value
+
+    def test_backfill_resyncs_stale_kinds(self, tmp_path: Path) -> None:
+        """When a row's stored ``action_kind`` disagrees with the current
+        classifier (e.g. after the REDEMPTION / DISTRIBUTION / EXCHANGE
+        widening moved those from OTHER to their own kinds), migrate() must
+        overwrite the stale value instead of leaving it behind.
+        """
+        from etl.db import init_db
+        db = tmp_path / "stale.db"
+        init_db(db)
+
+        conn = sqlite3.connect(str(db))
+        conn.executemany(
+            "INSERT INTO fidelity_transactions "
+            "(run_date, account, account_number, action, action_type, action_kind, symbol) "
+            "VALUES (?,?,?,?,?,?,?)",
+            [
+                # Legacy "other" for what's now REDEMPTION
+                ("2024-02-01", "B", "X1", "REDEMPTION PAYOUT SGOV", "redemption",
+                 ActionKind.OTHER.value, "91279Q"),
+                # Legacy "other" for what's now DISTRIBUTION
+                ("2024-02-02", "B", "X1", "DISTRIBUTION VTI", "distribution",
+                 ActionKind.OTHER.value, "VTI"),
+                # Already correct — must NOT be re-written
+                ("2024-02-03", "B", "X1", "YOU BOUGHT VTI", "buy",
+                 ActionKind.BUY.value, "VTI"),
+            ],
+        )
+        conn.commit()
+        conn.close()
+
+        touched = migrate(db)
+        assert touched == 2  # only the two stale rows
+
+        conn = sqlite3.connect(str(db))
+        kinds = [r[0] for r in conn.execute(
+            "SELECT action_kind FROM fidelity_transactions ORDER BY id"
+        )]
+        conn.close()
+        assert kinds == [
+            ActionKind.REDEMPTION.value,
+            ActionKind.DISTRIBUTION.value,
+            ActionKind.BUY.value,
+        ]
