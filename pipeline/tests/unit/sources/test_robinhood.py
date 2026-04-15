@@ -1,4 +1,4 @@
-"""Unit tests for RobinhoodSource (Phase 4 — Task 18)."""
+"""Unit tests for the Robinhood source module (post class→module refactor)."""
 from __future__ import annotations
 
 import sqlite3
@@ -9,8 +9,8 @@ import pandas as pd
 import pytest
 
 from etl.db import init_db
-from etl.sources import PriceContext, SourceKind
-from etl.sources.robinhood import RobinhoodSource, RobinhoodSourceConfig
+from etl.sources import PriceContext
+from etl.sources import robinhood as robinhood_src
 
 
 @pytest.fixture
@@ -25,15 +25,14 @@ def fixture_csv(tmp_path: Path) -> Path:
     return p
 
 
-def test_kind(fixture_csv: Path, tmp_path: Path) -> None:
-    assert RobinhoodSource.kind == SourceKind.ROBINHOOD
+def test_produces_positions_always_on() -> None:
+    assert robinhood_src.produces_positions({}) is True
 
 
 def test_ingest_persists_normalized_rows(fixture_csv: Path, tmp_path: Path) -> None:
     db = tmp_path / "tm.db"
     init_db(db)
-    src = RobinhoodSource(RobinhoodSourceConfig(csv_path=fixture_csv), db)
-    src.ingest()
+    robinhood_src.ingest(db, {"robinhood_csv": fixture_csv})
     conn = sqlite3.connect(str(db))
     rows = conn.execute(
         "SELECT txn_date, action_kind, ticker, quantity, amount_usd FROM robinhood_transactions ORDER BY id"
@@ -46,14 +45,13 @@ def test_ingest_persists_normalized_rows(fixture_csv: Path, tmp_path: Path) -> N
 def test_positions_at_with_prices(fixture_csv: Path, tmp_path: Path) -> None:
     db = tmp_path / "tm.db"
     init_db(db)
-    src = RobinhoodSource(RobinhoodSourceConfig(csv_path=fixture_csv), db)
-    src.ingest()
+    robinhood_src.ingest(db, {"robinhood_csv": fixture_csv})
     prices = pd.DataFrame(
         {"VTI": [250.0]},
         index=pd.to_datetime([date(2024, 2, 10)]).map(lambda d: d.date()),
     )
     ctx = PriceContext(prices=prices, price_date=date(2024, 2, 10), mf_price_date=date(2024, 2, 10))
-    rows = src.positions_at(date(2024, 2, 10), ctx)
+    rows = robinhood_src.positions_at(db, date(2024, 2, 10), ctx, {})
     vti = [r for r in rows if r.ticker == "VTI"]
     assert len(vti) == 1
     assert vti[0].quantity == pytest.approx(5.0)
@@ -62,12 +60,12 @@ def test_positions_at_with_prices(fixture_csv: Path, tmp_path: Path) -> None:
 
 
 def test_ingest_is_idempotent(fixture_csv: Path, tmp_path: Path) -> None:
-    """Running ingest twice must not double the rows (UNIQUE constraint)."""
+    """Running ingest twice must not double the rows (range-replace)."""
     db = tmp_path / "tm.db"
     init_db(db)
-    src = RobinhoodSource(RobinhoodSourceConfig(csv_path=fixture_csv), db)
-    src.ingest()
-    src.ingest()
+    cfg: dict[str, object] = {"robinhood_csv": fixture_csv}
+    robinhood_src.ingest(db, cfg)
+    robinhood_src.ingest(db, cfg)
     conn = sqlite3.connect(str(db))
     count = conn.execute("SELECT COUNT(*) FROM robinhood_transactions").fetchone()[0]
     conn.close()
@@ -78,15 +76,19 @@ def test_ingest_missing_csv_is_noop(tmp_path: Path) -> None:
     """A missing Robinhood CSV is treated as 'user has no Robinhood holdings' — no error."""
     db = tmp_path / "tm.db"
     init_db(db)
-    src = RobinhoodSource(RobinhoodSourceConfig(csv_path=tmp_path / "does_not_exist.csv"), db)
-    src.ingest()  # must not raise
+    robinhood_src.ingest(db, {"robinhood_csv": tmp_path / "does_not_exist.csv"})
     conn = sqlite3.connect(str(db))
     count = conn.execute("SELECT COUNT(*) FROM robinhood_transactions").fetchone()[0]
     conn.close()
     assert count == 0
 
 
-def test_from_raw_config_reads_key(tmp_path: Path) -> None:
-    raw = {"robinhood_csv": tmp_path / "rh.csv"}
-    src = RobinhoodSource.from_raw_config(raw, tmp_path / "tm.db")
-    assert src._config.csv_path == tmp_path / "rh.csv"
+def test_ingest_missing_config_key_is_noop(tmp_path: Path) -> None:
+    """Missing ``robinhood_csv`` key → silent no-op (sentinel path doesn't exist)."""
+    db = tmp_path / "tm.db"
+    init_db(db)
+    robinhood_src.ingest(db, {})
+    conn = sqlite3.connect(str(db))
+    count = conn.execute("SELECT COUNT(*) FROM robinhood_transactions").fetchone()[0]
+    conn.close()
+    assert count == 0

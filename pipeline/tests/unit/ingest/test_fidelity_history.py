@@ -13,27 +13,14 @@ import pytest
 
 from etl.db import init_db
 from etl.parsing import parse_us_date
-from etl.sources.fidelity import (
-    FidelitySource,
-    FidelitySourceConfig,
-    load_transactions,
-)
+from etl.sources.fidelity import _ingest_one_csv, load_transactions
 
 
 def ingest_fidelity_csv(db_path: Path, csv_path: Path) -> int:
-    """Back-compat shim: ``FidelitySource._ingest_one_csv`` under the legacy name.
-
-    Keeps this test file's call sites unchanged while the refactor lands.
+    """Back-compat shim: :func:`etl.sources.fidelity._ingest_one_csv` under the
+    legacy name. Keeps this test file's call sites unchanged post-refactor.
     """
-    src = FidelitySource(
-        FidelitySourceConfig(
-            downloads_dir=csv_path.parent,
-            fidelity_accounts={},
-            mutual_funds=frozenset(),
-        ),
-        db_path,
-    )
-    return src._ingest_one_csv(csv_path)
+    return _ingest_one_csv(db_path, csv_path)
 
 
 class TestLoadTransactions:

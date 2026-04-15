@@ -1,4 +1,4 @@
-"""Unit tests for EmpowerSource (Phase 5 — Task 20)."""
+"""Unit tests for the Empower source module (post class→module refactor)."""
 from __future__ import annotations
 
 import sqlite3
@@ -9,8 +9,8 @@ import pandas as pd
 import pytest
 
 from etl.db import init_db
-from etl.sources import PriceContext, SourceKind
-from etl.sources.empower import EmpowerSource, EmpowerSourceConfig
+from etl.sources import PriceContext
+from etl.sources import empower as empower_src
 
 
 def _seed_empower(
@@ -45,8 +45,8 @@ def _seed_empower(
         conn.close()
 
 
-def test_kind() -> None:
-    assert EmpowerSource.kind == SourceKind.EMPOWER
+def test_produces_positions_always_on() -> None:
+    assert empower_src.produces_positions({}) is True
 
 
 def test_positions_at_returns_latest_snapshot_at_or_before(tmp_path: Path) -> None:
@@ -58,12 +58,11 @@ def test_positions_at_returns_latest_snapshot_at_or_before(tmp_path: Path) -> No
         ("2024-12-31", "SSgAxxx", "401k sp500", 120.0, 28.0, 3360.0),
     ])
 
-    src = EmpowerSource(EmpowerSourceConfig(downloads_dir=tmp_path), db)
     # No VOO prices → falls back to raw mktval.
     ctx = PriceContext(prices=pd.DataFrame(), price_date=date(2024, 8, 1), mf_price_date=date(2024, 8, 1))
 
     # August → latest ≤ Aug 1 is June snapshot (raw mktval = 2500.0).
-    rows = src.positions_at(date(2024, 8, 1), ctx)
+    rows = empower_src.positions_at(db, date(2024, 8, 1), ctx, {})
     assert any(r.ticker == "401k sp500" and r.value_usd == pytest.approx(2500.0) for r in rows)
 
 
@@ -75,34 +74,26 @@ def test_positions_at_before_first_snapshot_returns_empty(tmp_path: Path) -> Non
         ("2024-06-30", "SSgAxxx", "401k sp500", 100.0, 25.0, 2500.0),
     ])
 
-    src = EmpowerSource(EmpowerSourceConfig(downloads_dir=tmp_path), db)
     ctx = PriceContext(prices=pd.DataFrame(), price_date=date(2024, 1, 1), mf_price_date=date(2024, 1, 1))
-
-    rows = src.positions_at(date(2024, 1, 1), ctx)
+    rows = empower_src.positions_at(db, date(2024, 1, 1), ctx, {})
     assert rows == []
 
 
 def test_cost_basis_is_none(tmp_path: Path) -> None:
-    """Spec: EmpowerSource MAY leave cost_basis_usd=None (QFX doesn't carry it)."""
+    """Spec: Empower positions leave cost_basis_usd=None (QFX doesn't carry it)."""
     db = tmp_path / "tm.db"
     init_db(db)
     _seed_empower(db, [
         ("2024-06-30", "SSgAxxx", "401k sp500", 100.0, 25.0, 2500.0),
     ])
 
-    src = EmpowerSource(EmpowerSourceConfig(downloads_dir=tmp_path), db)
     ctx = PriceContext(prices=pd.DataFrame(), price_date=date(2024, 8, 1), mf_price_date=date(2024, 8, 1))
-
-    rows = src.positions_at(date(2024, 8, 1), ctx)
+    rows = empower_src.positions_at(db, date(2024, 8, 1), ctx, {})
     assert rows and all(r.cost_basis_usd is None for r in rows)
 
 
 def test_positions_at_scales_by_proxy_prices(tmp_path: Path) -> None:
-    """Value between snapshots scales proportionally to proxy ticker change.
-
-    Snapshot on Jun 30 with VOO at $100; as-of Aug 1 with VOO at $110 →
-    value = mktval * (110/100) = 2750.
-    """
+    """Value between snapshots scales proportionally to proxy ticker change."""
     db = tmp_path / "tm.db"
     init_db(db)
     _seed_empower(db, [
@@ -113,10 +104,9 @@ def test_positions_at_scales_by_proxy_prices(tmp_path: Path) -> None:
         {"VOO": [100.0, 110.0]},
         index=[date(2024, 6, 30), date(2024, 8, 1)],
     )
-    src = EmpowerSource(EmpowerSourceConfig(downloads_dir=tmp_path), db)
     ctx = PriceContext(prices=prices_df, price_date=date(2024, 8, 1), mf_price_date=date(2024, 8, 1))
 
-    rows = src.positions_at(date(2024, 8, 1), ctx)
+    rows = empower_src.positions_at(db, date(2024, 8, 1), ctx, {})
     sp500 = [r for r in rows if r.ticker == "401k sp500"]
     assert len(sp500) == 1
     assert sp500[0].value_usd == pytest.approx(2750.0)
@@ -142,19 +132,12 @@ def test_contributions_add_scaled_amount(tmp_path: Path) -> None:
         {"VOO": [100.0, 100.0, 110.0]},
         index=[date(2024, 6, 30), date(2024, 7, 15), date(2024, 8, 1)],
     )
-    src = EmpowerSource(EmpowerSourceConfig(downloads_dir=tmp_path), db)
     ctx = PriceContext(prices=prices_df, price_date=date(2024, 8, 1), mf_price_date=date(2024, 8, 1))
 
-    rows = src.positions_at(date(2024, 8, 1), ctx)
+    rows = empower_src.positions_at(db, date(2024, 8, 1), ctx, {})
     sp500 = [r for r in rows if r.ticker == "401k sp500"]
     # Snapshot 10000 * (110/100) = 11000 + contribution 1000 * (110/100) = 1100 → 12100
     assert sp500[0].value_usd == pytest.approx(12100.0)
-
-
-def test_from_raw_config_reads_downloads_key(tmp_path: Path) -> None:
-    raw = {"empower_downloads": tmp_path}
-    src = EmpowerSource.from_raw_config(raw, tmp_path / "tm.db")
-    assert src._config.downloads_dir == tmp_path
 
 
 def test_ingest_writes_snapshot_and_contributions(tmp_path: Path) -> None:
@@ -179,8 +162,7 @@ DATA:OFXSGML
 
     db = tmp_path / "tm.db"
     init_db(db)
-    src = EmpowerSource(EmpowerSourceConfig(downloads_dir=tmp_path), db)
-    src.ingest()
+    empower_src.ingest(db, {"empower_downloads": tmp_path})
 
     conn = sqlite3.connect(str(db))
     try:
@@ -211,8 +193,7 @@ DATA:OFXSGML
     (tmp_path / "Bloomberg.Download.zero.qfx").write_text(qfx, encoding="ascii")
     db = tmp_path / "tm.db"
     init_db(db)
-    src = EmpowerSource(EmpowerSourceConfig(downloads_dir=tmp_path), db)
-    src.ingest()
+    empower_src.ingest(db, {"empower_downloads": tmp_path})
 
     conn = sqlite3.connect(str(db))
     try:
@@ -238,8 +219,7 @@ DATA:OFXSGML
     (tmp_path / "Bloomberg.Download.unknown.qfx").write_text(qfx, encoding="ascii")
     db = tmp_path / "tm.db"
     init_db(db)
-    src = EmpowerSource(EmpowerSourceConfig(downloads_dir=tmp_path), db)
-    src.ingest()
+    empower_src.ingest(db, {"empower_downloads": tmp_path})
 
     conn = sqlite3.connect(str(db))
     try:
@@ -265,9 +245,9 @@ DATA:OFXSGML
     (tmp_path / "Bloomberg.Download.A.qfx").write_text(qfx, encoding="ascii")
     db = tmp_path / "tm.db"
     init_db(db)
-    src = EmpowerSource(EmpowerSourceConfig(downloads_dir=tmp_path), db)
-    src.ingest()
-    src.ingest()
+    cfg: dict[str, object] = {"empower_downloads": tmp_path}
+    empower_src.ingest(db, cfg)
+    empower_src.ingest(db, cfg)
     conn = sqlite3.connect(str(db))
     try:
         n_snaps = conn.execute("SELECT COUNT(*) FROM empower_snapshots").fetchone()[0]
@@ -282,10 +262,7 @@ def test_ingest_missing_dir_is_noop(tmp_path: Path) -> None:
     """Non-existent downloads directory → silent no-op."""
     db = tmp_path / "tm.db"
     init_db(db)
-    src = EmpowerSource(
-        EmpowerSourceConfig(downloads_dir=tmp_path / "does_not_exist"), db,
-    )
-    src.ingest()  # must not raise
+    empower_src.ingest(db, {"empower_downloads": tmp_path / "does_not_exist"})
     conn = sqlite3.connect(str(db))
     try:
         n_snaps = conn.execute("SELECT COUNT(*) FROM empower_snapshots").fetchone()[0]

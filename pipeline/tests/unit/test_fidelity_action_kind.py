@@ -15,10 +15,7 @@ import pytest
 
 from etl.migrations.add_fidelity_action_kind import migrate
 from etl.sources import ActionKind
-from etl.sources.fidelity import (
-    _classify_action,
-    classify_fidelity_action,
-)
+from etl.sources.fidelity import _classify_action, classify_fidelity_action
 
 
 class TestClassifyFidelityAction:

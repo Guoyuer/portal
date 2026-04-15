@@ -1,4 +1,9 @@
-"""Unit tests for the InvestmentSource Protocol scaffolding (Phase 2 — Task 11)."""
+"""Unit tests for the source-module composition API.
+
+After the class→module refactor, source identity is the module itself, and
+the shared types live in :mod:`etl.sources`. This file exercises the public
+surface consumed by ``etl.allocation`` + ``scripts.build_timemachine_db``.
+"""
 from __future__ import annotations
 
 from datetime import date
@@ -7,20 +12,14 @@ from pathlib import Path
 import pandas as pd
 
 from etl.sources import (
-    _REGISTRY,
+    SOURCES,
     ActionKind,
-    InvestmentSource,  # noqa: F401  (imported for side-effect of verifying presence)
+    InvestmentSource,
     PositionRow,
     PriceContext,
-    SourceKind,
-    build_investment_sources,
+    ingest_all,
+    positions_at_all,
 )
-
-
-def test_source_kind_is_str_enum() -> None:
-    assert SourceKind.FIDELITY == "fidelity"
-    assert str(SourceKind.ROBINHOOD) == "robinhood"
-    assert set(SourceKind) == {SourceKind.FIDELITY, SourceKind.ROBINHOOD, SourceKind.EMPOWER}
 
 
 def test_action_kind_is_str_enum() -> None:
@@ -40,17 +39,46 @@ def test_price_context_required_fields() -> None:
     assert ctx.price_date == date(2024, 1, 2)
 
 
-def test_registry_contains_fidelity() -> None:
-    """After Phase 3 (Task 14) FidelitySource self-registers on import."""
-    import etl.sources.fidelity  # noqa: F401  (import side effect: register)
-    from etl.sources.fidelity import FidelitySource
-    assert FidelitySource in _REGISTRY
+def test_price_context_lookup_returns_none_for_missing() -> None:
+    """Empty frame → None; missing ticker → None; missing date → None."""
+    empty = PriceContext(prices=pd.DataFrame(), price_date=date(2024, 1, 2), mf_price_date=date(2024, 1, 1))
+    assert empty.lookup("VTI") is None
+
+    df = pd.DataFrame({"VTI": [100.0]}, index=[date(2024, 1, 2)])
+    ctx = PriceContext(prices=df, price_date=date(2024, 1, 2), mf_price_date=date(2024, 1, 1))
+    assert ctx.lookup("VTI") == 100.0
+    assert ctx.lookup("AAPL") is None
+    # mf_price_date lookup on a non-indexed date returns None
+    assert ctx.lookup("VTI", mutual_fund=True) is None
 
 
-def test_build_investment_sources_returns_fidelity(tmp_path: Path) -> None:
-    """With FidelitySource registered, build returns at least Fidelity."""
-    import etl.sources.fidelity  # noqa: F401
-    from etl.sources.fidelity import FidelitySource
-    raw = {"fidelity_downloads": tmp_path, "fidelity_accounts": {}}
-    built = build_investment_sources(raw, tmp_path / "tm.db")
-    assert any(isinstance(s, FidelitySource) for s in built)
+def test_sources_module_list_contains_all_three() -> None:
+    """The ordered SOURCES list drives ingest/positions composition."""
+    from etl.sources import empower, fidelity, robinhood
+    assert fidelity in SOURCES
+    assert robinhood in SOURCES
+    assert empower in SOURCES
+
+
+def test_every_source_module_implements_protocol() -> None:
+    """mypy + runtime: every module in SOURCES exposes the 3-call contract."""
+    for mod in SOURCES:
+        assert isinstance(mod, InvestmentSource), f"{mod.__name__} missing protocol methods"
+
+
+def test_positions_at_all_returns_empty_on_empty_db(tmp_path: Path) -> None:
+    """Against a fresh DB every source returns ``[]`` — sanity check."""
+    from etl.db import init_db
+    db = tmp_path / "tm.db"
+    init_db(db)
+    ctx = PriceContext(prices=pd.DataFrame(), price_date=date(2024, 1, 2), mf_price_date=date(2024, 1, 1))
+    rows = positions_at_all(db, date(2024, 1, 2), ctx, {})
+    assert rows == []
+
+
+def test_ingest_all_is_silent_with_empty_config(tmp_path: Path) -> None:
+    """Every ingest path must tolerate a missing-inputs config."""
+    from etl.db import init_db
+    db = tmp_path / "tm.db"
+    init_db(db)
+    ingest_all(db, {"fidelity_downloads": tmp_path})  # no CSVs → no-op

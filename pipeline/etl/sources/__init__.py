@@ -1,7 +1,13 @@
-"""Investment source registry and shared protocol.
+"""Investment source registry and shared types.
 
-Architecture rule: all source-specific logic lives in etl/sources/<name>.py.
-This module contains only the shared types and the registry list.
+Architecture rule: all source-specific logic lives in its own module under
+``etl/sources/``. Each source module exposes three free functions —
+``ingest(db_path, config)``, ``positions_at(db_path, as_of, prices, config)``,
+``produces_positions(config)`` — and this package composes them.
+
+Modules are the identifier (no enum / protocol / class ceremony). The ordered
+``SOURCES`` list drives ``ingest_all`` + ``positions_at_all``; adding a new
+source is one import line here.
 """
 from __future__ import annotations
 
@@ -9,15 +15,10 @@ from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum
 from pathlib import Path
-from typing import ClassVar, Protocol
+from types import ModuleType
+from typing import Protocol, runtime_checkable
 
 import pandas as pd
-
-
-class SourceKind(StrEnum):
-    FIDELITY = "fidelity"
-    ROBINHOOD = "robinhood"
-    EMPOWER = "empower"
 
 
 class ActionKind(StrEnum):
@@ -35,7 +36,7 @@ class ActionKind(StrEnum):
 
 @dataclass(frozen=True)
 class PriceContext:
-    """Passed uniformly to every InvestmentSource.positions_at.
+    """Passed uniformly to every source's ``positions_at``.
 
     Sources that don't need prices (Empower uses pre-computed daily values)
     simply ignore this argument.
@@ -43,6 +44,20 @@ class PriceContext:
     prices: pd.DataFrame
     price_date: date
     mf_price_date: date
+
+    def lookup(self, ticker: str, *, mutual_fund: bool = False) -> float | None:
+        """Return the close price for ``ticker`` on the appropriate date, or None.
+
+        Uses ``mf_price_date`` (T-1) when ``mutual_fund=True``, otherwise
+        ``price_date``. Returns ``None`` when the ticker or the date is missing,
+        or when the cell is NaN — callers log + exclude the row.
+        """
+        p_date = self.mf_price_date if mutual_fund else self.price_date
+        if ticker in self.prices.columns and p_date in self.prices.index:
+            v = self.prices.loc[p_date, ticker]
+            if pd.notna(v):
+                return float(v)
+        return None
 
 
 @dataclass(frozen=True)
@@ -54,21 +69,52 @@ class PositionRow:
     account: str | None = None
 
 
+@runtime_checkable
 class InvestmentSource(Protocol):
-    """Protocol for all investment sources. Each concrete source holds its own
-    typed config and db_path via __init__; methods take only the per-call
-    varying arguments."""
-    kind: ClassVar[SourceKind]
+    """Structural type for source modules.
 
-    def ingest(self) -> None: ...
-    def positions_at(self, as_of: date, prices: PriceContext) -> list[PositionRow]: ...
+    Every module in :data:`SOURCES` must expose these three callables. Kept as
+    a ``Protocol`` so mypy catches accidental signature drift; there is no
+    runtime class hierarchy.
+    """
+
+    def ingest(self, db_path: Path, config: dict[str, object]) -> None: ...
+    def positions_at(
+        self, db_path: Path, as_of: date, prices: PriceContext, config: dict[str, object]
+    ) -> list[PositionRow]: ...
+    def produces_positions(self, config: dict[str, object]) -> bool: ...
 
 
-# Populated by each source module registering itself. Order matters only for
-# deterministic test output — it does not affect allocation correctness.
-_REGISTRY: list[type[InvestmentSource]] = []
+# ── Ordered source list ─────────────────────────────────────────────────────
 
 
-def build_investment_sources(raw: dict[str, object], db_path: Path) -> list[InvestmentSource]:
-    """Instantiate every registered source with its config slice."""
-    return [cls.from_raw_config(raw, db_path) for cls in _REGISTRY]  # type: ignore[attr-defined]
+def _sources() -> list[ModuleType]:
+    from . import empower, fidelity, robinhood
+    return [fidelity, robinhood, empower]
+
+
+SOURCES: list[ModuleType] = _sources()
+
+
+# ── Top-level composition ──────────────────────────────────────────────────
+
+
+def ingest_all(db_path: Path, config: dict[str, object]) -> None:
+    """Run ``ingest`` on every source whose ``produces_positions(config)`` is True."""
+    for mod in SOURCES:
+        if mod.produces_positions(config):
+            mod.ingest(db_path, config)
+
+
+def positions_at_all(
+    db_path: Path,
+    as_of: date,
+    prices: PriceContext,
+    config: dict[str, object],
+) -> list[PositionRow]:
+    """Flatten ``positions_at`` across every enabled source."""
+    rows: list[PositionRow] = []
+    for mod in SOURCES:
+        if mod.produces_positions(config):
+            rows.extend(mod.positions_at(db_path, as_of, prices, config))
+    return rows

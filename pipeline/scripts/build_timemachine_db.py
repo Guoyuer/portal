@@ -53,13 +53,10 @@ from etl.prices import (
     symbol_holding_periods_from_db,
 )
 from etl.refresh import refresh_window_start
-from etl.sources import InvestmentSource, build_investment_sources
-from etl.sources import empower as _empower_source_module  # noqa: F401 — import side-effect registers EmpowerSource
-from etl.sources import fidelity as _fidelity_source_module  # noqa: F401 — import side-effect registers FidelitySource
-from etl.sources import (
-    robinhood as _robinhood_source_module,  # noqa: F401 — import side-effect registers RobinhoodSource
-)
-from etl.sources.empower import PROXY_TICKERS, Contribution, EmpowerSource, EmpowerSourceConfig
+from etl.sources import empower as empower_src
+from etl.sources import fidelity as fidelity_src
+from etl.sources import robinhood as robinhood_src
+from etl.sources.empower import PROXY_TICKERS, Contribution
 from etl.timemachine import DEFAULT_QJ_DB
 from etl.types import AllocationRow, RawConfig
 from etl.validate import Severity, validate_build
@@ -184,75 +181,37 @@ def _load_config(path: Path) -> RawConfig:
 
 
 def _ingest_fidelity_csvs(paths: BuildPaths) -> None:
-    """Ingest all Fidelity CSVs via :class:`FidelitySource`.
+    """Ingest all Fidelity CSVs via the :mod:`etl.sources.fidelity` module.
 
-    Each CSV covers a date range. :meth:`FidelitySource._ingest_one_csv`
-    handles overlap by deleting existing rows in the CSV's date range
-    before inserting — so processing files in chronological order (the
-    order ``FidelitySource.ingest`` already uses) naturally deduplicates.
+    When ``--csv`` is supplied, only that single file is ingested — the
+    directory glob is skipped. Otherwise :func:`fidelity_src.ingest` runs its
+    own glob + chronological sort + range-replace.
     """
-    from etl.sources.fidelity import (
-        FidelitySource,
-        FidelitySourceConfig,
-        _csv_earliest_date,
-    )
-
-    # Use explicit --csv path if provided. Build a minimal source instance
-    # just to reuse the per-file ingest method.
     if paths.csv is not None:
         if not paths.csv.exists():
             print(f"  ERROR: --csv file not found: {paths.csv}")
             sys.exit(1)
         print(f"  Using single CSV: {paths.csv}")
-        single_src = FidelitySource(
-            FidelitySourceConfig(
-                downloads_dir=paths.downloads,
-                fidelity_accounts={},
-                mutual_funds=frozenset(),
-            ),
-            paths.db_path,
-        )
-        single_src._ingest_one_csv(paths.csv)
+        fidelity_src._ingest_one_csv(paths.db_path, paths.csv)
         return
 
-    raw_csvs = sorted(paths.downloads.glob("Accounts_History*.csv"))
-    if not raw_csvs:
-        print(f"  ERROR: No Accounts_History CSVs found in {paths.downloads}")
-        sys.exit(1)
+    print(f"  Ingesting from {paths.downloads}...")
+    fidelity_src.ingest(paths.db_path, {"fidelity_downloads": paths.downloads})
 
-    raw_csvs.sort(key=_csv_earliest_date)
-    print(f"  Found {len(raw_csvs)} CSVs in {paths.downloads}, ingesting chronologically...")
-
-    bulk_src = FidelitySource(
-        FidelitySourceConfig(
-            downloads_dir=paths.downloads,
-            fidelity_accounts={},
-            mutual_funds=frozenset(),
-        ),
-        paths.db_path,
-    )
-    total = 0
-    for csv_path in raw_csvs:
-        count = bulk_src._ingest_one_csv(csv_path)
-        print(f"    {csv_path.name}: {count} total rows")
-        total = count
-
+    conn = get_connection(paths.db_path)
+    try:
+        total = conn.execute("SELECT COUNT(*) FROM fidelity_transactions").fetchone()[0]
+    finally:
+        conn.close()
     print(f"  {total} rows after ingestion")
 
 
 def _ingest_robinhood_csv(paths: BuildPaths) -> None:
-    """Ingest the Robinhood activity CSV via :class:`RobinhoodSource`.
+    """Ingest the Robinhood activity CSV via :mod:`etl.sources.robinhood`.
 
-    Silent no-op when the CSV is absent (user has no Robinhood holdings) —
-    :meth:`RobinhoodSource.ingest` handles the missing-file case internally.
+    Silent no-op when the CSV is absent (user has no Robinhood holdings).
     """
-    from etl.sources.robinhood import RobinhoodSource, RobinhoodSourceConfig
-
-    src = RobinhoodSource(
-        RobinhoodSourceConfig(csv_path=paths.robinhood_csv),
-        paths.db_path,
-    )
-    src.ingest()
+    robinhood_src.ingest(paths.db_path, {"robinhood_csv": paths.robinhood_csv})
 
 
 def _qianji_401k_fallback_contribs(last_qfx_date: date | None) -> list[Contribution]:
@@ -356,19 +315,16 @@ def _init_db_and_ingest_sources(
 
     # ── Step 3: Ingest Empower QFX + Qianji fallback contributions ──
     print("[3] Ingesting Empower 401k...")
-    empower_src = EmpowerSource(
-        EmpowerSourceConfig(downloads_dir=paths.downloads), paths.db_path,
-    )
-    empower_src.ingest()
+    empower_src.ingest(paths.db_path, {"empower_downloads": paths.downloads})
 
     # QFX coverage ends at the latest snapshot date. Contributions made after
     # that (as recorded in Qianji) are tracked as 50/50 sp500/ex-us fallback
     # rows and persisted into ``empower_contributions`` so that
-    # :meth:`EmpowerSource.positions_at` sees them at query time.
+    # :func:`empower_src.positions_at` sees them at query time.
     last_qfx_date = _last_empower_snapshot_date(paths.db_path)
     fallback_contribs = _qianji_401k_fallback_contribs(last_qfx_date)
     if fallback_contribs:
-        empower_src.ingest_contributions(fallback_contribs)
+        empower_src.ingest_contributions(paths.db_path, fallback_contribs)
 
 
 def _last_empower_snapshot_date(db_path: Path) -> date | None:
@@ -514,14 +470,17 @@ def _print_summary(alloc: list[AllocationRow]) -> None:
 # ── Full rebuild ────────────────────────────────────────────────────────────
 
 
-def _build_all_sources(paths: BuildPaths, config: RawConfig) -> list[InvestmentSource]:
-    """Build the full set of :class:`InvestmentSource` instances for this run."""
-    raw_sources_cfg = dict(config) | {
+def _build_source_config(paths: BuildPaths, config: RawConfig) -> RawConfig:
+    """Compose the raw config dict with per-run path overrides.
+
+    ``compute_daily_allocation`` threads this dict straight into each source
+    module's ``positions_at`` via :class:`AllocationSources.source_config`.
+    """
+    return dict(config) | {  # type: ignore[return-value]  # pragma: no cover (typed dict widening)
         "fidelity_downloads": paths.downloads,
         "robinhood_csv": paths.robinhood_csv,
         "empower_downloads": paths.downloads,
     }
-    return build_investment_sources(raw_sources_cfg, paths.db_path)
 
 
 def _full_build(
@@ -534,10 +493,8 @@ def _full_build(
     dry_run_market: bool = False,
 ) -> list[AllocationRow]:
     print("\n[5] Computing full allocation...")
-    investment_sources = _build_all_sources(paths, config)
     alloc = compute_daily_allocation(
-        paths.db_path, DEFAULT_QJ_DB, config, start, end,
-        investment_sources=investment_sources,
+        paths.db_path, DEFAULT_QJ_DB, _build_source_config(paths, config), start, end,
     )
     print(f"  {len(alloc)} daily records")
 
@@ -640,10 +597,8 @@ def _build_refresh_window(
         return []
 
     print(f"\n[5] Computing allocation {inc_start} -> {end} (incremental)...")
-    investment_sources = _build_all_sources(paths, config)
     alloc = compute_daily_allocation(
-        paths.db_path, DEFAULT_QJ_DB, config, inc_start, end,
-        investment_sources=investment_sources,
+        paths.db_path, DEFAULT_QJ_DB, _build_source_config(paths, config), inc_start, end,
     )
     print(f"  {len(alloc)} daily records")
 
