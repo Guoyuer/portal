@@ -3,18 +3,11 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
 from typing import NotRequired, TypedDict
 
 # ── Constants ───────────────────────────────────────────────────────────────
 
-DEFAULT_CNY_RATE = 6.88
-
 EQUITY_CATEGORIES = ["US Equity", "Non-US Equity"]
-NON_EQUITY_CATEGORIES = ["Crypto", "Safe Net"]
-SUBTYPE_ORDER = ["broad", "growth", "other"]
-
-MIN_RECORDS_FOR_COMPLETE_MONTH = 25  # fewer records → likely partial month
 
 # Trading-day lookback windows (US equity market)
 TRADING_DAYS_MONTH = 23  # index offset for ~22 trading days back (~1 month)
@@ -166,133 +159,4 @@ class AllocationRow(TypedDict):
 
 class ConfigError(Exception):
     """Raised when the configuration file is missing, malformed, or invalid."""
-
-
-class PortfolioError(Exception):
-    """Raised when portfolio CSV cannot be loaded or contains invalid data."""
-
-
-# ── Report data (middle layer) ──────────────────────────────────────────────
-
-
-@dataclass
-class HoldingData:
-    ticker: str
-    lots: int
-    value: float
-    pct: float
-    category: str
-    subtype: str  # "broad", "growth", "other", or "" for non-equity
-    cost_basis: float = 0.0
-    gain_loss: float = 0.0
-    gain_loss_pct: float = 0.0
-
-
-@dataclass
-class SubtypeGroup:
-    name: str  # "broad", "growth", "other"
-    holdings: list[HoldingData]
-    value: float
-    lots: int
-    pct: float
-
-
-@dataclass
-class CategoryData:
-    name: str
-    value: float
-    lots: int
-    pct: float
-    target: float  # target weight %
-    deviation: float  # actual% - target%
-    is_equity: bool
-    subtypes: list[SubtypeGroup] = field(default_factory=list)
-    holdings: list[HoldingData] = field(default_factory=list)  # flat list for non-equity
-
-
-# ── Extended report sections ────────────────────────────────────────────────
-
-
-@dataclass
-class ActivityData:
-    """Investment activity from Fidelity History CSV."""
-
-    period_start: str  # "2026-03-12"
-    period_end: str  # "2026-04-02"
-    reinvestments_total: float
-    interest_total: float
-    foreign_tax_total: float
-    net_cash_in: float  # deposits - withdrawals
-    net_deployed: float  # buys - sells
-    net_passive: float  # dividends + interest - foreign_tax
-    buys_by_symbol: list[tuple[str, int, float]]
-    dividends_by_symbol: list[tuple[str, int, float]]
-
-
-@dataclass
-class BalanceSheetData:
-    """Personal balance sheet from Qianji + Fidelity."""
-
-    total_assets: float
-    total_liabilities: float
-    net_worth: float
-
-
-@dataclass
-class CashFlowItem:
-    """Single line in cash flow statement."""
-
-    category: str  # "Meals", "Housing", "Salary"
-    amount: float
-    count: int  # number of transactions
-
-
-@dataclass
-class CashFlowData:
-    """Monthly cash flow statement from Qianji."""
-
-    period: str  # "March 2026"
-    income_items: list[CashFlowItem]
-    total_income: float
-    expense_items: list[CashFlowItem]  # sorted by amount descending
-    total_expenses: float
-    net_cashflow: float
-    invested: float  # transfers to investment accounts
-    credit_card_payments: float  # repayments
-    savings_rate: float  # (total_income - total_expenses) / total_income * 100 (gross, includes 401k)
-    takehome_savings_rate: float  # excludes pre-tax retirement contributions from income
-
-
-@dataclass
-class IndexReturn:
-    """Return data for a market index."""
-
-    ticker: str
-    name: str  # "S&P 500", "NASDAQ"
-    month_return: float
-    ytd_return: float
-    current: float
-    sparkline: list[float] | None = None  # daily closes for sparkline chart
-    high_52w: float | None = None
-    low_52w: float | None = None
-
-
-@dataclass
-class MarketData:
-    """Market context from external APIs."""
-
-    indices: list[IndexReturn]
-    fed_rate: float | None = None
-    treasury_10y: float | None = None
-    cpi: float | None = None
-    unemployment: float | None = None
-    vix: float | None = None
-    dxy: float | None = None
-    usd_cny: float | None = None
-    gold_return: float | None = None
-    btc_return: float | None = None
-    portfolio_month_return: float | None = None
-
-
-
 
