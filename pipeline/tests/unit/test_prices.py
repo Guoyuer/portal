@@ -12,7 +12,10 @@ pytest.importorskip("yfinance", reason="yfinance required for prices module")
 
 from etl.db import get_connection, init_db  # noqa: E402
 from etl.prices import (  # noqa: E402
+    SplitValidationError,
     _holding_periods_from_action_kind_rows,
+    _reverse_split_factor,
+    _validate_splits_against_transactions,
     fetch_and_store_cny_rates,
     fetch_and_store_prices,
     load_cny_rates,
@@ -392,3 +395,181 @@ class TestFetchGateRefreshesRecentWindow:
             )
             assert mock_dl.called
             assert date.fromisoformat(mock_dl.call_args.kwargs["start"]) == date(2026, 4, 1)
+
+
+# ── Split cross-validation ─────────────────────────────────────────────────
+
+
+def _seed_fidelity_txn(
+    db_path: Path,
+    run_date: str,
+    symbol: str,
+    action_kind: str,
+    quantity: float,
+) -> None:
+    conn = get_connection(db_path)
+    conn.execute(
+        "INSERT INTO fidelity_transactions"
+        " (run_date, account, account_number, action, action_kind, symbol, quantity)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (run_date, "TEST", "Z29", f"TEST {action_kind} ({symbol})", action_kind, symbol, quantity),
+    )
+    conn.commit()
+    conn.close()
+
+
+class TestReverseSplitFactor:
+    def test_no_splits(self) -> None:
+        assert _reverse_split_factor(date(2024, 1, 1), []) == 1.0
+
+    def test_forward_split_scales_pre_split_dates(self) -> None:
+        """A 3:1 forward split → pre-split Close × 3 recovers real market price."""
+        factors = [(date(2024, 10, 11), 3.0)]
+        assert _reverse_split_factor(date(2024, 10, 10), factors) == 3.0
+        assert _reverse_split_factor(date(2024, 10, 11), factors) == 1.0
+        assert _reverse_split_factor(date(2024, 10, 12), factors) == 1.0
+
+    def test_reverse_split_scales_pre_split_dates(self) -> None:
+        """A 1:10 reverse split (ratio=0.1) → pre-split Close × 0.1 recovers real price.
+
+        Yahoo pre-reverse-split Close is adjusted UP (to match post-split NAV);
+        multiplying by 0.1 brings it back down to the actual market price.
+        """
+        factors = [(date(2024, 6, 1), 0.1)]
+        assert _reverse_split_factor(date(2024, 5, 31), factors) == pytest.approx(0.1)
+        assert _reverse_split_factor(date(2024, 6, 1), factors) == 1.0
+
+    def test_multiple_splits_compound(self) -> None:
+        factors = [(date(2022, 1, 1), 2.0), (date(2024, 1, 1), 3.0)]
+        # Pre-both: factor = 2 × 3 = 6
+        assert _reverse_split_factor(date(2021, 12, 31), factors) == 6.0
+        # Between: factor = 3 only
+        assert _reverse_split_factor(date(2023, 6, 1), factors) == 3.0
+        # Post-both
+        assert _reverse_split_factor(date(2024, 1, 2), factors) == 1.0
+
+
+class TestSplitCrossValidation:
+    """``_validate_splits_against_transactions`` is the backstop that catches
+    Yahoo/Fidelity split drift before wrong prices get persisted."""
+
+    def test_matching_split_passes(self, tmp_path: Path) -> None:
+        """SCHD 3:1 with correct DISTRIBUTION row → validation silent."""
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        _seed_fidelity_txn(db_path, "2024-07-08", "SCHD", "buy", 27.022)
+        _seed_fidelity_txn(db_path, "2024-10-11", "SCHD", "distribution", 54.044)
+        conn = get_connection(db_path)
+        try:
+            _validate_splits_against_transactions(
+                conn,
+                {"SCHD": (date(2024, 7, 8), None)},
+                {"SCHD": [(date(2024, 10, 11), 3.0)]},
+                today=date(2024, 12, 1),
+            )
+        finally:
+            conn.close()
+
+    def test_missing_distribution_row_raises(self, tmp_path: Path) -> None:
+        """Yahoo knows about a split but Fidelity CSV has no DISTRIBUTION →
+        share count is stale, must fail loud."""
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        _seed_fidelity_txn(db_path, "2024-07-08", "SCHD", "buy", 27.022)
+        # No DISTRIBUTION row seeded.
+        conn = get_connection(db_path)
+        try:
+            with pytest.raises(SplitValidationError, match="SCHD"):
+                _validate_splits_against_transactions(
+                    conn,
+                    {"SCHD": (date(2024, 7, 8), None)},
+                    {"SCHD": [(date(2024, 10, 11), 3.0)]},
+                    today=date(2024, 12, 1),
+                )
+        finally:
+            conn.close()
+
+    def test_wrong_distribution_qty_raises(self, tmp_path: Path) -> None:
+        """DISTRIBUTION qty doesn't match Yahoo's ratio → data drift, fail."""
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        _seed_fidelity_txn(db_path, "2024-07-08", "SCHD", "buy", 27.022)
+        # Expected +54.044 for 3:1; seed only +20 (wrong).
+        _seed_fidelity_txn(db_path, "2024-10-11", "SCHD", "distribution", 20.0)
+        conn = get_connection(db_path)
+        try:
+            with pytest.raises(SplitValidationError, match="SCHD.*expected.*54"):
+                _validate_splits_against_transactions(
+                    conn,
+                    {"SCHD": (date(2024, 7, 8), None)},
+                    {"SCHD": [(date(2024, 10, 11), 3.0)]},
+                    today=date(2024, 12, 1),
+                )
+        finally:
+            conn.close()
+
+    def test_distribution_without_yahoo_split_raises(self, tmp_path: Path) -> None:
+        """Fidelity has a DISTRIBUTION (qty>0) but Yahoo reports no split on
+        that date → Yahoo's split-adjusted pre-split prices would be stored
+        un-reversed. Fail loud — this is the silent-yfinance-failure case."""
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        _seed_fidelity_txn(db_path, "2024-07-08", "SCHD", "buy", 27.022)
+        _seed_fidelity_txn(db_path, "2024-10-11", "SCHD", "distribution", 54.044)
+        conn = get_connection(db_path)
+        try:
+            with pytest.raises(SplitValidationError, match="SCHD 2024-10-11"):
+                _validate_splits_against_transactions(
+                    conn,
+                    {"SCHD": (date(2024, 7, 8), None)},
+                    {},  # empty → simulates _build_split_factors silent failure
+                    today=date(2024, 12, 1),
+                )
+        finally:
+            conn.close()
+
+    def test_split_outside_holding_period_ignored(self, tmp_path: Path) -> None:
+        """Bought AFTER the split date → no DISTRIBUTION expected, validation OK."""
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        # User bought NVDA AFTER the 2024-06-10 split.
+        _seed_fidelity_txn(db_path, "2024-11-27", "NVDA", "buy", 3.0)
+        conn = get_connection(db_path)
+        try:
+            _validate_splits_against_transactions(
+                conn,
+                {"NVDA": (date(2024, 11, 27), None)},
+                {"NVDA": [(date(2024, 6, 10), 10.0)]},
+                today=date(2024, 12, 1),
+            )
+        finally:
+            conn.close()
+
+    def test_multi_mismatch_report_includes_all(self, tmp_path: Path) -> None:
+        """Every mismatch is aggregated into a single error message so the
+        operator sees the full damage in one run."""
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        _seed_fidelity_txn(db_path, "2024-07-08", "SCHD", "buy", 27.022)
+        _seed_fidelity_txn(db_path, "2024-07-08", "AVGO", "buy", 1.007)
+        # Neither DISTRIBUTION seeded → both directions fire.
+        conn = get_connection(db_path)
+        try:
+            with pytest.raises(SplitValidationError) as exc:
+                _validate_splits_against_transactions(
+                    conn,
+                    {
+                        "SCHD": (date(2024, 7, 8), None),
+                        "AVGO": (date(2024, 7, 8), None),
+                    },
+                    {
+                        "SCHD": [(date(2024, 10, 11), 3.0)],
+                        "AVGO": [(date(2024, 7, 15), 10.0)],
+                    },
+                    today=date(2024, 12, 1),
+                )
+            msg = str(exc.value)
+            assert "SCHD" in msg
+            assert "AVGO" in msg
+        finally:
+            conn.close()

@@ -31,6 +31,17 @@ class ActionKind(StrEnum):
     and leaves ``cost`` alone. They mirror Fidelity's legacy
     ``POSITION_PREFIXES`` (``REDEMPTION PAYOUT``, ``TRANSFERRED FROM/TO``,
     ``DISTRIBUTION``, ``EXCHANGED TO``).
+
+    **Stock splits arrive as DISTRIBUTION.** Fidelity records a 3:1 split on
+    SCHD as ``DISTRIBUTION SCHWAB US DIVIDEND EQUITY ETF (SCHD)`` with
+    ``quantity = pre_split_qty × 2`` (the new shares) and ``price = 0``.
+    The qty-only handling in :func:`etl.replay.replay_transactions` is
+    correct for splits: no cash changes hands, and the per-share cost basis
+    drops proportionally because total cost stays the same. Do NOT
+    reclassify DISTRIBUTION as DIVIDEND — that would silently drop the
+    split quantity update. :func:`etl.prices._validate_splits_against_transactions`
+    cross-checks Yahoo's ``.splits`` history against these DISTRIBUTION
+    rows to catch either side drifting.
     """
     BUY = "buy"
     SELL = "sell"
