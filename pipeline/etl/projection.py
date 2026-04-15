@@ -32,8 +32,9 @@ class TickerSnapshot(TypedDict):
     gain_loss: float
     gain_loss_pct: float
 
-# Synthetic 401k tickers → daily_close proxy. Matches ``etl.k401.PROXY_TICKERS``
-# but kept local so this module has no cross-dependency on the k401 pipeline.
+# Synthetic 401k tickers → daily_close proxy. Mirrors
+# ``etl.sources.empower.PROXY_TICKERS`` but kept local so this module has no
+# cross-dependency on the Empower source.
 _PROXY_TICKERS: dict[str, str] = {
     "401k sp500": "VOO",
     "401k tech": "QQQM",
