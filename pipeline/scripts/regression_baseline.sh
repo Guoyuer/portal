@@ -11,8 +11,13 @@ WRANGLER_CWD="../worker"
 .venv/Scripts/python.exe scripts/build_timemachine_db.py
 .venv/Scripts/python.exe scripts/_regression_util.py hash "$DB_PATH" "$BASELINE_DIR"
 
+# Seed the default wrangler persist dir (worker/.wrangler/state/) from
+# timemachine.db. build_timemachine_db.py does NOT run sync_to_d1 itself,
+# so we do it here — wrangler --local reads from the same default path.
+.venv/Scripts/python.exe scripts/sync_to_d1.py --local
+
 pushd "$WRANGLER_CWD" >/dev/null
-npx wrangler dev --local --persist-to=../pipeline/data/.wrangler-regression &
+npx wrangler dev --local &
 WRANGLER_PID=$!
 popd >/dev/null
 trap 'kill $WRANGLER_PID 2>/dev/null || true' EXIT

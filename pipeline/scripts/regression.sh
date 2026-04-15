@@ -18,9 +18,15 @@ echo "[regression] L1: hashing computed_daily* ..."
 .venv/Scripts/python.exe scripts/_regression_util.py compare "$DB_PATH" "$BASELINE_DIR"
 
 # ── Step 3: L3 /timeline JSON hash compare ──────────────────────────────
+# Seed the default wrangler persist dir (worker/.wrangler/state/) from
+# timemachine.db. build_timemachine_db.py does NOT run sync_to_d1 itself,
+# so we do it here — wrangler --local reads from the same default path.
+echo "[regression] L3: syncing timemachine.db -> local D1 ..."
+.venv/Scripts/python.exe scripts/sync_to_d1.py --local
+
 echo "[regression] L3: starting wrangler --local ..."
 pushd "$WRANGLER_CWD" >/dev/null
-npx wrangler dev --local --persist-to=../pipeline/data/.wrangler-regression &
+npx wrangler dev --local &
 WRANGLER_PID=$!
 popd >/dev/null
 trap 'kill $WRANGLER_PID 2>/dev/null || true' EXIT
