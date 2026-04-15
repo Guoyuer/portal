@@ -13,6 +13,8 @@ from typing import Any
 import pandas as pd
 import yfinance as yf
 
+from ._yfinance import extract_close
+
 log = logging.getLogger(__name__)
 
 _DXY_TICKER = "DX-Y.NYB"
@@ -85,10 +87,10 @@ def fetch_dxy_monthly() -> list[dict[str, Any]]:
             log.info("DXY: no data returned")
             return []
 
-        closes = data["Close"]
-        if hasattr(closes, "columns"):
-            closes = closes.iloc[:, 0]
-        closes = closes.dropna()
+        close_df = extract_close(data, [_DXY_TICKER])
+        if close_df.empty:
+            return []
+        closes = close_df.iloc[:, 0].dropna()
         if closes.empty:
             return []
 

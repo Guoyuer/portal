@@ -17,12 +17,12 @@ import tempfile
 from datetime import date, timedelta
 from pathlib import Path
 
-import pandas as pd
 import yfinance as yf
 
 _PROJECT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PROJECT_DIR))
 
+from etl.market._yfinance import extract_close  # noqa: E402
 from etl.prices import (  # noqa: E402
     _build_split_factors,
     _holding_periods_core,
@@ -144,12 +144,7 @@ def _fetch_equity_rows(
         print("  equity: yfinance returned empty DataFrame (holiday / too early?)")
         return []
 
-    if isinstance(df.columns, pd.MultiIndex):
-        close_df = df["Close"]
-    elif len(syms) == 1:
-        close_df = df[["Close"]].rename(columns={"Close": syms[0]})
-    else:
-        close_df = df.get("Close", pd.DataFrame())
+    close_df = extract_close(df, syms)
 
     splits = _build_split_factors(syms)
     out: list[tuple[str, str, float]] = []
@@ -184,12 +179,11 @@ def _fetch_cny_rows(today: date, cached: date | None) -> list[tuple[str, str, fl
     if df.empty:
         print("  CNY=X: yfinance empty")
         return []
-    if isinstance(df.columns, pd.MultiIndex):
-        close = df["Close"].iloc[:, 0]
-    elif "Close" in df.columns:
-        close = df["Close"]
-    else:
-        close = df.iloc[:, 0]
+    close_df = extract_close(df, ["CNY=X"])
+    if close_df.empty:
+        print("  CNY=X: extract_close found no Close data")
+        return []
+    close = close_df.iloc[:, 0]
     out: list[tuple[str, str, float]] = []
     for dt, rate in close.dropna().items():
         d = dt.date() if hasattr(dt, "date") else dt

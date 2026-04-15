@@ -14,6 +14,7 @@ import pandas as pd
 import yfinance as yf
 
 from .db import get_connection
+from .market._yfinance import extract_close
 from .refresh import refresh_window_start
 from .timemachine import MM_SYMBOLS, POSITION_PREFIXES, _parse_date
 
@@ -244,12 +245,7 @@ def fetch_and_store_prices(
             if df.empty:
                 msg = f"yfinance returned empty DataFrame for {len(syms)} symbols"
                 raise RuntimeError(msg)
-            if isinstance(df.columns, pd.MultiIndex):
-                close_df = df["Close"]
-            elif len(syms) == 1:
-                close_df = df[["Close"]].rename(columns={"Close": list(syms)[0]})
-            else:
-                close_df = df.get("Close", pd.DataFrame())
+            close_df = extract_close(df, sorted(syms))
 
             # Fetch split data to reverse Yahoo's retroactive split adjustment
             split_factors = _build_split_factors(sorted(syms))
@@ -307,12 +303,10 @@ def fetch_and_store_cny_rates(db_path: Path, start: date, end: date) -> None:
         if df.empty:
             msg = "yfinance returned empty CNY data"
             raise RuntimeError(msg)
-        if isinstance(df.columns, pd.MultiIndex):
-            close = df["Close"].iloc[:, 0]
-        elif "Close" in df.columns:
-            close = df["Close"]
-        else:
-            close = df.iloc[:, 0]
+        close_df = extract_close(df, [sym])
+        if close_df.empty:
+            raise RuntimeError("yfinance CNY data has no Close column")
+        close = close_df.iloc[:, 0]
         rows: list[tuple[date, float]] = []
         for dt, rate in close.dropna().items():
             d = dt.date() if hasattr(dt, "date") else dt
