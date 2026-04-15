@@ -17,6 +17,7 @@ from pathlib import Path
 _PIPELINE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PIPELINE))
 
+from etl.market._series import forward_fill_prices_by_date  # noqa: E402
 from etl.projection import ProjectedDay, TickerRow, project_range  # noqa: E402
 
 DB = _PIPELINE / "data" / "timemachine.db"
@@ -36,25 +37,8 @@ def _load_prices_by_date(conn: sqlite3.Connection) -> dict[date, dict[str, float
     rows = conn.execute(
         "SELECT symbol, date, close FROM daily_close ORDER BY symbol, date"
     ).fetchall()
-    # per-symbol list, then ffill into per-date dict
-    by_sym: dict[str, list[tuple[date, float]]] = {}
-    all_dates: set[date] = set()
-    for sym, d, close in rows:
-        dd = date.fromisoformat(d)
-        by_sym.setdefault(sym, []).append((dd, close))
-        all_dates.add(dd)
-    result: dict[date, dict[str, float]] = {d: {} for d in all_dates}
-    for sym, points in by_sym.items():
-        points.sort()
-        carry = None
-        prev_idx = 0
-        for d in sorted(all_dates):
-            while prev_idx < len(points) and points[prev_idx][0] <= d:
-                carry = points[prev_idx][1]
-                prev_idx += 1
-            if carry is not None:
-                result[d][sym] = carry
-    return result
+    triples = [(sym, date.fromisoformat(d), close) for sym, d, close in rows]
+    return forward_fill_prices_by_date(triples)
 
 
 def _load_actual(conn: sqlite3.Connection, d: date) -> dict[str, float]:

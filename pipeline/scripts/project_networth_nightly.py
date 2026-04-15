@@ -23,6 +23,7 @@ from pathlib import Path
 _PIPELINE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PIPELINE))
 
+from etl.market._series import forward_fill_prices_by_date  # noqa: E402
 from etl.projection import ProjectedDay, TickerRow, project_range  # noqa: E402
 from scripts._wrangler import (  # noqa: E402
     run_wrangler_exec_file,
@@ -69,24 +70,11 @@ def _load_prices_since(seed_date: date) -> dict[date, dict[str, float]]:
         "SELECT symbol, date, close FROM daily_close"
         f" WHERE date >= '{seed_date.isoformat()}' ORDER BY symbol, date"
     )
-    by_sym: dict[str, list[tuple[date, float]]] = {}
-    all_dates: set[date] = set()
-    for r in rows:
-        dd = date.fromisoformat(r["date"])
-        by_sym.setdefault(r["symbol"], []).append((dd, float(r["close"])))
-        all_dates.add(dd)
-    result: dict[date, dict[str, float]] = {d: {} for d in all_dates}
-    for sym, points in by_sym.items():
-        points.sort()
-        carry: float | None = None
-        idx = 0
-        for d in sorted(all_dates):
-            while idx < len(points) and points[idx][0] <= d:
-                carry = points[idx][1]
-                idx += 1
-            if carry is not None:
-                result[d][sym] = carry
-    return result
+    triples = [
+        (r["symbol"], date.fromisoformat(r["date"]), float(r["close"]))
+        for r in rows
+    ]
+    return forward_fill_prices_by_date(triples)
 
 
 # ── Push ────────────────────────────────────────────────────────────────────
