@@ -67,3 +67,15 @@ def read_csv_rows(path: Path) -> list[dict[str, str]]:
     rows) that streaming buys nothing.
     """
     return list(csv.DictReader(path.read_text(encoding="utf-8-sig").splitlines()))
+
+
+def is_cusip(sym: str) -> bool:
+    """True if ``sym`` looks like a CUSIP (8+ chars, leading digit).
+
+    Fidelity reports Treasury holdings under their 9-char CUSIP (e.g.
+    ``912796XA1``) rather than a ticker; we bucket all such entries into a
+    single ``T-Bills`` line at face quantity. Shared with
+    :mod:`etl.prices` which uses the same rule to skip CUSIPs from the
+    daily-close fetch path (yfinance doesn't list them).
+    """
+    return bool(sym) and sym[0].isdigit() and len(sym) >= 8

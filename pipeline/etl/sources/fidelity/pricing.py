@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 
+from etl.parsing import is_cusip
 from etl.sources import PositionRow, PriceContext
 
 log = logging.getLogger(__name__)
@@ -32,15 +33,6 @@ def mutual_funds(config: dict[str, object]) -> frozenset[str]:
     if isinstance(raw, (list, tuple, set, frozenset)):
         return frozenset(str(t) for t in raw)
     return _DEFAULT_MUTUAL_FUNDS
-
-
-def _is_cusip(sym: str) -> bool:
-    """True if ``sym`` looks like a CUSIP (8+ chars, leading digit).
-
-    Fidelity surfaces T-Bill holdings under their 9-char CUSIP; we bucket
-    all such entries into a single ``T-Bills`` ticker at face quantity.
-    """
-    return bool(sym) and sym[0].isdigit() and len(sym) >= 8
 
 
 def position_rows(
@@ -61,7 +53,7 @@ def position_rows(
     for (acct, sym), qty in positions.items():
         cb = cost_basis.get((acct, sym))
 
-        if _is_cusip(sym):
+        if is_cusip(sym):
             # T-Bill CUSIP: face value quantity, bucketed under "T-Bills".
             rows.append(PositionRow(
                 ticker="T-Bills",
