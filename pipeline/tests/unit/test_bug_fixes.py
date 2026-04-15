@@ -375,7 +375,7 @@ class TestUnmappedQianjiWarns:
         assert len(unmapped_warnings) == 0
 
     def test_cny_account_not_warned(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
-        """CNY accounts without ticker_map entry go to CNY Assets — no warning."""
+        """CNY accounts without ticker_map entry go to CNY Cash — no warning."""
         db = tmp_path / "tm.db"
         qj = tmp_path / "qj.db"
         init_db(db)
@@ -389,7 +389,7 @@ class TestUnmappedQianjiWarns:
         conn.close()
 
         config = {
-            "assets": {"VTI": {"category": "US Equity"}, "CNY Assets": {"category": "Safe Net"}},
+            "assets": {"VTI": {"category": "US Equity"}, "CNY Cash": {"category": "Safe Net"}},
             "qianji_accounts": {
                 "fidelity_tracked": [],
                 "ticker_map": {},  # no mapping for Alipay — but it's CNY, so OK

@@ -34,7 +34,7 @@ _KNOWN_SUBTYPES: frozenset[str] = frozenset({"", "broad", "growth"})
 # `daily_close` row by design, so price-freshness checks skip them.
 _NON_PRICE_TICKERS = frozenset({
     "SPAXX", "FZFXX", "FDRXX",  # Fidelity money market (cash sweep)
-    "Debit Cash", "I Bonds", "CNY Assets", "Gift Card", "Cash",  # Qianji book-value
+    "Debit Cash", "I Bonds", "CNY Cash", "Gift Card", "Cash",  # Qianji book-value
     "Amex HYSA", "Amex Saving", "USDC", "T-Bills",  # Qianji + CUSIPs
     "Robinhood",  # Qianji book-value
     "401k sp500", "401k ex-us", "401k tech",  # Empower proxy

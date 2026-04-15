@@ -5,7 +5,7 @@ Used by the nightly CI job to advance the networth chart past the last
 assumes **no new transactions** in the window: only prices move. For
 tickers priced directly (``daily_close``), reprice via shares × new
 price. For synthetic tickers (``401k *``) use their proxy's price ratio.
-For ``CNY Assets`` use the inverse USD/CNY rate ratio (same CNY balance,
+For ``CNY Cash`` use the inverse USD/CNY rate ratio (same CNY balance,
 new USD value). Everything else carries forward unchanged.
 
 Intentionally a narrower code path than ``compute_daily_allocation``:
@@ -85,7 +85,7 @@ def _price_ratio(
     if ticker in _PROXY_TICKERS:
         proxy = _PROXY_TICKERS[ticker]
         t, p = prices_today.get(proxy), prices_prev.get(proxy)
-    elif ticker == "CNY Assets":
+    elif ticker == "CNY Cash":
         # USD value scales inversely with the USD/CNY rate (same CNY balance).
         # Expressing it as 1/rate keeps the caller's ``value *= ratio`` uniform.
         t_rate = prices_today.get(_CNY_RATE_SYMBOL)

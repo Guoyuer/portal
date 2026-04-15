@@ -104,7 +104,7 @@ def _make_config() -> dict:
             "VTI": {"category": "US Equity", "subtype": "broad"},
             "VXUS": {"category": "Non-US Equity", "subtype": "broad"},
             "HYSA": {"category": "Safe Net", "subtype": ""},
-            "CNY Assets": {"category": "Safe Net", "subtype": ""},
+            "CNY Cash": {"category": "Safe Net", "subtype": ""},
         },
         "qianji_accounts": {
             "fidelity_tracked": ["Fidelity taxable", "Roth IRA", "Fidelity Cash Management"],
@@ -167,7 +167,7 @@ class TestComputeDailyAllocation:
         # VTI: 10 shares * $250 = $2500
         # VXUS: 5 shares * $60 = $300
         # HYSA: $5000 (from Qianji)
-        # Alipay: 10000 CNY / 7.25 ≈ $1379.31 → "CNY Assets"
+        # Alipay: 10000 CNY / 7.25 ≈ $1379.31 → "CNY Cash"
         total = day["total"]
         assert isinstance(total, float)
         assert total > 0
@@ -211,7 +211,7 @@ class TestComputeDailyAllocation:
         day = results[0]
         assert day["us_equity"] > 0  # VTI
         assert day["non_us_equity"] > 0  # VXUS
-        assert day["safe_net"] > 0  # HYSA + CNY Assets
+        assert day["safe_net"] > 0  # HYSA + CNY Cash
 
     def test_ticker_detail(self, tmp_path: Path) -> None:
         """Results include per-ticker detail with category and value."""
@@ -331,7 +331,7 @@ class TestComputeDailyAllocation:
         )
         # Alipay: 10000 CNY / 7.25 ≈ 1379.31
         tickers = results[0]["tickers"]
-        cny = next((t for t in tickers if t["ticker"] == "CNY Assets"), None)
+        cny = next((t for t in tickers if t["ticker"] == "CNY Cash"), None)
         assert cny is not None
         assert 1370 < cny["value"] < 1390  # ~10000/7.25
 
@@ -513,7 +513,7 @@ class TestAddQianjiBalances:
         )
         assert ticker_values == {"Alipay Funds": 1000.0}
 
-    def test_unmapped_cny_falls_back_to_cny_assets(self) -> None:
+    def test_unmapped_cny_falls_back_to_cny_cash(self) -> None:
         ticker_values: dict[str, float] = {}
         _add_qianji_balances(
             ticker_values,
@@ -524,7 +524,7 @@ class TestAddQianjiBalances:
             cny_rate=7.25,
             skip_accounts=frozenset(),
         )
-        assert ticker_values == {"CNY Assets": 1000.0}
+        assert ticker_values == {"CNY Cash": 1000.0}
 
     def test_negative_balance_treated_as_liability(self) -> None:
         ticker_values: dict[str, float] = {}

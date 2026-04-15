@@ -29,11 +29,11 @@ class TestPriceRatio:
         assert ratio is not None
         assert abs(ratio - 400.0 / 380.0) < 1e-9
 
-    def test_cny_assets_inverts_rate(self) -> None:
+    def test_cny_cash_inverts_rate(self) -> None:
         # Rate goes from 7.25 → 7.30: USD value of same CNY balance shrinks.
         # price_ratio = (1/7.30) / (1/7.25) = 7.25/7.30 < 1
         ratio = _price_ratio(
-            "CNY Assets", {"CNY=X": 7.30}, {"CNY=X": 7.25},
+            "CNY Cash", {"CNY=X": 7.30}, {"CNY=X": 7.25},
         )
         assert ratio is not None
         assert abs(ratio - 7.25 / 7.30) < 1e-9

@@ -138,7 +138,7 @@ def _add_qianji_balances(
     cny_rate: float,
     skip_accounts: frozenset[str],
 ) -> None:
-    """Map Qianji balances to tickers. Handles CNY conversion, liabilities, CNY-Assets fallback."""
+    """Map Qianji balances to tickers. Handles CNY conversion, liabilities, CNY-Cash fallback."""
     for qj_acct, bal in qj_balances.items():
         if qj_acct in skip_accounts or abs(bal) < 0.01:
             continue
@@ -152,7 +152,7 @@ def _add_qianji_balances(
         if ticker and ticker in assets:
             ticker_values[ticker] = ticker_values.get(ticker, 0) + usd_val
         elif curr == "CNY":
-            ticker_values["CNY Assets"] = ticker_values.get("CNY Assets", 0) + usd_val
+            ticker_values["CNY Cash"] = ticker_values.get("CNY Cash", 0) + usd_val
         else:
             log.warning("Qianji account %r (%.2f USD) has no ticker_map entry — excluded from allocation", qj_acct, usd_val)
 
