@@ -1,0 +1,70 @@
+OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+SECURITY:NONE
+ENCODING:USASCII
+CHARSET:1252
+COMPRESSION:NONE
+OLDFILEUID:NONE
+NEWFILEUID:NONE
+
+<OFX>
+  <INVSTMTMSGSRSV1>
+    <INVSTMTTRNRS>
+      <INVSTMTRS>
+        <DTASOF>20241231000000.000</DTASOF>
+        <CURDEF>USD</CURDEF>
+        <INVTRANLIST>
+          <DTSTART>20241001000000.000</DTSTART>
+          <DTEND>20241231000000.000</DTEND>
+          <BUYMF>
+            <INVBUY>
+              <INVTRAN>
+                <FITID>FIX-2024Q4-001</FITID>
+                <DTTRADE>20241115000000.000</DTTRADE>
+              </INVTRAN>
+              <SECID>
+                <UNIQUEID>856917729</UNIQUEID>
+                <UNIQUEIDTYPE>CUSIP</UNIQUEIDTYPE>
+              </SECID>
+              <UNITS>40.0</UNITS>
+              <UNITPRICE>27.50</UNITPRICE>
+              <TOTAL>-1100.0</TOTAL>
+              <SUBACCTSEC>CASH</SUBACCTSEC>
+              <SUBACCTFUND>CASH</SUBACCTFUND>
+            </INVBUY>
+            <BUYTYPE>BUY</BUYTYPE>
+          </BUYMF>
+        </INVTRANLIST>
+        <INVPOSLIST>
+          <POSMF>
+            <INVPOS>
+              <SECID>
+                <UNIQUEID>856917729</UNIQUEID>
+                <UNIQUEIDTYPE>CUSIP</UNIQUEIDTYPE>
+              </SECID>
+              <HELDINACCT>CASH</HELDINACCT>
+              <POSTYPE>LONG</POSTYPE>
+              <UNITS>180.0</UNITS>
+              <UNITPRICE>28.50</UNITPRICE>
+              <MKTVAL>5130.0</MKTVAL>
+              <DTPRICEASOF>20241231000000.000</DTPRICEASOF>
+            </INVPOS>
+          <POSMF>
+            <INVPOS>
+              <SECID>
+                <UNIQUEID>41150L691</UNIQUEID>
+                <UNIQUEIDTYPE>CUSIP</UNIQUEIDTYPE>
+              </SECID>
+              <HELDINACCT>CASH</HELDINACCT>
+              <POSTYPE>LONG</POSTYPE>
+              <UNITS>80.0</UNITS>
+              <UNITPRICE>21.00</UNITPRICE>
+              <MKTVAL>1680.0</MKTVAL>
+              <DTPRICEASOF>20241231000000.000</DTPRICEASOF>
+            </INVPOS>
+        </INVPOSLIST>
+      </INVSTMTRS>
+    </INVSTMTTRNRS>
+  </INVSTMTMSGSRSV1>
+</OFX>

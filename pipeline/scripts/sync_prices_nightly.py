@@ -12,89 +12,41 @@ Requires ``CLOUDFLARE_API_TOKEN`` + ``CLOUDFLARE_ACCOUNT_ID`` in the environment
 from __future__ import annotations
 
 import argparse
-import json
-import subprocess
 import sys
 import tempfile
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Any
 
-import pandas as pd
 import yfinance as yf
 
 _PROJECT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PROJECT_DIR))
 
+from etl.market._yfinance import extract_close  # noqa: E402
 from etl.prices import (  # noqa: E402
     _build_split_factors,
-    _holding_periods_core,
+    _holding_periods_from_action_kind_rows,
     _reverse_split_factor,
 )
 from etl.refresh import refresh_window_start  # noqa: E402
-
-_WORKER_DIR = _PROJECT_DIR.parent / "worker"
-_D1_DATABASE = "portal-db"
+from etl.sources import ActionKind  # noqa: E402
+from scripts._wrangler import (  # noqa: E402
+    run_wrangler_exec_file,
+    run_wrangler_query,
+    sql_escape,
+)
 
 # Stop fetching prices this long after a position was fully closed.
 _CLOSED_POSITION_GRACE_DAYS = 7
 
-# Map the canonical ``action_type`` stored in D1 back to the raw Fidelity
-# action phrasing that ``_holding_periods_core`` pattern-matches on.
-_ACTION_TYPE_TO_ACTION: dict[str, str] = {
-    "buy": "YOU BOUGHT",
-    "sell": "YOU SOLD",
-    "reinvestment": "REINVESTMENT",
-    "redemption": "REDEMPTION PAYOUT",
-    "distribution": "DISTRIBUTION",
-    "exchange": "EXCHANGED TO",
-    "transfer": "TRANSFERRED",
-}
-
-# action_types that _holding_periods_core actually consumes — used to keep
-# the D1 query small.
-_POSITION_ACTION_TYPES = tuple(_ACTION_TYPE_TO_ACTION.keys())
-
-
-# ── wrangler helpers ────────────────────────────────────────────────────────
-
-
-def _wrangler_query(sql: str) -> list[dict[str, Any]]:
-    """Run a SELECT against remote D1 via ``wrangler --json``.
-
-    Wrangler emits a human banner before the JSON payload; we locate the
-    first ``[`` and parse from there.
-    """
-    cmd = [
-        "npx", "wrangler", "d1", "execute", _D1_DATABASE,
-        "--remote", "--json", "--command", sql,
-    ]
-    result = subprocess.run(
-        cmd, cwd=str(_WORKER_DIR), capture_output=True, text=True, check=True
-    )
-    idx = result.stdout.find("[")
-    if idx < 0:
-        raise RuntimeError(f"No JSON array in wrangler output:\n{result.stdout}")
-    payload = json.loads(result.stdout[idx:])
-    if not payload:
-        return []
-    return payload[0].get("results", []) or []
-
-
-def _wrangler_exec_file(sql_path: Path) -> None:
-    cmd = [
-        "npx", "wrangler", "d1", "execute", _D1_DATABASE,
-        "--remote", "--file", str(sql_path),
-    ]
-    subprocess.run(cmd, cwd=str(_WORKER_DIR), check=True)
-
-
-def _escape(value: object) -> str:
-    if value is None:
-        return "NULL"
-    if isinstance(value, (int, float)):
-        return str(value)
-    return "'" + str(value).replace("'", "''") + "'"
+# ``action_kind`` values whose rows the holding-period accumulator consumes.
+# Pulled at query time so D1 only sends rows the accumulator will actually
+# look at.
+_POSITION_KIND_VALUES = tuple(k.value for k in (
+    ActionKind.BUY, ActionKind.SELL, ActionKind.REINVESTMENT,
+    ActionKind.REDEMPTION, ActionKind.DISTRIBUTION, ActionKind.EXCHANGE,
+    ActionKind.TRANSFER,
+))
 
 
 # ── D1 state loaders ────────────────────────────────────────────────────────
@@ -102,28 +54,26 @@ def _escape(value: object) -> str:
 
 def _load_holdings_from_d1() -> dict[str, tuple[date, date | None]]:
     """Reconstruct ``{symbol: (first_buy, last_sell_or_None)}`` from D1."""
-    placeholders = ", ".join(f"'{t}'" for t in _POSITION_ACTION_TYPES)
-    rows = _wrangler_query(
-        "SELECT run_date, action_type, symbol, quantity"
-        f" FROM fidelity_transactions WHERE action_type IN ({placeholders})"
+    placeholders = ", ".join(f"'{v}'" for v in _POSITION_KIND_VALUES)
+    rows = run_wrangler_query(
+        "SELECT run_date, action_kind, symbol, quantity"
+        f" FROM fidelity_transactions WHERE action_kind IN ({placeholders})"
         " ORDER BY run_date, id"
     )
-    tuples = []
-    for r in rows:
-        raw_action = _ACTION_TYPE_TO_ACTION.get(
-            (r.get("action_type") or "").lower(), ""
-        )
-        tuples.append((
+    tuples = [
+        (
             r.get("run_date") or "",
             (r.get("symbol") or "").strip(),
-            raw_action,
+            (r.get("action_kind") or "").strip(),
             float(r.get("quantity") or 0),
-        ))
-    return _holding_periods_core(tuples)
+        )
+        for r in rows
+    ]
+    return _holding_periods_from_action_kind_rows(tuples)
 
 
 def _load_cached_max_from_d1() -> dict[str, date]:
-    rows = _wrangler_query(
+    rows = run_wrangler_query(
         "SELECT symbol, MAX(date) AS max_date FROM daily_close GROUP BY symbol"
     )
     out: dict[str, date] = {}
@@ -186,12 +136,7 @@ def _fetch_equity_rows(
         print("  equity: yfinance returned empty DataFrame (holiday / too early?)")
         return []
 
-    if isinstance(df.columns, pd.MultiIndex):
-        close_df = df["Close"]
-    elif len(syms) == 1:
-        close_df = df[["Close"]].rename(columns={"Close": syms[0]})
-    else:
-        close_df = df.get("Close", pd.DataFrame())
+    close_df = extract_close(df, syms)
 
     splits = _build_split_factors(syms)
     out: list[tuple[str, str, float]] = []
@@ -226,12 +171,11 @@ def _fetch_cny_rows(today: date, cached: date | None) -> list[tuple[str, str, fl
     if df.empty:
         print("  CNY=X: yfinance empty")
         return []
-    if isinstance(df.columns, pd.MultiIndex):
-        close = df["Close"].iloc[:, 0]
-    elif "Close" in df.columns:
-        close = df["Close"]
-    else:
-        close = df.iloc[:, 0]
+    close_df = extract_close(df, ["CNY=X"])
+    if close_df.empty:
+        print("  CNY=X: extract_close found no Close data")
+        return []
+    close = close_df.iloc[:, 0]
     out: list[tuple[str, str, float]] = []
     for dt, rate in close.dropna().items():
         d = dt.date() if hasattr(dt, "date") else dt
@@ -281,7 +225,7 @@ def main() -> None:
 
     sql_lines = [
         "INSERT OR IGNORE INTO daily_close (symbol, date, close) VALUES"
-        f" ({_escape(s)}, {_escape(d)}, {_escape(c)});"
+        f" ({sql_escape(s)}, {sql_escape(d)}, {sql_escape(c)});"
         for s, d, c in all_rows
     ]
     sql_text = "\n".join(sql_lines) + "\n"
@@ -298,7 +242,7 @@ def main() -> None:
         f.write(sql_text)
         sql_path = Path(f.name)
     try:
-        _wrangler_exec_file(sql_path)
+        run_wrangler_exec_file(sql_path)
     finally:
         sql_path.unlink(missing_ok=True)
     print("Done.")

@@ -11,10 +11,11 @@ can diff exact rows), aggregate counts for big tables (``daily_close``,
 """
 from __future__ import annotations
 
-import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from .db import get_readonly_connection
 
 # ── Snapshot ─────────────────────────────────────────────────────────────────
 
@@ -51,7 +52,7 @@ def capture(db_path: Path) -> SyncSnapshot:
     if not db_path.exists():
         return SyncSnapshot()
 
-    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    conn = get_readonly_connection(db_path)
     try:
         fidelity = frozenset(
             (str(r[0]), str(r[1]), str(r[2]), float(r[3]), float(r[4]))

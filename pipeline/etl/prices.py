@@ -14,8 +14,24 @@ import pandas as pd
 import yfinance as yf
 
 from .db import get_connection
+from .market._yfinance import extract_close
+from .parsing import parse_date_iso
 from .refresh import refresh_window_start
-from .timemachine import MM_SYMBOLS, POSITION_PREFIXES, _parse_date
+from .sources import ActionKind
+from .sources.fidelity import MM_SYMBOLS
+
+# Action kinds that change share count — same set the replay primitive uses
+# for position accumulation (BUY / SELL / REINVESTMENT plus the qty-only
+# kinds for redemptions, distributions, exchanges, and transfers).
+_POSITION_KINDS = frozenset({
+    ActionKind.BUY,
+    ActionKind.SELL,
+    ActionKind.REINVESTMENT,
+    ActionKind.REDEMPTION,
+    ActionKind.DISTRIBUTION,
+    ActionKind.EXCHANGE,
+    ActionKind.TRANSFER,
+})
 
 
 def _persist_close(
@@ -24,16 +40,19 @@ def _persist_close(
     date_iso: str,
     close: float,
     refresh_cutoff_iso: str,
+    *,
+    refresh_in_window: bool = True,
 ) -> bool:
     """Insert a daily_close row with the historical-immutability invariant.
 
     - ``date_iso < refresh_cutoff_iso`` → INSERT OR IGNORE (preserve existing).
-    - ``date_iso >= refresh_cutoff_iso`` → INSERT OR REPLACE (allow refresh).
+    - ``date_iso >= refresh_cutoff_iso`` AND ``refresh_in_window=True`` → INSERT OR REPLACE.
+    - ``refresh_in_window=False`` → INSERT OR IGNORE for every date (intraday-immutable).
 
     Returns True when the row was actually inserted/replaced; False when an
     IGNORE skipped because the row already existed.
     """
-    if date_iso < refresh_cutoff_iso:
+    if not refresh_in_window or date_iso < refresh_cutoff_iso:
         cur = conn.execute(
             "INSERT OR IGNORE INTO daily_close (symbol, date, close) VALUES (?, ?, ?)",
             (symbol, date_iso, close),
@@ -51,6 +70,8 @@ def _persist_close_batch(
     symbol: str,
     rows: list[tuple[date, float]],
     refresh_cutoff_iso: str,
+    *,
+    refresh_in_window: bool = True,
 ) -> tuple[int, int]:
     """Persist ``(date, close)`` rows for one symbol, honoring the refresh window.
 
@@ -58,13 +79,16 @@ def _persist_close_batch(
     the immutable history vs the refresh window. Used by both
     ``fetch_and_store_prices`` and ``fetch_and_store_cny_rates``; factored out
     to keep the accounting identical in both places.
+
+    When ``refresh_in_window=False`` (used for CNY=X to avoid intraday FX drift),
+    every date is INSERT OR IGNORE; ``refreshed_recent`` is always 0.
     """
     new_historical = 0
     refreshed_recent = 0
     for d, value in rows:
         d_iso = d.isoformat()
-        inserted = _persist_close(conn, symbol, d_iso, value, refresh_cutoff_iso)
-        if d_iso < refresh_cutoff_iso:
+        inserted = _persist_close(conn, symbol, d_iso, value, refresh_cutoff_iso, refresh_in_window=refresh_in_window)
+        if d_iso < refresh_cutoff_iso or not refresh_in_window:
             if inserted:
                 new_historical += 1
         else:
@@ -75,25 +99,34 @@ def _persist_close_batch(
 # ── Symbol holding periods ──────────────────────────────────────────────────
 
 
-def _holding_periods_core(
+def _holding_periods_from_action_kind_rows(
     rows: list[tuple[str, str, str, float]],
 ) -> dict[str, tuple[date, date | None]]:
-    """Shared holding-period logic for both CSV and DB sources.
+    """Compute ``{symbol: (first_buy_date, last_sell_date_or_None)}``.
 
-    Each tuple: (run_date_str, sym, action, qty).
-    Strings are already stripped; action is already uppercased.
+    Each row is ``(run_date_iso, symbol, action_kind, quantity)`` —
+    pre-fetched from a Fidelity-shaped table. Symbol-stripping + ``qty``
+    coercion happen here so call sites can pass raw DB rows directly.
+    Used by :func:`symbol_holding_periods_from_db` (against a local
+    SQLite DB) and the nightly D1 sync (against rows pulled via wrangler).
     """
     holdings: dict[str, float] = {}
     first_held: dict[str, date] = {}
     last_zero: dict[str, date] = {}
 
-    for run_date_str, sym, action, qty in rows:
+    for run_date, sym, action_kind, qty in rows:
+        sym = (sym or "").strip()
+        qty = qty or 0.0
         if not sym or sym in MM_SYMBOLS or qty == 0:
             continue
-        if not any(action.startswith(p) for p in POSITION_PREFIXES):
+        try:
+            kind = ActionKind(action_kind) if action_kind else ActionKind.OTHER
+        except ValueError:
+            kind = ActionKind.OTHER
+        if kind not in _POSITION_KINDS:
             continue
 
-        txn_date = _parse_date(run_date_str)
+        txn_date = parse_date_iso(run_date)
         holdings[sym] = holdings.get(sym, 0) + qty
 
         if sym not in first_held:
@@ -114,22 +147,26 @@ def _holding_periods_core(
 
 
 def symbol_holding_periods_from_db(db_path: Path) -> dict[str, tuple[date, date | None]]:
-    """Return {symbol: (first_buy_date, last_sell_date_or_None)} from the
-    fidelity_transactions table."""
+    """Return ``{symbol: (first_buy_date, last_sell_date_or_None)}`` from the
+    ``fidelity_transactions`` table.
+
+    A "holding period" is the chronological span between the first
+    position-impacting action on a symbol and the most recent date the
+    cumulative quantity dropped to zero. Symbols still held at the cutoff
+    have ``end=None``. CUSIPs (T-Bills, brokered CDs) and money-market
+    funds are excluded — neither participates in the price-fetch path that
+    consumes this function.
+    """
     conn = get_connection(db_path)
     try:
         db_rows = conn.execute(
-            "SELECT run_date, symbol, action, quantity FROM fidelity_transactions"
+            "SELECT run_date, symbol, action_kind, quantity FROM fidelity_transactions"
             " ORDER BY run_date, id"
         ).fetchall()
     finally:
         conn.close()
 
-    rows = [
-        (run_date, sym.strip(), action.upper(), qty)
-        for run_date, sym, action, qty in db_rows
-    ]
-    return _holding_periods_core(rows)
+    return _holding_periods_from_action_kind_rows(list(db_rows))
 
 
 # ── Cache helpers ───────────────────────────────────────────────────────────
@@ -244,12 +281,7 @@ def fetch_and_store_prices(
             if df.empty:
                 msg = f"yfinance returned empty DataFrame for {len(syms)} symbols"
                 raise RuntimeError(msg)
-            if isinstance(df.columns, pd.MultiIndex):
-                close_df = df["Close"]
-            elif len(syms) == 1:
-                close_df = df[["Close"]].rename(columns={"Close": list(syms)[0]})
-            else:
-                close_df = df.get("Close", pd.DataFrame())
+            close_df = extract_close(df, sorted(syms))
 
             # Fetch split data to reverse Yahoo's retroactive split adjustment
             split_factors = _build_split_factors(sorted(syms))
@@ -307,18 +339,16 @@ def fetch_and_store_cny_rates(db_path: Path, start: date, end: date) -> None:
         if df.empty:
             msg = "yfinance returned empty CNY data"
             raise RuntimeError(msg)
-        if isinstance(df.columns, pd.MultiIndex):
-            close = df["Close"].iloc[:, 0]
-        elif "Close" in df.columns:
-            close = df["Close"]
-        else:
-            close = df.iloc[:, 0]
+        close_df = extract_close(df, [sym])
+        if close_df.empty:
+            raise RuntimeError("yfinance CNY data has no Close column")
+        close = close_df.iloc[:, 0]
         rows: list[tuple[date, float]] = []
         for dt, rate in close.dropna().items():
             d = dt.date() if hasattr(dt, "date") else dt
             rows.append((d, float(rate)))
         new_historical, refreshed_recent = _persist_close_batch(
-            conn, sym, rows, refresh_cutoff_iso,
+            conn, sym, rows, refresh_cutoff_iso, refresh_in_window=False,
         )
         conn.commit()
         print(f"CNY rates: {new_historical} new historical, {refreshed_recent} refreshed in window")
@@ -374,20 +404,3 @@ def load_cny_rates(db_path: Path) -> dict[date, float]:
         rates[date.fromisoformat(d)] = close
     print(f"CNY rates loaded: {len(rates)} days")
     return rates
-
-
-def load_proxy_prices(db_path: Path, proxy_tickers: dict[str, str]) -> dict[str, dict[date, float]]:
-    """Load proxy ticker prices from daily_close for 401k interpolation."""
-    proxy_prices: dict[str, dict[date, float]] = {}
-    conn = get_connection(db_path)
-    try:
-        for proxy in proxy_tickers.values():
-            proxy_prices[proxy] = {}
-            for d, close in conn.execute(
-                "SELECT date, close FROM daily_close WHERE symbol = ? ORDER BY date",
-                (proxy,),
-            ):
-                proxy_prices[proxy][date.fromisoformat(d)] = close
-    finally:
-        conn.close()
-    return proxy_prices

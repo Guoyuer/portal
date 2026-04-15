@@ -4,11 +4,18 @@ Both Fidelity (``MM/DD/YYYY``) and Robinhood (``M/D/YYYY``) export US-format
 dates. ``parse_us_date`` is the single entry point; use ``strict=True`` when
 the source guarantees two-digit components (Fidelity), ``strict=False``
 otherwise (Robinhood).
+
+``read_csv_rows`` is a BOM-tolerant one-liner that every broker-CSV reader
+shares — eliminates the ``read_text("utf-8-sig") → splitlines → DictReader``
+dance at each call site.
 """
 
 from __future__ import annotations
 
+import csv
 import re
+from datetime import date
+from pathlib import Path
 
 # ── Patterns ────────────────────────────────────────────────────────────────
 
@@ -50,3 +57,37 @@ def parse_us_date(raw: str, *, strict: bool = False, row_context: str = "") -> s
         raise ValueError(msg)
     month, day, year = match.groups()
     return f"{year}-{int(month):02d}-{int(day):02d}"
+
+
+def read_csv_rows(path: Path) -> list[dict[str, str]]:
+    """Read a UTF-8 BOM-tolerant CSV into a list of ``{header: cell}`` dicts.
+
+    Used by every broker-CSV reader (Fidelity, Robinhood, positions-CSV
+    verifier). Always materialises the full row list so callers can iterate
+    multiple times; CSVs in this codebase are small enough (thousands of
+    rows) that streaming buys nothing.
+    """
+    return list(csv.DictReader(path.read_text(encoding="utf-8-sig").splitlines()))
+
+
+def is_cusip(sym: str) -> bool:
+    """True if ``sym`` looks like a CUSIP (8+ chars, leading digit).
+
+    Fidelity reports Treasury holdings under their 9-char CUSIP (e.g.
+    ``912796XA1``) rather than a ticker; we bucket all such entries into a
+    single ``T-Bills`` line at face quantity. Shared with
+    :mod:`etl.prices` which uses the same rule to skip CUSIPs from the
+    daily-close fetch path (yfinance doesn't list them).
+    """
+    return bool(sym) and sym[0].isdigit() and len(sym) >= 8
+
+
+def parse_date_iso(s: str) -> date:
+    """Parse an ISO ``YYYY-MM-DD`` string into a :class:`datetime.date`.
+
+    Thin wrapper around :meth:`date.fromisoformat` that strips surrounding
+    whitespace. Inputs from raw Fidelity CSVs must first be normalized via
+    :func:`parse_us_date` (strict=True); this helper is for the ISO stage
+    that ends up in the DB and in downstream comparisons.
+    """
+    return date.fromisoformat(s.strip())

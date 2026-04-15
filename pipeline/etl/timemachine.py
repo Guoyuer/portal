@@ -1,31 +1,26 @@
-"""Timemachine: replay Fidelity + Qianji to reconstruct portfolio at any date.
+"""Timemachine: persist + recall Fidelity replay state, replay Qianji balances.
 
-Verified against Portfolio_Positions_Apr-07-2026.csv:
-  - 36/36 Fidelity positions exact match
-  - 3/3 Fidelity cash balances exact match
-  - Qianji balances: reverse-replay from current state, spot-checked
+The Fidelity replay engine itself moved to :mod:`etl.replay`
+(:func:`replay_transactions`) — what stays here is the support code that's
+specific to the timemachine workflow: replay-state checkpointing,
+positions-CSV calibration, Qianji reverse-replay, and the CLI.
 
 Usage:
   python -m etl.timemachine 2024-06-15
-  python -m etl.timemachine 2024-06-15 --verify path/to/positions.csv
-  python -m etl.timemachine --ingest path/to/new_export.csv
 """
 
 from __future__ import annotations
 
-import csv
 import json
 import logging
-import re
 import sqlite3
-from collections import defaultdict
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
 from .db import get_connection
 from .ingest.qianji_db import DEFAULT_DB_PATH, parse_qj_target_amount
-from .parsing import STRICT_US_DATE_RE, parse_us_date
+from .sources.fidelity import MM_SYMBOLS
 from .types import parse_float as _float
 
 #: Public re-export of the Qianji DB path. Module-level assignment makes mypy
@@ -33,150 +28,6 @@ from .types import parse_float as _float
 DEFAULT_QJ_DB = DEFAULT_DB_PATH
 
 log = logging.getLogger(__name__)
-
-# ── Constants ─────────────────────────────────────────────────────────────────
-
-# Action prefixes that change share count (qty sign encodes direction)
-POSITION_PREFIXES = (
-    "YOU BOUGHT", "YOU SOLD", "REINVESTMENT", "REDEMPTION PAYOUT",
-    "TRANSFERRED FROM", "TRANSFERRED TO", "DISTRIBUTION", "EXCHANGED TO",
-)
-
-# Money market funds ($1/share, treated as cash)
-MM_SYMBOLS = frozenset({"SPAXX", "FZFXX", "FDRXX"})
-
-STORE_HEADER = (
-    "Run Date,Account,Account Number,Action,Symbol,Description,"
-    "Type,Exchange Quantity,Exchange Currency,Currency,Price,Quantity,"
-    "Exchange Rate,Commission,Fees,Accrued Interest,Amount,Settlement Date"
-)
-
-# ── Parsing ───────────────────────────────────────────────────────────────────
-
-def _parse_date(iso: str) -> date:
-    """Parse an ISO ``YYYY-MM-DD`` run_date. Inputs from raw Fidelity CSVs
-    must be normalized via :func:`parse_us_date` (strict=True) first.
-    """
-    return date.fromisoformat(iso.strip())
-
-
-def _load_raw_rows(path: Path) -> list[dict[str, str]]:
-    """Load a Fidelity CSV (raw export or merged store) into row dicts.
-
-    Run Dates are left in Fidelity's native ``MM/DD/YYYY`` so the rows can
-    round-trip through :func:`_write_store` without changing the on-disk
-    format. Callers that need a ``date`` object must pass ``Run Date``
-    through :func:`parse_us_date` (strict=True) first.
-    """
-    text = path.read_text(encoding="utf-8-sig")
-    lines = text.splitlines(keepends=True)
-    # Skip leading blanks
-    start = 0
-    while start < len(lines) and not lines[start].strip():
-        start += 1
-    csv_text = "".join(lines[start:])
-    rows = []
-    for row in csv.DictReader(csv_text.splitlines()):
-        run_date = (row.get("Run Date") or "").strip()
-        if not run_date or not STRICT_US_DATE_RE.match(run_date):
-            continue
-        rows.append(row)
-    return rows
-
-
-# ── Replay engine ─────────────────────────────────────────────────────────────
-
-def _replay_core(
-    rows: list[tuple[str, str, str, str, str, float, float]],
-    as_of: date | None,
-) -> dict[str, Any]:
-    """Shared replay logic for both CSV and DB sources.
-
-    Each tuple: (run_date_str, acct, action, sym, lot_type, qty, amt).
-    Strings are already stripped; action is already uppercased.
-    """
-    holdings: dict[tuple[str, str], float] = defaultdict(float)
-    cost_basis: dict[tuple[str, str], float] = defaultdict(float)
-    cash_flow: dict[str, float] = defaultdict(float)
-    mm_drip: dict[str, float] = defaultdict(float)
-    count = 0
-
-    for run_date_str, acct, action, sym, lot_type, qty, amt in rows:
-        txn_date = _parse_date(run_date_str)
-        if as_of and txn_date > as_of:
-            continue
-        count += 1
-
-        # ── Positions (exclude money market) ──
-        if sym and sym not in MM_SYMBOLS and qty != 0 and any(action.startswith(p) for p in POSITION_PREFIXES):
-            key = (acct, sym)
-            # Cost basis: reduce proportionally on sell BEFORE updating holdings
-            if action.startswith("YOU SOLD") and holdings[key] > 0:
-                sold_fraction = min(abs(qty) / holdings[key], 1.0)
-                cost_basis[key] -= cost_basis[key] * sold_fraction
-            elif action.startswith(("YOU BOUGHT", "REINVESTMENT")):
-                cost_basis[key] += abs(amt)
-            holdings[key] += qty
-
-        # ── Cash (exclude Type=Shares: stock distributions, lending, sweeps) ──
-        if acct and lot_type != "Shares":
-            cash_flow[acct] += amt
-            if sym in MM_SYMBOLS and "REINVESTMENT" in action and qty != 0:
-                mm_drip[acct] += qty
-
-    positions = {k: round(v, 6) for k, v in holdings.items() if abs(v) > 0.001}
-    cb_out = {k: round(v, 2) for k, v in cost_basis.items() if abs(v) > 0.01}
-    cash = {acct: round(cash_flow[acct] + mm_drip.get(acct, 0.0), 2)
-            for acct in cash_flow
-            if re.match(r"^[A-Z0-9]+$", acct)}
-
-    return {"positions": positions, "cost_basis": cb_out, "cash": cash, "as_of": as_of, "txn_count": count}
-
-
-def replay(store_path: Path, as_of: date | None = None) -> dict[str, Any]:
-    """Replay transactions up to as_of, return positions and cash."""
-    raw_rows = _load_raw_rows(store_path)
-    rows = [
-        (
-            parse_us_date(row["Run Date"], strict=True, row_context=f"{store_path.name}"),
-            (row.get("Account Number") or "").strip(),
-            (row.get("Action") or "").upper(),
-            (row.get("Symbol") or "").strip(),
-            (row.get("Type") or "").strip(),
-            _float(row.get("Quantity", "")),
-            _float(row.get("Amount", "")),
-        )
-        for row in raw_rows
-    ]
-    return _replay_core(rows, as_of)
-
-
-def replay_from_db(db_path: Path, as_of: date | None = None) -> dict[str, Any]:
-    """Like replay() but reads from fidelity_transactions table instead of CSV."""
-    import sqlite3
-
-    conn = sqlite3.connect(str(db_path))
-    db_rows = conn.execute(
-        "SELECT run_date, account_number, action, symbol, lot_type, quantity, amount"
-        " FROM fidelity_transactions"
-        " ORDER BY run_date, id"
-    ).fetchall()
-    conn.close()
-
-    rows = [
-        (
-            run_date,
-            (acct or "").strip(),
-            (action or "").upper(),
-            (sym or "").strip(),
-            lot_type or "",
-            qty,
-            amt,
-        )
-        for run_date, acct, action, sym, lot_type, qty, amt in db_rows
-    ]
-    return _replay_core(rows, as_of)
-
 
 # ── Checkpoint save/load ──────────────────────────────────────────────────────
 
@@ -242,16 +93,12 @@ def calibrate_from_positions(
 
     Returns a new replay_result dict with positions/cost_basis overwritten by CSV ground truth.
     """
-    import csv as csv_mod
-
-    # Parse CSV
-    text = csv_path.read_text(encoding="utf-8-sig")
-    reader = csv_mod.DictReader(text.strip().splitlines())
+    from .parsing import read_csv_rows
 
     csv_positions: dict[tuple[str, str], float] = {}  # (account, symbol) -> qty
     csv_cost_basis: dict[tuple[str, str], float] = {}
 
-    for row in reader:
+    for row in read_csv_rows(csv_path):
         acct = (row.get("Account Number") or "").strip()
         sym = (row.get("Symbol") or "").strip()
         qty_str = (row.get("Quantity") or "").strip()
@@ -437,121 +284,6 @@ def replay_qianji_currencies(db_path: Path) -> dict[str, str]:
         conn.close()
 
 
-# ── Ingestion (merge new CSV into store, handling date overlap) ───────────────
-
-def ingest(csv_path: Path, store_path: Path) -> int:
-    """Merge a new Fidelity export CSV into the transaction store.
-
-    For overlapping date ranges the new file replaces existing data.
-    Returns total row count after merge.
-
-    The on-disk store keeps Fidelity's native ``MM/DD/YYYY`` format so we
-    normalize to ISO only for date arithmetic here.
-    """
-    new_rows = _load_raw_rows(csv_path)
-    if not new_rows:
-        log.warning("No transaction rows found in %s", csv_path)
-        return 0
-
-    def _row_date(row: dict[str, str], source: Path) -> date:
-        iso = parse_us_date(row["Run Date"], strict=True, row_context=source.name)
-        return date.fromisoformat(iso)
-
-    new_dates = {_row_date(r, csv_path) for r in new_rows}
-    lo, hi = min(new_dates), max(new_dates)
-    log.info("Ingesting %d rows from %s (%s → %s)", len(new_rows), csv_path.name, lo, hi)
-
-    existing: list[dict[str, str]] = []
-    if store_path.exists() and store_path.stat().st_size > 0:
-        existing = _load_raw_rows(store_path)
-
-    # Keep existing rows outside the new file's date range
-    kept = [r for r in existing
-            if _row_date(r, store_path) < lo or _row_date(r, store_path) > hi]
-
-    merged = kept + new_rows
-    merged.sort(key=lambda r: _row_date(r, store_path))
-
-    _write_store(merged, store_path)
-    log.info("Store now has %d rows (%s)", len(merged), store_path)
-    return len(merged)
-
-
-def _write_store(rows: list[dict[str, str]], path: Path) -> None:
-    """Write rows back to CSV in Fidelity format."""
-    fields = STORE_HEADER.split(",")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", newline="", encoding="utf-8-sig") as f:
-        writer = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
-        writer.writeheader()
-        writer.writerows(rows)
-
-
-# ── Verification ──────────────────────────────────────────────────────────────
-
-def verify(store_path: Path, positions_csv: Path) -> None:
-    """Verify replay results against a Fidelity positions snapshot."""
-    # Load expected positions
-    expected_pos: dict[tuple[str, str], float] = defaultdict(float)
-    expected_cash: dict[str, float] = {}
-    with open(positions_csv, encoding="utf-8-sig") as f:
-        for row in csv.DictReader(f):
-            sym = (row.get("Symbol") or "").strip()
-            acct = (row.get("Account Number") or "").strip()
-            qty_str = (row.get("Quantity") or "").strip()
-            val_str = (row.get("Current Value") or "").strip()
-            if not sym or not acct:
-                continue
-            if "**" in sym:
-                # Money market → cash
-                expected_cash[acct] = _float(val_str)
-                continue
-            if not re.match(r"^[A-Z0-9]+$", acct):
-                continue
-            if qty_str:
-                expected_pos[(acct, sym)] += float(qty_str)
-
-    expected_pos = {k: v for k, v in expected_pos.items() if abs(v) > 0.001}
-
-    # Replay
-    result = replay(store_path)
-    computed_pos = result["positions"]
-    computed_cash = result["cash"]
-
-    # Compare positions
-    all_keys = sorted(set(expected_pos) | set(computed_pos))
-    ok = mismatch = 0
-    print(f"\n{'Account':<15} {'Symbol':<8} {'Expected':>12} {'Computed':>12} {'Diff':>10} {'Status'}")
-    print("-" * 72)
-    for key in all_keys:
-        exp = expected_pos.get(key, 0.0)
-        comp = computed_pos.get(key, 0.0)
-        diff = comp - exp
-        if abs(diff) < 0.01:
-            ok += 1
-        else:
-            mismatch += 1
-            status = "EXTRA" if key not in expected_pos else "MISSING" if key not in computed_pos else "MISMATCH"
-            print(f"{key[0]:<15} {key[1]:<8} {exp:>12.3f} {comp:>12.3f} {diff:>+10.3f} {status}")
-    print("-" * 72)
-    print(f"Positions: {ok} OK, {mismatch} issues")
-
-    # Compare cash
-    print(f"\n{'Account':<15} {'Expected':>12} {'Computed':>12} {'Diff':>10}")
-    print("-" * 55)
-    cash_ok = 0
-    for acct in sorted(set(expected_cash) | set(computed_cash)):
-        exp = expected_cash.get(acct, 0.0)
-        comp = computed_cash.get(acct, 0.0)
-        diff = comp - exp
-        tag = "OK" if abs(diff) < 0.01 else "MISMATCH"
-        if abs(diff) < 0.01:
-            cash_ok += 1
-        print(f"{acct:<15} {exp:>12.2f} {comp:>12.2f} {diff:>+10.2f}  {tag}")
-    print("-" * 55)
-    print(f"Cash: {cash_ok}/{len(expected_cash)} OK")
-
-
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -559,34 +291,38 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     p = argparse.ArgumentParser(description="Timemachine: replay Fidelity + Qianji")
-    p.add_argument("date", nargs="?", help="Replay as of YYYY-MM-DD (omit for all time)")
-    p.add_argument("--store", default="pipeline/data/fidelity_transactions.csv",
-                    help="Path to Fidelity transaction store CSV")
+    p.add_argument("date", nargs="?", help="Replay as of YYYY-MM-DD (defaults to today)")
+    p.add_argument(
+        "--db",
+        default="pipeline/data/timemachine.db",
+        help="Path to timemachine SQLite DB (default: pipeline/data/timemachine.db)",
+    )
     p.add_argument("--qianji-db", default=str(DEFAULT_QJ_DB), help="Path to Qianji SQLite DB")
-    p.add_argument("--ingest", metavar="CSV", help="Ingest a new Fidelity export CSV")
-    p.add_argument("--verify", metavar="CSV", help="Verify against a positions snapshot CSV")
     args = p.parse_args()
 
-    store = Path(args.store)
+    # Deferred import sidesteps the ``etl.replay`` ↔ ``etl.sources`` cycle.
+    from etl.replay import replay_transactions
+    from etl.sources.fidelity import TABLE as _T
+
+    db = Path(args.db)
     qj_db = Path(args.qianji_db)
+    as_of = date.fromisoformat(args.date) if args.date else date.today()
 
-    if args.ingest:
-        ingest(Path(args.ingest), store)
-        return
+    result = replay_transactions(
+        db, _T, as_of,
+        date_col="run_date", ticker_col="symbol", amount_col="amount",
+        account_col="account_number",
+        exclude_tickers=MM_SYMBOLS,
+        track_cash=True, lot_type_col="lot_type",
+        mm_drip_tickers=MM_SYMBOLS,
+    )
 
-    if args.verify:
-        verify(store, Path(args.verify))
-        return
-
-    as_of = date.fromisoformat(args.date) if args.date else None
-    result = replay(store, as_of)
-
-    print(f"As of: {result['as_of'] or 'all time'}  ({result['txn_count']} Fidelity transactions)")
-    print(f"\nFidelity positions ({len(result['positions'])} holdings):")
-    for (acct, sym), qty in sorted(result["positions"].items()):
-        print(f"  {acct}  {sym:<8} {qty:>12.3f}")
+    print(f"As of: {as_of}")
+    print(f"\nFidelity positions ({len(result.positions)} holdings):")
+    for (acct, sym), st in sorted(result.positions.items()):
+        print(f"  {acct}  {sym:<8} {st.quantity:>12.3f}")
     print("\nFidelity cash:")
-    for acct, bal in sorted(result["cash"].items()):
+    for acct, bal in sorted(result.cash.items()):
         print(f"  {acct}  ${bal:>12.2f}")
 
     # Qianji

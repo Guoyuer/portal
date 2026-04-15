@@ -228,7 +228,7 @@ def _seed_holdings_db(db_path: Path) -> None:
             (latest, "VOO", 50000.0, "US Equity", "etf"),
             (latest, "QQQM", 30000.0, "US Equity", "etf"),
             (latest, "401k sp500", 20000.0, "US Equity", "401k"),   # fake — has space, >5 chars
-            (latest, "CNY Assets", 5000.0, "Non-US Equity", ""),    # fake — has space
+            (latest, "CNY Cash", 5000.0, "Non-US Equity", ""),    # fake — has space
         ],
     )
     conn.commit()
@@ -260,7 +260,7 @@ class TestPrecomputeHoldingsDetailRows:
         assert "VOO" in tickers
         assert "QQQM" in tickers
         assert "401k sp500" not in tickers
-        assert "CNY Assets" not in tickers
+        assert "CNY Cash" not in tickers
 
     def test_end_value_matches_ticker_value(self, holdings_db: Path) -> None:
         precompute_holdings_detail(holdings_db)

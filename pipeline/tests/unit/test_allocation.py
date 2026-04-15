@@ -6,12 +6,15 @@ Tests the full integration: replay → price lookup → categorization.
 """
 from __future__ import annotations
 
+import logging
 import sqlite3
 import sys
 from datetime import date
 from pathlib import Path
 from types import ModuleType
 from unittest.mock import MagicMock
+
+import pytest
 
 # Ensure yfinance is importable even when not installed.
 # The allocation tests don't call yfinance — it's only a transitive import
@@ -22,9 +25,6 @@ if "yfinance" not in sys.modules:
     sys.modules["yfinance"] = _yf
 
 from etl.allocation import (  # noqa: E402
-    _add_401k,
-    _add_fidelity_cash,
-    _add_fidelity_positions,
     _add_qianji_balances,
     _build_allocation_row,
     _categorize_ticker,
@@ -46,14 +46,18 @@ def _init_timemachine(db_path: Path) -> None:
     # Fidelity transaction: buy 10 shares of VTI on 2025-01-02
     conn.execute(
         "INSERT INTO fidelity_transactions"
-        " (run_date, account, account_number, action, action_type, symbol, lot_type, quantity, amount)"
-        " VALUES ('2025-01-02', 'Fidelity taxable', 'Z29133576', 'YOU BOUGHT', 'buy', 'VTI', '', 10, -2500)",
+        " (run_date, account, account_number, action, action_type, action_kind,"
+        "  symbol, lot_type, quantity, amount)"
+        " VALUES ('2025-01-02', 'Fidelity taxable', 'Z29133576', 'YOU BOUGHT', 'buy',"
+        "         'buy', 'VTI', '', 10, -2500)",
     )
     # Buy 5 shares of VXUS
     conn.execute(
         "INSERT INTO fidelity_transactions"
-        " (run_date, account, account_number, action, action_type, symbol, lot_type, quantity, amount)"
-        " VALUES ('2025-01-02', 'Fidelity taxable', 'Z29133576', 'YOU BOUGHT', 'buy', 'VXUS', '', 5, -300)",
+        " (run_date, account, account_number, action, action_type, action_kind,"
+        "  symbol, lot_type, quantity, amount)"
+        " VALUES ('2025-01-02', 'Fidelity taxable', 'Z29133576', 'YOU BOUGHT', 'buy',"
+        "         'buy', 'VXUS', '', 5, -300)",
     )
 
     # Prices for 3 trading days
@@ -103,13 +107,13 @@ def _make_config() -> dict:
             "VTI": {"category": "US Equity", "subtype": "broad"},
             "VXUS": {"category": "Non-US Equity", "subtype": "broad"},
             "HYSA": {"category": "Safe Net", "subtype": ""},
-            "CNY Assets": {"category": "Safe Net", "subtype": ""},
+            "CNY Cash": {"category": "Safe Net", "subtype": ""},
         },
         "qianji_accounts": {
             "fidelity_tracked": ["Fidelity taxable", "Roth IRA", "Fidelity Cash Management"],
             "credit": [],
             "cny": ["Alipay"],
-            "ticker_map": {"HYSA": "HYSA"},
+            "ticker_map": {"HYSA": "HYSA", "Alipay": "CNY Cash"},
         },
         "fidelity_accounts": {
             "Z29133576": "FZFXX",
@@ -156,7 +160,6 @@ class TestComputeDailyAllocation:
             db_path=db_path,
             qj_db=qj_path,
             config=_make_config(),
-            k401_daily={},
             start=date(2025, 1, 2),
             end=date(2025, 1, 2),
         )
@@ -167,7 +170,7 @@ class TestComputeDailyAllocation:
         # VTI: 10 shares * $250 = $2500
         # VXUS: 5 shares * $60 = $300
         # HYSA: $5000 (from Qianji)
-        # Alipay: 10000 CNY / 7.25 ≈ $1379.31 → "CNY Assets"
+        # Alipay: 10000 CNY / 7.25 ≈ $1379.31 → "CNY Cash"
         total = day["total"]
         assert isinstance(total, float)
         assert total > 0
@@ -184,7 +187,6 @@ class TestComputeDailyAllocation:
             db_path=db_path,
             qj_db=qj_path,
             config=_make_config(),
-            k401_daily={},
             start=date(2025, 1, 2),
             end=date(2025, 1, 6),
         )
@@ -206,14 +208,13 @@ class TestComputeDailyAllocation:
             db_path=db_path,
             qj_db=qj_path,
             config=_make_config(),
-            k401_daily={},
             start=date(2025, 1, 2),
             end=date(2025, 1, 2),
         )
         day = results[0]
         assert day["us_equity"] > 0  # VTI
         assert day["non_us_equity"] > 0  # VXUS
-        assert day["safe_net"] > 0  # HYSA + CNY Assets
+        assert day["safe_net"] > 0  # HYSA + CNY Cash
 
     def test_ticker_detail(self, tmp_path: Path) -> None:
         """Results include per-ticker detail with category and value."""
@@ -226,7 +227,6 @@ class TestComputeDailyAllocation:
             db_path=db_path,
             qj_db=qj_path,
             config=_make_config(),
-            k401_daily={},
             start=date(2025, 1, 2),
             end=date(2025, 1, 2),
         )
@@ -256,8 +256,10 @@ class TestComputeDailyAllocation:
         conn = sqlite3.connect(str(db_path))
         conn.execute(
             "INSERT INTO fidelity_transactions"
-            " (run_date, account, account_number, action, action_type, symbol, lot_type, quantity, amount)"
-            " VALUES ('2025-01-02', 'Fidelity taxable', 'UNKNOWN999', 'DEPOSIT', 'deposit', '', '', 0, 1000)",
+            " (run_date, account, account_number, action, action_type, action_kind,"
+            "  symbol, lot_type, quantity, amount)"
+            " VALUES ('2025-01-02', 'Fidelity taxable', 'UNKNOWN999', 'DEPOSIT',"
+            "         'deposit', 'deposit', '', '', 0, 1000)",
         )
         conn.execute("INSERT INTO daily_close (symbol, date, close) VALUES ('CNY=X', '2025-01-02', 7.25)")
         conn.commit()
@@ -273,7 +275,7 @@ class TestComputeDailyAllocation:
         }
 
         results = compute_daily_allocation(
-            db_path=db_path, qj_db=qj_path, config=config, k401_daily={},
+            db_path=db_path, qj_db=qj_path, config=config,
             start=date(2025, 1, 2), end=date(2025, 1, 2),
         )
 
@@ -283,22 +285,33 @@ class TestComputeDailyAllocation:
         assert tickers["FZFXX"] == 1000.0
 
     def test_401k_values_included(self, tmp_path: Path) -> None:
-        """401k daily values are added to totals."""
+        """Empower 401k values (from empower_snapshots/empower_funds) are added to totals."""
         db_path = tmp_path / "timemachine.db"
         qj_path = tmp_path / "qianji.db"
         _init_timemachine(db_path)
         _init_qianji(qj_path)
 
+        # Seed an Empower snapshot + fund row so :mod:`etl.sources.empower` picks it up.
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("INSERT INTO empower_snapshots (snapshot_date) VALUES ('2025-01-02')")
+        sid = conn.execute(
+            "SELECT id FROM empower_snapshots WHERE snapshot_date = '2025-01-02'"
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO empower_funds (snapshot_id, cusip, ticker, shares, price, mktval)"
+            " VALUES (?, '856917729', '401k sp500', 100.0, 500.0, 50000.0)",
+            (sid,),
+        )
+        conn.commit()
+        conn.close()
+
         config = _make_config()
         config["assets"]["401k sp500"] = {"category": "US Equity", "subtype": "retirement"}
-
-        k401 = {date(2025, 1, 2): {"401k sp500": 50000.0}}
 
         results = compute_daily_allocation(
             db_path=db_path,
             qj_db=qj_path,
             config=config,
-            k401_daily=k401,
             start=date(2025, 1, 2),
             end=date(2025, 1, 2),
         )
@@ -316,13 +329,12 @@ class TestComputeDailyAllocation:
             db_path=db_path,
             qj_db=qj_path,
             config=_make_config(),
-            k401_daily={},
             start=date(2025, 1, 2),
             end=date(2025, 1, 2),
         )
         # Alipay: 10000 CNY / 7.25 ≈ 1379.31
         tickers = results[0]["tickers"]
-        cny = next((t for t in tickers if t["ticker"] == "CNY Assets"), None)
+        cny = next((t for t in tickers if t["ticker"] == "CNY Cash"), None)
         assert cny is not None
         assert 1370 < cny["value"] < 1390  # ~10000/7.25
 
@@ -358,7 +370,6 @@ class TestComputeDailyAllocation:
             db_path=db_path,
             qj_db=qj_path,
             config=config,
-            k401_daily={},
             start=date(2025, 1, 2),
             end=date(2025, 1, 2),
         )
@@ -375,7 +386,6 @@ class TestComputeDailyAllocation:
             db_path=db_path,
             qj_db=qj_path,
             config=_make_config(),
-            k401_daily={},
             start=date(2025, 1, 10),
             end=date(2025, 1, 2),
         )
@@ -391,7 +401,6 @@ class TestComputeDailyAllocation:
             db_path=db_path,
             qj_db=qj_path,
             config=_make_config(),
-            k401_daily={},
             start=date(2025, 1, 2),
             end=date(2025, 1, 2),
         )
@@ -410,7 +419,6 @@ class TestComputeDailyAllocation:
             db_path=db_path,
             qj_db=qj_path,
             config=_make_config(),
-            k401_daily={},
             start=date(2025, 1, 2),
             end=date(2025, 1, 6),
         )
@@ -491,79 +499,6 @@ class TestCategorizeTicker:
             _categorize_ticker("X", 100.0, {"X": {"subtype": "foo"}}, {})
 
 
-# ── _add_fidelity_cash ─────────────────────────────────────────────────────
-
-
-class TestAddFidelityCash:
-    def test_known_accounts_route_to_mapped_ticker(self) -> None:
-        ticker_values: dict[str, float] = {}
-        _add_fidelity_cash(
-            ticker_values,
-            fidelity_cash={"Z29133576": 1000.0, "238986483": 2000.0},
-            fidelity_accounts={"Z29133576": "FZFXX", "238986483": "FDRXX"},
-        )
-        assert ticker_values == {"FZFXX": 1000.0, "FDRXX": 2000.0}
-
-    def test_unknown_account_falls_back_to_fzfxx(self) -> None:
-        ticker_values: dict[str, float] = {}
-        _add_fidelity_cash(ticker_values, {"UNKNOWN": 500.0}, fidelity_accounts={})
-        assert ticker_values == {"FZFXX": 500.0}
-
-    def test_accumulates_into_existing_values(self) -> None:
-        ticker_values: dict[str, float] = {"FZFXX": 100.0}
-        _add_fidelity_cash(ticker_values, {"Z29133576": 50.0}, {"Z29133576": "FZFXX"})
-        assert ticker_values == {"FZFXX": 150.0}
-
-
-# ── _add_fidelity_positions ────────────────────────────────────────────────
-
-
-class TestAddFidelityPositions:
-    def _prices(self, dt: str = "2025-01-02") -> pd.DataFrame:
-        return pd.DataFrame(
-            index=pd.to_datetime([dt]).date,
-            data={"VTI": [250.0], "FXAIX": [200.0]},
-        )
-
-    def test_regular_ticker_multiplied_by_price(self) -> None:
-        ticker_values: dict[str, float] = {}
-        _add_fidelity_positions(
-            ticker_values,
-            positions={("TAXABLE", "VTI"): 10.0},
-            prices=self._prices(),
-            price_date=date(2025, 1, 2),
-            mf_price_date=date(2025, 1, 2),
-        )
-        assert ticker_values == {"VTI": 2500.0}
-
-    def test_cusip_aggregates_as_t_bills_at_face(self) -> None:
-        ticker_values: dict[str, float] = {}
-        _add_fidelity_positions(
-            ticker_values,
-            positions={("TAXABLE", "91282CEZ0"): 5000.0},  # 9-char CUSIP starting with digit
-            prices=self._prices(),
-            price_date=date(2025, 1, 2),
-            mf_price_date=date(2025, 1, 2),
-        )
-        assert ticker_values == {"T-Bills": 5000.0}
-
-    def test_mutual_fund_uses_mf_price_date(self) -> None:
-        """FXAIX (mutual fund) should use mf_price_date, not price_date."""
-        prices = pd.DataFrame(
-            index=pd.to_datetime(["2025-01-01", "2025-01-02"]).date,
-            data={"FXAIX": [100.0, 200.0]},  # Different price on each date
-        )
-        ticker_values: dict[str, float] = {}
-        _add_fidelity_positions(
-            ticker_values,
-            positions={("TAXABLE", "FXAIX"): 5.0},
-            prices=prices,
-            price_date=date(2025, 1, 2),
-            mf_price_date=date(2025, 1, 1),  # T-1
-        )
-        assert ticker_values == {"FXAIX": 500.0}  # 5 * 100 (T-1 price), not 5 * 200
-
-
 # ── _add_qianji_balances ───────────────────────────────────────────────────
 
 
@@ -581,18 +516,41 @@ class TestAddQianjiBalances:
         )
         assert ticker_values == {"Alipay Funds": 1000.0}
 
-    def test_unmapped_cny_falls_back_to_cny_assets(self) -> None:
+    def test_mapped_cny_goes_to_cny_cash(self) -> None:
+        """CNY accounts with an explicit ticker_map entry route to the mapped ticker."""
         ticker_values: dict[str, float] = {}
         _add_qianji_balances(
             ticker_values,
-            qj_balances={"RandomCNY": 7250.0},
-            currencies={"RandomCNY": "CNY"},
-            ticker_map={},
-            assets={},
+            qj_balances={"建行卡": 7250.0},
+            currencies={"建行卡": "CNY"},
+            ticker_map={"建行卡": "CNY Cash"},
+            assets={"CNY Cash": {"category": "Safe Net"}},
             cny_rate=7.25,
             skip_accounts=frozenset(),
         )
-        assert ticker_values == {"CNY Assets": 1000.0}
+        assert ticker_values == {"CNY Cash": 1000.0}
+
+    def test_unmapped_cny_warns_and_excluded(
+        self, caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Unmapped CNY accounts warn + are excluded, symmetric with USD."""
+        ticker_values: dict[str, float] = {}
+        with caplog.at_level(logging.WARNING, logger="etl.allocation"):
+            _add_qianji_balances(
+                ticker_values,
+                qj_balances={"RandomCNY": 7250.0},
+                currencies={"RandomCNY": "CNY"},
+                ticker_map={},
+                assets={},
+                cny_rate=7.25,
+                skip_accounts=frozenset(),
+            )
+        assert ticker_values == {}
+        warnings = [r for r in caplog.records if "RandomCNY" in r.message]
+        assert len(warnings) == 1
+        assert "ticker_map" in warnings[0].message
+        assert "CNY" in warnings[0].message  # currency preserved
+        assert "7250" in warnings[0].message  # original balance preserved
 
     def test_negative_balance_treated_as_liability(self) -> None:
         ticker_values: dict[str, float] = {}
@@ -693,17 +651,3 @@ class TestBuildAllocationRow:
         assert row["liabilities"] == -1000.0
 
 
-# ── _add_401k ──────────────────────────────────────────────────────────────
-
-
-class TestAdd401k:
-    def test_values_added_for_current_date(self) -> None:
-        ticker_values: dict[str, float] = {}
-        k401 = {date(2025, 1, 2): {"401k sp500": 50000.0, "401k ex-us": 10000.0}}
-        _add_401k(ticker_values, k401, date(2025, 1, 2))
-        assert ticker_values == {"401k sp500": 50000.0, "401k ex-us": 10000.0}
-
-    def test_no_entry_for_date_is_noop(self) -> None:
-        ticker_values: dict[str, float] = {"EXISTING": 100.0}
-        _add_401k(ticker_values, {}, date(2025, 1, 2))
-        assert ticker_values == {"EXISTING": 100.0}

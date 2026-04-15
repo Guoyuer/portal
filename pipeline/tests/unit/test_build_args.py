@@ -63,7 +63,6 @@ class TestResolvePaths:
         args = _parse_args(["--downloads", str(tmp_path)])
         paths = _resolve_paths(args)
         assert paths.downloads == tmp_path
-        assert paths.robinhood_csv == tmp_path / "Robinhood_history.csv"
 
     def test_csv_passthrough(self, tmp_path):
         csv = tmp_path / "test.csv"

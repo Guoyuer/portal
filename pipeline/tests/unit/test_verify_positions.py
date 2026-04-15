@@ -13,6 +13,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "pipeline"))
 
 from etl.db import get_connection, init_db  # noqa: E402
+from etl.sources.fidelity import classify_fidelity_action  # noqa: E402
 from scripts import verify_positions  # noqa: E402
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -32,16 +33,20 @@ def _seed_db(db_path: Path, txns: list[tuple[str, str, str, str, str, float, flo
     """Seed timemachine.db with fidelity_transactions rows.
 
     Each tuple: (run_date, account_number, action, symbol, lot_type, quantity, amount).
+    Populates ``action_kind`` via :func:`classify_fidelity_action` so the
+    rows are visible to :func:`etl.replay.replay_transactions` (production
+    ingest does the same).
     """
     init_db(db_path)
     conn = get_connection(db_path)
     conn.executemany(
         "INSERT INTO fidelity_transactions "
-        "(run_date, account, account_number, action, symbol, description, lot_type,"
-        " quantity, price, amount) "
-        "VALUES (?, ?, ?, ?, ?, '', ?, ?, 0, ?)",
+        "(run_date, account, account_number, action, action_kind, symbol, description,"
+        " lot_type, quantity, price, amount) "
+        "VALUES (?, ?, ?, ?, ?, ?, '', ?, ?, 0, ?)",
         [
-            (run_date, "Taxable", acct, action, sym, lot_type, qty, amt)
+            (run_date, "Taxable", acct, action, classify_fidelity_action(action).value,
+             sym, lot_type, qty, amt)
             for run_date, acct, action, sym, lot_type, qty, amt in txns
         ],
     )
@@ -242,7 +247,8 @@ class TestMainIntegration:
 
     def test_mm_symbols_excluded_from_computed(self, tmp_path: Path, monkeypatch, capsys) -> None:
         """SPAXX (money market) must NOT appear in computed positions —
-        confirms replay_from_db's MM_SYMBOLS exclusion is wired through."""
+        confirms the script wires ``MM_SYMBOLS`` into ``replay_transactions``
+        (matches Fidelity-source behaviour)."""
         db = tmp_path / "timemachine.db"
         _seed_db(db, [
             ("2026-01-05", "Z001", "YOU BOUGHT VOO", "VOO", "Cash", 10.0, -4500.0),

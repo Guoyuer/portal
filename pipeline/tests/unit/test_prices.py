@@ -12,13 +12,13 @@ pytest.importorskip("yfinance", reason="yfinance required for prices module")
 
 from etl.db import get_connection, init_db  # noqa: E402
 from etl.prices import (  # noqa: E402
-    _holding_periods_core,
+    _holding_periods_from_action_kind_rows,
     fetch_and_store_cny_rates,
     fetch_and_store_prices,
     load_cny_rates,
     load_prices,
-    load_proxy_prices,
 )
+from etl.sources import ActionKind  # noqa: E402
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -127,79 +127,64 @@ class TestLoadCnyRates:
         assert len(rates) == 1
 
 
-# ── load_proxy_prices ───────────────────────────────────────────────────────
-
-
-class TestLoadProxyPrices:
-    def test_loads_proxy_for_each_ticker(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
-        _seed_prices(db_path, [
-            ("SPY", "2025-01-02", 500.0),
-            ("SPY", "2025-01-03", 501.0),
-            ("AGG", "2025-01-02", 100.0),
-        ])
-        proxy_map = {"401k sp500": "SPY", "401k bonds": "AGG"}
-        result = load_proxy_prices(db_path, proxy_map)
-        assert "SPY" in result
-        assert "AGG" in result
-        assert len(result["SPY"]) == 2
-        assert result["SPY"][date(2025, 1, 2)] == 500.0
-
-    def test_empty_proxy_map(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
-        result = load_proxy_prices(db_path, {})
-        assert result == {}
-
-
-# ── _holding_periods_core ──────────────────────────────────────────────────
+# ── _holding_periods_from_action_kind_rows ─────────────────────────────────
 
 
 class TestHoldingPeriodsCore:
-    """Test the shared holding-period logic with pre-normalized tuples."""
+    """Test the shared holding-period logic with pre-normalized tuples
+    ``(run_date_iso, symbol, action_kind, qty)``."""
 
     def test_buy_and_hold(self) -> None:
         rows = [
-            ("2025-01-02", "VOO", "YOU BOUGHT X", 10.0),
+            ("2025-01-02", "VOO", ActionKind.BUY.value, 10.0),
         ]
-        result = _holding_periods_core(rows)
+        result = _holding_periods_from_action_kind_rows(rows)
         assert result["VOO"] == (date(2025, 1, 2), None)
 
     def test_buy_then_sell_to_zero(self) -> None:
         rows = [
-            ("2025-01-02", "VOO", "YOU BOUGHT X", 10.0),
-            ("2025-03-15", "VOO", "YOU SOLD X", -10.0),
+            ("2025-01-02", "VOO", ActionKind.BUY.value, 10.0),
+            ("2025-03-15", "VOO", ActionKind.SELL.value, -10.0),
         ]
-        result = _holding_periods_core(rows)
+        result = _holding_periods_from_action_kind_rows(rows)
         assert result["VOO"] == (date(2025, 1, 2), date(2025, 3, 15))
 
     def test_money_market_excluded(self) -> None:
         rows = [
-            ("2025-01-02", "SPAXX", "REINVESTMENT", 100.0),
+            ("2025-01-02", "SPAXX", ActionKind.REINVESTMENT.value, 100.0),
         ]
-        result = _holding_periods_core(rows)
+        result = _holding_periods_from_action_kind_rows(rows)
         assert "SPAXX" not in result
 
     def test_cusip_excluded(self) -> None:
         rows = [
-            ("2025-01-02", "912796CR8", "YOU BOUGHT X", 5.0),
+            ("2025-01-02", "912796CR8", ActionKind.BUY.value, 5.0),
         ]
-        result = _holding_periods_core(rows)
+        result = _holding_periods_from_action_kind_rows(rows)
         assert "912796CR8" not in result
 
     def test_partial_sell_still_held(self) -> None:
         rows = [
-            ("2025-01-02", "VOO", "YOU BOUGHT X", 10.0),
-            ("2025-03-15", "VOO", "YOU SOLD X", -4.0),
+            ("2025-01-02", "VOO", ActionKind.BUY.value, 10.0),
+            ("2025-03-15", "VOO", ActionKind.SELL.value, -4.0),
         ]
-        result = _holding_periods_core(rows)
+        result = _holding_periods_from_action_kind_rows(rows)
         # Still held — end should be None
         assert result["VOO"] == (date(2025, 1, 2), None)
 
     def test_empty_rows(self) -> None:
-        result = _holding_periods_core([])
+        result = _holding_periods_from_action_kind_rows([])
         assert result == {}
+
+    def test_redemption_acts_as_sell(self) -> None:
+        """REDEMPTION (e.g. T-Bill payout) reduces qty without cost-basis
+        impact and counts as a position-affecting kind for holding periods."""
+        rows = [
+            ("2025-01-02", "SGOV", ActionKind.BUY.value, 1000.0),
+            ("2025-06-15", "SGOV", ActionKind.REDEMPTION.value, -1000.0),
+        ]
+        result = _holding_periods_from_action_kind_rows(rows)
+        assert result["SGOV"] == (date(2025, 1, 2), date(2025, 6, 15))
 
 
 # ── Invariant: historical daily_close rows are immutable ───────────────────
@@ -275,13 +260,20 @@ class TestHistoricalImmutabilityCnyRates:
         assert existing[0] == pytest.approx(7.2135)  # preserved
         assert gap[0] == pytest.approx(6.9052)       # filled
 
-    def test_recent_row_updated_within_refresh_window(
+    def test_recent_row_NOT_refreshed(
         self, tmp_path: Path,
     ) -> None:
+        """CNY=X is INSERT OR IGNORE for every date (not just historical).
+
+        Equity prices refresh within a 7-day window so intraday ticks land,
+        but FX rates are intentionally pinned the moment they're first
+        captured — intraday USD/CNY drift otherwise makes two back-to-back
+        rebuilds produce different computed_daily hashes. See commit
+        ``5a0468d`` (stabilize CNY=X) for the full reasoning.
+        """
         db_path = tmp_path / "test.db"
         init_db(db_path)
-        # Build end is 2026-04-12; refresh window is 7 days → 2026-04-05 onward.
-        _seed_prices(db_path, [("CNY=X", "2026-04-10", 7.20)])
+        _seed_prices(db_path, [("CNY=X", "2026-04-10", 7.20)])  # already captured
 
         with patch("etl.prices.yf.download") as mock_dl:
             mock_dl.return_value = _cny_df([("2026-04-10", 7.25)])  # Yahoo correction
@@ -292,7 +284,7 @@ class TestHistoricalImmutabilityCnyRates:
             "SELECT close FROM daily_close WHERE symbol='CNY=X' AND date='2026-04-10'",
         ).fetchone()
         conn.close()
-        assert r[0] == pytest.approx(7.25)  # refreshed
+        assert r[0] == pytest.approx(7.20)  # first-capture value pinned
 
 
 class TestHistoricalImmutabilityPrices:

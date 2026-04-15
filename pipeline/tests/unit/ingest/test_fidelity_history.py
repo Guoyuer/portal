@@ -1,4 +1,10 @@
-"""Tests for Fidelity Accounts History CSV parser and DB ingestion."""
+"""Tests for Fidelity Accounts History CSV parser and DB ingestion.
+
+After the data-source abstraction refactor (Phase 3 — Task 16), the parsing
+and DB-ingest code live in :mod:`etl.sources.fidelity`. The tests below call
+:func:`etl.sources.fidelity._ingest_one_csv` for per-file ingestion and import
+``load_transactions`` from the new module.
+"""
 
 import sqlite3
 from pathlib import Path
@@ -6,8 +12,15 @@ from pathlib import Path
 import pytest
 
 from etl.db import init_db
-from etl.ingest.fidelity_history import ingest_fidelity_csv, load_transactions
 from etl.parsing import parse_us_date
+from etl.sources.fidelity import _ingest_one_csv, load_transactions
+
+
+def ingest_fidelity_csv(db_path: Path, csv_path: Path) -> int:
+    """Back-compat shim: :func:`etl.sources.fidelity._ingest_one_csv` under the
+    legacy name. Keeps this test file's call sites unchanged post-refactor.
+    """
+    return _ingest_one_csv(db_path, csv_path)
 
 
 class TestLoadTransactions:

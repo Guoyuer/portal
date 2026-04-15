@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS fidelity_transactions (
     account_number  TEXT NOT NULL,
     action          TEXT NOT NULL,
     action_type     TEXT NOT NULL DEFAULT '',
+    action_kind     TEXT,                          -- normalized ActionKind enum (buy/sell/...); populated by ingest + backfill migration
     symbol          TEXT NOT NULL DEFAULT '',
     description     TEXT NOT NULL DEFAULT '',
     lot_type        TEXT NOT NULL DEFAULT '',
@@ -26,6 +27,31 @@ CREATE TABLE IF NOT EXISTS fidelity_transactions (
     price           REAL NOT NULL DEFAULT 0,
     amount          REAL NOT NULL DEFAULT 0,
     settlement_date TEXT NOT NULL DEFAULT ''
+);
+
+-- Robinhood transaction rows (from activity report CSV).
+-- Schema mirrors fidelity_transactions' primitive-native columns (txn_date,
+-- action_kind, ticker, quantity, amount_usd) so the source-agnostic
+-- replay_transactions primitive in etl/replay.py can replay this table
+-- without any column aliasing.
+--
+-- Idempotency note: we intentionally do NOT add a UNIQUE(txn_date, ticker,
+-- action, quantity, amount_usd) constraint. Robinhood CSVs legitimately
+-- contain duplicate rows (e.g. two recurring buys of identical lot/price on
+-- the same day → 2 physical shares bought, not 1), and :mod:`etl.sources.fidelity`
+-- documents this explicitly: "preserving both matches reality better than
+-- collapsing them." Idempotent re-ingest is instead guaranteed by the
+-- range-replace pattern in :func:`etl.sources.robinhood.ingest`
+-- (DELETE within the CSV's [min_date, max_date] + INSERT everything).
+CREATE TABLE IF NOT EXISTS robinhood_transactions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    txn_date        TEXT NOT NULL,
+    action          TEXT NOT NULL DEFAULT '',  -- raw Trans Code from CSV (Buy/Sell/CDIV/...)
+    action_kind     TEXT NOT NULL,             -- normalized ActionKind enum (buy/sell/...)
+    ticker          TEXT NOT NULL DEFAULT '',
+    quantity        REAL NOT NULL DEFAULT 0,
+    amount_usd      REAL NOT NULL DEFAULT 0,
+    raw_description TEXT NOT NULL DEFAULT ''
 );
 
 -- Daily close prices + CNY rates (symbol='CNY=X' for rates)
@@ -161,6 +187,7 @@ CREATE TABLE IF NOT EXISTS categories (
 _INDEXES = """
 CREATE INDEX IF NOT EXISTS idx_fidelity_date     ON fidelity_transactions(run_date);
 CREATE INDEX IF NOT EXISTS idx_fidelity_acct_sym ON fidelity_transactions(account_number, symbol);
+CREATE INDEX IF NOT EXISTS idx_robinhood_date    ON robinhood_transactions(txn_date);
 CREATE INDEX IF NOT EXISTS idx_daily_close_date  ON daily_close(date);
 CREATE INDEX IF NOT EXISTS idx_daily_tickers_date ON computed_daily_tickers(date);
 CREATE INDEX IF NOT EXISTS idx_qianji_txn_date ON qianji_transactions(date);
@@ -258,6 +285,19 @@ def get_connection(path: Path) -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     return conn
+
+
+def get_readonly_connection(path: Path) -> sqlite3.Connection:
+    """Return a read-only connection via SQLite's URI mode.
+
+    Used by reporters (changelog snapshot, allocation's Qianji date read,
+    Qianji record loader) that only ever SELECT — protects against a code-
+    path bug accidentally mutating the DB. Does not enforce the
+    ``file.exists()`` check; callers typically gate on that separately so
+    the "DB doesn't exist yet" case is an empty-result fast path rather
+    than an exception.
+    """
+    return sqlite3.connect(f"file:{path}?mode=ro", uri=True)
 
 
 # ── Incremental build helpers for computed_daily ───────────────────────────

@@ -25,7 +25,23 @@ if "yfinance" not in sys.modules:
 from etl.allocation import compute_daily_allocation  # noqa: E402
 from etl.db import init_db  # noqa: E402
 from etl.prices import symbol_holding_periods_from_db  # noqa: E402
-from etl.timemachine import replay_from_db  # noqa: E402
+from etl.replay import replay_transactions  # noqa: E402
+from etl.sources.fidelity import MM_SYMBOLS, TABLE, classify_fidelity_action  # noqa: E402
+
+
+def _replay_fidelity(db: Path, as_of: date) -> dict[tuple[str, str], tuple[float, float]]:
+    """Run the shared replay primitive against ``fidelity_transactions``.
+
+    Returns ``{(account, symbol): (quantity, cost_basis_usd)}`` so existing
+    test assertions can index by the legacy ``(account, symbol)`` tuple.
+    """
+    result = replay_transactions(
+        db, TABLE, as_of,
+        date_col="run_date", ticker_col="symbol", amount_col="amount",
+        account_col="account_number",
+        exclude_tickers=MM_SYMBOLS,
+    )
+    return {key: (st.quantity, st.cost_basis_usd) for key, st in result.positions.items()}
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -42,13 +58,19 @@ def _insert_txn(
     lot_type: str = "",
     account: str = "Taxable",
 ) -> None:
-    """Insert a single fidelity_transactions row."""
+    """Insert a single fidelity_transactions row.
+
+    Populates ``action_kind`` via :func:`classify_fidelity_action` so the
+    row is visible to :func:`etl.replay.replay_transactions` — production
+    ingest does the same via ``_ingest_one_csv`` + the backfill migration.
+    """
     conn.execute(
         "INSERT INTO fidelity_transactions"
-        " (run_date, account, account_number, action, action_type, symbol,"
+        " (run_date, account, account_number, action, action_type, action_kind, symbol,"
         "  lot_type, quantity, price, amount, settlement_date)"
-        " VALUES (?, ?, ?, ?, '', ?, ?, ?, 0, ?, '')",
-        (run_date, account, acct_num, action, symbol, lot_type, qty, amount),
+        " VALUES (?, ?, ?, ?, '', ?, ?, ?, ?, 0, ?, '')",
+        (run_date, account, acct_num, action,
+         classify_fidelity_action(action).value, symbol, lot_type, qty, amount),
     )
 
 
@@ -78,7 +100,8 @@ def _init_qianji(db_path: Path, assets: list[tuple[str, float, str]]) -> None:
 
 
 class TestCostBasisOrderedByDate:
-    """replay_from_db must produce correct cost basis regardless of insertion order.
+    """:func:`etl.replay.replay_transactions` must produce correct cost basis
+    regardless of insertion order.
 
     Root cause: ORDER BY id processes sells before buys when the buy was
     imported in a later CSV batch (higher id, earlier date).
@@ -101,14 +124,14 @@ class TestCostBasisOrderedByDate:
         conn.commit()
         conn.close()
 
-        result = replay_from_db(db, date(2025, 1, 15))
+        positions = _replay_fidelity(db, date(2025, 1, 15))
 
         # Position: 10 - 5 = 5 shares (order doesn't matter for qty)
-        assert result["positions"][("Z123", "AAPL")] == pytest.approx(5.0)
-
+        qty, cb = positions[("Z123", "AAPL")]
+        assert qty == pytest.approx(5.0)
         # Cost basis: bought $5000 for 10 shares, sold 5/10 = 50%
         # Correct CB = $5000 * (1 - 0.5) = $2500
-        assert result["cost_basis"][("Z123", "AAPL")] == pytest.approx(2500.0)
+        assert cb == pytest.approx(2500.0)
 
     def test_full_sell_zeroes_cost_basis_regardless_of_id_order(self, tmp_path: Path) -> None:
         """Selling all shares must zero out cost basis even when the sell
@@ -125,12 +148,10 @@ class TestCostBasisOrderedByDate:
         conn.commit()
         conn.close()
 
-        result = replay_from_db(db, date(2025, 1, 15))
+        positions = _replay_fidelity(db, date(2025, 1, 15))
 
-        # Position: 0 shares
-        assert ("Z123", "VOO") not in result["positions"]
-        # Cost basis: should be 0 (fully sold)
-        assert result["cost_basis"].get(("Z123", "VOO"), 0) == pytest.approx(0.0)
+        # Position: fully sold → not in positions (qty < 0.001 threshold)
+        assert ("Z123", "VOO") not in positions
 
     def test_multiple_buys_then_sell_out_of_id_order(self, tmp_path: Path) -> None:
         """Multiple buys + a sell, all with scrambled ids."""
@@ -148,14 +169,14 @@ class TestCostBasisOrderedByDate:
         conn.commit()
         conn.close()
 
-        result = replay_from_db(db, date(2025, 4, 15))
+        positions = _replay_fidelity(db, date(2025, 4, 15))
+        qty, cb = positions[("Z123", "TSLA")]
 
         # Position: 10 - 5 + 5 = 10
-        assert result["positions"][("Z123", "TSLA")] == pytest.approx(10.0)
-
+        assert qty == pytest.approx(10.0)
         # Chronological: buy 10 ($4000), sell 5 (50% of 10 → CB -= $2000 → $2000), buy 5 ($2000)
         # Final CB = $2000 + $2000 = $4000
-        assert result["cost_basis"][("Z123", "TSLA")] == pytest.approx(4000.0)
+        assert cb == pytest.approx(4000.0)
 
 
 # ── BUG 2: first_held date wrong due to ORDER BY id ──────────────────────
@@ -251,8 +272,12 @@ class TestMissingPriceWarns:
             },
         }
 
-        with caplog.at_level(logging.WARNING, logger="etl.allocation"):
-            compute_daily_allocation(db, qj, config, {}, date(2025, 1, 2), date(2025, 1, 2))
+        # After the data-source abstraction refactor, the missing-price
+        # warning is emitted by ``etl.sources.fidelity`` rather than
+        # ``etl.allocation``. Watch the root logger so either location is
+        # caught.
+        with caplog.at_level(logging.WARNING):
+            compute_daily_allocation(db, qj, config, date(2025, 1, 2), date(2025, 1, 2))
 
         # Must warn about SGOV having no price
         sgov_warnings = [r for r in caplog.records if "SGOV" in r.message]
@@ -277,8 +302,8 @@ class TestMissingPriceWarns:
             "qianji_accounts": {"fidelity_tracked": [], "ticker_map": {}},
         }
 
-        with caplog.at_level(logging.WARNING, logger="etl.allocation"):
-            compute_daily_allocation(db, qj, config, {}, date(2025, 1, 2), date(2025, 1, 2))
+        with caplog.at_level(logging.WARNING):
+            compute_daily_allocation(db, qj, config, date(2025, 1, 2), date(2025, 1, 2))
 
         price_warnings = [r for r in caplog.records if "price" in r.message.lower()]
         assert len(price_warnings) == 0
@@ -316,7 +341,7 @@ class TestUnmappedQianjiWarns:
         }
 
         with caplog.at_level(logging.WARNING, logger="etl.allocation"):
-            compute_daily_allocation(db, qj, config, {}, date(2025, 1, 2), date(2025, 1, 2))
+            compute_daily_allocation(db, qj, config, date(2025, 1, 2), date(2025, 1, 2))
 
         hysa_warnings = [r for r in caplog.records if "Amex HYSA" in r.message]
         assert len(hysa_warnings) > 0, "Expected a warning about unmapped Amex HYSA"
@@ -344,13 +369,13 @@ class TestUnmappedQianjiWarns:
         }
 
         with caplog.at_level(logging.WARNING, logger="etl.allocation"):
-            compute_daily_allocation(db, qj, config, {}, date(2025, 1, 2), date(2025, 1, 2))
+            compute_daily_allocation(db, qj, config, date(2025, 1, 2), date(2025, 1, 2))
 
         unmapped_warnings = [r for r in caplog.records if "ticker_map" in r.message.lower() or "unmapped" in r.message.lower()]
         assert len(unmapped_warnings) == 0
 
-    def test_cny_account_not_warned(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
-        """CNY accounts without ticker_map entry go to CNY Assets — no warning."""
+    def test_unmapped_cny_account_warned_and_excluded(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+        """CNY accounts without ticker_map entry warn + are excluded (symmetric with USD)."""
         db = tmp_path / "tm.db"
         qj = tmp_path / "qj.db"
         init_db(db)
@@ -364,19 +389,23 @@ class TestUnmappedQianjiWarns:
         conn.close()
 
         config = {
-            "assets": {"VTI": {"category": "US Equity"}, "CNY Assets": {"category": "Safe Net"}},
+            "assets": {"VTI": {"category": "US Equity"}},
             "qianji_accounts": {
                 "fidelity_tracked": [],
-                "ticker_map": {},  # no mapping for Alipay — but it's CNY, so OK
+                "ticker_map": {},  # no mapping for Alipay — now warn + exclude (no silent fallback)
             },
         }
 
         with caplog.at_level(logging.WARNING, logger="etl.allocation"):
-            compute_daily_allocation(db, qj, config, {}, date(2025, 1, 2), date(2025, 1, 2))
+            results = compute_daily_allocation(db, qj, config, date(2025, 1, 2), date(2025, 1, 2))
 
-        # CNY accounts should NOT trigger unmapped warnings
+        # CNY accounts WITHOUT a ticker_map entry now warn (symmetric with USD).
         unmapped = [r for r in caplog.records if "Alipay" in r.message and "ticker_map" in r.message.lower()]
-        assert len(unmapped) == 0
+        assert len(unmapped) > 0, "Expected a warning about unmapped CNY account"
+        # And the account is excluded from allocation — no CNY-denominated ticker appears.
+        tickers = {t["ticker"] for t in results[0]["tickers"]}
+        assert "Alipay" not in tickers
+        assert "CNY Cash" not in tickers
 
 
 # ── BUG 6: T-Bills (CUSIPs) have no price → missing from net worth ──────
@@ -407,7 +436,7 @@ class TestTBillCusipsValuedAtFace:
             "qianji_accounts": {"fidelity_tracked": [], "ticker_map": {}},
         }
 
-        results = compute_daily_allocation(db, qj, config, {}, date(2025, 1, 2), date(2025, 1, 2))
+        results = compute_daily_allocation(db, qj, config, date(2025, 1, 2), date(2025, 1, 2))
 
         day = results[0]
         tickers = {t["ticker"]: t for t in day["tickers"]}
@@ -434,7 +463,7 @@ class TestTBillCusipsValuedAtFace:
             "qianji_accounts": {"fidelity_tracked": [], "ticker_map": {}},
         }
 
-        results = compute_daily_allocation(db, qj, config, {}, date(2025, 1, 2), date(2025, 1, 2))
+        results = compute_daily_allocation(db, qj, config, date(2025, 1, 2), date(2025, 1, 2))
 
         tickers = {t["ticker"]: t for t in results[0]["tickers"]}
         assert "T-Bills" in tickers
@@ -460,7 +489,7 @@ class TestTBillCusipsValuedAtFace:
         }
 
         with caplog.at_level(logging.WARNING, logger="etl.allocation"):
-            compute_daily_allocation(db, qj, config, {}, date(2025, 1, 2), date(2025, 1, 2))
+            compute_daily_allocation(db, qj, config, date(2025, 1, 2), date(2025, 1, 2))
 
         cusip_warnings = [r for r in caplog.records if "912797" in r.message or "06428" in r.message]
         assert len(cusip_warnings) == 0
@@ -484,7 +513,7 @@ class TestTBillCusipsValuedAtFace:
             "qianji_accounts": {"fidelity_tracked": [], "ticker_map": {}},
         }
 
-        results = compute_daily_allocation(db, qj, config, {}, date(2025, 1, 2), date(2025, 1, 2))
+        results = compute_daily_allocation(db, qj, config, date(2025, 1, 2), date(2025, 1, 2))
 
         tickers = {t["ticker"]: t for t in results[0]["tickers"]}
         assert tickers["T-Bills"]["value"] == pytest.approx(7000.0)

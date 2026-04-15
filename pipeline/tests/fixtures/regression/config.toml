@@ -1,0 +1,18 @@
+# pipeline/tests/fixtures/regression/config.toml
+[fidelity]
+downloads_dir = "tests/fixtures/regression"
+accounts = { "X12345678" = "FZFXX", "Y98765432" = "SPAXX" }
+mutual_funds = ["FXAIX"]
+
+[robinhood]
+csv = "tests/fixtures/regression/robinhood.csv"
+
+[empower]
+downloads_dir = "tests/fixtures/regression"
+cusip_map = { "FUND001" = "SPY" }
+
+[qianji]
+db_path = "tests/fixtures/regression/qianji.sqlite"
+
+[ticker_map]
+# USD_Checking = "VMFXX"  # optional; leave empty to exercise fallback paths

@@ -1,53 +1,45 @@
-"""Compute daily portfolio allocation from Fidelity replay + Qianji + 401k.
+"""Compute daily portfolio allocation from the source registry + Qianji.
 
 This module reconstructs historical asset allocation by combining:
-  - Fidelity positions (from transaction CSV replay)
+  - Investment-source positions (each source module returns a list of
+    PositionRow; Fidelity, Robinhood, and Empower 401k are all composed via
+    :func:`etl.sources.positions_at_all`).
   - Historical prices (from timemachine.db.daily_close)
   - Qianji account balances (from Qianji SQLite DB)
-  - 401k values (pre-computed via proxy interpolation)
 
 The per-day math is isolated in ``step_one_day(state, sources, current)`` —
 a pure function with no I/O. ``compute_daily_allocation`` is the orchestrator
-that refreshes ``ReplayState`` when Fidelity/Qianji transactions change, then
-delegates the valuation to ``step_one_day``. Anything that has full per-day
-state in hand (e.g. a CI projection script reconstructing state from D1) can
-call ``step_one_day`` directly without touching the Python replay engines.
-
-Refactor hint (audit C04, ``docs/code-design-audit-2026-04-13.md``):
-``compute_daily_allocation`` currently takes 6 positional args + 1 keyword,
-and each new data source adds another positional. When the 7th source lands,
-migrate the signature to an ``AllocationRequest`` dataclass and make the
-internal ``_add_*`` helpers return ``dict[str, float]`` instead of mutating
-``ticker_values`` in place. That also makes per-source unit tests trivial
-(today they need the full dict assembled first).
+that refreshes ``ReplayState`` when Qianji transactions change, then delegates
+the valuation to ``step_one_day``. Anything that has full per-day state in
+hand (e.g. a CI projection script reconstructing state from D1) can call
+``step_one_day`` directly without touching the Python replay engines.
 """
 from __future__ import annotations
 
 import logging
-import sqlite3
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
 
-from .ingest.robinhood_history import replay_robinhood
+from .db import get_readonly_connection
 from .prices import load_cny_rates, load_prices
+from .sources import PriceContext, positions_at_all
+from .sources.robinhood import _csv_paths as _robinhood_csv_paths
 from .timemachine import (
-    _parse_date,
-    replay_from_db,
     replay_qianji,
     replay_qianji_currencies,
 )
-from .types import AllocationRow, AssetInfo, RawConfig, RobinhoodReplayResult, TickerDetail
+from .types import AllocationRow, AssetInfo, RawConfig, TickerDetail
 
 log = logging.getLogger(__name__)
 
-# yfinance labels mutual fund NAV with date T but it's actually T+1's NAV.
-# Use T-1 price for mutual funds to align with the correct trading day.
-_MUTUAL_FUNDS = frozenset({"FXAIX", "FSSNX", "FNJHX"})
-
+# Qianji accounts that the Fidelity + Empower sources supersede once their
+# respective ingest tables are populated. The Robinhood account stays
+# data-gated on the CSV's presence — a user who never exported Robinhood
+# activity still has their Qianji balance counted.
 _FIDELITY_REPLAY_ACCOUNTS = frozenset({
     "Fidelity taxable",
     "Roth IRA",
@@ -62,7 +54,7 @@ def _qianji_transaction_dates(db_path: Path) -> list[date]:
     """Return sorted unique dates of Qianji transactions."""
     if not db_path.exists():
         return []
-    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    conn = get_readonly_connection(db_path)
     dates: set[date] = set()
     for (ts,) in conn.execute("SELECT time FROM user_bill WHERE status = 1"):
         dates.add(datetime.fromtimestamp(ts, UTC).date())
@@ -137,42 +129,6 @@ def _resolve_date_windows(
     return price_date, mf_price_date, cny_rates[cny_date]
 
 
-def _add_fidelity_positions(
-    ticker_values: dict[str, float],
-    positions: dict[tuple[str, str], float],
-    prices: pd.DataFrame,
-    price_date: date,
-    mf_price_date: date,
-) -> None:
-    """Add Fidelity positions (qty × price) into ticker_values.
-
-    CUSIPs (8+ chars starting with digit) are valued at face and aggregated as T-Bills.
-    Mutual funds use T-1 price to correct for yfinance's off-by-one NAV dating.
-    """
-    for (_acct, sym), qty in positions.items():
-        if sym[0].isdigit() and len(sym) >= 8:
-            ticker_values["T-Bills"] = ticker_values.get("T-Bills", 0) + qty
-            continue
-        p_date = mf_price_date if sym in _MUTUAL_FUNDS else price_date
-        if sym in prices.columns and p_date in prices.index:
-            price = prices.loc[p_date, sym]
-            if pd.notna(price):
-                ticker_values[sym] = ticker_values.get(sym, 0) + qty * float(price)
-        else:
-            log.warning("No price for %s on %s (holding %.3f shares) — excluded from allocation", sym, p_date, qty)
-
-
-def _add_fidelity_cash(
-    ticker_values: dict[str, float],
-    fidelity_cash: dict[str, float],
-    fidelity_accounts: Mapping[str, str],
-) -> None:
-    """Route Fidelity cash balances to each account's money market fund ticker (fallback FZFXX)."""
-    for acct_num, bal in fidelity_cash.items():
-        mm_ticker = fidelity_accounts.get(acct_num, "FZFXX")
-        ticker_values[mm_ticker] = ticker_values.get(mm_ticker, 0) + bal
-
-
 def _add_qianji_balances(
     ticker_values: dict[str, float],
     qj_balances: dict[str, float],
@@ -182,7 +138,7 @@ def _add_qianji_balances(
     cny_rate: float,
     skip_accounts: frozenset[str],
 ) -> None:
-    """Map Qianji balances to tickers. Handles CNY conversion, liabilities, CNY-Assets fallback."""
+    """Map Qianji balances to tickers. Every unmapped account (CNY or USD) warns and is excluded."""
     for qj_acct, bal in qj_balances.items():
         if qj_acct in skip_accounts or abs(bal) < 0.01:
             continue
@@ -195,42 +151,11 @@ def _add_qianji_balances(
         ticker = ticker_map.get(qj_acct)
         if ticker and ticker in assets:
             ticker_values[ticker] = ticker_values.get(ticker, 0) + usd_val
-        elif curr == "CNY":
-            ticker_values["CNY Assets"] = ticker_values.get("CNY Assets", 0) + usd_val
         else:
-            log.warning("Qianji account %r (%.2f USD) has no ticker_map entry — excluded from allocation", qj_acct, usd_val)
-
-
-def _add_401k(
-    ticker_values: dict[str, float],
-    k401_daily: dict[date, dict[str, float]],
-    current: date,
-) -> None:
-    """Add pre-computed 401k daily values (already keyed by config ticker)."""
-    if current not in k401_daily:
-        return
-    for ticker, val in k401_daily[current].items():
-        ticker_values[ticker] = ticker_values.get(ticker, 0) + val
-
-
-def _add_robinhood(
-    ticker_values: dict[str, float],
-    rh_replay_fn: Callable[..., RobinhoodReplayResult] | None,
-    robinhood_csv: Path | None,
-    current: date,
-    prices: pd.DataFrame,
-    price_date: date,
-) -> dict[str, float]:
-    """Add Robinhood positions (qty × price). Returns cost-basis dict by symbol."""
-    if not (rh_replay_fn and robinhood_csv):
-        return {}
-    rh_result = rh_replay_fn(robinhood_csv, as_of=current)
-    for sym, qty in rh_result["positions"].items():
-        if sym in prices.columns and price_date in prices.index:
-            price = prices.loc[price_date, sym]
-            if pd.notna(price):
-                ticker_values[sym] = ticker_values.get(sym, 0) + qty * float(price)
-    return rh_result["cost_basis"]
+            log.warning(
+                "Qianji account %r (%s %.2f → $%.2f USD) has no ticker_map entry — excluded from allocation",
+                qj_acct, curr, bal, usd_val,
+            )
 
 
 # ── Pure per-day step ──────────────────────────────────────────────────────
@@ -241,36 +166,34 @@ class AllocationSources:
     """Static inputs resolved once, reused across every day in the window.
 
     Everything a per-day valuation needs besides the (changing) portfolio
-    state: prices + CNY, config-derived routing tables, and the pre-computed
-    401k daily map. Keeping these in one bag lets ``step_one_day`` stay pure
-    — no hidden globals, no re-reads, no surprises.
+    state: prices + CNY, config-derived routing tables, and the per-run
+    ``db_path`` + raw config dict that the source modules need to answer
+    ``positions_at`` queries. Keeping these in one bag lets ``step_one_day``
+    stay pure — no hidden globals, no re-reads, no surprises.
     """
 
     prices: pd.DataFrame
     cny_rates: dict[date, float]
     assets: Mapping[str, AssetInfo]
     ticker_map: dict[str, str]
-    fidelity_accounts: Mapping[str, str]
     qianji_currencies: dict[str, str]
     skip_qj_accounts: frozenset[str]
-    k401_daily: dict[date, dict[str, float]]
-    rh_replay_fn: Callable[..., RobinhoodReplayResult] | None = None
-    robinhood_csv: Path | None = None
+    db_path: Path
+    source_config: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass
 class ReplayState:
-    """Portfolio state as of the most recent Fidelity/Qianji replay.
+    """Qianji balances as of the most recent replay.
 
-    ``compute_daily_allocation`` rebinds these fields whenever new
+    ``compute_daily_allocation`` rebinds ``qj_balances`` whenever new Qianji
     transactions mean the state has changed; ``step_one_day`` only reads.
-    Callers outside the replay loop (e.g. a CI projection reconstructing
-    state from D1) populate these directly and skip the orchestrator.
+    Fidelity / Robinhood / Empower replay state lives inside each source —
+    not here — so this dataclass no longer needs position/cash/cost-basis
+    fields. Kept as a dataclass (rather than a bare dict) so future per-day
+    shared state has an obvious home.
     """
 
-    positions: dict[tuple[str, str], float] = field(default_factory=dict)
-    cash: dict[str, float] = field(default_factory=dict)
-    cost_basis: dict[tuple[str, str], float] = field(default_factory=dict)
     qj_balances: dict[str, float] = field(default_factory=dict)
 
 
@@ -281,33 +204,30 @@ def step_one_day(
 ) -> AllocationRow:
     """Value the portfolio for a single day. Pure — no I/O, no arg mutation.
 
-    Robinhood still re-runs its own replay from CSV on every call (no
-    cached state), matching the pre-refactor behaviour.
+    Every source module contributes via :func:`etl.sources.positions_at_all` —
+    no source-kind branching. New modules added to :data:`etl.sources.SOURCES`
+    flow through without touching this function.
     """
     price_date, mf_price_date, cny_rate = _resolve_date_windows(
         sources.prices, sources.cny_rates, current
     )
 
     ticker_values: dict[str, float] = {}
-    _add_fidelity_positions(
-        ticker_values, state.positions, sources.prices, price_date, mf_price_date
-    )
-    _add_fidelity_cash(ticker_values, state.cash, sources.fidelity_accounts)
+    cost_basis_by_ticker: dict[str, float] = {}
+
+    # ── Aggregate every source module via the uniform composition API. ──
+    ctx = PriceContext(prices=sources.prices, price_date=price_date, mf_price_date=mf_price_date)
+    for row in positions_at_all(sources.db_path, current, ctx, sources.source_config):
+        ticker_values[row.ticker] = ticker_values.get(row.ticker, 0.0) + row.value_usd
+        if row.cost_basis_usd is not None:
+            cost_basis_by_ticker[row.ticker] = (
+                cost_basis_by_ticker.get(row.ticker, 0.0) + row.cost_basis_usd
+            )
+
     _add_qianji_balances(
         ticker_values, state.qj_balances, sources.qianji_currencies,
         sources.ticker_map, sources.assets, cny_rate, sources.skip_qj_accounts,
     )
-    _add_401k(ticker_values, sources.k401_daily, current)
-    rh_cost_basis = _add_robinhood(
-        ticker_values, sources.rh_replay_fn, sources.robinhood_csv,
-        current, sources.prices, price_date,
-    )
-
-    cost_basis_by_ticker: dict[str, float] = {}
-    for (_acct, sym), cb in state.cost_basis.items():
-        cost_basis_by_ticker[sym] = cost_basis_by_ticker.get(sym, 0) + cb
-    for sym, cb in rh_cost_basis.items():
-        cost_basis_by_ticker[sym] = cost_basis_by_ticker.get(sym, 0) + cb
 
     return _build_allocation_row(current, ticker_values, sources.assets, cost_basis_by_ticker)
 
@@ -354,21 +274,22 @@ def _build_sources(
     db_path: Path,
     qj_db: Path,
     config: RawConfig,
-    k401_daily: dict[date, dict[str, float]],
-    robinhood_csv: Path | None,
 ) -> AllocationSources:
     """Load prices + config-derived routing tables into an AllocationSources."""
     assets = config.get("assets", {})
     qj_accounts = config.get("qianji_accounts", {})
     ticker_map = dict(qj_accounts.get("ticker_map", {}))
-    ticker_map.setdefault("401k", "401k sp500")
-    fidelity_accounts = config.get("fidelity_accounts", {})
 
-    rh_replay_fn: Callable[..., RobinhoodReplayResult] | None = (
-        replay_robinhood if robinhood_csv and robinhood_csv.exists() else None
-    )
+    # ``401k`` is skipped unconditionally because Empower snapshots are
+    # authoritative even when no QFX files have been ingested yet. Fidelity
+    # replay-accounts are always skipped because transaction replay is
+    # authoritative whenever ``fidelity_transactions`` has any rows.
+    # Robinhood is data-gated on the CSV glob's presence — the
+    # ``_csv_paths`` helper encapsulates the "does the user have any
+    # Robinhood export?" question (empty list when the directory's missing).
     skip_qj = _FIDELITY_REPLAY_ACCOUNTS | {"401k"}
-    if rh_replay_fn:
+    source_config: dict[str, object] = dict(config)
+    if _robinhood_csv_paths(source_config):
         skip_qj = skip_qj | {"Robinhood"}
 
     return AllocationSources(
@@ -376,12 +297,10 @@ def _build_sources(
         cny_rates=load_cny_rates(db_path),
         assets=assets,
         ticker_map=ticker_map,
-        fidelity_accounts=fidelity_accounts,
         qianji_currencies=replay_qianji_currencies(qj_db),
         skip_qj_accounts=skip_qj,
-        k401_daily=k401_daily,
-        rh_replay_fn=rh_replay_fn,
-        robinhood_csv=robinhood_csv,
+        db_path=db_path,
+        source_config=source_config,
     )
 
 
@@ -389,41 +308,32 @@ def compute_daily_allocation(
     db_path: Path,
     qj_db: Path,
     config: RawConfig,
-    k401_daily: dict[date, dict[str, float]],
     start: date,
     end: date,
-    *,
-    robinhood_csv: Path | None = None,
 ) -> list[AllocationRow]:
     """Compute daily allocation from start to end.
 
-    Orchestrates replay refresh + per-day valuation. The math is in
-    ``step_one_day``; this function just decides when to re-run the
-    Fidelity/Qianji replays to keep ``ReplayState`` current.
+    Orchestrates per-day valuation. The math is in ``step_one_day``; this
+    function just decides when to re-run the Qianji replay to keep
+    ``ReplayState`` current. Every source module self-manages its replay
+    inside its ``positions_at`` function; none needs state here.
 
     Args:
         db_path: Path to timemachine.db (prices + CNY rates).
         qj_db: Path to Qianji SQLite DB.
         config: Config dict with ``assets`` and ``qianji_accounts`` keys.
-        k401_daily: Pre-computed 401k daily values by config ticker.
         start: First date to compute.
         end: Last date to compute.
 
     Returns:
         list of per-day allocation dicts (see ``_build_allocation_row``).
     """
-    sources = _build_sources(db_path, qj_db, config, k401_daily, robinhood_csv)
+    sources = _build_sources(db_path, qj_db, config)
 
-    _conn = sqlite3.connect(str(db_path))
-    fidelity_txn_dates = sorted({
-        _parse_date(r[0]) for r in _conn.execute("SELECT DISTINCT run_date FROM fidelity_transactions")
-    })
-    _conn.close()
     qj_txn_dates = set(_qianji_transaction_dates(qj_db))
 
     results: list[AllocationRow] = []
     state = ReplayState()
-    last_fidelity_replay: date | None = None
     last_qj_replay: date | None = None
     qj_replayed = False
 
@@ -433,16 +343,7 @@ def compute_daily_allocation(
             current += timedelta(days=1)
             continue
 
-        # Replay Fidelity only when the most-recent transaction date changes
-        latest_fidelity = max((d for d in fidelity_txn_dates if d <= current), default=None)
-        if latest_fidelity != last_fidelity_replay:
-            result = replay_from_db(db_path, current)
-            state.positions = result["positions"]
-            state.cash = result["cash"]
-            state.cost_basis = result.get("cost_basis") or {}
-            last_fidelity_replay = latest_fidelity
-
-        # Replay Qianji only when new balances exist in the window
+        # Replay Qianji only when new balances exist in the window.
         needs_qj = not qj_replayed or any(
             d > (last_qj_replay or date.min) and d <= current for d in qj_txn_dates
         )

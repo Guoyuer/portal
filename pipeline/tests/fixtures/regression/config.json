@@ -1,0 +1,106 @@
+{
+  "goal": 100000,
+  "assets": {
+    "FXAIX": {
+      "category": "US Equity",
+      "subtype": "broad"
+    },
+    "VTI": {
+      "category": "US Equity",
+      "subtype": "broad"
+    },
+    "NVDA": {
+      "category": "US Equity",
+      "subtype": "growth"
+    },
+    "VOO": {
+      "category": "US Equity",
+      "subtype": "broad"
+    },
+    "QQQM": {
+      "category": "US Equity",
+      "subtype": "growth"
+    },
+    "VXUS": {
+      "category": "Non-US Equity",
+      "subtype": "broad"
+    },
+    "401k sp500": {
+      "category": "US Equity",
+      "subtype": "broad"
+    },
+    "401k tech": {
+      "category": "US Equity",
+      "subtype": "growth"
+    },
+    "401k ex-us": {
+      "category": "Non-US Equity",
+      "subtype": "broad"
+    },
+    "FZFXX": {
+      "category": "Safe Net"
+    },
+    "SPAXX": {
+      "category": "Safe Net"
+    },
+    "FDRXX": {
+      "category": "Safe Net"
+    },
+    "T-Bills": {
+      "category": "Safe Net"
+    },
+    "Debit Cash": {
+      "category": "Safe Net"
+    },
+    "Amex HYSA": {
+      "category": "Safe Net"
+    },
+    "CNY Cash": {
+      "category": "Safe Net"
+    },
+    "FBTC": {
+      "category": "Crypto"
+    }
+  },
+  "target_weights": {
+    "US Equity": 55,
+    "Non-US Equity": 15,
+    "Crypto": 3,
+    "Safe Net": 27
+  },
+  "category_order": [
+    "US Equity",
+    "Non-US Equity",
+    "Crypto",
+    "Safe Net"
+  ],
+  "aliases": {},
+  "qianji_accounts": {
+    "fidelity_tracked": [
+      "Fidelity taxable",
+      "Roth IRA",
+      "401k"
+    ],
+    "cny": [
+      "建行卡"
+    ],
+    "credit": [
+      "CFF"
+    ],
+    "ticker_map": {
+      "Chase Debit": "Debit Cash",
+      "Amex HYSA": "Amex HYSA",
+      "建行卡": "CNY Cash"
+    }
+  },
+  "fidelity_accounts": {
+    "X12345678": "FZFXX",
+    "Y98765432": "SPAXX"
+  },
+  "mutual_funds": [
+    "FXAIX"
+  ],
+  "retirement_income_categories": [
+    "401K"
+  ]
+}
