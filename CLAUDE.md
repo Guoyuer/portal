@@ -33,6 +33,11 @@ cd pipeline && python3 scripts/sync_to_d1.py --local # push to local D1
 # Regenerate Zod schemas from etl/types.py (parity-checked in pytest)
 cd pipeline && python3 tools/gen_zod.py --write ../src/lib/schemas/_generated.ts
 
+# Regression gate (source-abstraction refactor)
+bash pipeline/scripts/regression.sh                 # L1 + L3 regression gate (run before every commit during refactors)
+bash pipeline/scripts/regression_baseline.sh        # capture fresh baselines (after approved behavior change)
+cd pipeline && .venv/Scripts/python.exe -m pytest tests/regression/test_pipeline_golden.py -v   # L2 fixture-based golden test (CI-friendly)
+
 # Automated pipeline (orchestration in run_automation.py; PS1 is a thin Task Scheduler shim)
 cd pipeline && .venv/Scripts/python.exe scripts/run_automation.py            # detect-changes → build → verify → sync
 cd pipeline && .venv/Scripts/python.exe scripts/run_automation.py --dry-run   # build + verify, skip sync
@@ -65,9 +70,15 @@ npx wrangler pages deploy out --project-name=portal --commit-dirty=true
 
 Python `types.py` (snake_case) is source of truth → SQLite `timemachine.db` → D1 views (camelCase aliases) → Worker JSON → Zod `src/lib/schemas/` (camelCase mirror, shared with Worker via `include` in `worker/tsconfig.json`). D1 schema is auto-generated from `etl/db.py` via `gen_schema_sql.py`. Zod schemas for TypedDicts that have a direct projection (`AllocationRow`, `TickerDetail`, `FidelityTxn`, `QianjiTxn`) are auto-generated from `etl/types.py` via `pipeline/tools/gen_zod.py` → `src/lib/schemas/_generated.ts` (`timeline.ts` consumes these via `.omit()` / `.extend()` / re-export); a pytest parity check fails if the committed `_generated.ts` drifts from the Python source. Hand-written schemas remain for shapes without a TypedDict source (market indices, holdings detail, category meta).
 
+The `InvestmentSource` Protocol in `etl/sources/__init__.py` defines `PositionRow` (frozen dataclass: `ticker`, `value_usd`, `quantity`, `cost_basis_usd`, `account`), along with `SourceKind` and `ActionKind` as `StrEnum`s. These are internal to the Python pipeline — they never cross the D1/Worker boundary, so they are not exported to Zod.
+
 ## Architecture
 
 Next.js static shell on Cloudflare Pages. Data served by Cloudflare Worker (`worker/src/index.ts`) reading from D1 — same code runs locally via `wrangler dev` and in production. Pipeline (Python) builds `timemachine.db` and syncs to D1.
+
+**Investment sources** live under `pipeline/etl/sources/<name>.py`. Each source (`FidelitySource`, `RobinhoodSource`, `EmpowerSource`) owns its own ingest + `positions_at(as_of, prices)` and is registered in `pipeline/etl/sources/__init__.py::_REGISTRY`. Each source's `__init__(config, db_path)` takes a per-source frozen-dataclass `*SourceConfig`; the central entry point `build_investment_sources(raw, db_path)` iterates the registry via `cls.from_raw_config(raw, db_path)`. `pipeline/etl/replay.py::replay_transactions(db_path, table, as_of) -> dict[str, PositionState]` is the shared, source-agnostic cost-basis primitive — Robinhood fully consumes it; Fidelity still uses `replay_from_db` (different action vocabulary) and may be migrated later. `compute_daily_allocation` is kind-agnostic: it iterates the registry and aggregates `PositionRow` values — no broker-specific code remains. Qianji (cash + spending) stays outside the `InvestmentSource` protocol because of different semantics; market data (Yahoo/FRED) is also outside — they produce series, not positions.
+
+**Adding a new investment source**: create `etl/sources/<name>.py` with `*SourceConfig` + `*Source` + `from_raw_config`, add the `SourceKind.<NAME>` variant, add one line to `_REGISTRY`, and if transaction-level add a `<name>_transactions` table in `etl/db.py`. No changes to `allocation.py` or `compute_daily_allocation`.
 
 Frontend fetches all data in a single `GET /timeline` call (~4.6 MB JSON, ~385 KB gzipped by Cloudflare edge), then computes allocation, cashflow, activity, and reconciliation locally in `compute.ts` via `use-bundle.ts`. All daily data points are rendered directly (no downsampling). Brush drag is zero-latency (no network). Ticker charts fetch on-demand via `GET /prices/:symbol`.
 
