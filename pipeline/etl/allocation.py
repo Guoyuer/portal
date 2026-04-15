@@ -17,7 +17,6 @@ hand (e.g. a CI projection script reconstructing state from D1) can call
 from __future__ import annotations
 
 import logging
-import sqlite3
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
@@ -25,6 +24,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from .db import get_readonly_connection
 from .prices import load_cny_rates, load_prices
 from .sources import PriceContext, positions_at_all
 from .sources.robinhood import _csv_paths as _robinhood_csv_paths
@@ -54,7 +54,7 @@ def _qianji_transaction_dates(db_path: Path) -> list[date]:
     """Return sorted unique dates of Qianji transactions."""
     if not db_path.exists():
         return []
-    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    conn = get_readonly_connection(db_path)
     dates: set[date] = set()
     for (ts,) in conn.execute("SELECT time FROM user_bill WHERE status = 1"):
         dates.add(datetime.fromtimestamp(ts, UTC).date())

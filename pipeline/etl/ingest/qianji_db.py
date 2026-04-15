@@ -22,7 +22,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from ..db import get_connection
+from ..db import get_connection, get_readonly_connection
 from ..types import QJ_EXPENSE, QJ_INCOME, QJ_REPAYMENT, QJ_TRANSFER, QianjiRecord
 
 log = logging.getLogger(__name__)
@@ -173,7 +173,7 @@ def load_all_from_db(
     if not db_path.exists():
         return [], {}
 
-    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    conn = get_readonly_connection(db_path)
     try:
         records = _load_records(conn)
         balances = _load_balances(conn)

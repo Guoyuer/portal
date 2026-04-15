@@ -287,6 +287,19 @@ def get_connection(path: Path) -> sqlite3.Connection:
     return conn
 
 
+def get_readonly_connection(path: Path) -> sqlite3.Connection:
+    """Return a read-only connection via SQLite's URI mode.
+
+    Used by reporters (changelog snapshot, allocation's Qianji date read,
+    Qianji record loader) that only ever SELECT — protects against a code-
+    path bug accidentally mutating the DB. Does not enforce the
+    ``file.exists()`` check; callers typically gate on that separately so
+    the "DB doesn't exist yet" case is an empty-result fast path rather
+    than an exception.
+    """
+    return sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+
+
 # ── Incremental build helpers for computed_daily ───────────────────────────
 
 
