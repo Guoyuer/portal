@@ -4,15 +4,14 @@ Public surface mirrors :mod:`etl.sources.robinhood` / :mod:`etl.sources.empower`
 ``produces_positions(config)``, ``ingest(db_path, config)``,
 ``positions_at(db_path, as_of, prices, config)``.
 
-``positions_at`` delegates transaction replay to the legacy
-:func:`etl.timemachine.replay_from_db`. The source-agnostic
-:func:`etl.replay.replay_transactions` primitive understands a narrower
-action alphabet (BUY / SELL / REINVESTMENT only) than Fidelity's transaction
-stream, which also includes REDEMPTION PAYOUT, TRANSFERRED FROM/TO,
-DISTRIBUTION, and EXCHANGED TO — all position-affecting actions that
-``_replay_core`` handles via ``POSITION_PREFIXES``. Switching Fidelity to
-the narrower primitive would change the share-count output for real data;
-the migration to that primitive is a separate, behaviour-preserving refactor.
+``positions_at`` delegates transaction replay to the source-agnostic
+:func:`etl.replay.replay_transactions` primitive. The primitive now
+covers Fidelity's full action vocabulary — BUY / SELL / REINVESTMENT
+plus the qty-only kinds REDEMPTION / DISTRIBUTION / EXCHANGE / TRANSFER
+(``REDEMPTION PAYOUT``, ``TRANSFERRED FROM/TO``, ``DISTRIBUTION``,
+``EXCHANGED TO``) — and accepts ``exclude_tickers`` to filter MM fund
+symbols out of share accumulation while still letting them flow through
+the cash ledger.
 """
 from __future__ import annotations
 
@@ -37,7 +36,14 @@ from .parse import (
 )
 from .pricing import _DEFAULT_MUTUAL_FUNDS
 
+# Fidelity-specific money-market fund tickers. Treated as $1/share cash, so
+# they stay out of the per-share position accumulator and instead flow
+# through the cash ledger (and, for REINVESTMENT rows, into the MM DRIP
+# adjustment that corrects for shares credited without a paired cash entry).
+MM_SYMBOLS: frozenset[str] = frozenset({"SPAXX", "FZFXX", "FDRXX"})
+
 __all__ = [
+    "MM_SYMBOLS",
     "TABLE",
     "_DEFAULT_MUTUAL_FUNDS",
     "_classify_action",
@@ -91,22 +97,38 @@ def positions_at(
 ) -> list[PositionRow]:
     """Return one PositionRow per (account, ticker) position + cash bucket.
 
-    Reuses :func:`etl.timemachine.replay_from_db` for the core cost-basis
-    accumulator. That function understands the full Fidelity action alphabet
-    (BUY / SELL / REINVESTMENT plus REDEMPTION PAYOUT, TRANSFERRED FROM/TO,
-    DISTRIBUTION, EXCHANGED TO) and correctly excludes money-market symbols
-    from position accumulation. The narrower
-    :func:`etl.replay.replay_transactions` primitive is not yet sufficient;
-    migrating to it is a separate refactor.
+    Delegates to :func:`etl.replay.replay_transactions` with Fidelity's
+    table layout (``run_date`` / ``symbol`` / ``amount`` columns, plus the
+    ``account_number`` grouping column) and cash-ledger bookkeeping turned
+    on (``track_cash=True``, ``lot_type_col="lot_type"``). MM fund symbols
+    are excluded from share accumulation but still flow through cash — the
+    ``mm_drip_tickers`` knob credits ``REINVESTMENT`` rows' share counts
+    back to the cash ledger the way the legacy replay did.
     """
-    from etl.timemachine import replay_from_db
+    from etl.replay import replay_transactions
 
-    result = replay_from_db(db_path, as_of)
+    result = replay_transactions(
+        db_path,
+        TABLE,
+        as_of,
+        date_col="run_date",
+        ticker_col="symbol",
+        amount_col="amount",
+        account_col="account_number",
+        exclude_tickers=MM_SYMBOLS,
+        track_cash=True,
+        lot_type_col="lot_type",
+        mm_drip_tickers=MM_SYMBOLS,
+    )
+
+    positions = {key: st.quantity for key, st in result.positions.items()}
+    cost_basis = {key: st.cost_basis_usd for key, st in result.positions.items()}
+
     rows = pricing.position_rows(
-        positions=result["positions"],
-        cost_basis=result.get("cost_basis") or {},
+        positions=positions,
+        cost_basis=cost_basis,
         prices=prices,
         mutual_fund_set=pricing.mutual_funds(config),
     )
-    rows.extend(cash.cash_rows(result["cash"], cash.accounts_map(config)))
+    rows.extend(cash.cash_rows(result.cash, cash.accounts_map(config)))
     return rows

@@ -25,6 +25,7 @@ if "yfinance" not in sys.modules:
 from etl.allocation import compute_daily_allocation  # noqa: E402
 from etl.db import init_db  # noqa: E402
 from etl.prices import symbol_holding_periods_from_db  # noqa: E402
+from etl.sources.fidelity import classify_fidelity_action  # noqa: E402
 from etl.timemachine import replay_from_db  # noqa: E402
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -42,13 +43,19 @@ def _insert_txn(
     lot_type: str = "",
     account: str = "Taxable",
 ) -> None:
-    """Insert a single fidelity_transactions row."""
+    """Insert a single fidelity_transactions row.
+
+    Populates ``action_kind`` via :func:`classify_fidelity_action` so the
+    row is visible to :func:`etl.replay.replay_transactions` — production
+    ingest does the same via ``_ingest_one_csv`` + the backfill migration.
+    """
     conn.execute(
         "INSERT INTO fidelity_transactions"
-        " (run_date, account, account_number, action, action_type, symbol,"
+        " (run_date, account, account_number, action, action_type, action_kind, symbol,"
         "  lot_type, quantity, price, amount, settlement_date)"
-        " VALUES (?, ?, ?, ?, '', ?, ?, ?, 0, ?, '')",
-        (run_date, account, acct_num, action, symbol, lot_type, qty, amount),
+        " VALUES (?, ?, ?, ?, '', ?, ?, ?, ?, 0, ?, '')",
+        (run_date, account, acct_num, action,
+         classify_fidelity_action(action).value, symbol, lot_type, qty, amount),
     )
 
 

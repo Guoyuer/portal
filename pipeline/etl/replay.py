@@ -158,7 +158,7 @@ def replay_transactions(
             idx += 1
 
         try:
-            kind = ActionKind(action)
+            kind = ActionKind(action) if action else ActionKind.OTHER
         except ValueError:
             # Unknown action values shouldn't exist — ingest rejects them —
             # but skip gracefully rather than aborting the whole replay.

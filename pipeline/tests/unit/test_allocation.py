@@ -43,14 +43,18 @@ def _init_timemachine(db_path: Path) -> None:
     # Fidelity transaction: buy 10 shares of VTI on 2025-01-02
     conn.execute(
         "INSERT INTO fidelity_transactions"
-        " (run_date, account, account_number, action, action_type, symbol, lot_type, quantity, amount)"
-        " VALUES ('2025-01-02', 'Fidelity taxable', 'Z29133576', 'YOU BOUGHT', 'buy', 'VTI', '', 10, -2500)",
+        " (run_date, account, account_number, action, action_type, action_kind,"
+        "  symbol, lot_type, quantity, amount)"
+        " VALUES ('2025-01-02', 'Fidelity taxable', 'Z29133576', 'YOU BOUGHT', 'buy',"
+        "         'buy', 'VTI', '', 10, -2500)",
     )
     # Buy 5 shares of VXUS
     conn.execute(
         "INSERT INTO fidelity_transactions"
-        " (run_date, account, account_number, action, action_type, symbol, lot_type, quantity, amount)"
-        " VALUES ('2025-01-02', 'Fidelity taxable', 'Z29133576', 'YOU BOUGHT', 'buy', 'VXUS', '', 5, -300)",
+        " (run_date, account, account_number, action, action_type, action_kind,"
+        "  symbol, lot_type, quantity, amount)"
+        " VALUES ('2025-01-02', 'Fidelity taxable', 'Z29133576', 'YOU BOUGHT', 'buy',"
+        "         'buy', 'VXUS', '', 5, -300)",
     )
 
     # Prices for 3 trading days
@@ -249,8 +253,10 @@ class TestComputeDailyAllocation:
         conn = sqlite3.connect(str(db_path))
         conn.execute(
             "INSERT INTO fidelity_transactions"
-            " (run_date, account, account_number, action, action_type, symbol, lot_type, quantity, amount)"
-            " VALUES ('2025-01-02', 'Fidelity taxable', 'UNKNOWN999', 'DEPOSIT', 'deposit', '', '', 0, 1000)",
+            " (run_date, account, account_number, action, action_type, action_kind,"
+            "  symbol, lot_type, quantity, amount)"
+            " VALUES ('2025-01-02', 'Fidelity taxable', 'UNKNOWN999', 'DEPOSIT',"
+            "         'deposit', 'deposit', '', '', 0, 1000)",
         )
         conn.execute("INSERT INTO daily_close (symbol, date, close) VALUES ('CNY=X', '2025-01-02', 7.25)")
         conn.commit()
