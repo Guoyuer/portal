@@ -30,5 +30,5 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules", "worker", "worker-gmail"]
+  "exclude": ["node_modules", "worker", "worker-gmail", "scripts"]
 }
