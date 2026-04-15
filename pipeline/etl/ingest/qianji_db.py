@@ -16,11 +16,13 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import sqlite3
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from ..db import get_connection, get_readonly_connection
 from ..types import QJ_EXPENSE, QJ_INCOME, QJ_REPAYMENT, QJ_TRANSFER, QianjiRecord
@@ -46,6 +48,35 @@ _BASE_CURRENCY = "USD"
 # Minimum difference between base-currency and source-currency amounts to consider
 # a real conversion (filters out unconverted records where bv == sv).
 _CONVERSION_TOLERANCE = 0.01
+
+# Qianji stores each bill's ``time`` as a Unix epoch captured at the moment
+# the user taps save — the timestamp itself is timezone-agnostic, but which
+# *day* we attribute it to depends on the user's wall-clock. Truncating in
+# UTC is almost never right: for a user on the US West Coast, 39% of bills
+# (everything logged after ~16:00 local) get attributed to the following
+# UTC day — systematically mis-dating daily cashflow by one day.
+#
+# ``QIANJI_USER_TZ`` lets callers pin a different zone for tests / fixtures.
+# Default is the zone the user actually lives in (PT); the L2 regression
+# fixture overrides to UTC to keep the golden deterministic.
+_USER_TZ = ZoneInfo(os.environ.get("QIANJI_USER_TZ", "America/Los_Angeles"))
+
+# Qianji "Balance adjustment(X ~ Y)" rows are manual reconciliations the
+# user makes when Qianji's tracked balance drifts from the real bank
+# balance — they're arithmetic corrections, not actual spending or income.
+# Drop them at ingest so they never pollute cashflow / savings-rate math.
+#
+# Seen patterns:
+#   "Balance adjustment(29,338.34 ~ 25,524.00)"  — long-form with old/new
+#   "adjust"                                       — short-form
+_BALANCE_ADJUSTMENT_RE = re.compile(
+    r"^\s*(balance\s*adjustment|adjust)\b", re.IGNORECASE,
+)
+
+
+def _is_balance_adjustment(remark: str | None) -> bool:
+    """True when the bill's remark marks it as a manual balance correction."""
+    return bool(remark) and bool(_BALANCE_ADJUSTMENT_RE.match(remark or ""))
 
 _BILL_QUERY = "SELECT id, type, money, fromact, targetact, remark, time, cateid, extra FROM user_bill WHERE status = 1 ORDER BY time"
 
@@ -125,15 +156,24 @@ def _load_records(conn: sqlite3.Connection, cny_rate: float | None = None) -> li
     the data-quirk fallback (``ss != bs`` but ``bv == sv``) can convert
     CNY source amounts to USD. When not provided, quirky rows emit a
     warning and fall back to ``money`` unchanged.
+
+    Bills are date-truncated in ``_USER_TZ`` (default ``America/Los_Angeles``)
+    so the daily cashflow reflects the user's wall-clock, not UTC.
+    Balance-adjustment rows (manual reconciliations) are filtered out —
+    they're not real cashflow.
     """
     categories = dict(conn.execute("SELECT id, name FROM category"))
     records: list[QianjiRecord] = []
     cny_converted = 0
+    skipped_balance_adjustments = 0
     for bill_id, bill_type, money, fromact, targetact, remark, ts, cateid, extra_str in conn.execute(_BILL_QUERY):
         mapped_type = _TYPE_MAP.get(bill_type)
         if mapped_type is None:
             continue
-        dt = datetime.fromtimestamp(ts, tz=UTC)
+        if _is_balance_adjustment(remark):
+            skipped_balance_adjustments += 1
+            continue
+        dt = datetime.fromtimestamp(ts, tz=_USER_TZ)
         amount = parse_qj_amount(money, extra_str, cny_rate=cny_rate)
         if abs(amount - float(money)) > 0.01:
             cny_converted += 1
@@ -154,7 +194,13 @@ def _load_records(conn: sqlite3.Connection, cny_rate: float | None = None) -> li
     by_type: dict[str, int] = {}
     for r in records:
         by_type[r["type"]] = by_type.get(r["type"], 0) + 1
-    log.info("Qianji records: %d total (%s), %d CNY→USD converted", len(records), ", ".join(f"{t}={c}" for t, c in sorted(by_type.items())), cny_converted)
+    log.info(
+        "Qianji records: %d total (%s), %d CNY→USD converted, %d balance-adjustment rows skipped",
+        len(records),
+        ", ".join(f"{t}={c}" for t, c in sorted(by_type.items())),
+        cny_converted,
+        skipped_balance_adjustments,
+    )
     return records
 
 
@@ -169,7 +215,17 @@ def _load_balances(conn: sqlite3.Connection) -> dict[str, tuple[float, str]]:
 
 
 def _fetch_live_cny_rate() -> float:
-    """Fetch live USD/CNY rate. Raises if unavailable."""
+    """Fetch live USD/CNY rate. Raises if unavailable.
+
+    ``QIANJI_CNY_RATE_OVERRIDE`` lets offline callers (L2 regression
+    fixtures, CI when Yahoo is flaky) pin a known rate instead of going
+    through yfinance. Unset in production.
+    """
+    override = os.environ.get("QIANJI_CNY_RATE_OVERRIDE")
+    if override:
+        rate = float(override)
+        log.info("USD/CNY rate: %.4f (override via QIANJI_CNY_RATE_OVERRIDE)", rate)
+        return rate
     from ..market.yahoo import fetch_cny_rate
 
     rate = fetch_cny_rate()

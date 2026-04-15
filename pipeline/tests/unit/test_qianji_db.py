@@ -266,6 +266,45 @@ class TestLoadRecords:
         # With rate: convert 5000 CNY / 7.0 ≈ 714.29.
         assert _load_records(conn, cny_rate=7.0)[0]["amount"] == pytest.approx(714.2857, rel=1e-3)
 
+    def test_balance_adjustment_rows_skipped(self):
+        """Manual reconciliation rows (remark 'Balance adjustment(X ~ Y)'
+        or short 'adjust') are not real cashflow — they should be dropped
+        at ingest so expense/income aggregates aren't inflated.
+        """
+        conn = sqlite3.connect(":memory:")
+        ts = int(datetime(2025, 1, 15, 12, 0, tzinfo=UTC).timestamp())
+        _make_db(conn, [
+            (1, 0, 10.0, "A", None, "groceries", ts, None, "null", 1),
+            (2, 0, 500.0, "A", None, "Balance adjustment(29,338.34 ~ 25,524.00)", ts, None, "null", 1),
+            (3, 0, 6.0, "A", None, "adjust", ts, None, "null", 1),
+            (4, 0, 7.0, "A", None, "ADJUST", ts, None, "null", 1),         # case-insensitive
+            (5, 0, 8.0, "A", None, "  balance adjustment (y~x)", ts, None, "null", 1),  # leading space
+            (6, 0, 9.0, "A", None, "maladjusted dinner", ts, None, "null", 1),  # word-boundary: NOT a match
+        ])
+        records = _load_records(conn)
+        notes = [r["note"] for r in records]
+        assert "groceries" in notes
+        assert "maladjusted dinner" in notes  # substring "adjust" but not a prefix → kept
+        # All balance-adjustment forms filtered out
+        assert not any("adjustment" in n.lower() or n.lower().strip() == "adjust" for n in notes)
+        assert len(records) == 2
+
+    def test_date_truncation_uses_user_timezone(self):
+        """Bills are attributed to the user's wall-clock day, not UTC.
+
+        A bill logged at 23:30 PT on 2026-04-09 has Unix ts corresponding
+        to 06:30 UTC on 2026-04-10 — in UTC it'd roll to the next day,
+        in PT it stays on the 9th. The pipeline must pick PT so daily
+        cashflow matches the user's experience.
+        """
+        conn = sqlite3.connect(":memory:")
+        # 2026-04-10 06:30 UTC == 2026-04-09 23:30 PT (PDT, UTC-7)
+        ts = int(datetime(2026, 4, 10, 6, 30, tzinfo=UTC).timestamp())
+        _make_db(conn, [(1, 0, 15.0, "A", None, "late-night snack", ts, None, "null", 1)])
+        records = _load_records(conn)
+        # In PT this is 2026-04-09, not 2026-04-10 (as UTC would say)
+        assert records[0]["date"].startswith("2026-04-09")
+
 
 # ── _load_balances ────────────────────────────────────────────────────────────
 

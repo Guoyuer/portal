@@ -14,12 +14,12 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
 from .db import get_connection
-from .ingest.qianji_db import DEFAULT_DB_PATH, parse_qj_target_amount
+from .ingest.qianji_db import _USER_TZ, DEFAULT_DB_PATH, parse_qj_target_amount
 from .sources.fidelity import MM_SYMBOLS
 from .types import parse_float as _float
 
@@ -240,8 +240,12 @@ def replay_qianji(db_path: Path, as_of: date | None = None) -> dict[str, float]:
         if as_of is None:
             return balances
 
-        # Reverse all transactions after end of as_of day
-        cutoff = datetime(as_of.year, as_of.month, as_of.day, 23, 59, 59, tzinfo=UTC).timestamp()
+        # Reverse all transactions after end of as_of day, anchored in the
+        # user's wall-clock timezone. UTC cutoff would make "as_of=2026-04-15"
+        # end at 4 PM PT that day, mis-reversing any late-evening activity.
+        cutoff = datetime(
+            as_of.year, as_of.month, as_of.day, 23, 59, 59, tzinfo=_USER_TZ,
+        ).timestamp()
 
         for bill_type, money, fromact, targetact, extra_str in conn.execute(
             "SELECT type, money, fromact, targetact, extra "

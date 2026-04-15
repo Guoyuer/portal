@@ -73,6 +73,10 @@ def built_db(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
     env = os.environ.copy()
     env["QIANJI_DB_PATH_OVERRIDE"] = str(FIXTURE_DIR / "qianji.sqlite")
+    # Offline: pin CNY rate + user timezone so the build never touches
+    # Yahoo and dates land deterministically regardless of CI host tz.
+    env["QIANJI_CNY_RATE_OVERRIDE"] = "7.20"
+    env["QIANJI_USER_TZ"] = "UTC"
 
     python = _resolve_python()
     result = subprocess.run(
