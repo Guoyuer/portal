@@ -30,7 +30,14 @@ log = logging.getLogger(__name__)
 _MAC_DB_PATH = Path.home() / "Library/Containers/com.mutangtech.qianji.fltios/Data/Documents/qianjiapp.db"
 _WIN_DB_PATH = Path(os.environ.get("APPDATA", "")) / "com.mutangtech.qianji.win/qianji_flutter/qianjiapp.db"
 
-DEFAULT_DB_PATH = _WIN_DB_PATH if sys.platform == "win32" else _MAC_DB_PATH
+# ``QIANJI_DB_PATH_OVERRIDE`` lets L2 regression tests point the build at a
+# fixture DB without touching the caller's home directory / %APPDATA%. Unset
+# in production; real builds keep the per-platform default.
+_OVERRIDE_PATH = os.environ.get("QIANJI_DB_PATH_OVERRIDE")
+if _OVERRIDE_PATH:
+    DEFAULT_DB_PATH = Path(_OVERRIDE_PATH)
+else:
+    DEFAULT_DB_PATH = _WIN_DB_PATH if sys.platform == "win32" else _MAC_DB_PATH
 
 # Qianji type codes → internal type names
 _TYPE_MAP = {0: QJ_EXPENSE, 1: QJ_INCOME, 2: QJ_TRANSFER, 3: QJ_REPAYMENT}
