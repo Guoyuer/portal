@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS fidelity_transactions (
     account_number  TEXT NOT NULL,
     action          TEXT NOT NULL,
     action_type     TEXT NOT NULL DEFAULT '',
+    action_kind     TEXT,                          -- normalized ActionKind enum (buy/sell/...); populated by ingest + backfill migration
     symbol          TEXT NOT NULL DEFAULT '',
     description     TEXT NOT NULL DEFAULT '',
     lot_type        TEXT NOT NULL DEFAULT '',

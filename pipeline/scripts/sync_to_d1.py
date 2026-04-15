@@ -68,8 +68,8 @@ _D1_COLUMNS: dict[str, list[str] | None] = {
 # forces a conscious decision when a new column lands in ``etl/db.py``.
 _D1_OMITTED: dict[str, set[str]] = {
     "fidelity_transactions": {
-        "id", "account", "account_number", "action", "description",
-        "lot_type", "settlement_date",
+        "id", "account", "account_number", "action", "action_kind",
+        "description", "lot_type", "settlement_date",
     },
     "qianji_transactions": {"account", "note"},
     "daily_close": set(),

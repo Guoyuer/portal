@@ -17,6 +17,7 @@ from pathlib import Path
 
 from ..db import get_connection
 from ..parsing import STRICT_US_DATE_RE, parse_us_date
+from ..sources import ActionKind
 from ..types import (
     ACT_BUY,
     ACT_COLLATERAL,
@@ -84,6 +85,56 @@ def _classify_action(raw_action: str) -> str:
         if pattern.upper() in upper:
             return action_type
     return ACT_OTHER
+
+
+# Mapping from Fidelity's canonical action_type constants to the normalized
+# ActionKind enum consumed by the source-agnostic replay primitive
+# (etl/replay.py). Kept in sync with `_classify_action` above so there is a
+# single source of truth for Fidelity action classification. This lives here
+# in Phase 2 as a temporary home; Phase 3 (Task 14) moves both `_classify_action`
+# and `classify_fidelity_action` into `etl/sources/fidelity.py`.
+_ACTION_TYPE_TO_KIND: dict[str, ActionKind] = {
+    ACT_BUY: ActionKind.BUY,
+    ACT_SELL: ActionKind.SELL,
+    ACT_DIVIDEND: ActionKind.DIVIDEND,
+    ACT_REINVESTMENT: ActionKind.REINVESTMENT,
+    ACT_DEPOSIT: ActionKind.DEPOSIT,
+    ACT_WITHDRAWAL: ActionKind.WITHDRAWAL,
+    # Internal retirement/account transfers all map to TRANSFER — they move
+    # cash between accounts but neither deposit nor withdraw at the portfolio
+    # level. Rollovers, partial recharacterizations, Roth conversions.
+    ACT_TRANSFER: ActionKind.TRANSFER,
+    ACT_ROTH_CONVERSION: ActionKind.TRANSFER,
+    # IRA cash contributions function as deposits into the retirement account.
+    ACT_IRA_CONTRIBUTION: ActionKind.DEPOSIT,
+    # Position-prefix-but-not-cost-basis-impacting actions (REDEMPTION PAYOUT,
+    # TRANSFERRED FROM/TO, DISTRIBUTION, EXCHANGED TO) are bucketed as OTHER
+    # for the shared primitive. `_replay_core` in etl/timemachine.py still
+    # handles their qty effects directly via the raw action string; the
+    # primitive is intentionally conservative here and defers broader
+    # semantics to the source itself (Phase 3 — FidelitySource).
+    ACT_DISTRIBUTION: ActionKind.OTHER,
+    ACT_REDEMPTION: ActionKind.OTHER,
+    ACT_EXCHANGE: ActionKind.OTHER,
+    # Non-position, non-cashflow pass-throughs: interest credits, broker fees,
+    # lending rebates, collateral adjustments.
+    ACT_INTEREST: ActionKind.OTHER,
+    ACT_FOREIGN_TAX: ActionKind.OTHER,
+    ACT_LENDING: ActionKind.OTHER,
+    ACT_COLLATERAL: ActionKind.OTHER,
+    ACT_OTHER: ActionKind.OTHER,
+}
+
+
+def classify_fidelity_action(raw_action: str) -> ActionKind:
+    """Map a verbose Fidelity action string to the normalized :class:`ActionKind` enum.
+
+    Delegates to :func:`_classify_action` so Fidelity's existing classification
+    rules remain the single source of truth, then projects the resulting
+    ``ACT_*`` constant onto the shared ``ActionKind`` alphabet. Unknown action
+    types fall through to :attr:`ActionKind.OTHER`.
+    """
+    return _ACTION_TYPE_TO_KIND.get(_classify_action(raw_action), ActionKind.OTHER)
 
 
 # ---------------------------------------------------------------------------
@@ -203,7 +254,7 @@ def ingest_fidelity_csv(db_path: Path, csv_path: Path) -> int:
 
     # Parse with csv.DictReader from the header line onward
     reader = csv.DictReader(lines[header_idx:])
-    rows: list[tuple[str, str, str, str, str, str, str, str, float, float, float, str]] = []
+    rows: list[tuple[str, str, str, str, str, str, str, str, str, float, float, float, str]] = []
     iso_dates: list[str] = []
 
     # DictReader consumes the header, so the first data row is file line header_idx + 2
@@ -227,6 +278,7 @@ def ingest_fidelity_csv(db_path: Path, csv_path: Path) -> int:
             record.get("Account Number", "").strip().strip('"'),
             raw_action,
             _classify_action(raw_action),
+            classify_fidelity_action(raw_action).value,
             record.get("Symbol", "").strip(),
             record.get("Description", "").strip().strip('"'),
             record.get("Type", "").strip(),
@@ -260,9 +312,9 @@ def ingest_fidelity_csv(db_path: Path, csv_path: Path) -> int:
         # further).
         conn.executemany(
             """INSERT INTO fidelity_transactions
-               (run_date, account, account_number, action, action_type, symbol,
-                description, lot_type, quantity, price, amount, settlement_date)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               (run_date, account, account_number, action, action_type, action_kind,
+                symbol, description, lot_type, quantity, price, amount, settlement_date)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             rows,
         )
         conn.commit()
