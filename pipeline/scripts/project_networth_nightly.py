@@ -15,62 +15,26 @@ Requires ``CLOUDFLARE_API_TOKEN`` + ``CLOUDFLARE_ACCOUNT_ID`` (wrangler env).
 """
 from __future__ import annotations
 
-import json
-import subprocess
 import sys
 import tempfile
 from datetime import date
 from pathlib import Path
-from typing import Any
 
 _PIPELINE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PIPELINE))
 
 from etl.projection import ProjectedDay, TickerRow, project_range  # noqa: E402
-
-_WORKER_DIR = _PIPELINE.parent / "worker"
-_D1_DATABASE = "portal-db"
-
-
-# ── wrangler helpers (duplicated from sync_prices_nightly.py; small enough) ─
-
-
-def _wrangler_query(sql: str) -> list[dict[str, Any]]:
-    cmd = [
-        "npx", "wrangler", "d1", "execute", _D1_DATABASE,
-        "--remote", "--json", "--command", sql,
-    ]
-    result = subprocess.run(
-        cmd, cwd=str(_WORKER_DIR), capture_output=True, text=True, check=True
-    )
-    idx = result.stdout.find("[")
-    if idx < 0:
-        raise RuntimeError(f"No JSON array in wrangler output:\n{result.stdout}")
-    payload = json.loads(result.stdout[idx:])
-    return payload[0].get("results", []) if payload else []
-
-
-def _wrangler_exec_file(sql_path: Path) -> None:
-    cmd = [
-        "npx", "wrangler", "d1", "execute", _D1_DATABASE,
-        "--remote", "--file", str(sql_path),
-    ]
-    subprocess.run(cmd, cwd=str(_WORKER_DIR), check=True)
-
-
-def _escape(value: object) -> str:
-    if value is None:
-        return "NULL"
-    if isinstance(value, (int, float)):
-        return str(value)
-    return "'" + str(value).replace("'", "''") + "'"
-
+from scripts._wrangler import (  # noqa: E402
+    run_wrangler_exec_file,
+    run_wrangler_query,
+    sql_escape,
+)
 
 # ── D1 loaders ──────────────────────────────────────────────────────────────
 
 
 def _last_authoritative_date() -> date | None:
-    rows = _wrangler_query("SELECT value FROM sync_meta WHERE key = 'last_date'")
+    rows = run_wrangler_query("SELECT value FROM sync_meta WHERE key = 'last_date'")
     if not rows:
         return None
     v = rows[0].get("value")
@@ -83,7 +47,7 @@ def _last_authoritative_date() -> date | None:
 
 
 def _load_seed(seed_date: date) -> list[TickerRow]:
-    rows = _wrangler_query(
+    rows = run_wrangler_query(
         "SELECT ticker, value, category, subtype, cost_basis"
         f" FROM computed_daily_tickers WHERE date = '{seed_date.isoformat()}'"
     )
@@ -101,7 +65,7 @@ def _load_seed(seed_date: date) -> list[TickerRow]:
 
 def _load_prices_since(seed_date: date) -> dict[date, dict[str, float]]:
     """Build ffill'd {date: {symbol: price}} from daily_close since seed_date."""
-    rows = _wrangler_query(
+    rows = run_wrangler_query(
         "SELECT symbol, date, close FROM daily_close"
         f" WHERE date >= '{seed_date.isoformat()}' ORDER BY symbol, date"
     )
@@ -139,17 +103,17 @@ def _build_push_sql(last_auth: date, projected: list[ProjectedDay]) -> str:
         lines.append(
             "INSERT INTO computed_daily"
             " (date, total, us_equity, non_us_equity, crypto, safe_net, liabilities)"
-            f" VALUES ({_escape(d_iso)}, {_escape(p.total)}, {_escape(p.us_equity)},"
-            f" {_escape(p.non_us_equity)}, {_escape(p.crypto)}, {_escape(p.safe_net)},"
-            f" {_escape(p.liabilities)});"
+            f" VALUES ({sql_escape(d_iso)}, {sql_escape(p.total)}, {sql_escape(p.us_equity)},"
+            f" {sql_escape(p.non_us_equity)}, {sql_escape(p.crypto)}, {sql_escape(p.safe_net)},"
+            f" {sql_escape(p.liabilities)});"
         )
         for t in p.tickers:
             lines.append(
                 "INSERT INTO computed_daily_tickers"
                 " (date, ticker, value, category, subtype, cost_basis, gain_loss, gain_loss_pct)"
-                f" VALUES ({_escape(d_iso)}, {_escape(t['ticker'])}, {_escape(t['value'])},"
-                f" {_escape(t['category'])}, {_escape(t['subtype'])}, {_escape(t['cost_basis'])},"
-                f" {_escape(t['gain_loss'])}, {_escape(t['gain_loss_pct'])});"
+                f" VALUES ({sql_escape(d_iso)}, {sql_escape(t['ticker'])}, {sql_escape(t['value'])},"
+                f" {sql_escape(t['category'])}, {sql_escape(t['subtype'])}, {sql_escape(t['cost_basis'])},"
+                f" {sql_escape(t['gain_loss'])}, {sql_escape(t['gain_loss_pct'])});"
             )
     return "\n".join(lines) + "\n"
 
@@ -194,7 +158,7 @@ def main() -> None:
         f.write(sql_text)
         sql_path = Path(f.name)
     try:
-        _wrangler_exec_file(sql_path)
+        run_wrangler_exec_file(sql_path)
     finally:
         sql_path.unlink(missing_ok=True)
     print("Done.")

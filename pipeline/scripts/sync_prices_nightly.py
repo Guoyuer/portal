@@ -12,13 +12,10 @@ Requires ``CLOUDFLARE_API_TOKEN`` + ``CLOUDFLARE_ACCOUNT_ID`` in the environment
 from __future__ import annotations
 
 import argparse
-import json
-import subprocess
 import sys
 import tempfile
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Any
 
 import pandas as pd
 import yfinance as yf
@@ -32,9 +29,11 @@ from etl.prices import (  # noqa: E402
     _reverse_split_factor,
 )
 from etl.refresh import refresh_window_start  # noqa: E402
-
-_WORKER_DIR = _PROJECT_DIR.parent / "worker"
-_D1_DATABASE = "portal-db"
+from scripts._wrangler import (  # noqa: E402
+    run_wrangler_exec_file,
+    run_wrangler_query,
+    sql_escape,
+)
 
 # Stop fetching prices this long after a position was fully closed.
 _CLOSED_POSITION_GRACE_DAYS = 7
@@ -56,54 +55,13 @@ _ACTION_TYPE_TO_ACTION: dict[str, str] = {
 _POSITION_ACTION_TYPES = tuple(_ACTION_TYPE_TO_ACTION.keys())
 
 
-# ── wrangler helpers ────────────────────────────────────────────────────────
-
-
-def _wrangler_query(sql: str) -> list[dict[str, Any]]:
-    """Run a SELECT against remote D1 via ``wrangler --json``.
-
-    Wrangler emits a human banner before the JSON payload; we locate the
-    first ``[`` and parse from there.
-    """
-    cmd = [
-        "npx", "wrangler", "d1", "execute", _D1_DATABASE,
-        "--remote", "--json", "--command", sql,
-    ]
-    result = subprocess.run(
-        cmd, cwd=str(_WORKER_DIR), capture_output=True, text=True, check=True
-    )
-    idx = result.stdout.find("[")
-    if idx < 0:
-        raise RuntimeError(f"No JSON array in wrangler output:\n{result.stdout}")
-    payload = json.loads(result.stdout[idx:])
-    if not payload:
-        return []
-    return payload[0].get("results", []) or []
-
-
-def _wrangler_exec_file(sql_path: Path) -> None:
-    cmd = [
-        "npx", "wrangler", "d1", "execute", _D1_DATABASE,
-        "--remote", "--file", str(sql_path),
-    ]
-    subprocess.run(cmd, cwd=str(_WORKER_DIR), check=True)
-
-
-def _escape(value: object) -> str:
-    if value is None:
-        return "NULL"
-    if isinstance(value, (int, float)):
-        return str(value)
-    return "'" + str(value).replace("'", "''") + "'"
-
-
 # ── D1 state loaders ────────────────────────────────────────────────────────
 
 
 def _load_holdings_from_d1() -> dict[str, tuple[date, date | None]]:
     """Reconstruct ``{symbol: (first_buy, last_sell_or_None)}`` from D1."""
     placeholders = ", ".join(f"'{t}'" for t in _POSITION_ACTION_TYPES)
-    rows = _wrangler_query(
+    rows = run_wrangler_query(
         "SELECT run_date, action_type, symbol, quantity"
         f" FROM fidelity_transactions WHERE action_type IN ({placeholders})"
         " ORDER BY run_date, id"
@@ -123,7 +81,7 @@ def _load_holdings_from_d1() -> dict[str, tuple[date, date | None]]:
 
 
 def _load_cached_max_from_d1() -> dict[str, date]:
-    rows = _wrangler_query(
+    rows = run_wrangler_query(
         "SELECT symbol, MAX(date) AS max_date FROM daily_close GROUP BY symbol"
     )
     out: dict[str, date] = {}
@@ -281,7 +239,7 @@ def main() -> None:
 
     sql_lines = [
         "INSERT OR IGNORE INTO daily_close (symbol, date, close) VALUES"
-        f" ({_escape(s)}, {_escape(d)}, {_escape(c)});"
+        f" ({sql_escape(s)}, {sql_escape(d)}, {sql_escape(c)});"
         for s, d, c in all_rows
     ]
     sql_text = "\n".join(sql_lines) + "\n"
@@ -298,7 +256,7 @@ def main() -> None:
         f.write(sql_text)
         sql_path = Path(f.name)
     try:
-        _wrangler_exec_file(sql_path)
+        run_wrangler_exec_file(sql_path)
     finally:
         sql_path.unlink(missing_ok=True)
     print("Done.")
