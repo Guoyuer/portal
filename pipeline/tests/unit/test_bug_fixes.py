@@ -25,8 +25,23 @@ if "yfinance" not in sys.modules:
 from etl.allocation import compute_daily_allocation  # noqa: E402
 from etl.db import init_db  # noqa: E402
 from etl.prices import symbol_holding_periods_from_db  # noqa: E402
-from etl.sources.fidelity import classify_fidelity_action  # noqa: E402
-from etl.timemachine import replay_from_db  # noqa: E402
+from etl.replay import replay_transactions  # noqa: E402
+from etl.sources.fidelity import MM_SYMBOLS, TABLE, classify_fidelity_action  # noqa: E402
+
+
+def _replay_fidelity(db: Path, as_of: date) -> dict[tuple[str, str], tuple[float, float]]:
+    """Run the shared replay primitive against ``fidelity_transactions``.
+
+    Returns ``{(account, symbol): (quantity, cost_basis_usd)}`` so existing
+    test assertions can index by the legacy ``(account, symbol)`` tuple.
+    """
+    result = replay_transactions(
+        db, TABLE, as_of,
+        date_col="run_date", ticker_col="symbol", amount_col="amount",
+        account_col="account_number",
+        exclude_tickers=MM_SYMBOLS,
+    )
+    return {key: (st.quantity, st.cost_basis_usd) for key, st in result.positions.items()}
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -85,7 +100,8 @@ def _init_qianji(db_path: Path, assets: list[tuple[str, float, str]]) -> None:
 
 
 class TestCostBasisOrderedByDate:
-    """replay_from_db must produce correct cost basis regardless of insertion order.
+    """:func:`etl.replay.replay_transactions` must produce correct cost basis
+    regardless of insertion order.
 
     Root cause: ORDER BY id processes sells before buys when the buy was
     imported in a later CSV batch (higher id, earlier date).
@@ -108,14 +124,14 @@ class TestCostBasisOrderedByDate:
         conn.commit()
         conn.close()
 
-        result = replay_from_db(db, date(2025, 1, 15))
+        positions = _replay_fidelity(db, date(2025, 1, 15))
 
         # Position: 10 - 5 = 5 shares (order doesn't matter for qty)
-        assert result["positions"][("Z123", "AAPL")] == pytest.approx(5.0)
-
+        qty, cb = positions[("Z123", "AAPL")]
+        assert qty == pytest.approx(5.0)
         # Cost basis: bought $5000 for 10 shares, sold 5/10 = 50%
         # Correct CB = $5000 * (1 - 0.5) = $2500
-        assert result["cost_basis"][("Z123", "AAPL")] == pytest.approx(2500.0)
+        assert cb == pytest.approx(2500.0)
 
     def test_full_sell_zeroes_cost_basis_regardless_of_id_order(self, tmp_path: Path) -> None:
         """Selling all shares must zero out cost basis even when the sell
@@ -132,12 +148,10 @@ class TestCostBasisOrderedByDate:
         conn.commit()
         conn.close()
 
-        result = replay_from_db(db, date(2025, 1, 15))
+        positions = _replay_fidelity(db, date(2025, 1, 15))
 
-        # Position: 0 shares
-        assert ("Z123", "VOO") not in result["positions"]
-        # Cost basis: should be 0 (fully sold)
-        assert result["cost_basis"].get(("Z123", "VOO"), 0) == pytest.approx(0.0)
+        # Position: fully sold → not in positions (qty < 0.001 threshold)
+        assert ("Z123", "VOO") not in positions
 
     def test_multiple_buys_then_sell_out_of_id_order(self, tmp_path: Path) -> None:
         """Multiple buys + a sell, all with scrambled ids."""
@@ -155,14 +169,14 @@ class TestCostBasisOrderedByDate:
         conn.commit()
         conn.close()
 
-        result = replay_from_db(db, date(2025, 4, 15))
+        positions = _replay_fidelity(db, date(2025, 4, 15))
+        qty, cb = positions[("Z123", "TSLA")]
 
         # Position: 10 - 5 + 5 = 10
-        assert result["positions"][("Z123", "TSLA")] == pytest.approx(10.0)
-
+        assert qty == pytest.approx(10.0)
         # Chronological: buy 10 ($4000), sell 5 (50% of 10 → CB -= $2000 → $2000), buy 5 ($2000)
         # Final CB = $2000 + $2000 = $4000
-        assert result["cost_basis"][("Z123", "TSLA")] == pytest.approx(4000.0)
+        assert cb == pytest.approx(4000.0)
 
 
 # ── BUG 2: first_held date wrong due to ORDER BY id ──────────────────────

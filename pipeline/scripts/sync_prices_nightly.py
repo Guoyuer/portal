@@ -25,10 +25,11 @@ sys.path.insert(0, str(_PROJECT_DIR))
 from etl.market._yfinance import extract_close  # noqa: E402
 from etl.prices import (  # noqa: E402
     _build_split_factors,
-    _holding_periods_core,
+    _holding_periods_from_action_kind_rows,
     _reverse_split_factor,
 )
 from etl.refresh import refresh_window_start  # noqa: E402
+from etl.sources import ActionKind  # noqa: E402
 from scripts._wrangler import (  # noqa: E402
     run_wrangler_exec_file,
     run_wrangler_query,
@@ -38,21 +39,14 @@ from scripts._wrangler import (  # noqa: E402
 # Stop fetching prices this long after a position was fully closed.
 _CLOSED_POSITION_GRACE_DAYS = 7
 
-# Map the canonical ``action_type`` stored in D1 back to the raw Fidelity
-# action phrasing that ``_holding_periods_core`` pattern-matches on.
-_ACTION_TYPE_TO_ACTION: dict[str, str] = {
-    "buy": "YOU BOUGHT",
-    "sell": "YOU SOLD",
-    "reinvestment": "REINVESTMENT",
-    "redemption": "REDEMPTION PAYOUT",
-    "distribution": "DISTRIBUTION",
-    "exchange": "EXCHANGED TO",
-    "transfer": "TRANSFERRED",
-}
-
-# action_types that _holding_periods_core actually consumes — used to keep
-# the D1 query small.
-_POSITION_ACTION_TYPES = tuple(_ACTION_TYPE_TO_ACTION.keys())
+# ``action_kind`` values whose rows the holding-period accumulator consumes.
+# Pulled at query time so D1 only sends rows the accumulator will actually
+# look at.
+_POSITION_KIND_VALUES = tuple(k.value for k in (
+    ActionKind.BUY, ActionKind.SELL, ActionKind.REINVESTMENT,
+    ActionKind.REDEMPTION, ActionKind.DISTRIBUTION, ActionKind.EXCHANGE,
+    ActionKind.TRANSFER,
+))
 
 
 # ── D1 state loaders ────────────────────────────────────────────────────────
@@ -60,24 +54,22 @@ _POSITION_ACTION_TYPES = tuple(_ACTION_TYPE_TO_ACTION.keys())
 
 def _load_holdings_from_d1() -> dict[str, tuple[date, date | None]]:
     """Reconstruct ``{symbol: (first_buy, last_sell_or_None)}`` from D1."""
-    placeholders = ", ".join(f"'{t}'" for t in _POSITION_ACTION_TYPES)
+    placeholders = ", ".join(f"'{v}'" for v in _POSITION_KIND_VALUES)
     rows = run_wrangler_query(
-        "SELECT run_date, action_type, symbol, quantity"
-        f" FROM fidelity_transactions WHERE action_type IN ({placeholders})"
+        "SELECT run_date, action_kind, symbol, quantity"
+        f" FROM fidelity_transactions WHERE action_kind IN ({placeholders})"
         " ORDER BY run_date, id"
     )
-    tuples = []
-    for r in rows:
-        raw_action = _ACTION_TYPE_TO_ACTION.get(
-            (r.get("action_type") or "").lower(), ""
-        )
-        tuples.append((
+    tuples = [
+        (
             r.get("run_date") or "",
             (r.get("symbol") or "").strip(),
-            raw_action,
+            (r.get("action_kind") or "").strip(),
             float(r.get("quantity") or 0),
-        ))
-    return _holding_periods_core(tuples)
+        )
+        for r in rows
+    ]
+    return _holding_periods_from_action_kind_rows(tuples)
 
 
 def _load_cached_max_from_d1() -> dict[str, date]:

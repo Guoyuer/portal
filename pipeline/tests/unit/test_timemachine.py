@@ -1,8 +1,12 @@
-"""Tests for timemachine: Qianji replay and verification."""
+"""Tests for the timemachine module — Qianji replay only.
+
+The Fidelity replay engine moved to :mod:`etl.replay`; its tests live in
+``test_replay_primitive.py``. The CSV-based ``ingest`` / ``verify`` helpers
+were deleted along with the legacy CSV replay path.
+"""
 
 from __future__ import annotations
 
-import csv
 import sqlite3
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -10,10 +14,8 @@ from pathlib import Path
 import pytest
 
 from etl.timemachine import (
-    _replay_core,
     replay_qianji,
     replay_qianji_currencies,
-    verify,
 )
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -62,26 +64,6 @@ def _create_qianji_db(db_path: Path, assets: list[tuple[str, float, str]], bills
 def _ts(year: int, month: int, day: int) -> float:
     """Create a UTC timestamp for the given date at noon."""
     return datetime(year, month, day, 12, 0, 0, tzinfo=UTC).timestamp()
-
-
-def _write_fidelity_csv(path: Path, rows: list[dict[str, str]]) -> None:
-    """Write a minimal Fidelity-format CSV."""
-    header = "Run Date,Account,Account Number,Action,Symbol,Description,Type,Quantity,Price,Amount,Settlement Date"
-    with open(path, "w", newline="") as f:
-        f.write(header + "\n")
-        writer = csv.DictWriter(f, fieldnames=header.split(","))
-        for row in rows:
-            full = {k: row.get(k, "") for k in header.split(",")}
-            writer.writerow(full)
-
-
-def _write_positions_csv(path: Path, rows: list[dict[str, str]]) -> None:
-    """Write a minimal Fidelity positions snapshot CSV."""
-    fields = ["Account Number", "Symbol", "Quantity", "Current Value"]
-    with open(path, "w", newline="", encoding="utf-8-sig") as f:
-        writer = csv.DictWriter(f, fieldnames=fields)
-        writer.writeheader()
-        writer.writerows(rows)
 
 
 # ── replay_qianji ───────────────────────────────────────────────────────────
@@ -276,138 +258,3 @@ class TestReplayQianjiCurrencies:
         assert "Closed" not in currencies
 
 
-# ── verify ───────────────────────────────────────────────────────────────────
-
-class TestVerify:
-    def test_matching_positions(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-        """Verify prints OK when replay matches positions CSV."""
-        store = tmp_path / "txns.csv"
-        _write_fidelity_csv(store, [
-            {"Run Date": "01/02/2025", "Account Number": "Z123", "Action": "YOU BOUGHT X",
-             "Symbol": "VOO", "Quantity": "10", "Price": "500", "Amount": "-5000"},
-        ])
-        positions = tmp_path / "positions.csv"
-        _write_positions_csv(positions, [
-            {"Account Number": "Z123", "Symbol": "VOO", "Quantity": "10", "Current Value": "$5000"},
-        ])
-        verify(store, positions)
-        output = capsys.readouterr().out
-        assert "0 issues" in output
-
-    def test_mismatched_positions(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-        """Verify reports mismatches when quantities differ."""
-        store = tmp_path / "txns.csv"
-        _write_fidelity_csv(store, [
-            {"Run Date": "01/02/2025", "Account Number": "Z123", "Action": "YOU BOUGHT X",
-             "Symbol": "VOO", "Quantity": "10", "Price": "500", "Amount": "-5000"},
-        ])
-        positions = tmp_path / "positions.csv"
-        _write_positions_csv(positions, [
-            {"Account Number": "Z123", "Symbol": "VOO", "Quantity": "15", "Current Value": "$7500"},
-        ])
-        verify(store, positions)
-        output = capsys.readouterr().out
-        assert "MISMATCH" in output
-
-    def test_extra_position_in_replay(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-        """Position in replay but not in CSV → EXTRA."""
-        store = tmp_path / "txns.csv"
-        _write_fidelity_csv(store, [
-            {"Run Date": "01/02/2025", "Account Number": "Z123", "Action": "YOU BOUGHT X",
-             "Symbol": "VOO", "Quantity": "10", "Price": "500", "Amount": "-5000"},
-        ])
-        positions = tmp_path / "positions.csv"
-        _write_positions_csv(positions, [])
-        verify(store, positions)
-        output = capsys.readouterr().out
-        assert "EXTRA" in output
-
-    def test_missing_position_in_replay(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-        """Position in CSV but not in replay → MISSING."""
-        store = tmp_path / "txns.csv"
-        _write_fidelity_csv(store, [])  # no transactions
-        positions = tmp_path / "positions.csv"
-        _write_positions_csv(positions, [
-            {"Account Number": "Z123", "Symbol": "AAPL", "Quantity": "5", "Current Value": "$1000"},
-        ])
-        verify(store, positions)
-        output = capsys.readouterr().out
-        assert "MISSING" in output
-
-    def test_money_market_treated_as_cash(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-        """Symbols with ** (money market) should show as cash, not positions."""
-        store = tmp_path / "txns.csv"
-        _write_fidelity_csv(store, [])
-        positions = tmp_path / "positions.csv"
-        _write_positions_csv(positions, [
-            {"Account Number": "Z123", "Symbol": "SPAXX**", "Quantity": "", "Current Value": "$5000.00"},
-        ])
-        verify(store, positions)
-        output = capsys.readouterr().out
-        # Money market goes to cash comparison, not positions
-        assert "Cash:" in output
-
-
-# ── _replay_core ───────────────────────────────────────────────────────────
-
-class TestReplayCore:
-    """Test the shared replay engine with pre-normalized (ISO-date) tuples."""
-
-    def test_buy_creates_position(self) -> None:
-        rows = [
-            ("2025-01-02", "Z123", "YOU BOUGHT X", "VOO", "Cash", 10.0, -5000.0),
-        ]
-        result = _replay_core(rows, as_of=None)
-        assert result["positions"][("Z123", "VOO")] == pytest.approx(10.0)
-        assert result["cost_basis"][("Z123", "VOO")] == pytest.approx(5000.0)
-        assert result["txn_count"] == 1
-
-    def test_sell_reduces_position_and_cost_basis(self) -> None:
-        rows = [
-            ("2025-01-02", "Z123", "YOU BOUGHT X", "VOO", "Cash", 10.0, -5000.0),
-            ("2025-01-05", "Z123", "YOU SOLD X", "VOO", "Cash", -4.0, 2200.0),
-        ]
-        result = _replay_core(rows, as_of=None)
-        assert result["positions"][("Z123", "VOO")] == pytest.approx(6.0)
-        # Cost basis: 5000 * (1 - 4/10) = 3000
-        assert result["cost_basis"][("Z123", "VOO")] == pytest.approx(3000.0)
-
-    def test_money_market_excluded_from_positions(self) -> None:
-        rows = [
-            ("2025-01-02", "Z123", "REINVESTMENT", "SPAXX", "Cash", 100.0, 0.0),
-        ]
-        result = _replay_core(rows, as_of=None)
-        assert ("Z123", "SPAXX") not in result["positions"]
-
-    def test_cash_tracking(self) -> None:
-        rows = [
-            ("2025-01-02", "Z123", "YOU BOUGHT X", "VOO", "Cash", 10.0, -5000.0),
-            ("2025-01-05", "Z123", "DIVIDEND", "VOO", "Cash", 0.0, 50.0),
-        ]
-        result = _replay_core(rows, as_of=None)
-        assert result["cash"]["Z123"] == pytest.approx(-4950.0)
-
-    def test_as_of_filters_future(self) -> None:
-        rows = [
-            ("2025-01-02", "Z123", "YOU BOUGHT X", "VOO", "Cash", 10.0, -5000.0),
-            ("2025-03-15", "Z123", "YOU BOUGHT X", "VOO", "Cash", 5.0, -2500.0),
-        ]
-        result = _replay_core(rows, as_of=date(2025, 2, 1))
-        assert result["positions"][("Z123", "VOO")] == pytest.approx(10.0)
-        assert result["txn_count"] == 1
-
-    def test_shares_type_excluded_from_cash(self) -> None:
-        rows = [
-            ("2025-01-02", "Z123", "DISTRIBUTION", "VOO", "Shares", 0.5, 250.0),
-        ]
-        result = _replay_core(rows, as_of=None)
-        # Type=Shares should not affect cash
-        assert result["cash"].get("Z123", 0.0) == pytest.approx(0.0)
-
-    def test_reinvestment_adds_position(self) -> None:
-        rows = [
-            ("2025-01-02", "Z123", "REINVESTMENT", "VOO", "Cash", 0.5, -250.0),
-        ]
-        result = _replay_core(rows, as_of=None)
-        assert result["positions"][("Z123", "VOO")] == pytest.approx(0.5)
-        assert result["cost_basis"][("Z123", "VOO")] == pytest.approx(250.0)

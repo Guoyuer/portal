@@ -12,13 +12,14 @@ pytest.importorskip("yfinance", reason="yfinance required for prices module")
 
 from etl.db import get_connection, init_db  # noqa: E402
 from etl.prices import (  # noqa: E402
-    _holding_periods_core,
+    _holding_periods_from_action_kind_rows,
     fetch_and_store_cny_rates,
     fetch_and_store_prices,
     load_cny_rates,
     load_prices,
     load_proxy_prices,
 )
+from etl.sources import ActionKind  # noqa: E402
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -153,53 +154,64 @@ class TestLoadProxyPrices:
         assert result == {}
 
 
-# ── _holding_periods_core ──────────────────────────────────────────────────
+# ── _holding_periods_from_action_kind_rows ─────────────────────────────────
 
 
 class TestHoldingPeriodsCore:
-    """Test the shared holding-period logic with pre-normalized tuples."""
+    """Test the shared holding-period logic with pre-normalized tuples
+    ``(run_date_iso, symbol, action_kind, qty)``."""
 
     def test_buy_and_hold(self) -> None:
         rows = [
-            ("2025-01-02", "VOO", "YOU BOUGHT X", 10.0),
+            ("2025-01-02", "VOO", ActionKind.BUY.value, 10.0),
         ]
-        result = _holding_periods_core(rows)
+        result = _holding_periods_from_action_kind_rows(rows)
         assert result["VOO"] == (date(2025, 1, 2), None)
 
     def test_buy_then_sell_to_zero(self) -> None:
         rows = [
-            ("2025-01-02", "VOO", "YOU BOUGHT X", 10.0),
-            ("2025-03-15", "VOO", "YOU SOLD X", -10.0),
+            ("2025-01-02", "VOO", ActionKind.BUY.value, 10.0),
+            ("2025-03-15", "VOO", ActionKind.SELL.value, -10.0),
         ]
-        result = _holding_periods_core(rows)
+        result = _holding_periods_from_action_kind_rows(rows)
         assert result["VOO"] == (date(2025, 1, 2), date(2025, 3, 15))
 
     def test_money_market_excluded(self) -> None:
         rows = [
-            ("2025-01-02", "SPAXX", "REINVESTMENT", 100.0),
+            ("2025-01-02", "SPAXX", ActionKind.REINVESTMENT.value, 100.0),
         ]
-        result = _holding_periods_core(rows)
+        result = _holding_periods_from_action_kind_rows(rows)
         assert "SPAXX" not in result
 
     def test_cusip_excluded(self) -> None:
         rows = [
-            ("2025-01-02", "912796CR8", "YOU BOUGHT X", 5.0),
+            ("2025-01-02", "912796CR8", ActionKind.BUY.value, 5.0),
         ]
-        result = _holding_periods_core(rows)
+        result = _holding_periods_from_action_kind_rows(rows)
         assert "912796CR8" not in result
 
     def test_partial_sell_still_held(self) -> None:
         rows = [
-            ("2025-01-02", "VOO", "YOU BOUGHT X", 10.0),
-            ("2025-03-15", "VOO", "YOU SOLD X", -4.0),
+            ("2025-01-02", "VOO", ActionKind.BUY.value, 10.0),
+            ("2025-03-15", "VOO", ActionKind.SELL.value, -4.0),
         ]
-        result = _holding_periods_core(rows)
+        result = _holding_periods_from_action_kind_rows(rows)
         # Still held — end should be None
         assert result["VOO"] == (date(2025, 1, 2), None)
 
     def test_empty_rows(self) -> None:
-        result = _holding_periods_core([])
+        result = _holding_periods_from_action_kind_rows([])
         assert result == {}
+
+    def test_redemption_acts_as_sell(self) -> None:
+        """REDEMPTION (e.g. T-Bill payout) reduces qty without cost-basis
+        impact and counts as a position-affecting kind for holding periods."""
+        rows = [
+            ("2025-01-02", "SGOV", ActionKind.BUY.value, 1000.0),
+            ("2025-06-15", "SGOV", ActionKind.REDEMPTION.value, -1000.0),
+        ]
+        result = _holding_periods_from_action_kind_rows(rows)
+        assert result["SGOV"] == (date(2025, 1, 2), date(2025, 6, 15))
 
 
 # ── Invariant: historical daily_close rows are immutable ───────────────────

@@ -15,8 +15,23 @@ import yfinance as yf
 
 from .db import get_connection
 from .market._yfinance import extract_close
+from .parsing import parse_date_iso
 from .refresh import refresh_window_start
-from .timemachine import MM_SYMBOLS, POSITION_PREFIXES, _parse_date
+from .sources import ActionKind
+from .sources.fidelity import MM_SYMBOLS
+
+# Action kinds that change share count — same set the replay primitive uses
+# for position accumulation (BUY / SELL / REINVESTMENT plus the qty-only
+# kinds for redemptions, distributions, exchanges, and transfers).
+_POSITION_KINDS = frozenset({
+    ActionKind.BUY,
+    ActionKind.SELL,
+    ActionKind.REINVESTMENT,
+    ActionKind.REDEMPTION,
+    ActionKind.DISTRIBUTION,
+    ActionKind.EXCHANGE,
+    ActionKind.TRANSFER,
+})
 
 
 def _persist_close(
@@ -76,25 +91,34 @@ def _persist_close_batch(
 # ── Symbol holding periods ──────────────────────────────────────────────────
 
 
-def _holding_periods_core(
+def _holding_periods_from_action_kind_rows(
     rows: list[tuple[str, str, str, float]],
 ) -> dict[str, tuple[date, date | None]]:
-    """Shared holding-period logic for both CSV and DB sources.
+    """Compute ``{symbol: (first_buy_date, last_sell_date_or_None)}``.
 
-    Each tuple: (run_date_str, sym, action, qty).
-    Strings are already stripped; action is already uppercased.
+    Each row is ``(run_date_iso, symbol, action_kind, quantity)`` —
+    pre-fetched from a Fidelity-shaped table. Symbol-stripping + ``qty``
+    coercion happen here so call sites can pass raw DB rows directly.
+    Used by :func:`symbol_holding_periods_from_db` (against a local
+    SQLite DB) and the nightly D1 sync (against rows pulled via wrangler).
     """
     holdings: dict[str, float] = {}
     first_held: dict[str, date] = {}
     last_zero: dict[str, date] = {}
 
-    for run_date_str, sym, action, qty in rows:
+    for run_date, sym, action_kind, qty in rows:
+        sym = (sym or "").strip()
+        qty = qty or 0.0
         if not sym or sym in MM_SYMBOLS or qty == 0:
             continue
-        if not any(action.startswith(p) for p in POSITION_PREFIXES):
+        try:
+            kind = ActionKind(action_kind) if action_kind else ActionKind.OTHER
+        except ValueError:
+            kind = ActionKind.OTHER
+        if kind not in _POSITION_KINDS:
             continue
 
-        txn_date = _parse_date(run_date_str)
+        txn_date = parse_date_iso(run_date)
         holdings[sym] = holdings.get(sym, 0) + qty
 
         if sym not in first_held:
@@ -115,22 +139,26 @@ def _holding_periods_core(
 
 
 def symbol_holding_periods_from_db(db_path: Path) -> dict[str, tuple[date, date | None]]:
-    """Return {symbol: (first_buy_date, last_sell_date_or_None)} from the
-    fidelity_transactions table."""
+    """Return ``{symbol: (first_buy_date, last_sell_date_or_None)}`` from the
+    ``fidelity_transactions`` table.
+
+    A "holding period" is the chronological span between the first
+    position-impacting action on a symbol and the most recent date the
+    cumulative quantity dropped to zero. Symbols still held at the cutoff
+    have ``end=None``. CUSIPs (T-Bills, brokered CDs) and money-market
+    funds are excluded — neither participates in the price-fetch path that
+    consumes this function.
+    """
     conn = get_connection(db_path)
     try:
         db_rows = conn.execute(
-            "SELECT run_date, symbol, action, quantity FROM fidelity_transactions"
+            "SELECT run_date, symbol, action_kind, quantity FROM fidelity_transactions"
             " ORDER BY run_date, id"
         ).fetchall()
     finally:
         conn.close()
 
-    rows = [
-        (run_date, sym.strip(), action.upper(), qty)
-        for run_date, sym, action, qty in db_rows
-    ]
-    return _holding_periods_core(rows)
+    return _holding_periods_from_action_kind_rows(list(db_rows))
 
 
 # ── Cache helpers ───────────────────────────────────────────────────────────
