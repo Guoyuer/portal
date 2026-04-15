@@ -8,11 +8,7 @@
 CREATE TABLE IF NOT EXISTS fidelity_transactions (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   run_date        TEXT NOT NULL,
-  action_type     TEXT NOT NULL DEFAULT '',
-  symbol          TEXT NOT NULL DEFAULT '',
-  quantity        REAL NOT NULL DEFAULT 0,
-  price           REAL NOT NULL DEFAULT 0,
-  amount          REAL NOT NULL DEFAULT 0
+  action_type     TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS daily_close (
