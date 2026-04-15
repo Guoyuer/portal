@@ -40,9 +40,17 @@ def test_price_context_required_fields() -> None:
     assert ctx.price_date == date(2024, 1, 2)
 
 
-def test_registry_starts_empty() -> None:
-    assert _REGISTRY == []
+def test_registry_contains_fidelity() -> None:
+    """After Phase 3 (Task 14) FidelitySource self-registers on import."""
+    import etl.sources.fidelity  # noqa: F401  (import side effect: register)
+    from etl.sources.fidelity import FidelitySource
+    assert FidelitySource in _REGISTRY
 
 
-def test_build_investment_sources_returns_empty_list_for_empty_registry() -> None:
-    assert build_investment_sources({}, Path("/tmp/x.db")) == []
+def test_build_investment_sources_returns_fidelity(tmp_path: Path) -> None:
+    """With FidelitySource registered, build returns at least Fidelity."""
+    import etl.sources.fidelity  # noqa: F401
+    from etl.sources.fidelity import FidelitySource
+    raw = {"fidelity_downloads": tmp_path, "fidelity_accounts": {}}
+    built = build_investment_sources(raw, tmp_path / "tm.db")
+    assert any(isinstance(s, FidelitySource) for s in built)
