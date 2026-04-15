@@ -139,8 +139,9 @@ def test_positions_at_unknown_account_defaults_to_fzfxx(tmp_path: Path) -> None:
 
 def test_default_mutual_funds_when_config_missing(tmp_path: Path) -> None:
     """Unspecified ``mutual_funds`` → the documented default set."""
+    from etl.sources.fidelity import pricing
     config: dict[str, object] = {
         "fidelity_downloads": tmp_path,
         "fidelity_accounts": {"X12345678": "FZFXX"},
     }
-    assert "FXAIX" in fidelity_src._mutual_funds(config)
+    assert "FXAIX" in pricing.mutual_funds(config)

@@ -1,44 +1,25 @@
-"""Fidelity source — owns all Fidelity-specific logic.
+"""Fidelity Accounts_History CSV → ``fidelity_transactions`` rows.
 
 Owns:
-  - Accounts_History CSV parsing (ingested into ``fidelity_transactions``).
-  - Per-day position + cash query over a pre-ingested
-    ``fidelity_transactions`` table, returning a unified
-    ``list[PositionRow]`` that the allocation engine treats identically to
-    every other investment source.
-  - Action classification: verbose Fidelity ``Action`` strings → canonical
-    ``ACT_*`` legacy labels → normalized :class:`ActionKind`.
-    ``classify_fidelity_action`` is re-exported at module level because the
-    :mod:`etl.migrations.add_fidelity_action_kind` backfill still imports
-    it directly.
-  - T-Bill CUSIP aggregation (8+ digit symbols surface as ``T-Bills``
-    with value = face quantity).
-  - Mutual-fund T-1 price dating (yfinance stamps MF NAV with the wrong
-    date; we look up T-1 instead).
-  - Per-account cash → money-market-fund ticker routing
-    (``fidelity_accounts[account_number]``, defaulting to ``FZFXX``).
+  - Action classification (verbose Fidelity ``Action`` strings → canonical
+    ``ACT_*`` legacy labels → normalized :class:`ActionKind`).
+  - CSV parsing (``_parse_csv_text`` / :func:`load_transactions`).
+  - Header detection + chronological ordering (``_csv_earliest_date``).
+  - Per-file range-replace ingest (:func:`_ingest_one_csv`).
 
-``positions_at`` delegates transaction replay to the legacy
-:func:`etl.timemachine.replay_from_db`. The source-agnostic
-:func:`etl.replay.replay_transactions` primitive understands a narrower
-action alphabet (BUY / SELL / REINVESTMENT only) than Fidelity's transaction
-stream, which also includes REDEMPTION PAYOUT, TRANSFERRED FROM/TO,
-DISTRIBUTION, and EXCHANGED TO — all position-affecting actions that
-``_replay_core`` handles via ``POSITION_PREFIXES``. Switching Fidelity to
-the narrower primitive would change the share-count output for real data;
-the migration to that primitive is a separate, behaviour-preserving refactor.
+All public names stay re-exported from :mod:`etl.sources.fidelity` for the
+existing call sites (build script, tests, migration).
 """
 from __future__ import annotations
 
 import csv
 import logging
 import re
-from datetime import date
 from pathlib import Path
 
 from etl.db import get_connection
 from etl.parsing import STRICT_US_DATE_RE, parse_us_date
-from etl.sources import ActionKind, PositionRow, PriceContext
+from etl.sources import ActionKind
 from etl.types import (
     ACT_BUY,
     ACT_COLLATERAL,
@@ -66,11 +47,6 @@ from etl.types import (
 log = logging.getLogger(__name__)
 
 TABLE = "fidelity_transactions"
-
-# Default set of mutual-fund tickers that need T-1 price lookup. Mirrors the
-# legacy ``allocation._MUTUAL_FUNDS`` constant so that behaviour stays
-# unchanged when ``config`` is missing the ``mutual_funds`` key.
-_DEFAULT_MUTUAL_FUNDS: frozenset[str] = frozenset({"FXAIX", "FSSNX", "FNJHX"})
 
 
 # ── Action classification ───────────────────────────────────────────────────
@@ -114,10 +90,9 @@ def _classify_action(raw_action: str) -> str:
     return ACT_OTHER
 
 
-# Mapping from Fidelity's canonical action_type constants to the normalized
-# ActionKind enum consumed by the source-agnostic replay primitive
-# (etl/replay.py). Kept in sync with ``_classify_action`` so Fidelity's
-# classification rules stay the single source of truth.
+# Fidelity's canonical action_type constants → normalized :class:`ActionKind`.
+# Kept in sync with ``_classify_action`` so Fidelity's classification rules
+# stay the single source of truth.
 _ACTION_TYPE_TO_KIND: dict[str, ActionKind] = {
     ACT_BUY: ActionKind.BUY,
     ACT_SELL: ActionKind.SELL,
@@ -132,11 +107,9 @@ _ACTION_TYPE_TO_KIND: dict[str, ActionKind] = {
     ACT_ROTH_CONVERSION: ActionKind.TRANSFER,
     # IRA cash contributions function as deposits into the retirement account.
     ACT_IRA_CONTRIBUTION: ActionKind.DEPOSIT,
-    # Position-prefix-but-not-cost-basis-impacting actions (REDEMPTION PAYOUT,
-    # TRANSFERRED FROM/TO, DISTRIBUTION, EXCHANGED TO) are bucketed as OTHER
-    # for the shared primitive. ``_replay_core`` in :mod:`etl.timemachine`
-    # still handles their qty effects directly via the raw action string; the
-    # primitive is intentionally conservative here.
+    # Position-prefix-but-not-cost-basis-impacting actions. ``_replay_core``
+    # in :mod:`etl.timemachine` still handles their qty effects directly via
+    # the raw action string; the primitive is intentionally conservative.
     ACT_DISTRIBUTION: ActionKind.OTHER,
     ACT_REDEMPTION: ActionKind.OTHER,
     ACT_EXCHANGE: ActionKind.OTHER,
@@ -157,6 +130,9 @@ def classify_fidelity_action(raw_action: str) -> ActionKind:
     return _ACTION_TYPE_TO_KIND.get(_classify_action(raw_action), ActionKind.OTHER)
 
 
+# ── CSV → in-memory transaction list ──────────────────────────────────────
+
+
 _CSV_DATE_RE = re.compile(r"(\d{2}/\d{2}/\d{4})")
 
 
@@ -173,12 +149,6 @@ def _csv_earliest_date(path: Path) -> str:
     if not dates:
         return "99999999"
     return min(d[6:10] + d[0:2] + d[3:5] for d in dates)
-
-
-# ── CSV → in-memory transaction list ──────────────────────────────────────
-# ``load_transactions`` / ``_parse_csv_text`` preserve the pre-refactor API
-# consumed by contract and unit tests. They are free-standing because callers
-# sometimes want to inspect the parsed rows without touching a database.
 
 
 def _parse_csv_text(text: str, *, source: str = "CSV text") -> list[FidelityTransaction]:
@@ -253,57 +223,7 @@ def load_transactions(csv_path: Path) -> list[FidelityTransaction]:
     return txns
 
 
-# ── Config helpers ─────────────────────────────────────────────────────────
-
-
-def _downloads_dir(config: dict[str, object]) -> Path:
-    raw = config.get("fidelity_downloads")
-    if isinstance(raw, (str, Path)):
-        return Path(raw)
-    return Path.home() / "Downloads"
-
-
-def _fidelity_accounts(config: dict[str, object]) -> dict[str, str]:
-    raw = config.get("fidelity_accounts") or {}
-    if isinstance(raw, dict):
-        return {str(k): str(v) for k, v in raw.items()}
-    return {}
-
-
-def _mutual_funds(config: dict[str, object]) -> frozenset[str]:
-    raw = config.get("mutual_funds")
-    if isinstance(raw, (list, tuple, set, frozenset)):
-        return frozenset(str(t) for t in raw)
-    return _DEFAULT_MUTUAL_FUNDS
-
-
-def _is_cusip(sym: str) -> bool:
-    """True if ``sym`` looks like a CUSIP (8+ chars, leading digit)."""
-    return bool(sym) and sym[0].isdigit() and len(sym) >= 8
-
-
-# ── Public API (module protocol) ───────────────────────────────────────────
-
-
-def produces_positions(config: dict[str, object]) -> bool:
-    """Fidelity is always on — the ingest path is idempotent and silent on missing CSVs."""
-    del config
-    return True
-
-
-def ingest(db_path: Path, config: dict[str, object]) -> None:
-    """Scan ``fidelity_downloads`` for ``Accounts_History*.csv`` and ingest each file.
-
-    Files are processed in chronological order by earliest ``MM/DD/YYYY``
-    date in their body. Each CSV is authoritative for its own date range, so
-    processing oldest→newest naturally deduplicates overlapping exports via
-    :func:`_ingest_one_csv`'s range-replace.
-    """
-    downloads_dir = _downloads_dir(config)
-    raw_csvs = sorted(downloads_dir.glob("Accounts_History*.csv"))
-    raw_csvs.sort(key=_csv_earliest_date)
-    for csv_path in raw_csvs:
-        _ingest_one_csv(db_path, csv_path)
+# ── DB ingest ──────────────────────────────────────────────────────────────
 
 
 def _ingest_one_csv(db_path: Path, csv_path: Path) -> int:
@@ -408,79 +328,3 @@ def _ingest_one_csv(db_path: Path, csv_path: Path) -> int:
         conn.close()
 
     return count
-
-
-def positions_at(
-    db_path: Path,
-    as_of: date,
-    prices: PriceContext,
-    config: dict[str, object],
-) -> list[PositionRow]:
-    """Return one PositionRow per (account, ticker) position + cash bucket.
-
-    Reuses :func:`etl.timemachine.replay_from_db` for the core cost-basis
-    accumulator. That function understands the full Fidelity action alphabet
-    (BUY / SELL / REINVESTMENT plus REDEMPTION PAYOUT, TRANSFERRED FROM/TO,
-    DISTRIBUTION, EXCHANGED TO) and correctly excludes money-market symbols
-    from position accumulation. The narrower
-    :func:`etl.replay.replay_transactions` primitive is not yet sufficient;
-    migrating to it is a separate refactor.
-    """
-    from etl.timemachine import replay_from_db
-
-    accounts = _fidelity_accounts(config)
-    mutual_funds = _mutual_funds(config)
-
-    result = replay_from_db(db_path, as_of)
-    positions: dict[tuple[str, str], float] = result["positions"]
-    cash_by_account: dict[str, float] = result["cash"]
-    cost_basis: dict[tuple[str, str], float] = result.get("cost_basis") or {}
-
-    rows: list[PositionRow] = []
-
-    # ── Positions (one row per (account, ticker); may emit multiple
-    # ── PositionRows with the same ``ticker`` when the same symbol is held
-    # ── in more than one account — the caller aggregates by ticker).
-    for (acct, sym), qty in positions.items():
-        cb = cost_basis.get((acct, sym))
-
-        if _is_cusip(sym):
-            # T-Bill CUSIP: face value quantity, bucketed under "T-Bills".
-            rows.append(PositionRow(
-                ticker="T-Bills",
-                value_usd=qty,
-                quantity=qty,
-                cost_basis_usd=cb,
-                account=acct,
-            ))
-            continue
-
-        # Regular symbol: price-lookup against PriceContext. Missing prices
-        # get logged (mirrors the legacy ``_add_fidelity_positions`` warning)
-        # and the row is excluded from the output.
-        price = prices.lookup(sym, mutual_fund=sym in mutual_funds)
-        if price is not None:
-            rows.append(PositionRow(
-                ticker=sym,
-                value_usd=qty * price,
-                quantity=qty,
-                cost_basis_usd=cb,
-                account=acct,
-            ))
-            continue
-        p_date = prices.mf_price_date if sym in mutual_funds else prices.price_date
-        log.warning(
-            "No price for %s on %s (holding %.3f shares) — excluded from allocation",
-            sym, p_date, qty,
-        )
-
-    # ── Per-account cash routed to each account's MM fund.
-    for acct, bal in cash_by_account.items():
-        mm_ticker = accounts.get(acct, "FZFXX")
-        rows.append(PositionRow(
-            ticker=mm_ticker,
-            value_usd=bal,
-            account=acct,
-        ))
-
-    return rows
