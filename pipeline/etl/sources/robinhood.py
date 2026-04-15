@@ -28,6 +28,7 @@ from pathlib import Path
 
 from etl.replay import replay_transactions
 from etl.sources import ActionKind, PositionRow, PriceContext
+from etl.sources._ingest import range_replace_insert
 
 log = logging.getLogger(__name__)
 
@@ -153,7 +154,6 @@ def _ingest_one_csv(db_path: Path, csv_path: Path) -> None:
     text = csv_path.read_text(encoding="utf-8-sig")
     reader = csv.DictReader(text.splitlines())
     rows: list[tuple[str, str, str, str, float, float, str]] = []
-    iso_dates: list[str] = []
     for row in reader:
         activity_date = (row.get("Activity Date") or "").strip()
         # Skip blank / footer rows — only rows with a parseable
@@ -173,9 +173,8 @@ def _ingest_one_csv(db_path: Path, csv_path: Path) -> None:
             quantity = -abs(quantity)
         amount = _parse_amount(row.get("Amount", ""))
         description = (row.get("Description") or "").strip()
-        iso = d.isoformat()
         rows.append((
-            iso,
+            d.isoformat(),
             action_raw,
             kind.value,
             ticker,
@@ -183,10 +182,6 @@ def _ingest_one_csv(db_path: Path, csv_path: Path) -> None:
             amount,
             description,
         ))
-        iso_dates.append(iso)
-
-    if not iso_dates:
-        return
 
     conn = sqlite3.connect(str(db_path))
     try:
@@ -194,17 +189,17 @@ def _ingest_one_csv(db_path: Path, csv_path: Path) -> None:
         # insert the fresh set. Protects against partial CSVs (e.g. a 3-
         # month export later replaced by a 12-month export with updated
         # back-fills) leaving stale rows behind.
-        min_date, max_date = min(iso_dates), max(iso_dates)
-        conn.execute(
-            f"DELETE FROM {TABLE} "  # noqa: S608 — TABLE is a module-level constant
-            "WHERE txn_date BETWEEN ? AND ?",
-            (min_date, max_date),
-        )
-        conn.executemany(
-            f"INSERT INTO {TABLE} "  # noqa: S608
-            "(txn_date, action, action_kind, ticker, quantity, amount_usd, raw_description) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            rows,
+        range_replace_insert(
+            conn,
+            table=TABLE,
+            date_col="txn_date",
+            rows=rows,
+            date_idx=0,
+            insert_sql=(
+                f"INSERT INTO {TABLE} "  # noqa: S608 — TABLE is a module-level constant
+                "(txn_date, action, action_kind, ticker, quantity, amount_usd, raw_description) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)"
+            ),
         )
         conn.commit()
     finally:

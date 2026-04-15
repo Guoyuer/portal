@@ -20,6 +20,7 @@ from pathlib import Path
 from etl.db import get_connection
 from etl.parsing import STRICT_US_DATE_RE, parse_us_date
 from etl.sources import ActionKind
+from etl.sources._ingest import range_replace_insert
 from etl.types import (
     ACT_BUY,
     ACT_COLLATERAL,
@@ -260,7 +261,6 @@ def _ingest_one_csv(db_path: Path, csv_path: Path) -> int:
 
     reader = csv.DictReader(lines[header_idx:])
     rows: list[tuple[str, str, str, str, str, str, str, str, str, float, float, float, str]] = []
-    iso_dates: list[str] = []
 
     # DictReader consumes the header, so the first data row is file
     # line header_idx + 2.
@@ -293,35 +293,25 @@ def _ingest_one_csv(db_path: Path, csv_path: Path) -> int:
             _parse_float(record.get("Amount", "")),
             record.get("Settlement Date", "").strip(),
         ))
-        iso_dates.append(iso_date)
-
-    if not rows:
-        conn = get_connection(db_path)
-        count: int = conn.execute(
-            f"SELECT COUNT(*) FROM {TABLE}"  # noqa: S608 — TABLE is a module-level constant
-        ).fetchone()[0]
-        conn.close()
-        return count
-
-    min_date = min(iso_dates)
-    max_date = max(iso_dates)
 
     conn = get_connection(db_path)
     try:
-        conn.execute(
-            f"DELETE FROM {TABLE} WHERE run_date BETWEEN ? AND ?",  # noqa: S608
-            (min_date, max_date),
-        )
-        conn.executemany(
-            f"""INSERT INTO {TABLE}
-                (run_date, account, account_number, action, action_type, action_kind,
-                 symbol, description, lot_type, quantity, price, amount, settlement_date)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",  # noqa: S608
-            rows,
+        range_replace_insert(
+            conn,
+            table=TABLE,
+            date_col="run_date",
+            rows=rows,
+            date_idx=0,
+            insert_sql=(
+                f"INSERT INTO {TABLE} "  # noqa: S608 — TABLE is a module-level constant
+                "(run_date, account, account_number, action, action_type, action_kind, "
+                "symbol, description, lot_type, quantity, price, amount, settlement_date) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            ),
         )
         conn.commit()
 
-        count = conn.execute(
+        count: int = conn.execute(
             f"SELECT COUNT(*) FROM {TABLE}"  # noqa: S608
         ).fetchone()[0]
     finally:
