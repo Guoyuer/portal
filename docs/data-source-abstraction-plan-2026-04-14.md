@@ -1,5 +1,7 @@
 # Data Source Abstraction Implementation Plan
 
+> **Note (2026-04-14):** This plan is historical. Some implementation details (e.g., the `--persist-to` persist-dir mechanism described below) were dropped during execution — see commit `99ad34f` for the actual regression-script architecture. Refer to `CLAUDE.md` and the code itself for current state.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Refactor the Python pipeline's investment data sources (Fidelity, Robinhood, Empower 401k) behind a unified `InvestmentSource` Protocol with a shared transaction-replay primitive, enforced by a three-tier zero-regression harness.
