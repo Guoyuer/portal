@@ -27,7 +27,7 @@ import pandas as pd
 
 from .prices import load_cny_rates, load_prices
 from .sources import PriceContext, positions_at_all
-from .sources.robinhood import _csv_path as _robinhood_csv_path
+from .sources.robinhood import _csv_paths as _robinhood_csv_paths
 from .timemachine import (
     replay_qianji,
     replay_qianji_currencies,
@@ -283,11 +283,12 @@ def _build_sources(
     # authoritative even when no QFX files have been ingested yet. Fidelity
     # replay-accounts are always skipped because transaction replay is
     # authoritative whenever ``fidelity_transactions`` has any rows.
-    # Robinhood is data-gated on the CSV's presence — the ``_csv_path``
-    # helper encapsulates the "do we have a Robinhood CSV?" question.
+    # Robinhood is data-gated on the CSV glob's presence — the
+    # ``_csv_paths`` helper encapsulates the "does the user have any
+    # Robinhood export?" question (empty list when the directory's missing).
     skip_qj = _FIDELITY_REPLAY_ACCOUNTS | {"401k"}
     source_config: dict[str, object] = dict(config)
-    if _robinhood_csv_path(source_config).exists():
+    if _robinhood_csv_paths(source_config):
         skip_qj = skip_qj | {"Robinhood"}
 
     return AllocationSources(

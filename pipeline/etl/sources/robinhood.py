@@ -92,23 +92,39 @@ def _parse_float(raw: str) -> float:
 # ── Config helpers ─────────────────────────────────────────────────────────
 
 
-def _csv_path(config: dict[str, object]) -> Path:
-    """Resolve the Robinhood activity-report CSV path from the config dict.
+def _downloads_dir(config: dict[str, object]) -> Path:
+    """Resolve the directory that holds ``Robinhood_history*.csv`` exports.
 
-    Missing key → a sentinel path that never exists, so ``ingest`` and
-    ``positions_at`` become silent no-ops for users without Robinhood.
+    Prefers a dedicated ``robinhood_downloads`` key, then ``fidelity_downloads``
+    (same ``~/Downloads`` folder in practice), then the system Downloads
+    folder. Every fallback goes through :meth:`Path.exists` in the callers,
+    so a missing config / directory surfaces as a silent no-op.
     """
-    raw = config.get("robinhood_csv")
-    if isinstance(raw, (str, Path)):
-        return Path(raw)
-    return Path("__missing_robinhood_csv__")
+    for key in ("robinhood_downloads", "fidelity_downloads"):
+        raw = config.get(key)
+        if isinstance(raw, (str, Path)):
+            return Path(raw)
+    return Path.home() / "Downloads"
+
+
+def _csv_paths(config: dict[str, object]) -> list[Path]:
+    """Glob matching Robinhood activity-report CSVs for this build.
+
+    Returns ``[]`` when the directory doesn't exist. Users without a Robinhood
+    CSV see no rows; users with multiple exports (e.g. quarterly pulls) have
+    each CSV range-replace its own window, mirroring Fidelity's ingest.
+    """
+    downloads = _downloads_dir(config)
+    if not downloads.exists():
+        return []
+    return sorted(downloads.glob("Robinhood_history*.csv"))
 
 
 # ── Public API (module protocol) ───────────────────────────────────────────
 
 
 def produces_positions(config: dict[str, object]) -> bool:
-    """Always on. The ingest path is a silent no-op when no CSV is present,
+    """Always on. The ingest path is a silent no-op when no CSVs are present,
     and :func:`positions_at` returns an empty list when the table is empty.
     """
     del config
@@ -116,25 +132,25 @@ def produces_positions(config: dict[str, object]) -> bool:
 
 
 def ingest(db_path: Path, config: dict[str, object]) -> None:
-    """Parse the CSV and persist rows into ``robinhood_transactions``.
+    """Scan ``robinhood_downloads`` for ``Robinhood_history*.csv`` and ingest each.
 
-    Idempotent via range-replace (mirrors
-    :func:`etl.sources.fidelity._ingest_one_csv`): the rows in the CSV's
-    ``[min_date, max_date]`` window are DELETEd and then the full parsed set
-    is INSERTed. Re-running the build on the same CSV yields bit-identical
-    DB state. Legitimate same-day duplicate trades are preserved — Robinhood
-    CSVs do occasionally emit two rows with identical
-    date/ticker/action/qty/amount (two physical buys of identical size), and
-    discarding one silently would understate positions.
+    Each CSV is authoritative for its own date window via
+    :func:`_ingest_one_csv`'s range-replace (mirrors
+    :func:`etl.sources.fidelity.parse._ingest_one_csv`). Re-running the build
+    on the same set of CSVs yields bit-identical DB state. Legitimate same-
+    day duplicate trades are preserved — Robinhood CSVs do occasionally emit
+    two rows with identical date/ticker/action/qty/amount, and silently
+    collapsing one would understate positions.
 
-    If the CSV file doesn't exist (user doesn't use Robinhood), this is
-    a silent no-op.
+    If no CSV matches (user doesn't have Robinhood), this is a silent no-op.
     """
-    path = _csv_path(config)
-    if not path.exists():
-        return
+    for path in _csv_paths(config):
+        _ingest_one_csv(db_path, path)
 
-    text = path.read_text(encoding="utf-8-sig")
+
+def _ingest_one_csv(db_path: Path, csv_path: Path) -> None:
+    """Parse one Robinhood CSV and persist its rows via range-replace."""
+    text = csv_path.read_text(encoding="utf-8-sig")
     reader = csv.DictReader(text.splitlines())
     rows: list[tuple[str, str, str, str, float, float, str]] = []
     iso_dates: list[str] = []
@@ -169,25 +185,27 @@ def ingest(db_path: Path, config: dict[str, object]) -> None:
         ))
         iso_dates.append(iso)
 
+    if not iso_dates:
+        return
+
     conn = sqlite3.connect(str(db_path))
     try:
-        if iso_dates:
-            # Range-replace: wipe any existing rows in the CSV's window, then
-            # insert the fresh set. Protects against partial CSVs (e.g. a 3-
-            # month export later replaced by a 12-month export with updated
-            # back-fills) leaving stale rows behind.
-            min_date, max_date = min(iso_dates), max(iso_dates)
-            conn.execute(
-                f"DELETE FROM {TABLE} "  # noqa: S608 — TABLE is a module-level constant
-                "WHERE txn_date BETWEEN ? AND ?",
-                (min_date, max_date),
-            )
-            conn.executemany(
-                f"INSERT INTO {TABLE} "  # noqa: S608
-                "(txn_date, action, action_kind, ticker, quantity, amount_usd, raw_description) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                rows,
-            )
+        # Range-replace: wipe any existing rows in the CSV's window, then
+        # insert the fresh set. Protects against partial CSVs (e.g. a 3-
+        # month export later replaced by a 12-month export with updated
+        # back-fills) leaving stale rows behind.
+        min_date, max_date = min(iso_dates), max(iso_dates)
+        conn.execute(
+            f"DELETE FROM {TABLE} "  # noqa: S608 — TABLE is a module-level constant
+            "WHERE txn_date BETWEEN ? AND ?",
+            (min_date, max_date),
+        )
+        conn.executemany(
+            f"INSERT INTO {TABLE} "  # noqa: S608
+            "(txn_date, action, action_kind, ticker, quantity, amount_usd, raw_description) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            rows,
+        )
         conn.commit()
     finally:
         conn.close()

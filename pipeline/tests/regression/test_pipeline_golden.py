@@ -35,9 +35,9 @@ DOWNLOAD_FIXTURES = [
     "Bloomberg.Download_fixture_2024-12.qfx",
 ]
 
-# Robinhood's ingest path is explicit (``<downloads>/Robinhood_history.csv``)
-# rather than a glob, so the fixture CSV ships under a different name and
-# we rename it on copy.
+# Robinhood now globs ``Robinhood_history*.csv`` in the downloads directory,
+# same as Fidelity. The fixture still ships under ``robinhood.csv`` for
+# clarity and is renamed on copy to match the production glob.
 ROBINHOOD_FIXTURE_SRC = "robinhood.csv"
 ROBINHOOD_FIXTURE_DST = "Robinhood_history.csv"
 

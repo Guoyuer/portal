@@ -70,10 +70,9 @@ PIPELINE_DIR = Path(__file__).resolve().parent.parent
 class BuildPaths:
     """Resolved filesystem paths for a single build invocation.
 
-    ``db_path`` and ``robinhood_csv`` are derived from ``data_dir`` /
-    ``downloads`` rather than stored, so callers can't introduce a
-    divergence by passing, e.g., a custom ``data_dir`` with the wrong
-    ``db_path``.
+    ``db_path`` is derived from ``data_dir`` rather than stored, so callers
+    can't introduce a divergence by passing, e.g., a custom ``data_dir`` with
+    the wrong ``db_path``.
     """
     data_dir: Path
     config: Path
@@ -83,10 +82,6 @@ class BuildPaths:
     @property
     def db_path(self) -> Path:
         return self.data_dir / "timemachine.db"
-
-    @property
-    def robinhood_csv(self) -> Path:
-        return self.downloads / "Robinhood_history.csv"
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -207,11 +202,13 @@ def _ingest_fidelity_csvs(paths: BuildPaths) -> None:
 
 
 def _ingest_robinhood_csv(paths: BuildPaths) -> None:
-    """Ingest the Robinhood activity CSV via :mod:`etl.sources.robinhood`.
+    """Ingest Robinhood activity CSVs via :mod:`etl.sources.robinhood`.
 
-    Silent no-op when the CSV is absent (user has no Robinhood holdings).
+    Silent no-op when no CSV matches (user has no Robinhood holdings).
+    Uses the same ``downloads/`` glob as Fidelity — users drop fresh
+    ``Robinhood_history*.csv`` files into the shared downloads folder.
     """
-    robinhood_src.ingest(paths.db_path, {"robinhood_csv": paths.robinhood_csv})
+    robinhood_src.ingest(paths.db_path, {"robinhood_downloads": paths.downloads})
 
 
 def _qianji_401k_fallback_contribs(last_qfx_date: date | None) -> list[Contribution]:
@@ -478,7 +475,7 @@ def _build_source_config(paths: BuildPaths, config: RawConfig) -> RawConfig:
     """
     return dict(config) | {  # type: ignore[return-value]  # pragma: no cover (typed dict widening)
         "fidelity_downloads": paths.downloads,
-        "robinhood_csv": paths.robinhood_csv,
+        "robinhood_downloads": paths.downloads,
         "empower_downloads": paths.downloads,
     }
 
