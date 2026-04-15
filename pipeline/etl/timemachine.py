@@ -242,16 +242,12 @@ def calibrate_from_positions(
 
     Returns a new replay_result dict with positions/cost_basis overwritten by CSV ground truth.
     """
-    import csv as csv_mod
-
-    # Parse CSV
-    text = csv_path.read_text(encoding="utf-8-sig")
-    reader = csv_mod.DictReader(text.strip().splitlines())
+    from .parsing import read_csv_rows
 
     csv_positions: dict[tuple[str, str], float] = {}  # (account, symbol) -> qty
     csv_cost_basis: dict[tuple[str, str], float] = {}
 
-    for row in reader:
+    for row in read_csv_rows(csv_path):
         acct = (row.get("Account Number") or "").strip()
         sym = (row.get("Symbol") or "").strip()
         qty_str = (row.get("Quantity") or "").strip()
@@ -491,25 +487,26 @@ def _write_store(rows: list[dict[str, str]], path: Path) -> None:
 
 def verify(store_path: Path, positions_csv: Path) -> None:
     """Verify replay results against a Fidelity positions snapshot."""
+    from .parsing import read_csv_rows
+
     # Load expected positions
     expected_pos: dict[tuple[str, str], float] = defaultdict(float)
     expected_cash: dict[str, float] = {}
-    with open(positions_csv, encoding="utf-8-sig") as f:
-        for row in csv.DictReader(f):
-            sym = (row.get("Symbol") or "").strip()
-            acct = (row.get("Account Number") or "").strip()
-            qty_str = (row.get("Quantity") or "").strip()
-            val_str = (row.get("Current Value") or "").strip()
-            if not sym or not acct:
-                continue
-            if "**" in sym:
-                # Money market → cash
-                expected_cash[acct] = _float(val_str)
-                continue
-            if not re.match(r"^[A-Z0-9]+$", acct):
-                continue
-            if qty_str:
-                expected_pos[(acct, sym)] += float(qty_str)
+    for row in read_csv_rows(positions_csv):
+        sym = (row.get("Symbol") or "").strip()
+        acct = (row.get("Account Number") or "").strip()
+        qty_str = (row.get("Quantity") or "").strip()
+        val_str = (row.get("Current Value") or "").strip()
+        if not sym or not acct:
+            continue
+        if "**" in sym:
+            # Money market → cash
+            expected_cash[acct] = _float(val_str)
+            continue
+        if not re.match(r"^[A-Z0-9]+$", acct):
+            continue
+        if qty_str:
+            expected_pos[(acct, sym)] += float(qty_str)
 
     expected_pos = {k: v for k, v in expected_pos.items() if abs(v) > 0.001}
 
