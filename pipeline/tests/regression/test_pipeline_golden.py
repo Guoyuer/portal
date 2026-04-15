@@ -85,6 +85,7 @@ def built_db(tmp_path_factory: pytest.TempPathFactory) -> Path:
             "--prices-from-csv", str(FIXTURE_DIR / "prices.csv"),
             "--dry-run-market",
             "--no-validate",
+            "--as-of", "2026-04-14",
         ],
         cwd=str(PIPELINE_DIR),
         env=env,
