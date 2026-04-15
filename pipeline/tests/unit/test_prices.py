@@ -573,3 +573,63 @@ class TestSplitCrossValidation:
             assert "AVGO" in msg
         finally:
             conn.close()
+
+
+# ── Incremental fetch regression ───────────────────────────────────────────
+
+
+class TestIncrementalFetch:
+    def test_cached_lo_after_global_start_does_not_trigger_full_batch(
+        self, tmp_path: Path,
+    ) -> None:
+        """Regression: a symbol whose cache starts later than ``global_start``
+        (e.g. IPO'd after the user's timeline began) must NOT trigger a
+        multi-year batch fetch.
+
+        Before the fix, ``cached_lo > fetch_start`` was treated as a
+        "historical gap" and the symbol's ``to_fetch`` start was reset to
+        ``fetch_start`` (=``global_start``). Since ``batch_start`` is the
+        MIN across all symbols, one IPO'd-late ticker dragged every other
+        symbol to a full-history fetch — effectively turning every daily
+        sync into a 3-year × 83-symbol download. Yahoo rate-limited and
+        returned empty for many symbols, which then broke the sync gate
+        because the local DB lost rows vs prod.
+
+        With the fix, any cached symbol just refreshes the recent window.
+        """
+        from etl.refresh import refresh_window_start
+
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        # Two symbols: VOO cached from 2023 (old, full-history), FBTC
+        # cached only from 2024-01-11 (IPO'd later).
+        _seed_prices(db_path, [
+            ("VOO", "2023-03-13", 380.0),
+            ("VOO", "2026-04-11", 500.0),
+            ("FBTC", "2024-01-11", 30.0),
+            ("FBTC", "2026-04-11", 85.0),
+        ])
+        end = date(2026, 4, 12)
+
+        with patch("etl.prices.yf.download") as mock_dl, \
+             patch("etl.prices._build_split_factors", return_value={}):
+            mock_dl.return_value = pd.DataFrame(
+                {("Close", "VOO"): [505.0], ("Close", "FBTC"): [86.0]},
+                index=pd.to_datetime(["2026-04-12"]),
+            )
+            fetch_and_store_prices(
+                db_path,
+                {
+                    "VOO": (date(2023, 3, 13), None),
+                    "FBTC": (date(2024, 1, 11), None),
+                },
+                end,
+                global_start=date(2023, 3, 13),  # brush-range floor
+            )
+            assert mock_dl.called
+            start_d = date.fromisoformat(mock_dl.call_args.kwargs["start"])
+            # Batch must be the refresh window, not the 3-year span.
+            assert start_d == refresh_window_start(end), (
+                f"expected {refresh_window_start(end)}, got {start_d} — the "
+                f"IPO'd-late symbol must not drag batch_start back to global_start"
+            )
