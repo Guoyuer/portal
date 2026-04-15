@@ -104,6 +104,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Skip Yahoo market-index fetches (used with --prices-from-csv for offline regression fixtures).",
     )
+    parser.add_argument(
+        "--as-of",
+        type=lambda s: date.fromisoformat(s),
+        default=None,
+        help="Use this date instead of date.today() as the end of the computed range. For test fixtures only.",
+    )
     return parser.parse_args(argv)
 
 
@@ -638,7 +644,7 @@ def main() -> None:
     print("=" * 60)
 
     config = _load_config(paths.config)
-    end = date.today()
+    end = args.as_of or date.today()
 
     # Ingest all sources, fetch prices (populates DB)
     _ingest_and_fetch(
