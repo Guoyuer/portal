@@ -5,7 +5,7 @@ The original Task 17 schema carried that UNIQUE constraint to guarantee
 idempotent re-ingest, but Robinhood CSVs legitimately contain duplicate
 rows (e.g. two recurring buys with identical date/qty/amount represent two
 physical trades, not one). Collapsing them broke L1 parity with the legacy
-``replay_robinhood`` path. Task 19 switches :meth:`RobinhoodSource.ingest`
+``replay_robinhood`` path. Task 19 switches :func:`etl.sources.robinhood.ingest`
 to Fidelity's range-replace pattern (DELETE within CSV's date range +
 INSERT everything), which gives the same idempotency guarantee without
 discarding real data.

@@ -288,7 +288,7 @@ class TestComputeDailyAllocation:
         _init_timemachine(db_path)
         _init_qianji(qj_path)
 
-        # Seed an Empower snapshot + fund row so :class:`EmpowerSource` picks it up.
+        # Seed an Empower snapshot + fund row so :mod:`etl.sources.empower` picks it up.
         conn = sqlite3.connect(str(db_path))
         conn.execute("INSERT INTO empower_snapshots (snapshot_date) VALUES ('2025-01-02')")
         sid = conn.execute(

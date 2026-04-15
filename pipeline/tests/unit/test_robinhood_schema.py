@@ -20,7 +20,7 @@ def test_robinhood_transactions_allows_duplicate_rows(tmp_path: Path) -> None:
     """Same-day duplicate trades (identical txn_date/ticker/action/qty/amount)
     are preserved as two rows — Robinhood CSVs legitimately emit such pairs
     for recurring orders of identical size. Idempotent re-ingest is handled
-    by the range-replace pattern in :meth:`RobinhoodSource.ingest`, not by
+    by the range-replace pattern in :func:`etl.sources.robinhood.ingest`, not by
     a UNIQUE constraint at the schema level.
     """
     db = tmp_path / "tm.db"

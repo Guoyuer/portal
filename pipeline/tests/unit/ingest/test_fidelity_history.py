@@ -2,7 +2,7 @@
 
 After the data-source abstraction refactor (Phase 3 — Task 16), the parsing
 and DB-ingest code live in :mod:`etl.sources.fidelity`. The tests below call
-:meth:`FidelitySource._ingest_one_csv` for per-file ingestion and import
+:func:`etl.sources.fidelity._ingest_one_csv` for per-file ingestion and import
 ``load_transactions`` from the new module.
 """
 

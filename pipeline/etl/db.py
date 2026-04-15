@@ -38,10 +38,10 @@ CREATE TABLE IF NOT EXISTS fidelity_transactions (
 -- Idempotency note: we intentionally do NOT add a UNIQUE(txn_date, ticker,
 -- action, quantity, amount_usd) constraint. Robinhood CSVs legitimately
 -- contain duplicate rows (e.g. two recurring buys of identical lot/price on
--- the same day → 2 physical shares bought, not 1), and :class:`FidelitySource`
+-- the same day → 2 physical shares bought, not 1), and :mod:`etl.sources.fidelity`
 -- documents this explicitly: "preserving both matches reality better than
 -- collapsing them." Idempotent re-ingest is instead guaranteed by the
--- range-replace pattern in :meth:`RobinhoodSource.ingest`
+-- range-replace pattern in :func:`etl.sources.robinhood.ingest`
 -- (DELETE within the CSV's [min_date, max_date] + INSERT everything).
 CREATE TABLE IF NOT EXISTS robinhood_transactions (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,

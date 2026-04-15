@@ -309,7 +309,7 @@ def _init_db_and_ingest_sources(
     # quantity, amount_usd) constraint for idempotent re-ingest, but that
     # silently collapsed legitimate same-day duplicate trades (breaking L1
     # parity with legacy ``replay_robinhood``). Idempotency now comes from
-    # :meth:`RobinhoodSource.ingest`'s range-replace (DELETE within CSV's
+    # :func:`etl.sources.robinhood.ingest`'s range-replace (DELETE within CSV's
     # [min_date, max_date] + INSERT everything) — identical to Fidelity.
     # Migration below is a no-op on fresh DBs (schema already correct).
     _migrate_drop_robinhood_unique(paths.db_path)
@@ -377,7 +377,7 @@ def _compute_holding_periods(
         periods[idx_ticker] = (earliest, None)
 
     # Add Robinhood symbols that aren't in Fidelity — query the
-    # ``robinhood_transactions`` table that :class:`RobinhoodSource.ingest`
+    # ``robinhood_transactions`` table that :func:`etl.sources.robinhood.ingest`
     # populated in step 3b. (Reading from the DB here instead of the CSV
     # means a user whose CSV was deleted after an earlier build still has
     # their prices refetched.)
