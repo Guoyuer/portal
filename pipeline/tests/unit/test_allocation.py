@@ -22,7 +22,6 @@ if "yfinance" not in sys.modules:
     sys.modules["yfinance"] = _yf
 
 from etl.allocation import (  # noqa: E402
-    _add_401k,
     _add_qianji_balances,
     _build_allocation_row,
     _categorize_ticker,
@@ -154,7 +153,6 @@ class TestComputeDailyAllocation:
             db_path=db_path,
             qj_db=qj_path,
             config=_make_config(),
-            k401_daily={},
             start=date(2025, 1, 2),
             end=date(2025, 1, 2),
         )
@@ -182,7 +180,6 @@ class TestComputeDailyAllocation:
             db_path=db_path,
             qj_db=qj_path,
             config=_make_config(),
-            k401_daily={},
             start=date(2025, 1, 2),
             end=date(2025, 1, 6),
         )
@@ -204,7 +201,6 @@ class TestComputeDailyAllocation:
             db_path=db_path,
             qj_db=qj_path,
             config=_make_config(),
-            k401_daily={},
             start=date(2025, 1, 2),
             end=date(2025, 1, 2),
         )
@@ -224,7 +220,6 @@ class TestComputeDailyAllocation:
             db_path=db_path,
             qj_db=qj_path,
             config=_make_config(),
-            k401_daily={},
             start=date(2025, 1, 2),
             end=date(2025, 1, 2),
         )
@@ -271,7 +266,7 @@ class TestComputeDailyAllocation:
         }
 
         results = compute_daily_allocation(
-            db_path=db_path, qj_db=qj_path, config=config, k401_daily={},
+            db_path=db_path, qj_db=qj_path, config=config,
             start=date(2025, 1, 2), end=date(2025, 1, 2),
         )
 
@@ -281,22 +276,33 @@ class TestComputeDailyAllocation:
         assert tickers["FZFXX"] == 1000.0
 
     def test_401k_values_included(self, tmp_path: Path) -> None:
-        """401k daily values are added to totals."""
+        """Empower 401k values (from empower_snapshots/empower_funds) are added to totals."""
         db_path = tmp_path / "timemachine.db"
         qj_path = tmp_path / "qianji.db"
         _init_timemachine(db_path)
         _init_qianji(qj_path)
 
+        # Seed an Empower snapshot + fund row so :class:`EmpowerSource` picks it up.
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("INSERT INTO empower_snapshots (snapshot_date) VALUES ('2025-01-02')")
+        sid = conn.execute(
+            "SELECT id FROM empower_snapshots WHERE snapshot_date = '2025-01-02'"
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO empower_funds (snapshot_id, cusip, ticker, shares, price, mktval)"
+            " VALUES (?, '856917729', '401k sp500', 100.0, 500.0, 50000.0)",
+            (sid,),
+        )
+        conn.commit()
+        conn.close()
+
         config = _make_config()
         config["assets"]["401k sp500"] = {"category": "US Equity", "subtype": "retirement"}
-
-        k401 = {date(2025, 1, 2): {"401k sp500": 50000.0}}
 
         results = compute_daily_allocation(
             db_path=db_path,
             qj_db=qj_path,
             config=config,
-            k401_daily=k401,
             start=date(2025, 1, 2),
             end=date(2025, 1, 2),
         )
@@ -314,7 +320,6 @@ class TestComputeDailyAllocation:
             db_path=db_path,
             qj_db=qj_path,
             config=_make_config(),
-            k401_daily={},
             start=date(2025, 1, 2),
             end=date(2025, 1, 2),
         )
@@ -356,7 +361,6 @@ class TestComputeDailyAllocation:
             db_path=db_path,
             qj_db=qj_path,
             config=config,
-            k401_daily={},
             start=date(2025, 1, 2),
             end=date(2025, 1, 2),
         )
@@ -373,7 +377,6 @@ class TestComputeDailyAllocation:
             db_path=db_path,
             qj_db=qj_path,
             config=_make_config(),
-            k401_daily={},
             start=date(2025, 1, 10),
             end=date(2025, 1, 2),
         )
@@ -389,7 +392,6 @@ class TestComputeDailyAllocation:
             db_path=db_path,
             qj_db=qj_path,
             config=_make_config(),
-            k401_daily={},
             start=date(2025, 1, 2),
             end=date(2025, 1, 2),
         )
@@ -408,7 +410,6 @@ class TestComputeDailyAllocation:
             db_path=db_path,
             qj_db=qj_path,
             config=_make_config(),
-            k401_daily={},
             start=date(2025, 1, 2),
             end=date(2025, 1, 6),
         )
@@ -618,17 +619,3 @@ class TestBuildAllocationRow:
         assert row["liabilities"] == -1000.0
 
 
-# ── _add_401k ──────────────────────────────────────────────────────────────
-
-
-class TestAdd401k:
-    def test_values_added_for_current_date(self) -> None:
-        ticker_values: dict[str, float] = {}
-        k401 = {date(2025, 1, 2): {"401k sp500": 50000.0, "401k ex-us": 10000.0}}
-        _add_401k(ticker_values, k401, date(2025, 1, 2))
-        assert ticker_values == {"401k sp500": 50000.0, "401k ex-us": 10000.0}
-
-    def test_no_entry_for_date_is_noop(self) -> None:
-        ticker_values: dict[str, float] = {"EXISTING": 100.0}
-        _add_401k(ticker_values, {}, date(2025, 1, 2))
-        assert ticker_values == {"EXISTING": 100.0}

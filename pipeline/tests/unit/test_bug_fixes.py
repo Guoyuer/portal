@@ -256,7 +256,7 @@ class TestMissingPriceWarns:
         # ``etl.allocation``. Watch the root logger so either location is
         # caught.
         with caplog.at_level(logging.WARNING):
-            compute_daily_allocation(db, qj, config, {}, date(2025, 1, 2), date(2025, 1, 2))
+            compute_daily_allocation(db, qj, config, date(2025, 1, 2), date(2025, 1, 2))
 
         # Must warn about SGOV having no price
         sgov_warnings = [r for r in caplog.records if "SGOV" in r.message]
@@ -282,7 +282,7 @@ class TestMissingPriceWarns:
         }
 
         with caplog.at_level(logging.WARNING):
-            compute_daily_allocation(db, qj, config, {}, date(2025, 1, 2), date(2025, 1, 2))
+            compute_daily_allocation(db, qj, config, date(2025, 1, 2), date(2025, 1, 2))
 
         price_warnings = [r for r in caplog.records if "price" in r.message.lower()]
         assert len(price_warnings) == 0
@@ -320,7 +320,7 @@ class TestUnmappedQianjiWarns:
         }
 
         with caplog.at_level(logging.WARNING, logger="etl.allocation"):
-            compute_daily_allocation(db, qj, config, {}, date(2025, 1, 2), date(2025, 1, 2))
+            compute_daily_allocation(db, qj, config, date(2025, 1, 2), date(2025, 1, 2))
 
         hysa_warnings = [r for r in caplog.records if "Amex HYSA" in r.message]
         assert len(hysa_warnings) > 0, "Expected a warning about unmapped Amex HYSA"
@@ -348,7 +348,7 @@ class TestUnmappedQianjiWarns:
         }
 
         with caplog.at_level(logging.WARNING, logger="etl.allocation"):
-            compute_daily_allocation(db, qj, config, {}, date(2025, 1, 2), date(2025, 1, 2))
+            compute_daily_allocation(db, qj, config, date(2025, 1, 2), date(2025, 1, 2))
 
         unmapped_warnings = [r for r in caplog.records if "ticker_map" in r.message.lower() or "unmapped" in r.message.lower()]
         assert len(unmapped_warnings) == 0
@@ -376,7 +376,7 @@ class TestUnmappedQianjiWarns:
         }
 
         with caplog.at_level(logging.WARNING, logger="etl.allocation"):
-            compute_daily_allocation(db, qj, config, {}, date(2025, 1, 2), date(2025, 1, 2))
+            compute_daily_allocation(db, qj, config, date(2025, 1, 2), date(2025, 1, 2))
 
         # CNY accounts should NOT trigger unmapped warnings
         unmapped = [r for r in caplog.records if "Alipay" in r.message and "ticker_map" in r.message.lower()]
@@ -411,7 +411,7 @@ class TestTBillCusipsValuedAtFace:
             "qianji_accounts": {"fidelity_tracked": [], "ticker_map": {}},
         }
 
-        results = compute_daily_allocation(db, qj, config, {}, date(2025, 1, 2), date(2025, 1, 2))
+        results = compute_daily_allocation(db, qj, config, date(2025, 1, 2), date(2025, 1, 2))
 
         day = results[0]
         tickers = {t["ticker"]: t for t in day["tickers"]}
@@ -438,7 +438,7 @@ class TestTBillCusipsValuedAtFace:
             "qianji_accounts": {"fidelity_tracked": [], "ticker_map": {}},
         }
 
-        results = compute_daily_allocation(db, qj, config, {}, date(2025, 1, 2), date(2025, 1, 2))
+        results = compute_daily_allocation(db, qj, config, date(2025, 1, 2), date(2025, 1, 2))
 
         tickers = {t["ticker"]: t for t in results[0]["tickers"]}
         assert "T-Bills" in tickers
@@ -464,7 +464,7 @@ class TestTBillCusipsValuedAtFace:
         }
 
         with caplog.at_level(logging.WARNING, logger="etl.allocation"):
-            compute_daily_allocation(db, qj, config, {}, date(2025, 1, 2), date(2025, 1, 2))
+            compute_daily_allocation(db, qj, config, date(2025, 1, 2), date(2025, 1, 2))
 
         cusip_warnings = [r for r in caplog.records if "912797" in r.message or "06428" in r.message]
         assert len(cusip_warnings) == 0
@@ -488,7 +488,7 @@ class TestTBillCusipsValuedAtFace:
             "qianji_accounts": {"fidelity_tracked": [], "ticker_map": {}},
         }
 
-        results = compute_daily_allocation(db, qj, config, {}, date(2025, 1, 2), date(2025, 1, 2))
+        results = compute_daily_allocation(db, qj, config, date(2025, 1, 2), date(2025, 1, 2))
 
         tickers = {t["ticker"]: t for t in results[0]["tickers"]}
         assert tickers["T-Bills"]["value"] == pytest.approx(7000.0)

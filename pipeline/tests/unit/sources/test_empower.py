@@ -193,3 +193,102 @@ DATA:OFXSGML
     assert n_snaps == 1
     assert n_funds == 1
     assert n_contribs == 1
+
+
+def test_ingest_skips_zero_mktval_funds(tmp_path: Path) -> None:
+    """Funds with mktval <= 0 or units <= 0 are excluded at parse time."""
+    qfx = """\
+OFXHEADER:100
+DATA:OFXSGML
+<OFX><INVSTMTMSGSRSV1><INVSTMTTRNRS><INVSTMTRS>
+<DTASOF>20250101000000.000</DTASOF>
+<INVTRANLIST><DTSTART>20250101</DTSTART><DTEND>20250101000000.000</DTEND></INVTRANLIST>
+<INVPOSLIST>
+<POSMF><INVPOS><SECID><UNIQUEID>856917729</UNIQUEID></SECID>
+<UNITS>0</UNITS><UNITPRICE>10</UNITPRICE><MKTVAL>0</MKTVAL></INVPOS>
+</INVPOSLIST></INVSTMTRS></INVSTMTTRNRS></INVSTMTMSGSRSV1></OFX>
+"""
+    (tmp_path / "Bloomberg.Download.zero.qfx").write_text(qfx, encoding="ascii")
+    db = tmp_path / "tm.db"
+    init_db(db)
+    src = EmpowerSource(EmpowerSourceConfig(downloads_dir=tmp_path), db)
+    src.ingest()
+
+    conn = sqlite3.connect(str(db))
+    try:
+        n_funds = conn.execute("SELECT COUNT(*) FROM empower_funds").fetchone()[0]
+    finally:
+        conn.close()
+    assert n_funds == 0
+
+
+def test_ingest_unknown_cusip_uses_fallback_ticker(tmp_path: Path) -> None:
+    """Unknown CUSIP → ``401k_unknown_<cusip>`` fallback ticker."""
+    qfx = """\
+OFXHEADER:100
+DATA:OFXSGML
+<OFX><INVSTMTMSGSRSV1><INVSTMTTRNRS><INVSTMTRS>
+<DTASOF>20250101000000.000</DTASOF>
+<INVTRANLIST><DTSTART>20250101</DTSTART><DTEND>20250101000000.000</DTEND></INVTRANLIST>
+<INVPOSLIST>
+<POSMF><INVPOS><SECID><UNIQUEID>999999999</UNIQUEID></SECID>
+<UNITS>10</UNITS><UNITPRICE>5</UNITPRICE><MKTVAL>50</MKTVAL></INVPOS>
+</INVPOSLIST></INVSTMTRS></INVSTMTTRNRS></INVSTMTMSGSRSV1></OFX>
+"""
+    (tmp_path / "Bloomberg.Download.unknown.qfx").write_text(qfx, encoding="ascii")
+    db = tmp_path / "tm.db"
+    init_db(db)
+    src = EmpowerSource(EmpowerSourceConfig(downloads_dir=tmp_path), db)
+    src.ingest()
+
+    conn = sqlite3.connect(str(db))
+    try:
+        tickers = [row[0] for row in conn.execute("SELECT ticker FROM empower_funds")]
+    finally:
+        conn.close()
+    assert tickers == ["401k_unknown_999999999"]
+
+
+def test_ingest_is_idempotent(tmp_path: Path) -> None:
+    """Running ingest() twice is a no-op: same snapshot count + same fund count."""
+    qfx = """\
+OFXHEADER:100
+DATA:OFXSGML
+<OFX><INVSTMTMSGSRSV1><INVSTMTTRNRS><INVSTMTRS>
+<DTASOF>20240630000000.000</DTASOF>
+<INVTRANLIST><DTSTART>20240101</DTSTART><DTEND>20240630000000.000</DTEND></INVTRANLIST>
+<INVPOSLIST>
+<POSMF><INVPOS><SECID><UNIQUEID>856917729</UNIQUEID></SECID>
+<UNITS>100</UNITS><UNITPRICE>25</UNITPRICE><MKTVAL>2500</MKTVAL></INVPOS>
+</INVPOSLIST></INVSTMTRS></INVSTMTTRNRS></INVSTMTMSGSRSV1></OFX>
+"""
+    (tmp_path / "Bloomberg.Download.A.qfx").write_text(qfx, encoding="ascii")
+    db = tmp_path / "tm.db"
+    init_db(db)
+    src = EmpowerSource(EmpowerSourceConfig(downloads_dir=tmp_path), db)
+    src.ingest()
+    src.ingest()
+    conn = sqlite3.connect(str(db))
+    try:
+        n_snaps = conn.execute("SELECT COUNT(*) FROM empower_snapshots").fetchone()[0]
+        n_funds = conn.execute("SELECT COUNT(*) FROM empower_funds").fetchone()[0]
+    finally:
+        conn.close()
+    assert n_snaps == 1
+    assert n_funds == 1
+
+
+def test_ingest_missing_dir_is_noop(tmp_path: Path) -> None:
+    """Non-existent downloads directory → silent no-op."""
+    db = tmp_path / "tm.db"
+    init_db(db)
+    src = EmpowerSource(
+        EmpowerSourceConfig(downloads_dir=tmp_path / "does_not_exist"), db,
+    )
+    src.ingest()  # must not raise
+    conn = sqlite3.connect(str(db))
+    try:
+        n_snaps = conn.execute("SELECT COUNT(*) FROM empower_snapshots").fetchone()[0]
+    finally:
+        conn.close()
+    assert n_snaps == 0

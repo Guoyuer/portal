@@ -40,19 +40,7 @@ from etl.db import (
     init_db,
     upsert_daily_rows,
 )
-from etl.ingest.empower_401k import (
-    ingest_empower_contributions,
-    ingest_empower_qfx,
-)
 from etl.ingest.qianji_db import ingest_qianji_transactions, load_all_from_db
-from etl.k401 import (
-    PROXY_TICKERS,
-    Contribution,
-    QuarterSnapshot,
-    daily_401k_values,
-    load_all_contributions,
-    load_all_qfx,
-)
 from etl.migrations.add_fidelity_action_kind import migrate as _migrate_fidelity_action_kind
 from etl.migrations.drop_robinhood_unique import migrate as _migrate_drop_robinhood_unique
 from etl.precompute import (
@@ -62,15 +50,16 @@ from etl.precompute import (
 from etl.prices import (
     fetch_and_store_cny_rates,
     fetch_and_store_prices,
-    load_proxy_prices,
     symbol_holding_periods_from_db,
 )
 from etl.refresh import refresh_window_start
-from etl.sources import build_investment_sources
+from etl.sources import InvestmentSource, build_investment_sources
+from etl.sources import empower as _empower_source_module  # noqa: F401 — import side-effect registers EmpowerSource
 from etl.sources import fidelity as _fidelity_source_module  # noqa: F401 — import side-effect registers FidelitySource
 from etl.sources import (
     robinhood as _robinhood_source_module,  # noqa: F401 — import side-effect registers RobinhoodSource
 )
+from etl.sources.empower import PROXY_TICKERS, Contribution, EmpowerSource, EmpowerSourceConfig
 from etl.timemachine import DEFAULT_QJ_DB
 from etl.types import AllocationRow, RawConfig
 from etl.validate import Severity, validate_build
@@ -266,21 +255,20 @@ def _ingest_robinhood_csv(paths: BuildPaths) -> None:
     src.ingest()
 
 
-def _load_401k_contributions(
-    qfx_contribs: list[Contribution],
-    last_qfx_date: date | None,
-) -> list[Contribution]:
-    """Merge 401k contributions: QFX BUYMF (primary) + Qianji (fallback after last QFX).
+def _qianji_401k_fallback_contribs(last_qfx_date: date | None) -> list[Contribution]:
+    """Read Qianji 401k contributions made *after* the last QFX snapshot.
 
-    QFX has per-fund CUSIP -> ticker, so each contribution knows its exact fund.
-    Qianji only has total amount -- used for periods without QFX data (e.g. Q1 2026).
-    For Qianji fallback, split 50/50 sp500/ex-us (current allocation).
+    QFX carries per-fund CUSIPs, so contributions sourced from QFX know their
+    exact fund. Qianji only records a total amount — used as fallback for
+    periods without QFX coverage (e.g. pre the next quarterly export).
+    For Qianji fallback we split 50/50 between ``401k sp500`` and
+    ``401k ex-us`` (matches the user's current allocation).
     """
-    contribs = list(qfx_contribs)
-
-    # Add Qianji contributions AFTER the last QFX coverage
-    if last_qfx_date and DEFAULT_QJ_DB.exists():
-        conn = sqlite3.connect(f"file:{DEFAULT_QJ_DB}?mode=ro", uri=True)
+    contribs: list[Contribution] = []
+    if not last_qfx_date or not DEFAULT_QJ_DB.exists():
+        return contribs
+    conn = sqlite3.connect(f"file:{DEFAULT_QJ_DB}?mode=ro", uri=True)
+    try:
         for money, ts in conn.execute(
             "SELECT money, time FROM user_bill WHERE status = 1 AND type = 1 AND fromact = '401k' ORDER BY time"
         ):
@@ -289,9 +277,8 @@ def _load_401k_contributions(
                 amt = float(money)
                 contribs.append(Contribution(date=d, amount=amt * 0.5, ticker="401k sp500"))
                 contribs.append(Contribution(date=d, amount=amt * 0.5, ticker="401k ex-us"))
+    finally:
         conn.close()
-
-    contribs.sort(key=lambda c: c.date)
     return contribs
 
 
@@ -329,12 +316,12 @@ def _derive_start_date(paths: BuildPaths, fallback: date) -> date:
 def _init_db_and_ingest_sources(
     paths: BuildPaths,
     config: RawConfig,
-) -> tuple[list[QuarterSnapshot], list[Contribution]]:
-    """Steps 1-3: init DB, ingest Fidelity + Empower 401k sources.
+) -> None:
+    """Steps 1-3: init DB, ingest Fidelity + Robinhood + Empower 401k sources.
 
-    Loads QFX snapshots + contributions from disk and ingests the latter. The
-    loaded objects are returned so later steps can reuse them without a second
-    disk read.
+    Every source persists its raw inputs into ``timemachine.db`` at this stage;
+    per-day valuation (step 5) reads exclusively from the DB via the
+    :class:`InvestmentSource` registry.
     """
     # ── Step 1: Initialise database ──
     print("\n[1] Initialising database...")
@@ -367,23 +354,46 @@ def _init_db_and_ingest_sources(
     print("[2b] Ingesting Robinhood transactions...")
     _ingest_robinhood_csv(paths)
 
-    # ── Step 3: Ingest Empower QFX ──
+    # ── Step 3: Ingest Empower QFX + Qianji fallback contributions ──
     print("[3] Ingesting Empower 401k...")
-    qfx_files = sorted(paths.downloads.glob("Bloomberg.Download*.qfx"))
-    for qfx_path in qfx_files:
-        ingest_empower_qfx(paths.db_path, qfx_path)
-    qfx_contribs = load_all_contributions(paths.downloads)
-    if qfx_contribs:
-        ingest_empower_contributions(paths.db_path, qfx_contribs)
+    empower_src = EmpowerSource(
+        EmpowerSourceConfig(downloads_dir=paths.downloads), paths.db_path,
+    )
+    empower_src.ingest()
 
-    qfx_snaps = load_all_qfx(paths.downloads)
-    return qfx_snaps, qfx_contribs
+    # QFX coverage ends at the latest snapshot date. Contributions made after
+    # that (as recorded in Qianji) are tracked as 50/50 sp500/ex-us fallback
+    # rows and persisted into ``empower_contributions`` so that
+    # :meth:`EmpowerSource.positions_at` sees them at query time.
+    last_qfx_date = _last_empower_snapshot_date(paths.db_path)
+    fallback_contribs = _qianji_401k_fallback_contribs(last_qfx_date)
+    if fallback_contribs:
+        empower_src.ingest_contributions(fallback_contribs)
+
+
+def _last_empower_snapshot_date(db_path: Path) -> date | None:
+    """Return the most recent Empower snapshot date, or None if no snapshots exist."""
+    conn = get_connection(db_path)
+    try:
+        row = conn.execute("SELECT MAX(snapshot_date) FROM empower_snapshots").fetchone()
+    finally:
+        conn.close()
+    return date.fromisoformat(row[0]) if row and row[0] else None
+
+
+def _first_empower_snapshot_date(db_path: Path) -> date | None:
+    """Return the earliest Empower snapshot date, or None if no snapshots exist."""
+    conn = get_connection(db_path)
+    try:
+        row = conn.execute("SELECT MIN(snapshot_date) FROM empower_snapshots").fetchone()
+    finally:
+        conn.close()
+    return date.fromisoformat(row[0]) if row and row[0] else None
 
 
 def _compute_holding_periods(
     paths: BuildPaths,
     end: date,
-    qfx_snaps: list[QuarterSnapshot],
 ) -> tuple[dict[str, tuple[date, date | None]], date]:
     """Derive the symbol → (start, end) map used to bulk-fetch prices.
 
@@ -397,7 +407,8 @@ def _compute_holding_periods(
     # Earliest date from all holding periods
     earliest = min((p[0] for p in periods.values()), default=end)
 
-    proxy_start = qfx_snaps[0].date if qfx_snaps else earliest
+    first_snap = _first_empower_snapshot_date(paths.db_path)
+    proxy_start = first_snap if first_snap is not None else earliest
     for proxy in PROXY_TICKERS.values():
         existing = periods.get(proxy)
         if existing is None or existing[0] > proxy_start:
@@ -468,20 +479,6 @@ def _fetch_all_prices(
     fetch_and_store_cny_rates(paths.db_path, cny_start, end)
 
 
-def _compute_401k_daily(
-    paths: BuildPaths,
-    qfx_snaps: list[QuarterSnapshot],
-    qfx_contribs: list[Contribution],
-    earliest: date,
-    end: date,
-) -> dict[date, dict[str, float]]:
-    """Build the per-day 401k value map from proxy prices + merged contributions."""
-    proxy_prices = load_proxy_prices(paths.db_path, PROXY_TICKERS)
-    last_qfx_date = qfx_snaps[-1].date if qfx_snaps else None
-    k401_contribs = _load_401k_contributions(qfx_contribs, last_qfx_date)
-    return daily_401k_values(qfx_snaps, proxy_prices, earliest, end, contributions=k401_contribs)
-
-
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 
@@ -491,15 +488,19 @@ def _ingest_and_fetch(
     end: date,
     *,
     prices_from_csv: Path | None = None,
-) -> dict[date, dict[str, float]]:
-    """Steps 1-5: init DB, ingest sources, fetch prices, build 401k daily map."""
-    qfx_snaps, qfx_contribs = _init_db_and_ingest_sources(paths, config)
+) -> None:
+    """Steps 1-4: init DB, ingest every source, fetch prices.
+
+    Per-day 401k valuation used to be pre-computed here and threaded through
+    to :func:`compute_daily_allocation`. After the Phase 5 migration, Empower
+    is a full :class:`InvestmentSource` that reads its own DB tables at
+    query time — so this function no longer needs to compute anything.
+    """
+    _init_db_and_ingest_sources(paths, config)
 
     print("[4] Fetching prices...")
-    periods, earliest = _compute_holding_periods(paths, end, qfx_snaps)
+    periods, earliest = _compute_holding_periods(paths, end)
     _fetch_all_prices(paths, periods, earliest, end, prices_from_csv=prices_from_csv)
-
-    return _compute_401k_daily(paths, qfx_snaps, qfx_contribs, earliest, end)
 
 
 def _print_summary(alloc: list[AllocationRow]) -> None:
@@ -513,24 +514,29 @@ def _print_summary(alloc: list[AllocationRow]) -> None:
 # ── Full rebuild ────────────────────────────────────────────────────────────
 
 
+def _build_all_sources(paths: BuildPaths, config: RawConfig) -> list[InvestmentSource]:
+    """Build the full set of :class:`InvestmentSource` instances for this run."""
+    raw_sources_cfg = dict(config) | {
+        "fidelity_downloads": paths.downloads,
+        "robinhood_csv": paths.robinhood_csv,
+        "empower_downloads": paths.downloads,
+    }
+    return build_investment_sources(raw_sources_cfg, paths.db_path)
+
+
 def _full_build(
     paths: BuildPaths,
     config: RawConfig,
     start: date,
     end: date,
-    k401_daily: dict[date, dict[str, float]],
     *,
     no_validate: bool = False,
     dry_run_market: bool = False,
 ) -> list[AllocationRow]:
     print("\n[5] Computing full allocation...")
-    raw_sources_cfg = dict(config) | {
-        "fidelity_downloads": paths.downloads,
-        "robinhood_csv": paths.robinhood_csv,
-    }
-    investment_sources = build_investment_sources(raw_sources_cfg, paths.db_path)
+    investment_sources = _build_all_sources(paths, config)
     alloc = compute_daily_allocation(
-        paths.db_path, DEFAULT_QJ_DB, config, k401_daily, start, end,
+        paths.db_path, DEFAULT_QJ_DB, config, start, end,
         investment_sources=investment_sources,
     )
     print(f"  {len(alloc)} daily records")
@@ -613,7 +619,6 @@ def _build_refresh_window(
     config: RawConfig,
     start: date,
     end: date,
-    k401_daily: dict[date, dict[str, float]],
     *,
     no_validate: bool = False,
     dry_run_market: bool = False,
@@ -625,7 +630,7 @@ def _build_refresh_window(
     if last is None:
         print("  No existing data — falling back to full build")
         return _full_build(
-            paths, config, start, end, k401_daily,
+            paths, config, start, end,
             no_validate=no_validate, dry_run_market=dry_run_market,
         )
 
@@ -635,13 +640,9 @@ def _build_refresh_window(
         return []
 
     print(f"\n[5] Computing allocation {inc_start} -> {end} (incremental)...")
-    raw_sources_cfg = dict(config) | {
-        "fidelity_downloads": paths.downloads,
-        "robinhood_csv": paths.robinhood_csv,
-    }
-    investment_sources = build_investment_sources(raw_sources_cfg, paths.db_path)
+    investment_sources = _build_all_sources(paths, config)
     alloc = compute_daily_allocation(
-        paths.db_path, DEFAULT_QJ_DB, config, k401_daily, inc_start, end,
+        paths.db_path, DEFAULT_QJ_DB, config, inc_start, end,
         investment_sources=investment_sources,
     )
     print(f"  {len(alloc)} daily records")
@@ -688,7 +689,7 @@ def main() -> None:
     end = date.today()
 
     # Ingest all sources, fetch prices (populates DB)
-    k401_daily = _ingest_and_fetch(
+    _ingest_and_fetch(
         paths, config, end, prices_from_csv=args.prices_from_csv,
     )
 
@@ -697,7 +698,7 @@ def main() -> None:
     print(f"  Range: {start} -> {end}")
 
     _build_refresh_window(
-        paths, config, start, end, k401_daily,
+        paths, config, start, end,
         no_validate=args.no_validate,
         dry_run_market=args.dry_run_market,
     )

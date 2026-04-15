@@ -1,12 +1,11 @@
-"""Compute daily portfolio allocation from the :class:`InvestmentSource` registry + Qianji + 401k.
+"""Compute daily portfolio allocation from the :class:`InvestmentSource` registry + Qianji.
 
 This module reconstructs historical asset allocation by combining:
   - Investment-source positions (each source returns a list of PositionRow;
-    Fidelity and Robinhood are routed through the registry; Empower 401k is
-    migrated in Phase 5).
+    Fidelity, Robinhood, and Empower 401k are all routed through the
+    :class:`InvestmentSource` registry.)
   - Historical prices (from timemachine.db.daily_close)
   - Qianji account balances (from Qianji SQLite DB)
-  - 401k values (pre-computed via proxy interpolation, legacy path)
 
 The per-day math is isolated in ``step_one_day(state, sources, current)`` —
 a pure function with no I/O. ``compute_daily_allocation`` is the orchestrator
@@ -14,12 +13,6 @@ that refreshes ``ReplayState`` when Qianji transactions change, then delegates
 the valuation to ``step_one_day``. Anything that has full per-day state in
 hand (e.g. a CI projection script reconstructing state from D1) can call
 ``step_one_day`` directly without touching the Python replay engines.
-
-Refactor hint (audit C04, ``docs/code-design-audit-2026-04-13.md``):
-``compute_daily_allocation`` currently takes 6 positional args + 1 keyword.
-Once Phase 5 lands every source in the registry and the legacy ``_add_*``
-helpers have been deleted, migrate the signature to an ``AllocationRequest``
-dataclass — tests become trivial.
 """
 from __future__ import annotations
 
@@ -33,7 +26,8 @@ from pathlib import Path
 import pandas as pd
 
 from .prices import load_cny_rates, load_prices
-from .sources import InvestmentSource, PriceContext, SourceKind, build_investment_sources
+from .sources import InvestmentSource, PriceContext, build_investment_sources
+from .sources import empower as _empower_source_module  # noqa: F401 — import side-effect registers EmpowerSource
 from .sources import fidelity as _fidelity_source_module  # noqa: F401 — import side-effect registers FidelitySource
 from .sources import robinhood as _robinhood_source_module  # noqa: F401 — import side-effect registers RobinhoodSource
 from .sources.robinhood import RobinhoodSource
@@ -162,18 +156,6 @@ def _add_qianji_balances(
             log.warning("Qianji account %r (%.2f USD) has no ticker_map entry — excluded from allocation", qj_acct, usd_val)
 
 
-def _add_401k(
-    ticker_values: dict[str, float],
-    k401_daily: dict[date, dict[str, float]],
-    current: date,
-) -> None:
-    """Add pre-computed 401k daily values (already keyed by config ticker)."""
-    if current not in k401_daily:
-        return
-    for ticker, val in k401_daily[current].items():
-        ticker_values[ticker] = ticker_values.get(ticker, 0) + val
-
-
 # ── Pure per-day step ──────────────────────────────────────────────────────
 
 
@@ -182,9 +164,10 @@ class AllocationSources:
     """Static inputs resolved once, reused across every day in the window.
 
     Everything a per-day valuation needs besides the (changing) portfolio
-    state: prices + CNY, config-derived routing tables, and the pre-computed
-    401k daily map. Keeping these in one bag lets ``step_one_day`` stay pure
-    — no hidden globals, no re-reads, no surprises.
+    state: prices + CNY, config-derived routing tables, and the registered
+    :class:`InvestmentSource` instances. Keeping these in one bag lets
+    ``step_one_day`` stay pure — no hidden globals, no re-reads, no
+    surprises.
     """
 
     prices: pd.DataFrame
@@ -193,11 +176,10 @@ class AllocationSources:
     ticker_map: dict[str, str]
     qianji_currencies: dict[str, str]
     skip_qj_accounts: frozenset[str]
-    k401_daily: dict[date, dict[str, float]]
     # Registered :class:`InvestmentSource` instances — populated by
-    # ``_build_sources`` via :func:`build_investment_sources`. Fidelity and
-    # Robinhood are now routed through this list; Empower 401k still runs
-    # through the legacy ``_add_*`` helpers until Phase 5 lands.
+    # ``_build_sources`` via :func:`build_investment_sources`. All three
+    # investment sources (Fidelity, Robinhood, Empower 401k) are now routed
+    # through this list; ``step_one_day`` is source-kind-agnostic.
     investment_sources: list[InvestmentSource] = field(default_factory=list)
 
 
@@ -224,9 +206,9 @@ def step_one_day(
 ) -> AllocationRow:
     """Value the portfolio for a single day. Pure — no I/O, no arg mutation.
 
-    Fidelity and Robinhood route through the :class:`InvestmentSource`
-    registry (``sources.investment_sources``). Empower 401k still runs its
-    legacy ``_add_*`` helper and is migrated in Phase 5.
+    Every registered :class:`InvestmentSource` contributes via the uniform
+    ``positions_at`` API — no source-kind branching. New sources added to
+    :data:`etl.sources._REGISTRY` flow through without touching this function.
     """
     price_date, mf_price_date, cny_rate = _resolve_date_windows(
         sources.prices, sources.cny_rates, current
@@ -235,14 +217,9 @@ def step_one_day(
     ticker_values: dict[str, float] = {}
     cost_basis_by_ticker: dict[str, float] = {}
 
-    # ── Transaction-level brokers (Fidelity, Robinhood) via the registry ──
-    # Empower (kind=EMPOWER) is filtered out here until Phase 5 lands its
-    # snapshot-based source — its values still flow through the legacy
-    # ``_add_401k`` path.
+    # ── Aggregate every investment source via the uniform registry API. ──
     ctx = PriceContext(prices=sources.prices, price_date=price_date, mf_price_date=mf_price_date)
     for src in sources.investment_sources:
-        if src.kind not in (SourceKind.FIDELITY, SourceKind.ROBINHOOD):
-            continue
         for row in src.positions_at(current, ctx):
             ticker_values[row.ticker] = ticker_values.get(row.ticker, 0.0) + row.value_usd
             if row.cost_basis_usd is not None:
@@ -254,7 +231,6 @@ def step_one_day(
         ticker_values, state.qj_balances, sources.qianji_currencies,
         sources.ticker_map, sources.assets, cny_rate, sources.skip_qj_accounts,
     )
-    _add_401k(ticker_values, sources.k401_daily, current)
 
     return _build_allocation_row(current, ticker_values, sources.assets, cost_basis_by_ticker)
 
@@ -301,7 +277,6 @@ def _build_sources(
     db_path: Path,
     qj_db: Path,
     config: RawConfig,
-    k401_daily: dict[date, dict[str, float]],
     investment_sources: list[InvestmentSource] | None = None,
 ) -> AllocationSources:
     """Load prices + config-derived routing tables into an AllocationSources."""
@@ -335,7 +310,6 @@ def _build_sources(
         ticker_map=ticker_map,
         qianji_currencies=replay_qianji_currencies(qj_db),
         skip_qj_accounts=skip_qj,
-        k401_daily=k401_daily,
         investment_sources=investment_sources,
     )
 
@@ -344,7 +318,6 @@ def compute_daily_allocation(
     db_path: Path,
     qj_db: Path,
     config: RawConfig,
-    k401_daily: dict[date, dict[str, float]],
     start: date,
     end: date,
     *,
@@ -354,15 +327,14 @@ def compute_daily_allocation(
 
     Orchestrates per-day valuation. The math is in ``step_one_day``; this
     function just decides when to re-run the Qianji replay to keep
-    ``ReplayState`` current. Fidelity and Robinhood self-manage their
-    replay inside :meth:`InvestmentSource.positions_at`; neither needs
-    state here.
+    ``ReplayState`` current. Every investment source self-manages its
+    replay inside :meth:`InvestmentSource.positions_at`; none needs state
+    here.
 
     Args:
         db_path: Path to timemachine.db (prices + CNY rates).
         qj_db: Path to Qianji SQLite DB.
         config: Config dict with ``assets`` and ``qianji_accounts`` keys.
-        k401_daily: Pre-computed 401k daily values by config ticker.
         start: First date to compute.
         end: Last date to compute.
         investment_sources: Pre-built registry instances. Optional: omitted
@@ -373,7 +345,7 @@ def compute_daily_allocation(
         list of per-day allocation dicts (see ``_build_allocation_row``).
     """
     sources = _build_sources(
-        db_path, qj_db, config, k401_daily,
+        db_path, qj_db, config,
         investment_sources=investment_sources,
     )
 

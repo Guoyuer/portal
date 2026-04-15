@@ -210,8 +210,8 @@ class TestBuildRefreshWindowOrchestration:
         captured: dict[str, object] = {}
 
         def _fake_compute(*args, **kwargs):
-            captured["inc_start"] = args[4]  # positional: db_path, qj_db, config, k401, start, end
-            captured["end"] = args[5]
+            captured["inc_start"] = args[3]  # positional: db_path, qj_db, config, start, end
+            captured["end"] = args[4]
             return []
 
         monkeypatch.setattr(build_timemachine_db, "compute_daily_allocation", _fake_compute)
@@ -219,7 +219,7 @@ class TestBuildRefreshWindowOrchestration:
         monkeypatch.setattr(build_timemachine_db, "precompute_holdings_detail", lambda _p: None)
 
         build_timemachine_db._build_refresh_window(
-            paths, {}, date(2023, 1, 1), date(2026, 4, 14), {}, no_validate=True,
+            paths, {}, date(2023, 1, 1), date(2026, 4, 14), no_validate=True,
         )
         assert captured["inc_start"] == date(2026, 4, 8)  # refresh_window_start(2026-04-14)
         assert captured["end"] == date(2026, 4, 14)
@@ -240,7 +240,7 @@ class TestBuildRefreshWindowOrchestration:
             return []
 
         monkeypatch.setattr(build_timemachine_db, "_full_build", _fake_full)
-        _build_refresh_window(paths, {}, date(2023, 1, 1), date(2026, 4, 14), {})
+        _build_refresh_window(paths, {}, date(2023, 1, 1), date(2026, 4, 14))
         assert called["full_build"] is True
 
     def test_upserts_returned_rows(self, tmp_path, monkeypatch):
@@ -259,7 +259,7 @@ class TestBuildRefreshWindowOrchestration:
         monkeypatch.setattr(build_timemachine_db, "precompute_holdings_detail", lambda _p: None)
 
         build_timemachine_db._build_refresh_window(
-            paths, {}, date(2023, 1, 1), date(2026, 4, 14), {}, no_validate=True,
+            paths, {}, date(2023, 1, 1), date(2026, 4, 14), no_validate=True,
         )
         # The new row should be in the DB.
         conn = get_connection(paths.db_path)
