@@ -364,13 +364,19 @@ def fetch_and_store_prices(
             need_end = hp_end or end
             cached_lo, cached_hi = _cached_range(conn, sym)
             window_start = max(fetch_start, refresh_window_start(need_end))
-            if cached_lo is None or cached_lo > fetch_start:
-                # Historical gap — fetch the full range.
+            if cached_lo is None:
+                # Never fetched — pull the full range.
                 to_fetch[sym] = (fetch_start, need_end)
             else:
-                # History covered — always refresh the recent window so new
-                # trading days and intraday updates land. _persist_close keeps
-                # dates older than the window immutable, so this is idempotent.
+                # Any cache exists → trust ``cached_lo`` as the ticker's
+                # earliest-available date. Yahoo returns empty for dates
+                # before a ticker's inception, so re-attempting them on
+                # every run is wasted work that also drags ``batch_start``
+                # (min across to_fetch) back to ``global_start``, turning
+                # what should be an incremental refresh into a multi-year
+                # batch download for every symbol. Refresh the recent
+                # window only — ``_persist_close`` keeps older dates
+                # immutable so this is idempotent.
                 to_fetch[sym] = (window_start, need_end)
 
         if to_fetch:
