@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import csv
 import re
+from datetime import date
 from pathlib import Path
 
 # ── Patterns ────────────────────────────────────────────────────────────────
@@ -79,3 +80,14 @@ def is_cusip(sym: str) -> bool:
     daily-close fetch path (yfinance doesn't list them).
     """
     return bool(sym) and sym[0].isdigit() and len(sym) >= 8
+
+
+def parse_date_iso(s: str) -> date:
+    """Parse an ISO ``YYYY-MM-DD`` string into a :class:`datetime.date`.
+
+    Thin wrapper around :meth:`date.fromisoformat` that strips surrounding
+    whitespace. Inputs from raw Fidelity CSVs must first be normalized via
+    :func:`parse_us_date` (strict=True); this helper is for the ISO stage
+    that ends up in the DB and in downstream comparisons.
+    """
+    return date.fromisoformat(s.strip())

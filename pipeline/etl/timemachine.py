@@ -25,7 +25,7 @@ from typing import Any
 
 from .db import get_connection
 from .ingest.qianji_db import DEFAULT_DB_PATH, parse_qj_target_amount
-from .parsing import STRICT_US_DATE_RE, parse_us_date
+from .parsing import STRICT_US_DATE_RE, parse_date_iso, parse_us_date
 from .types import parse_float as _float
 
 #: Public re-export of the Qianji DB path. Module-level assignment makes mypy
@@ -53,11 +53,9 @@ STORE_HEADER = (
 
 # ── Parsing ───────────────────────────────────────────────────────────────────
 
-def _parse_date(iso: str) -> date:
-    """Parse an ISO ``YYYY-MM-DD`` run_date. Inputs from raw Fidelity CSVs
-    must be normalized via :func:`parse_us_date` (strict=True) first.
-    """
-    return date.fromisoformat(iso.strip())
+# Legacy alias — the single call site in :func:`_replay_core` just uses the
+# new :func:`etl.parsing.parse_date_iso` helper directly.
+_parse_date = parse_date_iso
 
 
 def _load_raw_rows(path: Path) -> list[dict[str, str]]:
