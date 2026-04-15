@@ -8,13 +8,19 @@ PIPELINE_DIR = Path(__file__).resolve().parent.parent.parent
 
 
 def test_prices_from_csv_flag_bypasses_yahoo(tmp_path: Path) -> None:
-    """With --prices-from-csv, build must not attempt a Yahoo network fetch."""
+    """With --prices-from-csv, build must not attempt a Yahoo network fetch.
+
+    Uses ``config.example.json`` so the test works in CI (where the real
+    ``config.json`` is gitignored).
+    """
     prices_csv = tmp_path / "prices.csv"
     prices_csv.write_text("date,FXAIX\n2024-01-02,150.50\n", encoding="utf-8")
     result = subprocess.run(
         [
             sys.executable,
             "scripts/build_timemachine_db.py",
+            "--config",
+            str(PIPELINE_DIR / "config.example.json"),
             "--prices-from-csv",
             str(prices_csv),
             "--dry-run-market",
