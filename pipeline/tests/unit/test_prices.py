@@ -17,7 +17,6 @@ from etl.prices import (  # noqa: E402
     fetch_and_store_prices,
     load_cny_rates,
     load_prices,
-    load_proxy_prices,
 )
 from etl.sources import ActionKind  # noqa: E402
 
@@ -126,32 +125,6 @@ class TestLoadCnyRates:
         ])
         rates = load_cny_rates(db_path)
         assert len(rates) == 1
-
-
-# ── load_proxy_prices ───────────────────────────────────────────────────────
-
-
-class TestLoadProxyPrices:
-    def test_loads_proxy_for_each_ticker(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
-        _seed_prices(db_path, [
-            ("SPY", "2025-01-02", 500.0),
-            ("SPY", "2025-01-03", 501.0),
-            ("AGG", "2025-01-02", 100.0),
-        ])
-        proxy_map = {"401k sp500": "SPY", "401k bonds": "AGG"}
-        result = load_proxy_prices(db_path, proxy_map)
-        assert "SPY" in result
-        assert "AGG" in result
-        assert len(result["SPY"]) == 2
-        assert result["SPY"][date(2025, 1, 2)] == 500.0
-
-    def test_empty_proxy_map(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
-        result = load_proxy_prices(db_path, {})
-        assert result == {}
 
 
 # ── _holding_periods_from_action_kind_rows ─────────────────────────────────

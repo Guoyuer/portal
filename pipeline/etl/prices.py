@@ -396,20 +396,3 @@ def load_cny_rates(db_path: Path) -> dict[date, float]:
         rates[date.fromisoformat(d)] = close
     print(f"CNY rates loaded: {len(rates)} days")
     return rates
-
-
-def load_proxy_prices(db_path: Path, proxy_tickers: dict[str, str]) -> dict[str, dict[date, float]]:
-    """Load proxy ticker prices from daily_close for 401k interpolation."""
-    proxy_prices: dict[str, dict[date, float]] = {}
-    conn = get_connection(db_path)
-    try:
-        for proxy in proxy_tickers.values():
-            proxy_prices[proxy] = {}
-            for d, close in conn.execute(
-                "SELECT date, close FROM daily_close WHERE symbol = ? ORDER BY date",
-                (proxy,),
-            ):
-                proxy_prices[proxy][date.fromisoformat(d)] = close
-    finally:
-        conn.close()
-    return proxy_prices
