@@ -40,16 +40,19 @@ def _persist_close(
     date_iso: str,
     close: float,
     refresh_cutoff_iso: str,
+    *,
+    refresh_in_window: bool = True,
 ) -> bool:
     """Insert a daily_close row with the historical-immutability invariant.
 
     - ``date_iso < refresh_cutoff_iso`` → INSERT OR IGNORE (preserve existing).
-    - ``date_iso >= refresh_cutoff_iso`` → INSERT OR REPLACE (allow refresh).
+    - ``date_iso >= refresh_cutoff_iso`` AND ``refresh_in_window=True`` → INSERT OR REPLACE.
+    - ``refresh_in_window=False`` → INSERT OR IGNORE for every date (intraday-immutable).
 
     Returns True when the row was actually inserted/replaced; False when an
     IGNORE skipped because the row already existed.
     """
-    if date_iso < refresh_cutoff_iso:
+    if not refresh_in_window or date_iso < refresh_cutoff_iso:
         cur = conn.execute(
             "INSERT OR IGNORE INTO daily_close (symbol, date, close) VALUES (?, ?, ?)",
             (symbol, date_iso, close),
@@ -67,6 +70,8 @@ def _persist_close_batch(
     symbol: str,
     rows: list[tuple[date, float]],
     refresh_cutoff_iso: str,
+    *,
+    refresh_in_window: bool = True,
 ) -> tuple[int, int]:
     """Persist ``(date, close)`` rows for one symbol, honoring the refresh window.
 
@@ -74,13 +79,16 @@ def _persist_close_batch(
     the immutable history vs the refresh window. Used by both
     ``fetch_and_store_prices`` and ``fetch_and_store_cny_rates``; factored out
     to keep the accounting identical in both places.
+
+    When ``refresh_in_window=False`` (used for CNY=X to avoid intraday FX drift),
+    every date is INSERT OR IGNORE; ``refreshed_recent`` is always 0.
     """
     new_historical = 0
     refreshed_recent = 0
     for d, value in rows:
         d_iso = d.isoformat()
-        inserted = _persist_close(conn, symbol, d_iso, value, refresh_cutoff_iso)
-        if d_iso < refresh_cutoff_iso:
+        inserted = _persist_close(conn, symbol, d_iso, value, refresh_cutoff_iso, refresh_in_window=refresh_in_window)
+        if d_iso < refresh_cutoff_iso or not refresh_in_window:
             if inserted:
                 new_historical += 1
         else:
@@ -340,7 +348,7 @@ def fetch_and_store_cny_rates(db_path: Path, start: date, end: date) -> None:
             d = dt.date() if hasattr(dt, "date") else dt
             rows.append((d, float(rate)))
         new_historical, refreshed_recent = _persist_close_batch(
-            conn, sym, rows, refresh_cutoff_iso,
+            conn, sym, rows, refresh_cutoff_iso, refresh_in_window=False,
         )
         conn.commit()
         print(f"CNY rates: {new_historical} new historical, {refreshed_recent} refreshed in window")
