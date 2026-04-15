@@ -39,6 +39,15 @@ from .types import AllocationRow, AssetInfo, RawConfig, TickerDetail
 
 log = logging.getLogger(__name__)
 
+# Qianji accounts that the Fidelity + Empower sources supersede once their
+# respective ingest tables are populated. The Robinhood account stays
+# data-gated on the CSV's presence — a user who never exported Robinhood
+# activity still has their Qianji balance counted.
+#
+# TODO(Phase 6 optional): migrate these rules onto the :class:`InvestmentSource`
+# Protocol (``contributes_positions()`` + ``qianji_skip_accounts`` ClassVar)
+# once the parallel agent touching ``etl/sources/{fidelity,robinhood}.py`` is
+# done — deferred here to avoid a merge conflict.
 _FIDELITY_REPLAY_ACCOUNTS = frozenset({
     "Fidelity taxable",
     "Roth IRA",
@@ -185,17 +194,16 @@ class AllocationSources:
 
 @dataclass
 class ReplayState:
-    """Portfolio state as of the most recent Fidelity/Qianji replay.
+    """Qianji balances as of the most recent replay.
 
-    ``compute_daily_allocation`` rebinds these fields whenever new
+    ``compute_daily_allocation`` rebinds ``qj_balances`` whenever new Qianji
     transactions mean the state has changed; ``step_one_day`` only reads.
-    Callers outside the replay loop (e.g. a CI projection reconstructing
-    state from D1) populate these directly and skip the orchestrator.
+    Fidelity / Robinhood / Empower replay state lives inside each source —
+    not here — so this dataclass no longer needs position/cash/cost-basis
+    fields. Kept as a dataclass (rather than a bare dict) so future per-day
+    shared state has an obvious home.
     """
 
-    positions: dict[tuple[str, str], float] = field(default_factory=dict)
-    cash: dict[str, float] = field(default_factory=dict)
-    cost_basis: dict[tuple[str, str], float] = field(default_factory=dict)
     qj_balances: dict[str, float] = field(default_factory=dict)
 
 
@@ -283,7 +291,6 @@ def _build_sources(
     assets = config.get("assets", {})
     qj_accounts = config.get("qianji_accounts", {})
     ticker_map = dict(qj_accounts.get("ticker_map", {}))
-    ticker_map.setdefault("401k", "401k sp500")
 
     # If the caller didn't supply an explicit list of sources, build them from
     # ``config`` here so legacy call sites (tests, ad-hoc scripts) keep
@@ -291,12 +298,13 @@ def _build_sources(
     if investment_sources is None:
         investment_sources = build_investment_sources(dict(config), db_path)
 
-    # Skip the "Robinhood" Qianji account iff a RobinhoodSource with an
-    # existing CSV is registered — otherwise the Qianji balance remains the
-    # sole source of truth (legacy behaviour for users who never exported the
-    # CSV). Fidelity replay-accounts are always skipped because Fidelity
-    # positions are authoritative from transaction replay whenever the DB
-    # has any fidelity_transactions rows at all.
+    # ``401k`` is skipped unconditionally because :class:`EmpowerSource` is
+    # always in the registry and QFX snapshots are authoritative even when
+    # no QFX files have been ingested yet. Fidelity replay-accounts are
+    # always skipped because transaction replay is authoritative whenever
+    # ``fidelity_transactions`` has any rows. Robinhood is data-gated: the
+    # ``isinstance`` check is the sole remaining source-specific leak
+    # (deferred cleanup — see TODO at module top).
     skip_qj = _FIDELITY_REPLAY_ACCOUNTS | {"401k"}
     for src in investment_sources:
         if isinstance(src, RobinhoodSource) and src._config.csv_path.exists():
