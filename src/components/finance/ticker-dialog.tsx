@@ -16,8 +16,9 @@ import {
 } from "recharts";
 import type { TooltipContentProps } from "recharts/types/component/Tooltip";
 import { fmtCurrency, fmtDateMedium, fmtQty, fmtTick } from "@/lib/format";
-import { getIsDark, useIsDark } from "@/lib/hooks";
+import { useIsDark } from "@/lib/hooks";
 import { tooltipStyle, gridStroke, axisProps } from "@/lib/chart-styles";
+import { TooltipCard } from "@/components/charts/tooltip-card";
 import type { TickerTransaction } from "@/lib/schemas";
 import {
   buildClusteredData,
@@ -26,21 +27,17 @@ import {
   type ClusteredPoint,
   type Cluster,
 } from "@/lib/ticker-data";
+import { BUY_COLOR, SELL_COLOR } from "@/lib/chart-colors";
 import {
   BuyClusterMarker,
   SellClusterMarker,
-  BUY_COLOR,
-  SELL_COLOR,
   type ClusterMarkerProps,
   type HoverState,
   type Selection,
 } from "./ticker-markers";
 
 function DialogPriceTooltip({ active, payload }: TooltipContentProps) {
-  if (!active || !payload?.length) return null;
-  const isDark = getIsDark();
-  const style = tooltipStyle(isDark);
-  const d = payload[0]?.payload as ClusteredPoint | undefined;
+  const d = payload?.[0]?.payload as ClusteredPoint | undefined;
   if (!d) return null;
 
   const clusterLine = (c: Cluster, label: string, color: string) => {
@@ -56,12 +53,11 @@ function DialogPriceTooltip({ active, payload }: TooltipContentProps) {
   };
 
   return (
-    <div style={style}>
-      <p style={{ fontWeight: 600, marginBottom: 2 }}>{fmtDateMedium(d.date)}</p>
+    <TooltipCard active={active} payload={payload} title={fmtDateMedium(d.date)}>
       <p style={{ margin: 0 }}>Close: {fmtCurrency(d.close)}</p>
       {d.buyCluster && clusterLine(d.buyCluster, "Buy", BUY_COLOR)}
       {d.sellCluster && clusterLine(d.sellCluster, "Sell", SELL_COLOR)}
-    </div>
+    </TooltipCard>
   );
 }
 

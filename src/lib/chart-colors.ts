@@ -1,0 +1,33 @@
+// ── Chart color palette (Okabe-Ito, protanomaly-safe) ──────────────────
+//
+// Single source of truth for chart fills / strokes. Category colors used by
+// the allocation donut + stacked area come from this palette keyed on the
+// camelCase category key. Trade markers (buy green / sell orange) draw from
+// the same palette.
+//
+// Pipeline owns category name/order/target; colors live frontend-only so the
+// palette can be tuned without re-syncing D1.
+
+export const OKABE_ITO = {
+  blue: "#0072B2",
+  green: "#009E73",
+  orange: "#E69F00",
+  skyBlue: "#56B4E9",
+  yellow: "#F0E442",
+  vermillion: "#D55E00",
+  reddishPurple: "#CC79A7",
+} as const;
+
+// ── Trade markers ───────────────────────────────────────────────────────
+
+export const BUY_COLOR = OKABE_ITO.green;
+export const SELL_COLOR = OKABE_ITO.orange;
+
+// ── Category colors (keyed on bundle's camelCase category key) ─────────
+
+export const CAT_COLOR_BY_KEY: Record<string, string> = {
+  usEquity: OKABE_ITO.blue,
+  nonUsEquity: OKABE_ITO.green,
+  crypto: OKABE_ITO.orange,
+  safeNet: OKABE_ITO.skyBlue,
+};
