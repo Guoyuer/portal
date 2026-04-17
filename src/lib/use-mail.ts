@@ -68,8 +68,17 @@ export function useMail(): UseMailState {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ msg_id: msgId }),
     });
-    const json = await r.json();
-    const parsed = TrashResponseSchema.parse(json);
+    // Worker returns TrashResponseSchema on 200 and on 503 (auth_failed / error)
+    // — both have the structured { status } body. Anything else is a transport
+    // failure and should roll back the optimistic delete via refetch.
+    let parsed;
+    try {
+      const json = await r.json();
+      parsed = TrashResponseSchema.parse(json);
+    } catch {
+      setRefreshTick((t) => t + 1);
+      throw new Error(`HTTP ${r.status}`);
+    }
 
     if (parsed.status === "trashed" || parsed.status === "already_gone") {
       return;

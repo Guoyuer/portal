@@ -48,6 +48,10 @@ async function handleTimeline(env: Env): Promise<Response> {
   }
 
   // Optional queries — each failure becomes a null section + errors entry.
+  // D1's `.all<T>()` generic is a compile-time shape hint (not runtime-checked),
+  // so we still lean on the frontend Zod parse for actual validation. But the
+  // generic replaces later `as` casts and catches refactor typos.
+  type KVRow = { key: string; value: string };
   const [tickers, fidelity, qianji, indices, holdings, syncMetaRows] =
     await Promise.all([
       settled(env.DB.prepare("SELECT * FROM v_daily_tickers").all()),
@@ -55,7 +59,7 @@ async function handleTimeline(env: Env): Promise<Response> {
       settled(env.DB.prepare("SELECT * FROM v_qianji_txns").all()),
       settled(env.DB.prepare("SELECT * FROM v_market_indices").all()),
       settled(env.DB.prepare("SELECT * FROM v_holdings_detail").all()),
-      settled(env.DB.prepare("SELECT key, value FROM sync_meta").all()),
+      settled(env.DB.prepare("SELECT key, value FROM sync_meta").all<KVRow>()),
     ]);
 
   const errors: TimelineErrors = {};
@@ -76,9 +80,7 @@ async function handleTimeline(env: Env): Promise<Response> {
 
   // syncMeta is informational — failure is silent (not included in errors).
   const syncMeta: Record<string, string> | null = syncMetaRows.ok
-    ? Object.fromEntries(
-        (syncMetaRows.value.results as { key: string; value: string }[]).map((r) => [r.key, r.value]),
-      )
+    ? Object.fromEntries(syncMetaRows.value.results.map((r) => [r.key, r.value]))
     : null;
 
   const payload = {
@@ -99,27 +101,30 @@ async function handleTimeline(env: Env): Promise<Response> {
 // ── /econ ────────────────────────────────────────────────────────────────
 
 async function handleEcon(env: Env): Promise<Response> {
+  type SeriesRow = { key: string; points: string };
+  type NumKVRow = { key: string; value: number };
+  type StrKVRow = { key: string; value: string };
   try {
     const [seriesRows, snapshotRows, syncMetaRows] = await Promise.all([
-      env.DB.prepare("SELECT key, points FROM v_econ_series_grouped").all(),
-      env.DB.prepare("SELECT key, value FROM v_econ_snapshot").all(),
-      env.DB.prepare("SELECT key, value FROM sync_meta").all(),
+      env.DB.prepare("SELECT key, points FROM v_econ_series_grouped").all<SeriesRow>(),
+      env.DB.prepare("SELECT key, value FROM v_econ_snapshot").all<NumKVRow>(),
+      env.DB.prepare("SELECT key, value FROM sync_meta").all<StrKVRow>(),
     ]);
 
     // Each row's `points` is a JSON string (json_group_array output); the
     // client unpacks it via EconDataSchema's EconPointsSchema transform.
     const series: Record<string, string> = {};
-    for (const r of seriesRows.results as { key: string; points: string }[]) {
+    for (const r of seriesRows.results) {
       series[r.key] = r.points;
     }
 
     const snapshot: Record<string, number> = {};
-    for (const r of snapshotRows.results as { key: string; value: number }[]) {
+    for (const r of snapshotRows.results) {
       snapshot[r.key] = r.value;
     }
 
     const syncMeta: Record<string, string> = {};
-    for (const r of syncMetaRows.results as { key: string; value: string }[]) {
+    for (const r of syncMetaRows.results) {
       syncMeta[r.key] = r.value;
     }
 

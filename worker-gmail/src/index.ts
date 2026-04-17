@@ -1,5 +1,45 @@
 import { upsertEmails, listActiveLast7Days, markTrashed } from "./db.js";
-import type { UpsertInput } from "./types.js";
+import type { Category, UpsertInput } from "./types.js";
+
+// Mail-sync body validator — no Zod dep to keep the worker bundle small.
+// Returns the validated rows on success, or a short error string on failure.
+// (Don't echo the offending row back — avoids reflecting user-supplied data.)
+const CATEGORIES: readonly Category[] = ["IMPORTANT", "NEUTRAL", "TRASH_CANDIDATE"];
+const ISO_DATE_LIKE = /^\d{4}-\d{2}-\d{2}/;
+
+function validateUpsertInput(x: unknown): UpsertInput | string {
+  if (typeof x !== "object" || x === null) return "row not an object";
+  const r = x as Record<string, unknown>;
+  if (typeof r.msg_id !== "string" || !r.msg_id) return "msg_id missing";
+  if (typeof r.received_at !== "string" || !ISO_DATE_LIKE.test(r.received_at)) return "received_at invalid";
+  if (typeof r.classified_at !== "string" || !ISO_DATE_LIKE.test(r.classified_at)) return "classified_at invalid";
+  if (typeof r.sender !== "string") return "sender missing";
+  if (typeof r.subject !== "string") return "subject missing";
+  if (typeof r.summary !== "string") return "summary missing";
+  if (!CATEGORIES.includes(r.category as Category)) return "category invalid";
+  return {
+    msg_id: r.msg_id,
+    received_at: r.received_at,
+    classified_at: r.classified_at,
+    sender: r.sender,
+    subject: r.subject,
+    summary: r.summary,
+    category: r.category as Category,
+  };
+}
+
+function validateSyncBody(body: unknown): UpsertInput[] | string {
+  if (typeof body !== "object" || body === null) return "body not an object";
+  const emails = (body as Record<string, unknown>).emails;
+  if (!Array.isArray(emails)) return "emails array missing";
+  const out: UpsertInput[] = [];
+  for (const e of emails) {
+    const parsed = validateUpsertInput(e);
+    if (typeof parsed === "string") return parsed;
+    out.push(parsed);
+  }
+  return out;
+}
 import { imapOk, parseSearchUid } from "./imap-parse.js";
 import { connect } from "cloudflare:sockets";
 
@@ -131,24 +171,17 @@ export default {
       if (request.headers.get("X-Sync-Secret") !== env.SYNC_SECRET) {
         return Response.json({ error: "unauthorized" }, { status: 401 });
       }
-      let body: { classified_at?: string; emails?: UpsertInput[] };
+      let body: unknown;
       try {
         body = await request.json();
       } catch {
         return Response.json({ error: "invalid json" }, { status: 400 });
       }
-      if (!Array.isArray(body.emails)) {
-        return Response.json({ error: "missing emails array" }, { status: 400 });
+      const rows = validateSyncBody(body);
+      if (typeof rows === "string") {
+        return Response.json({ error: rows }, { status: 400 });
       }
-      // Minimal validation — reject rows missing required fields. Full schema
-      // enforcement is done client-side in Python before POST. Do not echo the
-      // row back in the error (avoid reflecting user-supplied data).
-      for (const e of body.emails) {
-        if (!e.msg_id || !e.sender || !e.category || !e.received_at) {
-          return Response.json({ error: "invalid email row" }, { status: 400 });
-        }
-      }
-      const result = await upsertEmails(env.DB, body.emails);
+      const result = await upsertEmails(env.DB, rows);
       return Response.json({ inserted: result.inserted, skipped_existing: result.skipped });
     }
     if (pathname === "/api/mail/list" && request.method === "GET") {
@@ -161,25 +194,28 @@ export default {
       );
     }
     if (pathname === "/api/mail/trash" && request.method === "POST") {
-      let body: { msg_id?: string };
+      let body: unknown;
       try {
         body = await request.json();
       } catch {
         return Response.json({ error: "invalid json" }, { status: 400 });
       }
-      if (!body.msg_id) {
+      const msgId = (body as Record<string, unknown> | null)?.msg_id;
+      if (typeof msgId !== "string" || !msgId) {
         return Response.json({ error: "missing msg_id" }, { status: 400 });
       }
+      // Re-bind so subsequent uses stay typed as `string`
+      const parsedMsgId: string = msgId;
 
-      const result = await imapTrashMessage(env.SMTP_USER, env.SMTP_PASSWORD, body.msg_id);
+      const result = await imapTrashMessage(env.SMTP_USER, env.SMTP_PASSWORD, parsedMsgId);
 
       if (result === "trashed") {
-        await markTrashed(env.DB, body.msg_id);
+        await markTrashed(env.DB, parsedMsgId);
         return Response.json({ status: "trashed" });
       }
       if (result === "not_found") {
         // Email already gone from Gmail (user trashed elsewhere). Update D1 to match.
-        await markTrashed(env.DB, body.msg_id);
+        await markTrashed(env.DB, parsedMsgId);
         return Response.json({ status: "already_gone" });
       }
       if (result === "auth_failed") {
