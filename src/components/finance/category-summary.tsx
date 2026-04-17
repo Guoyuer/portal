@@ -31,7 +31,7 @@ interface GroupedCategory {
   subtypes: { name: string; tickers: ApiTicker[]; value: number; pct: number }[];
 }
 
-function groupTickers(categories: ApiCategory[], tickers: ApiTicker[], total: number): GroupedCategory[] {
+export function groupTickers(categories: ApiCategory[], tickers: ApiTicker[], total: number): GroupedCategory[] {
   const tickersByCategory: Record<string, Record<string, ApiTicker[]>> = {};
   for (const t of tickers) {
     if (!tickersByCategory[t.category]) tickersByCategory[t.category] = {};
