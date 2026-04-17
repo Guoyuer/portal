@@ -19,7 +19,7 @@ import { fmtCurrency, fmtCurrencyShort, fmtDateLong, fmtDateMedium, fmtDateMonth
 import { useIsDark, useIsMobile } from "@/lib/hooks";
 import { gridStroke, axisProps, brushColors } from "@/lib/chart-styles";
 import { TooltipCard } from "@/components/charts/tooltip-card";
-import { CAT_COLOR_BY_KEY } from "@/lib/compute";
+import { CAT_COLOR_BY_KEY } from "@/lib/chart-colors";
 
 // ── Constants ─────────────────────────────────────────────────────────────
 

@@ -13,13 +13,10 @@
 import { useEffect, useState } from "react";
 import { TickerPriceResponseSchema, type TickerTransaction } from "@/lib/schemas";
 import { WORKER_BASE } from "@/lib/config";
+import { fetchWithSchema } from "@/lib/fetch-schema";
 import { mergeTickerData, type TickerChartPoint } from "@/lib/ticker-data";
 import { TickerChartBase } from "./ticker-chart-base";
 import { TickerChartDialog } from "./ticker-dialog";
-
-// Re-export for callers importing from this module
-export { mergeTickerData } from "@/lib/ticker-data";
-export type { TickerChartPoint } from "@/lib/ticker-data";
 
 export function TickerChart({ symbol, startDate, endDate }: { symbol: string; startDate?: string; endDate?: string }) {
   const [data, setData] = useState<TickerChartPoint[] | null>(null);
@@ -30,30 +27,18 @@ export function TickerChart({ symbol, startDate, endDate }: { symbol: string; st
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch(`${WORKER_BASE}/prices/${encodeURIComponent(symbol)}`);
-        if (!res.ok) throw new Error(`${res.status}`);
-        const json = await res.json();
-        const parsed = TickerPriceResponseSchema.safeParse(json);
-        if (!parsed.success) {
-          throw new Error(`schema drift: ${parsed.error.issues[0]?.message ?? "unknown"}`);
-        }
+    fetchWithSchema(`${WORKER_BASE}/prices/${encodeURIComponent(symbol)}`, TickerPriceResponseSchema)
+      .then(({ prices, transactions: txns }) => {
         if (cancelled) return;
-
-        const { prices, transactions: txns } = parsed.data;
         setData(mergeTickerData(prices, txns));
         setTransactions(txns);
-
         // Average cost basis from buys + reinvestments
         const buys = txns.filter((t) => t.actionType === "buy" || t.actionType === "reinvestment");
         const totalCost = buys.reduce((s, t) => s + Math.abs(t.amount), 0);
         const totalQty = buys.reduce((s, t) => s + Math.abs(t.quantity), 0);
         setAvgCost(totalQty > 0 ? totalCost / totalQty : null);
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load");
-      }
-    })();
+      })
+      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load"); });
     return () => { cancelled = true; };
   }, [symbol]);
 

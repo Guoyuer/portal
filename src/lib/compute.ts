@@ -31,10 +31,7 @@ function accum(map: Map<string, { count: number; total: number }>, key: string, 
 }
 
 // ── Category colour palette ──────────────────────────────────────────────
-// Palette lives in @/lib/chart-colors. Re-exported here only to keep existing
-// callers compiling; prefer importing directly from chart-colors in new code.
 import { CAT_COLOR_BY_KEY } from "@/lib/chart-colors";
-export { CAT_COLOR_BY_KEY };
 
 /** Build a display-name → color map from the bundle's categories. */
 export function catColorByName(categories: CategoryMeta[]): Record<string, string> {

@@ -9,8 +9,8 @@ import {
   buildDateIndex,
   buildTickerIndex,
   catColorByName,
-  CAT_COLOR_BY_KEY,
 } from "./compute";
+import { CAT_COLOR_BY_KEY } from "./chart-colors";
 
 // Canonical category metadata (matches the pipeline default; each test is
 // isolated — if a test needs a different shape it declares its own).
