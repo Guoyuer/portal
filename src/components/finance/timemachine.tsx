@@ -16,8 +16,9 @@ import type { TooltipContentProps } from "recharts/types/component/Tooltip";
 import type { CategoryMeta, DailyPoint } from "@/lib/schemas";
 import type { CashflowResponse, ActivityResponse } from "@/lib/computed-types";
 import { fmtCurrency, fmtCurrencyShort, fmtDateLong, fmtDateMedium, fmtDateMonthYear, fmtTick, parseLocalDate } from "@/lib/format";
-import { getIsDark, useIsDark, useIsMobile } from "@/lib/hooks";
-import { tooltipStyle, gridStroke, axisProps, brushColors } from "@/lib/chart-styles";
+import { useIsDark, useIsMobile } from "@/lib/hooks";
+import { gridStroke, axisProps, brushColors } from "@/lib/chart-styles";
+import { TooltipCard } from "@/components/charts/tooltip-card";
 import { CAT_COLOR_BY_KEY } from "@/lib/compute";
 
 // ── Constants ─────────────────────────────────────────────────────────────
@@ -40,19 +41,15 @@ function AreaTooltip({
   label,
   labels,
 }: TooltipContentProps & { labels: Record<string, string> }) {
-  if (!active || !payload?.length) return null;
-  const isDark = getIsDark();
-  const style = tooltipStyle(isDark);
   const fmtLabel = new Date(Number(label)).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
   return (
-    <div style={style}>
-      <p style={{ fontWeight: 600, marginBottom: 2 }}>{fmtLabel}</p>
-      {payload.map((entry, i) => (
+    <TooltipCard active={active} payload={payload} title={fmtLabel}>
+      {payload?.map((entry, i) => (
         <p key={i} style={{ color: entry.color, margin: 0 }}>
           {labels[String(entry.name)] ?? String(entry.name)} : {fmtCurrency(Number(entry.value))}
         </p>
       ))}
-    </div>
+    </TooltipCard>
   );
 }
 

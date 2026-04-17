@@ -19,21 +19,18 @@ import {
 } from "recharts";
 import type { TooltipContentProps } from "recharts/types/component/Tooltip";
 import { fmtCurrency, fmtDateMedium, fmtTick } from "@/lib/format";
-import { getIsDark, useIsDark } from "@/lib/hooks";
-import { tooltipStyle, gridStroke, axisProps } from "@/lib/chart-styles";
+import { useIsDark } from "@/lib/hooks";
+import { gridStroke, axisProps } from "@/lib/chart-styles";
 import type { TickerChartPoint } from "@/lib/ticker-data";
-import { BuyMarker, SellMarker, BUY_COLOR, SELL_COLOR } from "./ticker-markers";
+import { BUY_COLOR, SELL_COLOR } from "@/lib/chart-colors";
+import { TooltipCard } from "@/components/charts/tooltip-card";
+import { BuyMarker, SellMarker } from "./ticker-markers";
 
 function PriceTooltip({ active, payload }: TooltipContentProps) {
-  if (!active || !payload?.length) return null;
-  const isDark = getIsDark();
-  const style = tooltipStyle(isDark);
-  const d = payload[0]?.payload as TickerChartPoint | undefined;
+  const d = payload?.[0]?.payload as TickerChartPoint | undefined;
   if (!d) return null;
-
   return (
-    <div style={style}>
-      <p style={{ fontWeight: 600, marginBottom: 2 }}>{fmtDateMedium(d.date)}</p>
+    <TooltipCard active={active} payload={payload} title={fmtDateMedium(d.date)}>
       <p style={{ margin: 0 }}>Close: {fmtCurrency(d.close)}</p>
       {d.buyPrice != null && (
         <p style={{ color: BUY_COLOR, margin: 0 }}>
@@ -45,7 +42,7 @@ function PriceTooltip({ active, payload }: TooltipContentProps) {
           Sell: {d.sellQty} × {fmtCurrency(d.sellPrice)} = {fmtCurrency(d.sellAmount!)}
         </p>
       )}
-    </div>
+    </TooltipCard>
   );
 }
 

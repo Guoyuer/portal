@@ -8,9 +8,7 @@
 // always pair with a B/S letter so the signal isn't color-only.
 
 import type { Cluster } from "@/lib/ticker-data";
-
-const BUY_COLOR = "#009E73";
-const SELL_COLOR = "#E69F00";
+import { BUY_COLOR, SELL_COLOR } from "@/lib/chart-colors";
 
 export type MarkerProps = { cx?: number; cy?: number };
 
@@ -142,4 +140,3 @@ export function SellClusterMarker({ cx, cy, payload, onEnter, onMove, onLeave, o
   );
 }
 
-export { BUY_COLOR, SELL_COLOR };

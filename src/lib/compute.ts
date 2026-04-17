@@ -30,17 +30,11 @@ function accum(map: Map<string, { count: number; total: number }>, key: string, 
   map.set(key, e);
 }
 
-// ── Category colour palette (frontend-only — accessibility concern) ──────
-// Keyed on the camelCase category `key` from the bundle. Pipeline owns the
-// name/order/target; colours stay here so the palette can be tuned without
-// re-syncing D1.
-// Okabe-Ito colorblind-friendly palette (protanomaly-safe).
-export const CAT_COLOR_BY_KEY: Record<string, string> = {
-  usEquity: "#0072B2",
-  nonUsEquity: "#009E73",
-  crypto: "#E69F00",
-  safeNet: "#56B4E9",
-};
+// ── Category colour palette ──────────────────────────────────────────────
+// Palette lives in @/lib/chart-colors. Re-exported here only to keep existing
+// callers compiling; prefer importing directly from chart-colors in new code.
+import { CAT_COLOR_BY_KEY } from "@/lib/chart-colors";
+export { CAT_COLOR_BY_KEY };
 
 /** Build a display-name → color map from the bundle's categories. */
 export function catColorByName(categories: CategoryMeta[]): Record<string, string> {

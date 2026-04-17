@@ -25,8 +25,9 @@ import type {
   SnapshotPoint,
 } from "@/lib/computed-types";
 import { fmtCurrencyShort, fmtDateMonthYear, fmtMonth, fmtMonthYear, fmtTick, parseLocalDate } from "@/lib/format";
-import { getIsDark, useIsDark, useIsMobile } from "@/lib/hooks";
+import { useIsDark, useIsMobile } from "@/lib/hooks";
 import { tooltipStyle, gridStroke, axisProps } from "@/lib/chart-styles";
+import { TooltipCard } from "@/components/charts/tooltip-card";
 
 // ── Donut: Category Allocation ─────────────────────────────────────────────
 
@@ -109,26 +110,26 @@ function SavingsLabel(props: LabelProps) {
 // ── Custom tooltip: Income vs Expenses with savings rate ─────────────────
 
 function FlowTooltip({ active, payload, label }: TooltipContentProps) {
-  if (!active || !payload?.length) return null;
-  const isDark = getIsDark();
-  const style = tooltipStyle(isDark);
-  const row = payload[0]?.payload as (MonthlyFlowPoint & { savings?: number }) | undefined;
+  const row = payload?.[0]?.payload as (MonthlyFlowPoint & { savings?: number }) | undefined;
   const fmt = (v: number) => `$${v.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
   return (
-    <div style={style}>
-      <p style={{ fontWeight: 600, marginBottom: 2 }}>{fmtDateMonthYear(String(label) + "-01")}</p>
-      {row && <p style={{ color: isDark ? "#e5e7eb" : "#374151", margin: 0 }}>Income : {fmt(row.income)}</p>}
-      {payload.map((entry, i) => (
-        <p key={i} style={{ color: entry.color, margin: 0 }}>
-          {String(entry.name)} : {fmt(Number(entry.value))}
-        </p>
-      ))}
-      {row && row.savingsRate !== 0 && (
-        <p style={{ color: row.savingsRate > 0 ? "#22d3ee" : "#f87171", margin: 0 }}>
-          Savings Rate : {Math.round(row.savingsRate)}%
-        </p>
+    <TooltipCard active={active} payload={payload} title={fmtDateMonthYear(String(label) + "-01")}>
+      {(isDark) => (
+        <>
+          {row && <p style={{ color: isDark ? "#e5e7eb" : "#374151", margin: 0 }}>Income : {fmt(row.income)}</p>}
+          {payload?.map((entry, i) => (
+            <p key={i} style={{ color: entry.color, margin: 0 }}>
+              {String(entry.name)} : {fmt(Number(entry.value))}
+            </p>
+          ))}
+          {row && row.savingsRate !== 0 && (
+            <p style={{ color: row.savingsRate > 0 ? "#22d3ee" : "#f87171", margin: 0 }}>
+              Savings Rate : {Math.round(row.savingsRate)}%
+            </p>
+          )}
+        </>
       )}
-    </div>
+    </TooltipCard>
   );
 }
 
