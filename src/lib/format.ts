@@ -1,3 +1,8 @@
+export function fmtQty(q: number): string {
+  if (Number.isInteger(q)) return q.toString();
+  return q.toFixed(4).replace(/\.?0+$/, "");
+}
+
 export function fmtCurrency(val: number): string {
   const abs = Math.abs(val);
   const decimals = abs >= 1000 ? 0 : 2;

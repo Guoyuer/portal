@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 import Sidebar from "@/components/layout/sidebar";
 
@@ -45,11 +46,9 @@ export default function RootLayout({
             <main className="min-h-screen p-6 pt-14 md:pt-6">{children}</main>
           </div>
         </div>
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `if("serviceWorker"in navigator&&location.hostname!=="localhost")navigator.serviceWorker.register("/sw.js")`,
-          }}
-        />
+        <Script id="sw-register" strategy="lazyOnload">
+          {`if("serviceWorker"in navigator&&location.hostname!=="localhost")navigator.serviceWorker.register("/sw.js")`}
+        </Script>
       </body>
     </html>
   );
