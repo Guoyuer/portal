@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import {
-  Bar,
   ComposedChart,
   Line,
   Scatter,
@@ -383,10 +382,9 @@ function TickerChartInner({ data, avgCost, height = 200 }: { data: TickerChartPo
   );
 }
 
-// ── Dialog chart (price + volume panes) ───────────────────────────────────
+// ── Dialog chart ──────────────────────────────────────────────────────────
 
 type ClusteredPoint = TickerChartPoint & {
-  sellQtyNeg?: number;
   buyClusterPrice?: number;
   buyCluster?: Cluster;
   sellClusterPrice?: number;
@@ -409,7 +407,6 @@ function buildClusteredData(data: TickerChartPoint[]): ClusteredPoint[] {
     ...d,
     buyPrice: undefined,
     sellPrice: undefined,
-    sellQtyNeg: d.sellQty != null ? -d.sellQty : undefined,
   }));
 
   if (out.length === 0) return out;
@@ -465,25 +462,6 @@ function DialogPriceTooltip({ active, payload }: TooltipContentProps) {
   );
 }
 
-function VolumeTooltip({ active, payload }: TooltipContentProps) {
-  if (!active || !payload?.length) return null;
-  const isDark = getIsDark();
-  const style = tooltipStyle(isDark);
-  const d = payload[0]?.payload as ClusteredPoint | undefined;
-  if (!d || (d.buyQty == null && d.sellQty == null)) return null;
-  return (
-    <div style={style}>
-      <p style={{ fontWeight: 600, marginBottom: 2 }}>{fmtDateMedium(d.date)}</p>
-      {d.buyQty != null && (
-        <p style={{ color: "#009E73", margin: 0 }}>Buy qty: {fmtQty(d.buyQty)}</p>
-      )}
-      {d.sellQty != null && (
-        <p style={{ color: "#E69F00", margin: 0 }}>Sell qty: {fmtQty(d.sellQty)}</p>
-      )}
-    </div>
-  );
-}
-
 function TickerDialogChart({
   data,
   avgCost,
@@ -497,7 +475,6 @@ function TickerDialogChart({
 }) {
   const isDark = useIsDark();
   const clusteredData = buildClusteredData(data);
-  const hasVolume = clusteredData.some((d) => d.buyQty != null || d.sellQty != null);
   const [hover, setHover] = useState<HoverState | null>(null);
 
   const handleEnter = (h: HoverState) => setHover(h);
@@ -513,9 +490,8 @@ function TickerDialogChart({
   );
 
   return (
-    <div className="flex flex-col h-full gap-1">
-      {/* Price pane */}
-      <div className={hasVolume ? "flex-[7] min-h-0" : "flex-1 min-h-0"}>
+    <div className="flex flex-col h-full">
+      <div className="flex-1 min-h-0">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={clusteredData} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={gridStroke(isDark)} vertical={false} />
@@ -574,34 +550,6 @@ function TickerDialogChart({
           </ComposedChart>
         </ResponsiveContainer>
       </div>
-      {/* Volume pane */}
-      {hasVolume && (
-        <div className="flex-[3] min-h-0">
-          <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={clusteredData} margin={{ top: 0, right: 20, left: 10, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={gridStroke(isDark)} vertical={false} />
-              <XAxis
-                dataKey="ts"
-                type="number"
-                scale="time"
-                domain={["dataMin", "dataMax"]}
-                tickFormatter={fmtTick}
-                {...axisProps(isDark)}
-              />
-              <YAxis
-                tickFormatter={(v: number) => `${Math.abs(v)}`}
-                width={55}
-                {...axisProps(isDark)}
-                axisLine={false}
-              />
-              <Tooltip content={VolumeTooltip} cursor={{ fill: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)" }} />
-              <ReferenceLine y={0} stroke={isDark ? "rgba(255,255,255,0.25)" : "rgba(0,0,0,0.2)"} />
-              <Bar dataKey="buyQty" fill="#009E73" isAnimationActive={false} />
-              <Bar dataKey="sellQtyNeg" fill="#E69F00" isAnimationActive={false} />
-            </ComposedChart>
-          </ResponsiveContainer>
-        </div>
-      )}
       {hover && (
         <div
           style={{
