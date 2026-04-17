@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ECON_URL } from "@/lib/config";
+import { fetchWithSchema } from "@/lib/fetch-schema";
 import { EconDataSchema, type EconData, type EconPoint } from "@/lib/schemas";
 import { Button } from "@/components/ui/button";
 import { SectionHeader, SectionBody } from "@/components/finance/section";
@@ -64,17 +65,7 @@ export default function EconPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(ECON_URL, {
-        cache: "no-store",
-        signal: AbortSignal.timeout(10_000),
-      });
-      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-      const json = await res.json();
-      const parsed = EconDataSchema.safeParse(json);
-      if (!parsed.success) {
-        throw new Error(`Invalid econ data: ${parsed.error.issues[0]?.message ?? "schema mismatch"}`);
-      }
-      setData(parsed.data);
+      setData(await fetchWithSchema(ECON_URL, EconDataSchema, { cache: "no-store", timeoutMs: 10_000 }));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load economic data");
     } finally {

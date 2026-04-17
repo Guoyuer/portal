@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { TIMELINE_URL } from "@/lib/config";
+import { fetchWithSchema } from "@/lib/fetch-schema";
 import {
   TimelineDataSchema,
   type CategoryMeta,
@@ -73,23 +74,13 @@ export function useBundle(): BundleState {
   // ── Fetch once ──────────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch(TIMELINE_URL, {
-          cache: "no-store",
-          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-        });
-        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-        const json = await res.json();
-        const parsed = TimelineDataSchema.safeParse(json);
-        if (!parsed.success) throw new Error("Invalid timeline data");
-        if (!cancelled) setData(parsed.data);
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
+    fetchWithSchema(TIMELINE_URL, TimelineDataSchema, {
+      cache: "no-store",
+      timeoutMs: FETCH_TIMEOUT_MS,
+    })
+      .then((parsed) => { if (!cancelled) setData(parsed); })
+      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load"); })
+      .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, []);
 

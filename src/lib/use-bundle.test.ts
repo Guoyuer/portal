@@ -73,7 +73,7 @@ describe("useBundle", () => {
     const { result } = renderHook(() => useBundle());
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    expect(result.current.error).toBe("500 Internal Server Error");
+    expect(result.current.error).toBe("HTTP 500 Internal Server Error");
     expect(result.current.chartDaily).toEqual([]);
     expect(result.current.snapshot).toBeNull();
   });
@@ -96,7 +96,7 @@ describe("useBundle", () => {
     const { result } = renderHook(() => useBundle());
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    expect(result.current.error).toBe("Invalid timeline data");
+    expect(result.current.error).toMatch(/^schema drift:/);
     expect(result.current.chartDaily).toEqual([]);
   });
 
