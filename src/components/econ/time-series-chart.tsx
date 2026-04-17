@@ -23,11 +23,13 @@ interface TimeSeriesChartProps {
   height?: number;
 }
 
-export function TimeSeriesChart({ title, lines, data, height = 280 }: TimeSeriesChartProps) {
-  const isDark = useIsDark();
-  const filterId = useId();
-
-  // Merge all series into unified date-keyed rows
+/** Merge multiple date-keyed series into a single sorted array of
+ * { date, <key1>, <key2>, ... } rows. Rows include only the keys that had a
+ * value at that date; recharts' `connectNulls` handles gaps. */
+export function mergeSeriesByDate(
+  lines: LineConfig[],
+  data: Record<string, EconPoint[]>,
+): { date: string; [key: string]: number | string }[] {
   const dateMap = new Map<string, Record<string, number>>();
   for (const line of lines) {
     const points = data[line.dataKey] ?? [];
@@ -37,10 +39,16 @@ export function TimeSeriesChart({ title, lines, data, height = 280 }: TimeSeries
       dateMap.set(p.date, row);
     }
   }
-
-  const merged = Array.from(dateMap.entries())
+  return Array.from(dateMap.entries())
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, values]) => ({ date, ...values }));
+}
+
+export function TimeSeriesChart({ title, lines, data, height = 280 }: TimeSeriesChartProps) {
+  const isDark = useIsDark();
+  const filterId = useId();
+
+  const merged = mergeSeriesByDate(lines, data);
 
   const legendStyle = {
     paddingTop: "8px",
