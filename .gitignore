@@ -74,3 +74,4 @@ net_worth_history_*.json
 pipeline/data/timemachine.db
 pipeline/data/prices.db
 pipeline/timemachine.db
+.claude/
