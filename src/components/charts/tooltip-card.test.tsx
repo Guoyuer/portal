@@ -2,9 +2,15 @@
 
 import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
+import type { TooltipContentProps } from "recharts/types/component/Tooltip";
 import { TooltipCard, TooltipRow } from "./tooltip-card";
 
 afterEach(cleanup);
+
+// Recharts' TooltipPayload has internal fields (graphicalItemId, …) we don't
+// populate. Treat the array's element type as the underlying payload union so
+// `{ value: N }` satisfies `as` without `never` escape hatches.
+type Payload = NonNullable<TooltipContentProps["payload"]>[number];
 
 describe("TooltipCard", () => {
   it("returns null when inactive (Recharts convention)", () => {
@@ -27,7 +33,7 @@ describe("TooltipCard", () => {
 
   it("renders a bold title when provided", () => {
     render(
-      <TooltipCard active={true} payload={[{ value: 1 } as never]} title="Apr 15, 2026">
+      <TooltipCard active={true} payload={[{ value: 1 } as Payload]} title="Apr 15, 2026">
         <p>row</p>
       </TooltipCard>,
     );
@@ -38,7 +44,7 @@ describe("TooltipCard", () => {
 
   it("supports a render-prop child that receives isDark", () => {
     render(
-      <TooltipCard active={true} payload={[{ value: 1 } as never]}>
+      <TooltipCard active={true} payload={[{ value: 1 } as Payload]}>
         {(isDark) => <p data-testid="row">{String(isDark)}</p>}
       </TooltipCard>,
     );
@@ -48,7 +54,7 @@ describe("TooltipCard", () => {
 
   it("renders the liquid-glass container style (position-agnostic marker)", () => {
     const { container } = render(
-      <TooltipCard active={true} payload={[{ value: 1 } as never]}>
+      <TooltipCard active={true} payload={[{ value: 1 } as Payload]}>
         <p>row</p>
       </TooltipCard>,
     );
