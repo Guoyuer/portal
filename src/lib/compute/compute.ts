@@ -14,7 +14,7 @@ import type {
   ApiTicker,
   ApiCategory,
   MonthlyFlowPoint,
-} from "@/lib/computed-types";
+} from "@/lib/compute/computed-types";
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -31,7 +31,7 @@ function accum(map: Map<string, { count: number; total: number }>, key: string, 
 }
 
 // ── Category colour palette ──────────────────────────────────────────────
-import { CAT_COLOR_BY_KEY } from "@/lib/chart-colors";
+import { CAT_COLOR_BY_KEY } from "@/lib/format/chart-colors";
 
 /** Build a display-name → color map from the bundle's categories. */
 export function catColorByName(categories: CategoryMeta[]): Record<string, string> {

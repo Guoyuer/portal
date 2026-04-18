@@ -5,8 +5,8 @@
 // `onSelect` is supplied, the group is hover/click-aware; otherwise it's
 // purely visual and lets parent click handlers through.
 
-import type { Cluster } from "@/lib/ticker-data";
-import { BUY_COLOR, SELL_COLOR } from "@/lib/chart-colors";
+import type { Cluster } from "@/lib/format/ticker-data";
+import { BUY_COLOR, SELL_COLOR } from "@/lib/format/chart-colors";
 
 export type MarkerProps = { cx?: number; cy?: number };
 

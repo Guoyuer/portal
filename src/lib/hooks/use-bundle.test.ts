@@ -4,7 +4,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import { renderHook, waitFor, act } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
-import { useBundle } from "./use-bundle";
+import { useBundle } from "@/lib/hooks/use-bundle";
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 

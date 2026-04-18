@@ -2,7 +2,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
-import { getIsDark, useIsDark, useIsMobile } from "./hooks";
+import { getIsDark, useIsDark, useIsMobile } from "@/lib/hooks/hooks";
 
 describe("getIsDark", () => {
   beforeEach(() => {

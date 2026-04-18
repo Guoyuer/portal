@@ -5,7 +5,7 @@ import {
   SAVINGS_RATE_WARNING,
   MAJOR_EXPENSE_THRESHOLD,
   SCROLL_SHOW_THRESHOLD,
-} from "./thresholds";
+} from "@/lib/format/thresholds";
 
 describe("valueColor", () => {
   it("returns green-family classes for positive values", () => {

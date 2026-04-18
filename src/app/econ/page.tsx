@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { ECON_URL, FETCH_TIMEOUT_MS } from "@/lib/config";
-import { fetchWithSchema } from "@/lib/fetch-schema";
+import { fetchWithSchema } from "@/lib/schemas/fetch-schema";
 import { EconDataSchema, type EconData, type EconPoint } from "@/lib/schemas";
-import { ECON_FORMATTERS } from "@/lib/econ-formatters";
-import { ECON_LINE_COLORS } from "@/lib/chart-colors";
+import { ECON_FORMATTERS } from "@/lib/format/econ-formatters";
+import { ECON_LINE_COLORS } from "@/lib/format/chart-colors";
 import { Button } from "@/components/ui/button";
 import { SectionHeader, SectionBody } from "@/components/finance/section";
 import { MacroCards } from "@/components/econ/macro-cards";

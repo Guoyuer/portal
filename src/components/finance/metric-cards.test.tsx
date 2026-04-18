@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeAll } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { afterEach } from "vitest";
 import { MetricCards } from "./metric-cards";
-import type { ApiCategory, ApiTicker } from "@/lib/computed-types";
+import type { ApiCategory, ApiTicker } from "@/lib/compute/computed-types";
 
 // ── Mock ResizeObserver (not available in jsdom) ────────────────────────
 

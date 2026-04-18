@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { SCROLL_SHOW_THRESHOLD } from "@/lib/thresholds";
+import { SCROLL_SHOW_THRESHOLD } from "@/lib/format/thresholds";
 
 export function BackToTop() {
   const [show, setShow] = useState(false);

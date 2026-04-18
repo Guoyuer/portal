@@ -1,5 +1,5 @@
 import type { EconSnapshot } from "@/lib/schemas";
-import { ECON_FORMATTERS, fmtSpreadSigned } from "@/lib/econ-formatters";
+import { ECON_FORMATTERS, fmtSpreadSigned } from "@/lib/format/econ-formatters";
 
 const INDICATORS: { key: keyof EconSnapshot; label: string; format: (v: number) => string }[] = [
   { key: "fedFundsRate", label: "Fed Rate", format: ECON_FORMATTERS.fedFundsRate },

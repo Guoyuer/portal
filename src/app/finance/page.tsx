@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { GOAL } from "@/lib/config";
-import { useBundle } from "@/lib/use-bundle";
-import { catColorByName, cashflowState, type CashflowState } from "@/lib/compute";
-import type { MonthlyFlowPoint } from "@/lib/computed-types";
-import { fmtDateMedium } from "@/lib/format";
+import { useBundle } from "@/lib/hooks/use-bundle";
+import { catColorByName, cashflowState, type CashflowState } from "@/lib/compute/compute";
+import type { MonthlyFlowPoint } from "@/lib/compute/computed-types";
+import { fmtDateMedium } from "@/lib/format/format";
 import { SectionHeader, SectionBody, SectionMessage } from "@/components/finance/section";
 import { TickerTable } from "@/components/finance/ticker-table";
 import { IncomeExpensesChart } from "@/components/finance/charts";

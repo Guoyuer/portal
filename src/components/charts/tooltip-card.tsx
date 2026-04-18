@@ -11,8 +11,8 @@
 
 import type { ReactNode } from "react";
 import type { TooltipContentProps } from "recharts/types/component/Tooltip";
-import { getIsDark } from "@/lib/hooks";
-import { tooltipStyle } from "@/lib/chart-styles";
+import { getIsDark } from "@/lib/hooks/hooks";
+import { tooltipStyle } from "@/lib/format/chart-styles";
 
 type Props = Pick<TooltipContentProps, "active" | "payload"> & {
   title?: ReactNode;
