@@ -146,7 +146,7 @@ export default function FinancePage() {
 
       {/* ── 3. Cash Flow ────────────────────────────────────────────────── */}
       <ErrorBoundary fallback={<SectionError label="Cash Flow" />}>
-        <section id="cashflow">
+        <section id="cashflow" className="scroll-mt-20 md:scroll-mt-8">
           <SectionHeader>{SECTION_LABELS["cashflow"]}</SectionHeader>
           <CashFlowContent
             cashflow={tl.cashflow}
@@ -159,7 +159,7 @@ export default function FinancePage() {
 
       {/* ── 4. Portfolio Activity ───────────────────────────────────────── */}
       <ErrorBoundary fallback={<SectionError label="Fidelity Activity" />}>
-        <section id="fidelity-activity">
+        <section id="fidelity-activity" className="scroll-mt-20 md:scroll-mt-8">
           <SectionHeader>
             {SECTION_LABELS["fidelity-activity"]}
             {tl.crossCheck && (
@@ -193,7 +193,7 @@ export default function FinancePage() {
 
       {/* ── Market Context ──────────────────────────────────────────────── */}
       <ErrorBoundary fallback={<SectionError label="Market" />}>
-        <div id="market" data-testid="market-section">
+        <div id="market" data-testid="market-section" className="scroll-mt-20 md:scroll-mt-8">
           {tl.market ? (
             <MarketContext data={tl.market} title={SECTION_LABELS["market"]} />
           ) : (

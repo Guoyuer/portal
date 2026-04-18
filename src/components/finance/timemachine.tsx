@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { BundleState, CrossCheck } from "@/lib/use-bundle";
 import {
   Area,
@@ -44,9 +44,14 @@ function AreaTooltip({
   const fmtLabel = new Date(Number(label)).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
   return (
     <TooltipCard active={active} payload={payload} title={fmtLabel}>
+      {payload && payload.length > 0 && (
+        <p style={{ margin: 0, fontWeight: 600 }}>
+          Total: {fmtCurrency(payload.reduce((s, e) => s + Number(e.value ?? 0), 0))}
+        </p>
+      )}
       {payload?.map((entry, i) => (
         <p key={i} style={{ color: entry.color, margin: 0 }}>
-          {labels[String(entry.name)] ?? String(entry.name)} : {fmtCurrency(Number(entry.value))}
+          {labels[String(entry.name)] ?? String(entry.name)}: {fmtCurrency(Number(entry.value))}
         </p>
       ))}
     </TooltipCard>
@@ -125,6 +130,31 @@ function TimemachineChart({
 
 // ── StickyBrush ──────────────────────────────────────────────────────────
 
+const BRUSH_COLLAPSED_KEY = "stickyBrush:collapsed";
+
+function useBrushCollapsed(): [boolean, (next: boolean) => void] {
+  const [collapsed, setCollapsed] = useState<boolean>(false);
+  const isMobile = useIsMobile();
+
+  // Load persisted pref after mount (mobile only).
+  useEffect(() => {
+    if (!isMobile) return;
+    try {
+      const stored = window.localStorage.getItem(BRUSH_COLLAPSED_KEY);
+      if (stored === "1") setCollapsed(true);
+    } catch { /* ignore storage errors */ }
+  }, [isMobile]);
+
+  const setAndPersist = (next: boolean) => {
+    setCollapsed(next);
+    try {
+      window.localStorage.setItem(BRUSH_COLLAPSED_KEY, next ? "1" : "0");
+    } catch { /* ignore storage errors */ }
+  };
+
+  return [isMobile && collapsed, setAndPersist];
+}
+
 export function StickyBrush({
   daily,
   defaultStartIndex,
@@ -141,6 +171,7 @@ export function StickyBrush({
   onBrushChange: (state: { startIndex?: number; endIndex?: number }) => void;
 }) {
   const isDark = useIsDark();
+  const [collapsed, setCollapsed] = useBrushCollapsed();
   const chartData = daily.map((d) => ({ ...d, ts: parseLocalDate(d.date).getTime() }));
   if (daily.length === 0) return null;
 
@@ -150,32 +181,64 @@ export function StickyBrush({
   return (
     <div className="fixed bottom-0 left-0 right-0 md:left-56 z-40 bg-background/80 backdrop-blur-md border-t border-border px-4 py-2">
       <div className="max-w-5xl mx-auto">
-        <div className="flex justify-between text-xs text-muted-foreground tabular-nums mb-1 md:hidden">
-          <span>{startLabel}</span>
-          <span>{endLabel}</span>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="hidden md:inline text-xs text-muted-foreground tabular-nums whitespace-nowrap w-[90px] text-right">{startLabel}</span>
-          <div className="flex-1 min-w-0">
-            <ResponsiveContainer width="100%" height={34}>
-              <AreaChart data={chartData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
-                <XAxis dataKey="ts" hide />
-                <YAxis hide />
-                <Area type="monotone" dataKey="total" stroke="none" fill={isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)"} isAnimationActive={false} />
-                <Brush
-                  dataKey="ts"
-                  height={28}
-                  {...brushColors(isDark)}
-                  startIndex={defaultStartIndex}
-                  endIndex={defaultEndIndex}
-                  onChange={onBrushChange}
-                  tickFormatter={() => ""}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-          <span className="hidden md:inline text-xs text-muted-foreground tabular-nums whitespace-nowrap w-[90px]">{endLabel}</span>
-        </div>
+        {/* Mobile collapsed pill */}
+        {collapsed ? (
+          <button
+            type="button"
+            onClick={() => setCollapsed(false)}
+            aria-expanded={false}
+            aria-label="Expand timeline brush"
+            className="flex w-full items-center justify-between gap-2 py-1 text-xs text-muted-foreground tabular-nums"
+          >
+            <span className="inline-flex items-center gap-1.5">
+              <span aria-hidden className="inline-block h-1 w-6 rounded-full bg-foreground/20" />
+              {startLabel} — {endLabel}
+            </span>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5">
+              <path d="m18 15-6-6-6 6" />
+            </svg>
+          </button>
+        ) : (
+          <>
+            <div className="flex items-center justify-between text-xs text-muted-foreground tabular-nums mb-1 md:hidden">
+              <span>{startLabel}</span>
+              <span>{endLabel}</span>
+              <button
+                type="button"
+                onClick={() => setCollapsed(true)}
+                aria-expanded={true}
+                aria-label="Collapse timeline brush"
+                className="p-1 -m-1"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5">
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </button>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="hidden md:inline text-xs text-muted-foreground tabular-nums whitespace-nowrap w-[90px] text-right">{startLabel}</span>
+              <div className="flex-1 min-w-0">
+                <ResponsiveContainer width="100%" height={34}>
+                  <AreaChart data={chartData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                    <XAxis dataKey="ts" hide />
+                    <YAxis hide />
+                    <Area type="monotone" dataKey="total" stroke="none" fill={isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)"} isAnimationActive={false} />
+                    <Brush
+                      dataKey="ts"
+                      height={28}
+                      {...brushColors(isDark)}
+                      startIndex={defaultStartIndex}
+                      endIndex={defaultEndIndex}
+                      onChange={onBrushChange}
+                      tickFormatter={() => ""}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+              <span className="hidden md:inline text-xs text-muted-foreground tabular-nums whitespace-nowrap w-[90px]">{endLabel}</span>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -302,18 +365,18 @@ export function TimemachineSummary({
               </span>
             </p>
           </div>
-          <div className="grid grid-cols-3 gap-2 text-xs">
-            <div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-y-1.5 gap-x-2 text-xs">
+            <div className="flex sm:block justify-between">
               <p className="text-muted-foreground">Fidelity Total</p>
-              <p className="font-semibold tabular-nums mt-0.5">{fmtCurrencyShort(cc.fidelityTotal)}</p>
+              <p className="font-semibold tabular-nums sm:mt-0.5">{fmtCurrencyShort(cc.fidelityTotal)}</p>
             </div>
-            <div>
+            <div className="flex sm:block justify-between">
               <p className="text-muted-foreground">Matched</p>
-              <p className="font-semibold tabular-nums mt-0.5 text-green-500">{fmtCurrencyShort(cc.matchedTotal)}</p>
+              <p className="font-semibold tabular-nums sm:mt-0.5 text-green-500">{fmtCurrencyShort(cc.matchedTotal)}</p>
             </div>
-            <div>
+            <div className="flex sm:block justify-between">
               <p className="text-muted-foreground">Unmatched</p>
-              <p className={`font-semibold tabular-nums mt-0.5 ${cc.unmatchedTotal > 0 ? "text-red-400" : ""}`}>
+              <p className={`font-semibold tabular-nums sm:mt-0.5 ${cc.unmatchedTotal > 0 ? "text-red-400" : ""}`}>
                 {fmtCurrencyShort(cc.unmatchedTotal)}
               </p>
             </div>
@@ -338,7 +401,7 @@ export function TimemachineSection({
   }
 
   return (
-    <div id="timemachine">
+    <div id="timemachine" className="scroll-mt-20 md:scroll-mt-8">
       <div className="liquid-glass p-4 sm:p-5">
         <TimemachineSummary
           snapshot={tl.snapshot}
