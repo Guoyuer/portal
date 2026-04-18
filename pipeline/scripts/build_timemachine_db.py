@@ -41,6 +41,7 @@ from etl.db import (
     init_db,
     upsert_daily_rows,
 )
+from etl.ingest.qianji_db import DEFAULT_DB_PATH as DEFAULT_QJ_DB
 from etl.ingest.qianji_db import ingest_qianji_transactions, load_all_from_db
 from etl.migrations.add_fidelity_action_kind import migrate as _migrate_fidelity_action_kind
 from etl.migrations.drop_robinhood_unique import migrate as _migrate_drop_robinhood_unique
@@ -59,7 +60,6 @@ from etl.sources import empower as empower_src
 from etl.sources import fidelity as fidelity_src
 from etl.sources import robinhood as robinhood_src
 from etl.sources.empower import PROXY_TICKERS, Contribution
-from etl.timemachine import DEFAULT_QJ_DB
 from etl.types import AllocationRow, RawConfig
 from etl.validate import Severity, validate_build
 

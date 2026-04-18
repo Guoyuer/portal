@@ -25,8 +25,20 @@ if "yfinance" not in sys.modules:
 from etl.allocation import compute_daily_allocation  # noqa: E402
 from etl.db import init_db  # noqa: E402
 from etl.prices import symbol_holding_periods_from_db  # noqa: E402
-from etl.replay import replay_transactions  # noqa: E402
-from etl.sources.fidelity import MM_SYMBOLS, TABLE, classify_fidelity_action  # noqa: E402
+from etl.replay import ReplayConfig, replay_transactions  # noqa: E402
+from etl.sources.fidelity import MM_SYMBOLS, classify_fidelity_action  # noqa: E402
+
+# Local replay config — excludes MM funds from position accumulation but
+# doesn't track cash (these tests only assert position quantities + cost
+# basis, not cash ledgers).
+_FIDELITY_POSITIONS_ONLY = ReplayConfig(
+    table="fidelity_transactions",
+    date_col="run_date",
+    ticker_col="symbol",
+    amount_col="amount",
+    account_col="account_number",
+    exclude_tickers=MM_SYMBOLS,
+)
 
 
 def _replay_fidelity(db: Path, as_of: date) -> dict[tuple[str, str], tuple[float, float]]:
@@ -35,12 +47,7 @@ def _replay_fidelity(db: Path, as_of: date) -> dict[tuple[str, str], tuple[float
     Returns ``{(account, symbol): (quantity, cost_basis_usd)}`` so existing
     test assertions can index by the legacy ``(account, symbol)`` tuple.
     """
-    result = replay_transactions(
-        db, TABLE, as_of,
-        date_col="run_date", ticker_col="symbol", amount_col="amount",
-        account_col="account_number",
-        exclude_tickers=MM_SYMBOLS,
-    )
+    result = replay_transactions(db, _FIDELITY_POSITIONS_ONLY, as_of)
     return {key: (st.quantity, st.cost_basis_usd) for key, st in result.positions.items()}
 
 # ── Helpers ────────────────────────────────────────────────────────────────

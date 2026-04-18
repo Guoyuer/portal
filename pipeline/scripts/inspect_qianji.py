@@ -13,7 +13,7 @@ from pathlib import Path
 # Ensure the pipeline package is importable
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from etl.timemachine import replay_qianji
+from etl.timemachine import qianji_balances_at
 
 DB_PATH = Path(os.environ.get("APPDATA", "")) / "com.mutangtech.qianji.win/qianji_flutter/qianjiapp.db"
 
@@ -26,11 +26,11 @@ def main() -> None:
     else:
         print("Current balances (no replay)")
 
-    balances = replay_qianji(DB_PATH, as_of)
+    snapshot = qianji_balances_at(DB_PATH, as_of)
 
     print(f"\n{'Account':<25} {'Balance':>12}")
     print("-" * 40)
-    for acct, bal in sorted(balances.items(), key=lambda x: -abs(x[1])):
+    for acct, bal in sorted(snapshot.balances.items(), key=lambda x: -abs(x[1])):
         if abs(bal) >= 0.01:
             print(f"{acct:<25} {bal:>12.2f}")
 
