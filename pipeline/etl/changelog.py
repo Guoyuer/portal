@@ -373,16 +373,24 @@ def _gate_for_exit(exit_code: int) -> str:
 
 
 def _render_header(context: dict[str, Any]) -> list[str]:
-    """Timestamp, status line, exit code + error on failure. Ends with a blank line."""
+    """Timestamp, status, and — on failure — exit code, error, and which
+    pipeline gate blocked. Ends with a blank line.
+
+    On success the email's Changes section speaks for itself, so there's no
+    dedicated "sync did / didn't run" note. On failure we surface the gate
+    name inline here instead of in a separate D1 Sync section — the
+    "sync didn't execute" framing is implicit from a non-OK Status + gate.
+    """
     lines: list[str] = []
     timestamp = context.get("timestamp", "")
     lines.append(f"Portal Sync Report  {timestamp}".rstrip())
     lines.append("")
     status_label = context.get("status_label", "OK")
     lines.append(f"Status: {status_label}")
-    exit_code = context.get("exit_code", 0)
+    exit_code = int(context.get("exit_code", 0) or 0)
     if exit_code != 0:
         lines.append(f"Exit code: {exit_code}")
+        lines.append(f"Blocked at: {_gate_for_exit(exit_code)}")
         error = context.get("error")
         if error:
             lines.append(f"Error: {error}")
@@ -572,16 +580,6 @@ def _render_net_worth(changelog: SyncChangelog) -> list[str]:
     return lines
 
 
-def _render_d1_status(exit_code: int) -> list[str]:
-    """On failure, surface the blocked gate. On success, skip (counts are
-    already in the ``Changes`` block — the old 'D1 Sync' row-count table was
-    pure duplication)."""
-    if exit_code == 0:
-        return []
-    gate = _gate_for_exit(exit_code)
-    return ["D1 Sync", f"  not executed — blocked at {gate}", ""]
-
-
 def _render_warnings(context: dict[str, Any]) -> list[str]:
     """'Warnings (from validation)' list, or empty when none."""
     warnings = context.get("warnings") or []
@@ -596,12 +594,10 @@ def _render_warnings(context: dict[str, Any]) -> list[str]:
 
 def format_text(changelog: SyncChangelog, context: dict[str, Any]) -> str:
     """Plain-text email body, assembled from per-section helpers."""
-    exit_code = int(context.get("exit_code", 0) or 0)
     lines: list[str] = []
     lines.extend(_render_header(context))
     lines.extend(_render_changes(changelog))
     lines.extend(_render_net_worth(changelog))
-    lines.extend(_render_d1_status(exit_code))
     lines.extend(_render_warnings(context))
 
     log_file = context.get("log_file", "")
