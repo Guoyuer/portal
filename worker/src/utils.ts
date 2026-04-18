@@ -96,3 +96,12 @@ export async function settled<T>(p: Promise<T>): Promise<SettledResult<T>> {
     return { ok: false, error: e instanceof Error ? e.message : "unknown" };
   }
 }
+
+// ── sync_meta lookup ────────────────────────────────────────────────────
+// Both /timeline and /econ read this key-value table; query shape is fixed.
+
+export async function querySyncMeta(db: D1Database): Promise<Record<string, string>> {
+  type KVRow = { key: string; value: string };
+  const rows = await db.prepare("SELECT key, value FROM sync_meta").all<KVRow>();
+  return Object.fromEntries(rows.results.map((r) => [r.key, r.value]));
+}
