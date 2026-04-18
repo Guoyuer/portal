@@ -29,6 +29,7 @@ from etl.parsing import read_csv_rows
 from etl.replay import ReplayConfig, replay_transactions
 from etl.sources._ingest import range_replace_insert
 from etl.sources._types import ActionKind, PositionRow, PriceContext
+from etl.types import RawConfig
 
 log = logging.getLogger(__name__)
 
@@ -98,7 +99,7 @@ def _parse_float(raw: str) -> float:
 # ── Config helpers ─────────────────────────────────────────────────────────
 
 
-def _downloads_dir(config: dict[str, object]) -> Path:
+def _downloads_dir(config: RawConfig) -> Path:
     """Resolve the directory that holds ``Robinhood_history*.csv`` exports.
 
     Prefers a dedicated ``robinhood_downloads`` key, then ``fidelity_downloads``
@@ -106,14 +107,16 @@ def _downloads_dir(config: dict[str, object]) -> Path:
     folder. Every fallback goes through :meth:`Path.exists` in the callers,
     so a missing config / directory surfaces as a silent no-op.
     """
-    for key in ("robinhood_downloads", "fidelity_downloads"):
-        raw = config.get(key)
-        if isinstance(raw, (str, Path)):
-            return Path(raw)
+    raw_rh = config.get("robinhood_downloads")
+    if isinstance(raw_rh, (str, Path)):
+        return Path(raw_rh)
+    raw_fid = config.get("fidelity_downloads")
+    if isinstance(raw_fid, (str, Path)):
+        return Path(raw_fid)
     return Path.home() / "Downloads"
 
 
-def _csv_paths(config: dict[str, object]) -> list[Path]:
+def _csv_paths(config: RawConfig) -> list[Path]:
     """Glob matching Robinhood activity-report CSVs for this build.
 
     Returns ``[]`` when the directory doesn't exist. Users without a Robinhood
@@ -129,7 +132,7 @@ def _csv_paths(config: dict[str, object]) -> list[Path]:
 # ── Public API (module protocol) ───────────────────────────────────────────
 
 
-def produces_positions(config: dict[str, object]) -> bool:
+def produces_positions(config: RawConfig) -> bool:
     """Always on. The ingest path is a silent no-op when no CSVs are present,
     and :func:`positions_at` returns an empty list when the table is empty.
     """
@@ -137,7 +140,7 @@ def produces_positions(config: dict[str, object]) -> bool:
     return True
 
 
-def ingest(db_path: Path, config: dict[str, object]) -> None:
+def ingest(db_path: Path, config: RawConfig) -> None:
     """Scan ``robinhood_downloads`` for ``Robinhood_history*.csv`` and ingest each.
 
     Each CSV is authoritative for its own date window via
@@ -213,7 +216,7 @@ def positions_at(
     db_path: Path,
     as_of: date,
     prices: PriceContext,
-    config: dict[str, object],
+    config: RawConfig,
 ) -> list[PositionRow]:
     """Return one :class:`PositionRow` per non-zero ticker position as of ``as_of``.
 

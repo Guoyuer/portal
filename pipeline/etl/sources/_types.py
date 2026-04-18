@@ -16,6 +16,8 @@ from typing import Protocol, runtime_checkable
 
 import pandas as pd
 
+from etl.types import RawConfig
+
 
 class ActionKind(StrEnum):
     """Normalized transaction action types. Each source translates its raw
@@ -94,10 +96,16 @@ class InvestmentSource(Protocol):
     Every module in :data:`etl.sources.SOURCES` must expose these three
     callables. Kept as a ``Protocol`` so mypy catches accidental signature
     drift; there is no runtime class hierarchy.
+
+    ``config`` is the full :class:`etl.types.RawConfig` — each source reads
+    only the keys it cares about. Using one union type (instead of per-source
+    narrow TypedDicts) keeps the call sites simple: no slicing, no casts.
+    Because :class:`RawConfig` is ``total=False``, missing optional keys are
+    already well-typed via ``.get()``.
     """
 
-    def ingest(self, db_path: Path, config: dict[str, object]) -> None: ...
+    def ingest(self, db_path: Path, config: RawConfig) -> None: ...
     def positions_at(
-        self, db_path: Path, as_of: date, prices: PriceContext, config: dict[str, object]
+        self, db_path: Path, as_of: date, prices: PriceContext, config: RawConfig
     ) -> list[PositionRow]: ...
-    def produces_positions(self, config: dict[str, object]) -> bool: ...
+    def produces_positions(self, config: RawConfig) -> bool: ...

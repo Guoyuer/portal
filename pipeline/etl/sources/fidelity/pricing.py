@@ -18,6 +18,7 @@ import logging
 
 from etl.parsing import is_cusip
 from etl.sources import PositionRow, PriceContext
+from etl.types import RawConfig
 
 log = logging.getLogger(__name__)
 
@@ -38,12 +39,12 @@ log = logging.getLogger(__name__)
 _DEFAULT_MUTUAL_FUNDS: frozenset[str] = frozenset({"FXAIX", "FSSNX", "FNJHX", "FTIHX"})
 
 
-def mutual_funds(config: dict[str, object]) -> frozenset[str]:
+def mutual_funds(config: RawConfig) -> frozenset[str]:
     """Return the user-configured mutual-fund ticker set, or the default."""
     raw = config.get("mutual_funds")
-    if isinstance(raw, (list, tuple, set, frozenset)):
-        return frozenset(str(t) for t in raw)
-    return _DEFAULT_MUTUAL_FUNDS
+    if raw is None:
+        return _DEFAULT_MUTUAL_FUNDS
+    return frozenset(raw)
 
 
 def position_rows(

@@ -21,6 +21,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from typing import cast
 
 import pandas as pd
 
@@ -177,7 +178,7 @@ class AllocationSources:
     qianji_currencies: dict[str, str]
     skip_qj_accounts: frozenset[str]
     db_path: Path
-    source_config: dict[str, object] = field(default_factory=dict)
+    source_config: RawConfig = field(default_factory=lambda: cast(RawConfig, {}))
 
 
 @dataclass
@@ -284,8 +285,7 @@ def _build_sources(
     # ``_csv_paths`` helper encapsulates the "does the user have any
     # Robinhood export?" question (empty list when the directory's missing).
     skip_qj = _FIDELITY_SUPERSEDED_QJ_ACCOUNTS | {"401k"}
-    source_config: dict[str, object] = dict(config)
-    if _robinhood_csv_paths(source_config):
+    if _robinhood_csv_paths(config):
         skip_qj = skip_qj | {"Robinhood"}
 
     # currencies are snapshot-time independent (from user_asset.currency),
@@ -298,7 +298,7 @@ def _build_sources(
         qianji_currencies=qianji_balances_at(qj_db).currencies,
         skip_qj_accounts=skip_qj,
         db_path=db_path,
-        source_config=source_config,
+        source_config=config,
     )
 
 

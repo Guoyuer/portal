@@ -20,6 +20,8 @@ from datetime import date
 from pathlib import Path
 from types import ModuleType
 
+from etl.types import RawConfig
+
 from ._types import ActionKind, InvestmentSource, PositionRow, PriceContext
 
 __all__ = [
@@ -50,7 +52,7 @@ def positions_at_all(
     db_path: Path,
     as_of: date,
     prices: PriceContext,
-    config: dict[str, object],
+    config: RawConfig,
 ) -> list[PositionRow]:
     """Flatten ``positions_at`` across every enabled source."""
     rows: list[PositionRow] = []

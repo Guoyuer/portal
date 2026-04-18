@@ -22,6 +22,7 @@ import pandas as pd
 
 from etl.db import get_connection
 from etl.sources import PositionRow, PriceContext
+from etl.types import RawConfig
 
 # ── CUSIP → config ticker → proxy ticker mapping ───────────────────────────
 
@@ -148,30 +149,30 @@ def _proxy_prices_from_df(prices: pd.DataFrame, proxy: str) -> dict[date, float]
 # ── Config helpers ─────────────────────────────────────────────────────────
 
 
-def _downloads_dir(config: dict[str, object]) -> Path:
+def _downloads_dir(config: RawConfig) -> Path:
     raw = config.get("empower_downloads")
     if isinstance(raw, (str, Path)):
         return Path(raw)
     return Path("__missing_empower_downloads__")
 
 
-def _cusip_map(config: dict[str, object]) -> dict[str, str]:
+def _cusip_map(config: RawConfig) -> dict[str, str]:
     raw = config.get("empower_cusip_map")
     if isinstance(raw, dict):
-        return {str(k): str(v) for k, v in raw.items()}
+        return dict(raw)
     return dict(_DEFAULT_CUSIP_MAP)
 
 
 # ── Public API (module protocol) ───────────────────────────────────────────
 
 
-def produces_positions(config: dict[str, object]) -> bool:
+def produces_positions(config: RawConfig) -> bool:
     """Always on — :func:`positions_at` returns ``[]`` before the first snapshot."""
     del config
     return True
 
 
-def ingest(db_path: Path, config: dict[str, object]) -> None:
+def ingest(db_path: Path, config: RawConfig) -> None:
     """Scan ``empower_downloads`` for ``Bloomberg.Download*.qfx`` and ingest each.
 
     Populates ``empower_snapshots`` + ``empower_funds`` (idempotent per
@@ -266,7 +267,7 @@ def positions_at(
     db_path: Path,
     as_of: date,
     prices: PriceContext,
-    config: dict[str, object],
+    config: RawConfig,
 ) -> list[PositionRow]:
     """Return one :class:`PositionRow` per 401k config ticker, scaled to ``as_of``.
 

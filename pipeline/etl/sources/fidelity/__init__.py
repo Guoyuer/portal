@@ -20,6 +20,7 @@ from pathlib import Path
 
 from etl.replay import ReplayConfig, replay_transactions
 from etl.sources._types import PositionRow, PriceContext
+from etl.types import RawConfig
 
 from . import cash, parse, pricing
 from .parse import TABLE, classify_fidelity_action
@@ -54,7 +55,7 @@ __all__ = [
 ]
 
 
-def _downloads_dir(config: dict[str, object]) -> Path:
+def _downloads_dir(config: RawConfig) -> Path:
     raw = config.get("fidelity_downloads")
     if isinstance(raw, (str, Path)):
         return Path(raw)
@@ -64,13 +65,13 @@ def _downloads_dir(config: dict[str, object]) -> Path:
 # ── Public API (module protocol) ───────────────────────────────────────────
 
 
-def produces_positions(config: dict[str, object]) -> bool:
+def produces_positions(config: RawConfig) -> bool:
     """Fidelity is always on — the ingest path is idempotent and silent on missing CSVs."""
     del config
     return True
 
 
-def ingest(db_path: Path, config: dict[str, object]) -> None:
+def ingest(db_path: Path, config: RawConfig) -> None:
     """Scan ``fidelity_downloads`` for ``Accounts_History*.csv`` and ingest each file.
 
     Files are processed in chronological order by earliest ``MM/DD/YYYY``
@@ -89,7 +90,7 @@ def positions_at(
     db_path: Path,
     as_of: date,
     prices: PriceContext,
-    config: dict[str, object],
+    config: RawConfig,
 ) -> list[PositionRow]:
     """Return one PositionRow per (account, ticker) position + cash bucket.
 

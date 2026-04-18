@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import TypedDict
 
 # ── Constants ───────────────────────────────────────────────────────────────
@@ -66,10 +67,19 @@ class QianjiAccountsConfig(TypedDict, total=False):
 
 
 class RawConfig(TypedDict, total=False):
-    """Raw shape of config.json as it sits on disk. Matches the JSON keys
-    directly (``target_weights``, ``category_order``, ``retirement_income_categories``
-    etc.). All fields are optional via ``total=False``; callers use ``.get()``.
+    """Raw shape of config.json as it sits on disk + per-run path overrides.
+
+    Matches the JSON keys directly (``target_weights``, ``category_order``,
+    ``retirement_income_categories`` etc.) and also carries the runtime
+    injection keys that ``build_timemachine_db`` threads through into each
+    source module's ``positions_at`` / ``ingest`` entry point
+    (``fidelity_downloads``, ``robinhood_downloads``, ``empower_downloads``).
+    Per-source tuning keys (``mutual_funds``, ``empower_cusip_map``) live
+    here too so the whole config flows as a single typed dict — each source
+    reads only the keys it cares about. All fields are optional via
+    ``total=False``; callers use ``.get()``.
     """
+    # Core JSON keys
     assets: dict[str, AssetInfo]
     target_weights: dict[str, float]
     category_order: list[str]
@@ -78,6 +88,12 @@ class RawConfig(TypedDict, total=False):
     qianji_accounts: QianjiAccountsConfig
     fidelity_accounts: dict[str, str]
     retirement_income_categories: list[str]
+    # Per-source runtime/tuning keys (injected or read by source modules)
+    fidelity_downloads: str | Path
+    robinhood_downloads: str | Path
+    empower_downloads: str | Path
+    mutual_funds: list[str]
+    empower_cusip_map: dict[str, str]
 
 
 # ── Record types (parsed from CSV/DB) ──────────────────────────────────────
