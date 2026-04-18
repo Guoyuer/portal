@@ -222,7 +222,7 @@ class TestHistoricalImmutabilityCnyRates:
         init_db(db_path)
         _seed_prices(db_path, [("CNY=X", "2023-03-13", 6.9052)])
 
-        with patch("etl.prices.yf.download") as mock_dl:
+        with patch("etl.prices.fetch.yf.download") as mock_dl:
             mock_dl.return_value = _cny_df([("2023-03-13", 99.0)])
             fetch_and_store_cny_rates(db_path, date(2023, 3, 13), date(2026, 4, 12))
 
@@ -243,7 +243,7 @@ class TestHistoricalImmutabilityCnyRates:
             ("CNY=X", "2023-07-05", 7.2135),  # existing
         ])
 
-        with patch("etl.prices.yf.download") as mock_dl:
+        with patch("etl.prices.fetch.yf.download") as mock_dl:
             # Yahoo returns BOTH the existing date (with different value) and a
             # historical gap date.
             mock_dl.return_value = _cny_df([
@@ -278,7 +278,7 @@ class TestHistoricalImmutabilityCnyRates:
         init_db(db_path)
         _seed_prices(db_path, [("CNY=X", "2026-04-10", 7.20)])  # already captured
 
-        with patch("etl.prices.yf.download") as mock_dl:
+        with patch("etl.prices.fetch.yf.download") as mock_dl:
             mock_dl.return_value = _cny_df([("2026-04-10", 7.25)])  # Yahoo correction
             fetch_and_store_cny_rates(db_path, date(2023, 3, 13), date(2026, 4, 12))
 
@@ -302,8 +302,8 @@ class TestHistoricalImmutabilityPrices:
 
         # Open-ended holding period — the recent-window refresh always queues
         # a fetch, so yfinance.download will be called.
-        with patch("etl.prices.yf.download") as mock_dl, \
-             patch("etl.prices._build_split_factors", return_value={}):
+        with patch("etl.prices.fetch.yf.download") as mock_dl, \
+             patch("etl.prices.fetch._build_split_factors", return_value={}):
             mock_dl.return_value = pd.DataFrame(
                 {("Close", "VOO"): [999.0]},
                 index=pd.to_datetime(["2024-01-15"]),
@@ -342,8 +342,8 @@ class TestFetchGateRefreshesRecentWindow:
             ("VOO", "2026-04-11", 500.00),
         ])
 
-        with patch("etl.prices.yf.download") as mock_dl, \
-             patch("etl.prices._build_split_factors", return_value={}):
+        with patch("etl.prices.fetch.yf.download") as mock_dl, \
+             patch("etl.prices.fetch._build_split_factors", return_value={}):
             mock_dl.return_value = pd.DataFrame(
                 {("Close", "VOO"): [505.0]},
                 index=pd.to_datetime(["2026-04-12"]),
@@ -367,8 +367,8 @@ class TestFetchGateRefreshesRecentWindow:
         ])
         end = date(2026, 4, 12)
 
-        with patch("etl.prices.yf.download") as mock_dl, \
-             patch("etl.prices._build_split_factors", return_value={}):
+        with patch("etl.prices.fetch.yf.download") as mock_dl, \
+             patch("etl.prices.fetch._build_split_factors", return_value={}):
             mock_dl.return_value = pd.DataFrame(
                 {("Close", "VOO"): [505.0]},
                 index=pd.to_datetime(["2026-04-12"]),
@@ -384,8 +384,8 @@ class TestFetchGateRefreshesRecentWindow:
         db_path = tmp_path / "test.db"
         init_db(db_path)
 
-        with patch("etl.prices.yf.download") as mock_dl, \
-             patch("etl.prices._build_split_factors", return_value={}):
+        with patch("etl.prices.fetch.yf.download") as mock_dl, \
+             patch("etl.prices.fetch._build_split_factors", return_value={}):
             mock_dl.return_value = pd.DataFrame(
                 {("Close", "NEW"): [100.0]},
                 index=pd.to_datetime(["2026-04-12"]),
@@ -611,8 +611,8 @@ class TestIncrementalFetch:
         ])
         end = date(2026, 4, 12)
 
-        with patch("etl.prices.yf.download") as mock_dl, \
-             patch("etl.prices._build_split_factors", return_value={}):
+        with patch("etl.prices.fetch.yf.download") as mock_dl, \
+             patch("etl.prices.fetch._build_split_factors", return_value={}):
             mock_dl.return_value = pd.DataFrame(
                 {("Close", "VOO"): [505.0], ("Close", "FBTC"): [86.0]},
                 index=pd.to_datetime(["2026-04-12"]),
