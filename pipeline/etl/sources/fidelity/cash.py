@@ -12,20 +12,18 @@ the pre-refactor default.
 from __future__ import annotations
 
 from etl.sources import PositionRow
+from etl.types import RawConfig
 
 DEFAULT_MM_TICKER = "FZFXX"
 
 
-def accounts_map(config: dict[str, object]) -> dict[str, str]:
+def accounts_map(config: RawConfig) -> dict[str, str]:
     """Return the ``account_number → MM ticker`` routing table from raw config.
 
-    Missing / non-dict values fall through to an empty dict so every account
-    picks up the :data:`DEFAULT_MM_TICKER` fallback.
+    Missing keys fall through to an empty dict so every account picks up the
+    :data:`DEFAULT_MM_TICKER` fallback.
     """
-    raw = config.get("fidelity_accounts") or {}
-    if isinstance(raw, dict):
-        return {str(k): str(v) for k, v in raw.items()}
-    return {}
+    return dict(config.get("fidelity_accounts") or {})
 
 
 def cash_rows(cash_by_account: dict[str, float], accounts: dict[str, str]) -> list[PositionRow]:
