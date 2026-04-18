@@ -41,11 +41,10 @@ def _seed_db(db_path: Path, txns: list[tuple[str, str, str, str, str, float, flo
     conn = get_connection(db_path)
     conn.executemany(
         "INSERT INTO fidelity_transactions "
-        "(run_date, account, account_number, action, action_kind, symbol, description,"
-        " lot_type, quantity, price, amount) "
-        "VALUES (?, ?, ?, ?, ?, ?, '', ?, ?, 0, ?)",
+        "(run_date, account_number, action, action_kind, symbol, lot_type, quantity, price, amount) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)",
         [
-            (run_date, "Taxable", acct, action, classify_fidelity_action(action).value,
+            (run_date, acct, action, classify_fidelity_action(action).value,
              sym, lot_type, qty, amt)
             for run_date, acct, action, sym, lot_type, qty, amt in txns
         ],

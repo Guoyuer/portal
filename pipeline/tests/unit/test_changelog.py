@@ -6,16 +6,34 @@ import tempfile
 from pathlib import Path
 
 from etl.changelog import (
+    NetWorthPoint,
     SyncChangelog,
     SyncSnapshot,
     build_subject,
     capture,
     diff,
-    empty_changelog,
     format_html,
     format_text,
 )
 from etl.db import init_db
+
+
+def _nwp(total: float, **components: float) -> NetWorthPoint:
+    """Test helper: build a NetWorthPoint whose components sum to total.
+
+    By default, total goes into us_equity (so ``component_sum == total``)
+    and the email's drift flag won't fire on a plain snapshot. Callers that
+    want to exercise the drift path pass explicit component values.
+    """
+    defaults = {
+        "us_equity": total,
+        "non_us_equity": 0.0,
+        "crypto": 0.0,
+        "safe_net": 0.0,
+        "liabilities": 0.0,
+    }
+    defaults.update(components)
+    return NetWorthPoint(total=total, **defaults)
 
 
 def _make_db() -> Path:
@@ -30,8 +48,8 @@ def _seed_fidelity(db_path: Path, rows: list[tuple[str, str, str, float, float]]
         for run_date, action_type, symbol, qty, amount in rows:
             conn.execute(
                 "INSERT INTO fidelity_transactions "
-                "(run_date, account, account_number, action, action_type, symbol, quantity, amount) "
-                "VALUES (?, 'X', 'Z', 'buy', ?, ?, ?, ?)",
+                "(run_date, account_number, action, action_type, symbol, quantity, amount) "
+                "VALUES (?, 'Z', 'buy', ?, ?, ?, ?)",
                 (run_date, action_type, symbol, qty, amount),
             )
         conn.commit()
@@ -142,8 +160,11 @@ class TestCapture:
         snap = capture(db)
         assert ("2026-04-10", "buy", "VOO", 1.0, -505.23) in snap.fidelity_txns
         assert len(snap.fidelity_txns) == 2
-        assert ("2026-04-10", "expense", "Meals", 45.0) in snap.qianji_txns
-        assert snap.computed_daily == {"2026-04-10": 100_000.0, "2026-04-11": 101_500.0}
+        assert ("2026-04-10", "expense", "Meals", 45.0, "") in snap.qianji_txns
+        # computed_daily now stores NetWorthPoint per date (with component splits).
+        assert set(snap.computed_daily.keys()) == {"2026-04-10", "2026-04-11"}
+        assert snap.computed_daily["2026-04-10"].total == 100_000.0
+        assert snap.computed_daily["2026-04-11"].total == 101_500.0
         assert snap.daily_close_count == 3
         assert snap.daily_close_max_date == "2026-04-11"
         assert snap.econ_series_keys == frozenset({"fedRate", "cpi"})
@@ -180,22 +201,45 @@ class TestDiff:
 
     def test_qianji_tallies_by_category(self) -> None:
         after = SyncSnapshot(qianji_txns=frozenset({
-            ("2026-04-10", "expense", "Meals", 20.0),
-            ("2026-04-10", "expense", "Meals", 30.0),
-            ("2026-04-11", "expense", "Housing", 1500.0),
+            ("2026-04-10", "expense", "Meals", 20.0, ""),
+            ("2026-04-10", "expense", "Meals", 30.0, ""),
+            ("2026-04-11", "expense", "Housing", 1500.0, "rent"),
         }))
         cl = diff(SyncSnapshot(), after)
         assert cl.qianji_added_count == 3
         assert cl.qianji_added_by_category["Meals"] == (2, 50.0)
         assert cl.qianji_added_by_category["Housing"] == (1, 1500.0)
+        assert cl.qianji_added_rows_by_category["Housing"] == [("2026-04-11", 1500.0, "rent")]
         assert cl.has_meaningful_changes() is True
 
+    def test_qianji_no_ghost_when_amount_stable(self) -> None:
+        """Same bill in BEFORE and AFTER (identical tuple) — NOT counted as added.
+
+        Regression guard: the CNY-live-rate drift that used to revalue
+        historical bills every build (and inflate the Qianji diff as ghost
+        additions) is now fixed at its root in ``parse_qj_amount`` via
+        per-bill-date historical rates. Snapshots keyed on the content
+        tuple work because the tuple stays stable.
+        """
+        shared = ("2024-05-18", "transfer", "", 1027.00, "")
+        before = SyncSnapshot(qianji_txns=frozenset({shared}))
+        after = SyncSnapshot(qianji_txns=frozenset({shared}))
+        cl = diff(before, after)
+        assert cl.qianji_added_count == 0
+        assert cl.qianji_added_by_category == {}
+
     def test_computed_daily_new_dates(self) -> None:
-        before = SyncSnapshot(computed_daily={"2026-04-10": 100.0})
+        before = SyncSnapshot(computed_daily={"2026-04-10": _nwp(100.0)})
         after = SyncSnapshot(
-            computed_daily={"2026-04-10": 100.0, "2026-04-11": 110.0, "2026-04-12": 120.0},
+            computed_daily={
+                "2026-04-10": _nwp(100.0),
+                "2026-04-11": _nwp(110.0),
+                "2026-04-12": _nwp(120.0),
+            },
         )
         cl = diff(before, after)
+        # ``computed_daily_added`` stays float-keyed for back-compat — only
+        # the ``total`` component makes it into the changelog delta.
         assert cl.computed_daily_added == {"2026-04-11": 110.0, "2026-04-12": 120.0}
         assert cl.has_meaningful_changes() is True
 
@@ -204,7 +248,6 @@ class TestDiff:
         after = SyncSnapshot(daily_close_count=582, daily_close_max_date="2026-04-12")
         cl = diff(before, after)
         assert cl.daily_close_added == 82
-        assert cl.daily_close_max_before == "2026-04-10"
         assert cl.daily_close_max_after == "2026-04-12"
         assert cl.has_meaningful_changes() is True
 
@@ -216,8 +259,10 @@ class TestDiff:
         assert cl.daily_close_added == 0
 
     def test_net_worth_delta_positive(self) -> None:
-        before = SyncSnapshot(computed_daily={"2026-04-10": 100.0})
-        after = SyncSnapshot(computed_daily={"2026-04-10": 100.0, "2026-04-11": 200.0})
+        before = SyncSnapshot(computed_daily={"2026-04-10": _nwp(100.0)})
+        after = SyncSnapshot(
+            computed_daily={"2026-04-10": _nwp(100.0), "2026-04-11": _nwp(200.0)},
+        )
         cl = diff(before, after)
         assert cl.net_worth_before == 100.0
         assert cl.net_worth_after == 200.0
@@ -225,7 +270,7 @@ class TestDiff:
         assert cl.net_worth_delta_pct() == 100.0
 
     def test_net_worth_delta_none_when_missing_before(self) -> None:
-        after = SyncSnapshot(computed_daily={"2026-04-11": 200.0})
+        after = SyncSnapshot(computed_daily={"2026-04-11": _nwp(200.0)})
         cl = diff(SyncSnapshot(), after)
         assert cl.net_worth_before is None
         assert cl.net_worth_delta is None
@@ -279,8 +324,8 @@ class TestDiff:
 
     def test_diff_tracks_net_worth_dates(self) -> None:
         """Latest date for before/after is stored so formatter can render 'Unchanged'."""
-        before = SyncSnapshot(computed_daily={"2026-04-10": 100.0})
-        after = SyncSnapshot(computed_daily={"2026-04-10": 100.0})
+        before = SyncSnapshot(computed_daily={"2026-04-10": _nwp(100.0)})
+        after = SyncSnapshot(computed_daily={"2026-04-10": _nwp(100.0)})
         cl = diff(before, after)
         assert cl.net_worth_before_date == "2026-04-10"
         assert cl.net_worth_after_date == "2026-04-10"
@@ -307,14 +352,14 @@ def _ctx(**overrides: object) -> dict[str, object]:
 
 class TestFormatText:
     def test_header_contains_timestamp_and_status(self) -> None:
-        body = format_text(empty_changelog(), _ctx())
+        body = format_text(SyncChangelog(), _ctx())
         assert "Portal Sync Report" in body
         assert "2026-04-12 18:30" in body
         assert "Status: OK" in body
 
     def test_failure_shows_exit_code_and_error(self) -> None:
         body = format_text(
-            empty_changelog(),
+            SyncChangelog(),
             _ctx(exit_code=1, status_label="BUILD FAILED", error="build_timemachine_db.py exited with code 1"),
         )
         assert "Exit code: 1" in body
@@ -337,11 +382,67 @@ class TestFormatText:
         )
         body = format_text(cl, _ctx())
         assert "Qianji: +3 record" in body
-        assert "Meals: 2" in body
-        assert "Housing: 1" in body
+        # Format D: sum first, then "(count record(s), avg $X)" — removes the
+        # ambiguous "2 x $50.00" which read as "2 records of $50 each".
+        assert "Meals: $50.00  (2 record(s), avg $25.00)" in body
+        assert "Housing: $1,500.00  (1 record(s), avg $1,500.00)" in body
+
+    def test_empower_section_shows_dollar_delta(self) -> None:
+        """Snapshot value delta is attached to the +N line (was just count)."""
+        cl = SyncChangelog(empower_added=1, empower_value_delta=2345.67)
+        body = format_text(cl, _ctx())
+        assert "Empower: +1 401k snapshot(s)" in body
+        assert "+$2,345.67" in body
+
+    def test_empower_section_opening_balance_when_no_prior(self) -> None:
+        """First-ever snapshot: no delta available, show opening balance instead."""
+        cl = SyncChangelog(
+            empower_added=1,
+            empower_value_after=12_000.0,
+        )
+        body = format_text(cl, _ctx())
+        assert "opening balance" in body
+        assert "$12,000.00" in body
+
+    def test_duration_rendered_when_present(self) -> None:
+        body = format_text(SyncChangelog(), _ctx(duration="41s"))
+        assert "Duration: 41s" in body
+
+    def test_duration_omitted_when_blank(self) -> None:
+        body = format_text(SyncChangelog(), _ctx())  # no 'duration' key
+        assert "Duration:" not in body
+
+    def test_qianji_low_count_category_expands_detail(self) -> None:
+        """For categories with count ≤ 2, render per-row date + note below the
+        aggregate so one-offs like Salary/401k can be eyeballed without
+        opening the DB."""
+        cl = SyncChangelog(
+            qianji_added_count=3,
+            qianji_added_by_category={
+                "Salary": (1, 5031.69),
+                "Grocery": (5, 235.45),
+            },
+            qianji_added_rows_by_category={
+                "Salary": [("2026-04-15", 5031.69, "ADP payroll")],
+                "Grocery": [
+                    ("2026-04-13", 45.50, ""),
+                    ("2026-04-14", 60.00, ""),
+                    ("2026-04-15", 40.00, ""),
+                    ("2026-04-16", 55.00, ""),
+                    ("2026-04-17", 34.95, ""),
+                ],
+            },
+        )
+        body = format_text(cl, _ctx())
+        # Salary (count=1) expands with date + note.
+        assert "2026-04-15" in body
+        assert "ADP payroll" in body
+        # Grocery (count=5) stays collapsed — no per-row dates in body.
+        assert "2026-04-14" not in body
+        assert "2026-04-16" not in body
 
     def test_empty_fidelity_and_qianji_dont_render_sections(self) -> None:
-        body = format_text(empty_changelog(), _ctx())
+        body = format_text(SyncChangelog(), _ctx())
         assert "Fidelity:" not in body
         assert "Qianji:" not in body
         # Should still emit the "(no changes detected)" placeholder
@@ -360,24 +461,24 @@ class TestFormatText:
 
     def test_warnings_rendered_when_present(self) -> None:
         body = format_text(
-            empty_changelog(),
+            SyncChangelog(),
             _ctx(warnings=["day_over_day 2023-07-04 -> 2023-07-05: 15.7% change"]),
         )
         assert "Warnings" in body
         assert "15.7%" in body
 
     def test_warnings_section_omitted_when_empty(self) -> None:
-        body = format_text(empty_changelog(), _ctx(warnings=[]))
+        body = format_text(SyncChangelog(), _ctx(warnings=[]))
         assert "Warnings" not in body
 
     def test_log_file_path_present(self) -> None:
-        body = format_text(empty_changelog(), _ctx(log_file="/tmp/sync.log"))
+        body = format_text(SyncChangelog(), _ctx(log_file="/tmp/sync.log"))
         assert "Log: /tmp/sync.log" in body
 
     def test_build_failed_case_no_snapshot_after(self) -> None:
         """exit_code != 0 with empty changelog (build crashed) must still render cleanly."""
         body = format_text(
-            empty_changelog(),
+            SyncChangelog(),
             _ctx(exit_code=1, status_label="BUILD FAILED", error="build_timemachine_db.py exited with code 1"),
         )
         # No net-worth block (both None), no rows, but still has Status + Error.
@@ -423,8 +524,99 @@ class TestFormatText:
         )
         body = format_text(cl, _ctx())
         assert "Unchanged" not in body
-        assert "2026-04-10: $100.00" in body
-        assert "2026-04-11: $100.00" in body
+        # New layout: the date pair is its own line ("BEFORE → AFTER"), money
+        # values live in a Total row beneath with delta/pct.
+        assert "2026-04-10  →  2026-04-11" in body
+        assert "Total:" in body
+        assert "$100.00" in body
+        assert "+0.00%" in body
+
+    def test_format_text_net_worth_component_breakdown(self) -> None:
+        """When point_before / point_after are populated, each component renders
+        on its own row below the Total line."""
+        before = NetWorthPoint(
+            total=100_000.0, us_equity=60_000.0, non_us_equity=20_000.0,
+            crypto=5_000.0, safe_net=15_000.0, liabilities=0.0,
+        )
+        after = NetWorthPoint(
+            total=102_000.0, us_equity=61_000.0, non_us_equity=20_500.0,
+            crypto=5_100.0, safe_net=15_500.0, liabilities=-100.0,
+        )
+        cl = SyncChangelog(
+            net_worth_before=100_000.0, net_worth_after=102_000.0,
+            net_worth_delta=2_000.0,
+            net_worth_point_before=before, net_worth_point_after=after,
+            net_worth_before_date="2026-04-10",
+            net_worth_after_date="2026-04-11",
+        )
+        body = format_text(cl, _ctx())
+        assert "Total:" in body
+        assert "US Equity:" in body
+        assert "Non-US:" in body
+        assert "Crypto:" in body
+        assert "Safe Net:" in body
+        assert "Liabilities:" in body
+        # Delta per component is sign-prefixed.
+        assert "+$1,000.00" in body   # us_equity delta
+        assert "+$500.00" in body     # non_us_equity delta
+        assert "-$100.00" in body     # liabilities delta (liabilities went MORE negative)
+
+    def test_format_text_net_worth_component_sum_drift_flagged(self) -> None:
+        """When stored ``total`` and component sum disagree → ``[!]`` drift line."""
+        after = NetWorthPoint(
+            total=100_000.0,
+            # Components only add up to 95,000 — 5k gap is "missing" from the
+            # allocation pipeline. Email must surface this.
+            us_equity=50_000.0, non_us_equity=20_000.0,
+            crypto=5_000.0, safe_net=20_000.0, liabilities=0.0,
+        )
+        cl = SyncChangelog(
+            net_worth_before=90_000.0, net_worth_after=100_000.0,
+            net_worth_delta=10_000.0,
+            net_worth_point_before=NetWorthPoint(
+                total=90_000.0, us_equity=90_000.0, non_us_equity=0.0,
+                crypto=0.0, safe_net=0.0, liabilities=0.0,
+            ),
+            net_worth_point_after=after,
+            net_worth_before_date="2026-04-10",
+            net_worth_after_date="2026-04-11",
+        )
+        body = format_text(cl, _ctx())
+        assert "[!]" in body
+        assert "don't sum to stored total" in body
+
+    def test_format_text_net_worth_large_move_flag_by_usd(self) -> None:
+        """|Δ| > $5,000 → LARGE MOVE flag on the header."""
+        cl = SyncChangelog(
+            net_worth_before=100_000.0, net_worth_after=106_000.0,
+            net_worth_delta=6_000.0,
+            net_worth_before_date="2026-04-10",
+            net_worth_after_date="2026-04-11",
+        )
+        body = format_text(cl, _ctx())
+        assert "LARGE MOVE" in body
+
+    def test_format_text_net_worth_large_move_flag_by_pct(self) -> None:
+        """|Δ%| > 3% → LARGE MOVE flag (dollar threshold NOT tripped)."""
+        cl = SyncChangelog(
+            net_worth_before=1_000.0, net_worth_after=1_050.0,  # only $50 but +5%
+            net_worth_delta=50.0,
+            net_worth_before_date="2026-04-10",
+            net_worth_after_date="2026-04-11",
+        )
+        body = format_text(cl, _ctx())
+        assert "LARGE MOVE" in body
+
+    def test_format_text_net_worth_no_large_move_flag_on_ordinary_day(self) -> None:
+        """Normal daily move (< $5k AND < 3%) → no flag."""
+        cl = SyncChangelog(
+            net_worth_before=100_000.0, net_worth_after=101_500.0,
+            net_worth_delta=1_500.0,
+            net_worth_before_date="2026-04-10",
+            net_worth_after_date="2026-04-11",
+        )
+        body = format_text(cl, _ctx())
+        assert "LARGE MOVE" not in body
 
     def test_format_text_net_worth_only_after_no_prior(self) -> None:
         """Only `after` value present → 'no prior snapshot' hint."""
@@ -438,17 +630,19 @@ class TestFormatText:
         assert "no prior snapshot" in body
 
     # PR-S8 Bug 3 regression: D1 Sync section on failure
-    def test_format_text_d1_sync_on_success(self) -> None:
-        """exit_code=0 → full D1 Sync row-count table (existing behavior)."""
+    def test_format_text_d1_section_omitted_on_success(self) -> None:
+        """exit_code=0 → no D1 Sync section (counts already in Changes block)."""
         cl = SyncChangelog(
             fidelity_added=[("2026-04-10", "buy", "VOO", 1.0, -500.0)],
             computed_daily_added={"2026-04-10": 100.0},
         )
         body = format_text(cl, _ctx(exit_code=0))
-        assert "D1 Sync" in body
-        assert "computed_daily:" in body
-        assert "fidelity_transactions:" in body
+        # Changes block carries the counts; "D1 Sync" heading only renders on
+        # failure (with the 'not executed' line) to avoid duplicating numbers.
+        assert "D1 Sync" not in body
         assert "not executed" not in body
+        # Changes block still surfaces the per-source lines.
+        assert "Fidelity: +1" in body
 
     def test_format_text_d1_sync_on_parity_failure(self) -> None:
         """exit_code=2 → 'not executed — blocked at parity check'."""
@@ -464,17 +658,17 @@ class TestFormatText:
 
     def test_format_text_d1_sync_on_build_failure(self) -> None:
         """exit_code=1 → 'not executed — blocked at build'."""
-        body = format_text(empty_changelog(), _ctx(exit_code=1, status_label="BUILD FAILED"))
+        body = format_text(SyncChangelog(), _ctx(exit_code=1, status_label="BUILD FAILED"))
         assert "not executed — blocked at build" in body
 
     def test_format_text_d1_sync_on_sync_failure(self) -> None:
         """exit_code=3 → 'not executed — blocked at sync'."""
-        body = format_text(empty_changelog(), _ctx(exit_code=3, status_label="SYNC FAILED"))
+        body = format_text(SyncChangelog(), _ctx(exit_code=3, status_label="SYNC FAILED"))
         assert "not executed — blocked at sync" in body
 
     def test_format_text_d1_sync_on_positions_failure(self) -> None:
         """exit_code=4 → 'not executed — blocked at positions check'."""
-        body = format_text(empty_changelog(), _ctx(exit_code=4, status_label="POSITIONS GATE FAILED"))
+        body = format_text(SyncChangelog(), _ctx(exit_code=4, status_label="POSITIONS GATE FAILED"))
         assert "not executed — blocked at positions check (verify_positions)" in body
 
     # PR-S8 Bug 4 regression: FRED line only renders when keys changed
@@ -489,31 +683,27 @@ class TestFormatText:
         assert "econ_series" not in body
 
     def test_format_text_fred_added_keys_render(self) -> None:
-        """New FRED indicator(s) → Changes section lists them, D1 Sync shows +N."""
+        """New FRED indicator(s) → Changes section lists them."""
         cl = SyncChangelog(
             econ_refreshed=True,
             econ_keys_added=["pce", "spread3m10y"],
         )
         body = format_text(cl, _ctx())
         assert "FRED: +2 new indicator(s) (pce, spread3m10y)" in body
-        assert "econ_series:" in body
-        assert "+2" in body
 
     def test_format_text_fred_removed_keys_render(self) -> None:
-        """Removed FRED indicator(s) → Changes lists them, D1 Sync shows -N."""
+        """Removed FRED indicator(s) → Changes lists them."""
         cl = SyncChangelog(
             econ_refreshed=True,
             econ_keys_removed=["oil_wti"],
         )
         body = format_text(cl, _ctx())
         assert "FRED: -1 indicator(s) removed (oil_wti)" in body
-        assert "econ_series:" in body
-        assert "-1" in body
 
 
 class TestFormatHtml:
     def test_wraps_text_in_pre_block(self) -> None:
-        html = format_html(empty_changelog(), _ctx())
+        html = format_html(SyncChangelog(), _ctx())
         assert "<html>" in html
         assert "<pre" in html
         assert "Portal Sync" in html
@@ -525,11 +715,11 @@ class TestFormatHtml:
         assert "&amp; stuff" in html
 
     def test_success_uses_green_color(self) -> None:
-        html = format_html(empty_changelog(), _ctx(exit_code=0))
+        html = format_html(SyncChangelog(), _ctx(exit_code=0))
         assert "#2e7d32" in html
 
     def test_failure_uses_red_color(self) -> None:
-        html = format_html(empty_changelog(), _ctx(exit_code=1))
+        html = format_html(SyncChangelog(), _ctx(exit_code=1))
         assert "#c62828" in html
 
     def test_html_net_worth_unchanged_passthrough(self) -> None:
@@ -547,7 +737,7 @@ class TestFormatHtml:
 
     def test_html_d1_sync_on_failure_passthrough(self) -> None:
         """HTML body reflects the 'not executed' message on failure."""
-        html = format_html(empty_changelog(), _ctx(exit_code=2))
+        html = format_html(SyncChangelog(), _ctx(exit_code=2))
         assert "not executed — blocked at parity check (verify_vs_prod)" in html
 
 
@@ -556,12 +746,12 @@ class TestFormatHtml:
 
 class TestBuildSubject:
     def test_failure_subject(self) -> None:
-        subj = build_subject(empty_changelog(), exit_code=1)
+        subj = build_subject(SyncChangelog(), exit_code=1)
         assert "FAIL" in subj
         assert "1" in subj
 
     def test_success_no_changes(self) -> None:
-        subj = build_subject(empty_changelog(), exit_code=0)
+        subj = build_subject(SyncChangelog(), exit_code=0)
         assert subj == "[Portal Sync] OK"
 
     def test_success_with_changes(self) -> None:

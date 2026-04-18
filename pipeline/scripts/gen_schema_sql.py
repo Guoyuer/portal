@@ -1,8 +1,12 @@
 """Generate worker/schema.sql DDL from db.py — tables, indexes, and views.
 
-The generator owns every line of worker/schema.sql: tables and indexes come
-from _TABLES/_INDEXES (after slimming to the D1 column subset), and views
-come verbatim from _VIEWS in db.py. No hand-edits are preserved.
+Local SQLite and D1 share a single schema: ``etl/db.py`` is the source of
+truth, and the generator mirrors every synced table / index / view into
+``worker/schema.sql`` verbatim. No hand-edits are preserved.
+
+The payload-exposure contract (what reaches the frontend) lives in the
+views, not in a separate column-subset whitelist. ``test_views_no_banned_columns``
+guards identifiers that must never appear in a view body.
 
 Usage:
     cd pipeline && python scripts/gen_schema_sql.py
@@ -18,7 +22,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from etl.db import _INDEXES, _TABLES, _VIEWS  # noqa: E402, I001
-from scripts.sync_to_d1 import TABLES_TO_SYNC, _D1_COLUMNS  # noqa: E402, I001
+from scripts.sync_to_d1 import TABLES_TO_SYNC  # noqa: E402, I001
 
 # ── Configuration ──────────────────────────────────────────────────────────────
 
@@ -44,67 +48,10 @@ def _parse_create_blocks(ddl: str, keyword: str) -> list[tuple[str, str]]:
     return [(m.group(2), m.group(1)) for m in re.finditer(pattern, ddl)]
 
 
-def _slim_table(name: str, create_stmt: str) -> str:
-    """If D1 only syncs a column subset for this table, rewrite the CREATE to match."""
-    cols = _D1_COLUMNS.get(name)
-    if cols is None:
-        return create_stmt
-
-    # Extract the column block between the outer parens
-    m = re.search(r"\(([\s\S]+)\)", create_stmt)
-    if not m:
-        return create_stmt
-
-    col_block = m.group(1)
-    lines = [line.strip().rstrip(",") for line in col_block.strip().split("\n") if line.strip()]
-
-    kept: list[str] = []
-    for line in lines:
-        # Check for PRIMARY KEY constraint before column matching
-        if line.upper().startswith("PRIMARY KEY"):
-            pk_cols_m = re.search(r"\(([^)]+)\)", line)
-            if pk_cols_m:
-                pk_cols = [c.strip() for c in pk_cols_m.group(1).split(",")]
-                if all(c in cols or c == "id" for c in pk_cols):
-                    kept.append(line)
-            continue
-        col_match = re.match(r"(\w+)\s", line)
-        if not col_match:
-            continue
-        col_name = col_match.group(1)
-        if col_name == "id" or col_name in cols:
-            kept.append(line)
-
-    # Build the new CREATE TABLE
-    col_text = ",\n  ".join(kept)
-    return f"CREATE TABLE IF NOT EXISTS {name} (\n  {col_text}\n);"
-
-
 def _table_for_index(create_idx: str) -> str | None:
     """Extract the table name from a CREATE INDEX statement."""
     m = re.search(r"ON\s+(\w+)\s*\(", create_idx)
     return m.group(1) if m else None
-
-
-def _index_columns(create_idx: str) -> list[str]:
-    """Extract the indexed column names from a CREATE INDEX statement."""
-    m = re.search(r"ON\s+\w+\s*\(([^)]+)\)", create_idx)
-    if not m:
-        return []
-    return [c.strip() for c in m.group(1).split(",")]
-
-
-def _index_valid_for_d1(stmt: str) -> bool:
-    """Check that all columns referenced by an index exist in the D1 schema for that table."""
-    table = _table_for_index(stmt)
-    if not table:
-        return False
-    cols = _D1_COLUMNS.get(table)
-    if cols is None:
-        return True  # Full table synced — all columns available
-    # D1 subset: also include "id" since AUTOINCREMENT PKs are kept
-    d1_cols = set(cols) | {"id"}
-    return all(c in d1_cols for c in _index_columns(stmt))
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
@@ -113,14 +60,15 @@ def _index_valid_for_d1(stmt: str) -> bool:
 def main() -> None:
     synced = set(TABLES_TO_SYNC)
 
-    # Parse and filter tables
+    # Parse and filter tables — keep every column from the local schema,
+    # since local and D1 share one shape.
     tables = _parse_create_blocks(_TABLES, "TABLE")
-    kept_tables = [(name, _slim_table(name, stmt)) for name, stmt in tables if name in synced]
+    kept_tables = [(name, stmt) for name, stmt in tables if name in synced]
 
-    # Parse and filter indexes (keep only those on synced tables with valid columns)
+    # Parse and filter indexes (keep only those on synced tables).
     indexes = _parse_create_blocks(_INDEXES, "INDEX")
     kept_indexes = [
-        (name, stmt) for name, stmt in indexes if _table_for_index(stmt) in synced and _index_valid_for_d1(stmt)
+        (name, stmt) for name, stmt in indexes if _table_for_index(stmt) in synced
     ]
 
     # Assemble output

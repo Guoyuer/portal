@@ -6,24 +6,33 @@
 -- ── Tables ────────────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS fidelity_transactions (
-  id              INTEGER PRIMARY KEY AUTOINCREMENT,
-  run_date        TEXT NOT NULL,
-  action_type     TEXT NOT NULL DEFAULT ''
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_date        TEXT NOT NULL,
+    account_number  TEXT NOT NULL,
+    action          TEXT NOT NULL,
+    action_type     TEXT NOT NULL DEFAULT '',
+    action_kind     TEXT,
+    symbol          TEXT NOT NULL DEFAULT '',
+    lot_type        TEXT NOT NULL DEFAULT '',
+    quantity        REAL NOT NULL DEFAULT 0,
+    price           REAL NOT NULL DEFAULT 0,
+    amount          REAL NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS daily_close (
-  symbol TEXT NOT NULL,
-  date   TEXT NOT NULL,
-  close  REAL NOT NULL,
-  PRIMARY KEY (symbol, date)
+    symbol TEXT NOT NULL,
+    date   TEXT NOT NULL,
+    close  REAL NOT NULL,
+    PRIMARY KEY (symbol, date)
 );
 
 CREATE TABLE IF NOT EXISTS qianji_transactions (
-  date           TEXT NOT NULL,
-  type           TEXT NOT NULL,
-  category       TEXT NOT NULL DEFAULT '',
-  amount         REAL NOT NULL,
-  is_retirement  INTEGER NOT NULL DEFAULT 0
+    date           TEXT NOT NULL,
+    type           TEXT NOT NULL,
+    category       TEXT NOT NULL DEFAULT '',
+    amount         REAL NOT NULL,
+    note           TEXT NOT NULL DEFAULT '',
+    is_retirement  INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS computed_daily (
@@ -86,6 +95,7 @@ CREATE TABLE IF NOT EXISTS categories (
 -- ── Indexes ───────────────────────────────────────────────────────────────────
 
 CREATE INDEX IF NOT EXISTS idx_fidelity_date     ON fidelity_transactions(run_date);
+CREATE INDEX IF NOT EXISTS idx_fidelity_acct_sym ON fidelity_transactions(account_number, symbol);
 CREATE INDEX IF NOT EXISTS idx_daily_close_date  ON daily_close(date);
 CREATE INDEX IF NOT EXISTS idx_daily_tickers_date ON computed_daily_tickers(date);
 CREATE INDEX IF NOT EXISTS idx_qianji_txn_date ON qianji_transactions(date);

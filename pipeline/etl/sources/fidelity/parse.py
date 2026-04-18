@@ -268,7 +268,7 @@ def _ingest_one_csv(db_path: Path, csv_path: Path) -> int:
         raise ValueError(msg)
 
     reader = csv.DictReader(lines[header_idx:])
-    rows: list[tuple[str, str, str, str, str, str, str, str, str, float, float, float, str]] = []
+    rows: list[tuple[str, str, str, str, str, str, str, float, float, float]] = []
 
     # DictReader consumes the header, so the first data row is file
     # line header_idx + 2.
@@ -288,18 +288,15 @@ def _ingest_one_csv(db_path: Path, csv_path: Path) -> int:
         raw_action = record.get("Action", "").strip().strip('"')
         rows.append((
             iso_date,
-            record.get("Account", "").strip().strip('"'),
             record.get("Account Number", "").strip().strip('"'),
             raw_action,
             _classify_action(raw_action),
             classify_fidelity_action(raw_action).value,
             record.get("Symbol", "").strip(),
-            record.get("Description", "").strip().strip('"'),
             record.get("Type", "").strip(),
             _parse_float(record.get("Quantity", "")),
             _parse_float(record.get("Price", "")),
             _parse_float(record.get("Amount", "")),
-            record.get("Settlement Date", "").strip(),
         ))
 
     conn = get_connection(db_path)
@@ -312,9 +309,9 @@ def _ingest_one_csv(db_path: Path, csv_path: Path) -> int:
             date_idx=0,
             insert_sql=(
                 f"INSERT INTO {TABLE} "  # noqa: S608 — TABLE is a module-level constant
-                "(run_date, account, account_number, action, action_type, action_kind, "
-                "symbol, description, lot_type, quantity, price, amount, settlement_date) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                "(run_date, account_number, action, action_type, action_kind, "
+                "symbol, lot_type, quantity, price, amount) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
             ),
         )
         conn.commit()

@@ -43,6 +43,9 @@ from etl.db import (
 )
 from etl.ingest.qianji_db import ingest_qianji_transactions, load_all_from_db
 from etl.migrations.add_fidelity_action_kind import migrate as _migrate_fidelity_action_kind
+from etl.migrations.drop_fidelity_dead_columns import migrate as _migrate_drop_fidelity_dead
+from etl.migrations.drop_qianji_account import migrate as _migrate_drop_qianji_account
+from etl.migrations.drop_qianji_source_id import migrate as _migrate_drop_qianji_source_id
 from etl.migrations.drop_robinhood_unique import migrate as _migrate_drop_robinhood_unique
 from etl.precompute import (
     precompute_holdings_detail,
@@ -51,6 +54,7 @@ from etl.precompute import (
 from etl.prices import (
     fetch_and_store_cny_rates,
     fetch_and_store_prices,
+    load_cny_rates,
     symbol_holding_periods_from_db,
 )
 from etl.refresh import refresh_window_start
@@ -295,6 +299,9 @@ def _init_db_and_ingest_sources(
     # fresh DBs (the column already exists via init_db's DDL) and on already-
     # classified rows.
     _migrate_fidelity_action_kind(paths.db_path)
+    # Drop raw-dump columns nobody reads (account / action / description /
+    # settlement_date). Idempotent — see migration module docstring.
+    _migrate_drop_fidelity_dead(paths.db_path)
     print("[2] Ingesting Fidelity transactions...")
     _ingest_fidelity_csvs(paths)
 
@@ -307,6 +314,13 @@ def _init_db_and_ingest_sources(
     # [min_date, max_date] + INSERT everything) — identical to Fidelity.
     # Migration below is a no-op on fresh DBs (schema already correct).
     _migrate_drop_robinhood_unique(paths.db_path)
+    # Clean up the short-lived ``qianji_transactions.source_id`` column on any
+    # DB that was built in the brief window where it existed. See the
+    # migration's module docstring for the full story.
+    _migrate_drop_qianji_source_id(paths.db_path)
+    # Drop ``qianji_transactions.account`` — populated from ``account_from``
+    # but never read. Same rationale as the fidelity dead-columns drop.
+    _migrate_drop_qianji_account(paths.db_path)
     # Silent no-op when no CSV matches (user has no Robinhood holdings). Uses
     # the same ``downloads/`` glob as Fidelity — users drop fresh
     # ``Robinhood_history*.csv`` files into the shared downloads folder.
@@ -524,8 +538,14 @@ def _full_build(
     finally:
         conn.close()
 
-    # Ingest Qianji transactions for /cashflow endpoint
-    qianji_records, _ = load_all_from_db(DEFAULT_QJ_DB)
+    # Ingest Qianji transactions for /cashflow endpoint. Per-date historical
+    # CNY rates come from the daily_close table (symbol='CNY=X') so each
+    # quirk bill gets revalued at its own date's FX rate — stable across
+    # runs, unlike the old live-rate fallback which re-converted every run.
+    historical_cny = load_cny_rates(paths.db_path)
+    qianji_records, _ = load_all_from_db(
+        DEFAULT_QJ_DB, historical_cny_rates=historical_cny,
+    )
     retirement_cats = list(config.get("retirement_income_categories") or [])
     qj_count = ingest_qianji_transactions(
         paths.db_path, qianji_records, retirement_categories=retirement_cats,
@@ -614,7 +634,10 @@ def _build_refresh_window(
     # re-ingest it or the /cashflow view drifts from reality whenever the
     # user edits a bill in Qianji — or, as in the balance-adjustment and
     # timezone fixes, whenever ingest logic itself changes.
-    qianji_records, _ = load_all_from_db(DEFAULT_QJ_DB)
+    historical_cny = load_cny_rates(paths.db_path)
+    qianji_records, _ = load_all_from_db(
+        DEFAULT_QJ_DB, historical_cny_rates=historical_cny,
+    )
     retirement_cats = list(config.get("retirement_income_categories") or [])
     qj_count = ingest_qianji_transactions(
         paths.db_path, qianji_records, retirement_categories=retirement_cats,

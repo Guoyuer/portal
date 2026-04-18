@@ -20,6 +20,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import sqlite3
@@ -56,64 +57,153 @@ TABLES_TO_SYNC: list[str] = [
     "categories",
 ]
 
-# Column subsets to sync to D1.  None → all columns (SELECT *).
-_D1_COLUMNS: dict[str, list[str] | None] = {
-    "fidelity_transactions": ["run_date", "action_type", "symbol", "amount", "quantity", "price"],
-    "qianji_transactions": ["date", "type", "category", "amount", "is_retirement"],
-    "daily_close": ["symbol", "date", "close"],
-}
+# ── D1 schema alignment ────────────────────────────────────────────────────
+#
+# Local and D1 schemas are a single shared shape: every column in ``etl/db.py``
+# is synced to D1, and any ``ALTER TABLE ADD COLUMN`` in local propagates to
+# D1 on the next sync via the helpers below. D1 ALTER is an O(1) metadata
+# op (unlike MySQL, it doesn't rewrite the table), so auto-applying is safe
+# at the scale we care about. Each ALTER is logged so the sync output still
+# reads as an audit trail.
+#
+# The payload-exposure contract (what actually reaches the browser) lives
+# one layer up in views — they project explicit column lists, and
+# ``test_views_no_banned_columns`` guards identifiers that must never appear
+# in a view body. Keeping D1 a faithful mirror of local lets the exposure
+# question stay where it belongs (the view) instead of splitting across two
+# layers of partial-whitelist bookkeeping.
+#
+# The helpers below let ``main()`` detect the mismatch and apply ``ALTER TABLE
+# ADD
+# COLUMN`` automatically. D1's ALTER is an O(1) metadata op — unlike MySQL,
+# it doesn't rewrite the table — so auto-applying is safe at the scale we
+# care about. Each ALTER is logged so the sync output still reads as an
+# audit trail.
 
-# Columns we intentionally DO NOT sync to D1 (redact / reduce payload).
-# Every column in the local schema must appear in either ``_D1_COLUMNS`` or
-# this opt-out set; otherwise ``_check_d1_column_drift`` refuses to run. This
-# forces a conscious decision when a new column lands in ``etl/db.py``.
-_D1_OMITTED: dict[str, set[str]] = {
-    "fidelity_transactions": {
-        "id", "account", "account_number", "action", "action_kind",
-        "description", "lot_type", "settlement_date",
-    },
-    "qianji_transactions": {"account", "note"},
-    "daily_close": set(),
-}
+
+def _wrangler_remote_flag(local: bool) -> str:
+    return "--local" if local else "--remote"
 
 
-def _check_d1_column_drift(conn: sqlite3.Connection) -> None:
-    """Abort sync if `_D1_COLUMNS` + `_D1_OMITTED` don't cover the local schema.
+def _wrangler_pragma(table: str, local: bool) -> list[dict[str, object]]:
+    """Run ``PRAGMA table_info(<table>)`` against D1 and parse the JSON rows.
 
-    Catches the silent-drift bug class: someone adds a column to `etl/db.py`
-    but forgets to update `_D1_COLUMNS` here, so the new column never reaches
-    D1 and the Worker reads through a pre-migration view. Every table column
-    must be explicitly placed in exactly one bucket: synced (``_D1_COLUMNS``)
-    or intentionally dropped (``_D1_OMITTED``). A column in neither → raise.
+    Returns an empty list when the table doesn't exist on D1 — callers treat
+    this as "skip, D1 is unbootstrapped" rather than trying to auto-create
+    the table.
     """
-    errors: list[str] = []
-    for table, declared in _D1_COLUMNS.items():
-        if declared is None:
-            continue
-        actual = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}  # noqa: S608
-        declared_set = set(declared)
-        omitted = _D1_OMITTED.get(table, set())
-
-        missing_from_schema = declared_set - actual
-        if missing_from_schema:
-            errors.append(
-                f"{table}: _D1_COLUMNS references columns missing from local schema: "
-                f"{sorted(missing_from_schema)}"
-            )
-
-        unclassified = actual - declared_set - omitted
-        if unclassified:
-            errors.append(
-                f"{table}: new local column(s) not declared as either synced "
-                f"(_D1_COLUMNS) or intentionally omitted (_D1_OMITTED): "
-                f"{sorted(unclassified)}"
-            )
-    if errors:
-        msg = (
-            "_D1_COLUMNS / _D1_OMITTED drift detected in sync_to_d1.py:\n  "
-            + "\n  ".join(errors)
-        )
+    npx = shutil.which("npx")
+    if npx is None:
+        msg = "npx not found in PATH — install Node.js or add npm bin to PATH"
         raise RuntimeError(msg)
+    result = subprocess.run(
+        [npx, "wrangler", "d1", "execute", "portal-db", _wrangler_remote_flag(local),
+         "--json", f"--command=PRAGMA table_info({table})"],
+        cwd=str(_WORKER_DIR),
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"wrangler PRAGMA failed for {table} (rc={result.returncode})\n"
+            f"stderr:\n{result.stderr or '(empty)'}\n"
+            f"stdout:\n{result.stdout or '(empty)'}"
+        )
+    data = json.loads(result.stdout)
+    if isinstance(data, list) and data and "results" in data[0]:
+        return list(data[0]["results"])
+    return []
+
+
+def _wrangler_exec_ddl(sql: str, local: bool) -> None:
+    """Execute one DDL statement (ALTER TABLE ...) on D1. Raises on failure."""
+    npx = shutil.which("npx")
+    if npx is None:
+        msg = "npx not found in PATH — install Node.js or add npm bin to PATH"
+        raise RuntimeError(msg)
+    result = subprocess.run(
+        [npx, "wrangler", "d1", "execute", "portal-db", _wrangler_remote_flag(local),
+         f"--command={sql}"],
+        cwd=str(_WORKER_DIR),
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"wrangler DDL failed (rc={result.returncode})\nSQL: {sql}\n"
+            f"stderr:\n{result.stderr or '(empty)'}\n"
+            f"stdout:\n{result.stdout or '(empty)'}"
+        )
+
+
+def _column_add_ddl(local_conn: sqlite3.Connection, table: str, col: str) -> str:
+    """Return the ``col type [NOT NULL] [DEFAULT X]`` fragment for ALTER ADD.
+
+    Reads the local schema (``etl/db.py``'s CREATE TABLE, as introspected via
+    PRAGMA table_info) so the column added to D1 has the same type and
+    nullability as the local source of truth. SQLite requires that NOT NULL
+    columns added via ALTER have a DEFAULT — we enforce that by raising if
+    the local schema has a NOT NULL column without one.
+    """
+    for _cid, name, ctype, notnull, dflt, _pk in local_conn.execute(
+        f"PRAGMA table_info({table})"  # noqa: S608 — table is a trusted constant
+    ):
+        if name != col:
+            continue
+        parts = [str(name), str(ctype) if ctype else "TEXT"]
+        if notnull and dflt is None:
+            msg = (
+                f"Local column {table}.{col} is NOT NULL without a DEFAULT — "
+                f"D1 ALTER ADD COLUMN would reject it. Add a DEFAULT to etl/db.py."
+            )
+            raise RuntimeError(msg)
+        if notnull:
+            parts.append("NOT NULL")
+        if dflt is not None:
+            parts.append(f"DEFAULT {dflt}")
+        return " ".join(parts)
+    msg = f"Column {col} not found in local schema of {table}"
+    raise RuntimeError(msg)
+
+
+def _ensure_d1_schema_aligned(
+    local_conn: sqlite3.Connection, *, local: bool, dry_run: bool,
+) -> None:
+    """Add any local column missing from D1 via ALTER TABLE ADD COLUMN.
+
+    Iterates every table in ``TABLES_TO_SYNC``, compares its local columns to
+    D1's, and closes the gap so ``SELECT * FROM local → INSERT INTO D1``
+    won't blow up on a "no such column" at runtime. No-op when schemas
+    already agree. Skips tables missing from D1 entirely — too big a jump
+    to auto-create; user should apply the init schema first.
+    """
+    for table in TABLES_TO_SYNC:
+        local_cols = [r[1] for r in local_conn.execute(
+            f"PRAGMA table_info({table})"  # noqa: S608 — trusted constant
+        )]
+        if not local_cols:
+            # Local table missing (fresh DB with incomplete init?) — let the
+            # sync's later SELECT surface the real error instead of masking.
+            continue
+        d1_info = _wrangler_pragma(table, local=local)
+        d1_cols = {str(row["name"]) for row in d1_info}
+        if not d1_cols:
+            print(
+                f"  ! Table {table} not found in D1 — apply init schema before re-running sync"
+            )
+            continue
+        missing = [c for c in local_cols if c not in d1_cols]
+        if not missing:
+            continue
+        for col in missing:
+            ddl = _column_add_ddl(local_conn, table, col)
+            alter_sql = f"ALTER TABLE {table} ADD COLUMN {ddl}"
+            if dry_run:
+                print(f"  [dry-run] Would align D1 schema: {alter_sql}")
+            else:
+                print(f"  Aligning D1 schema: {alter_sql}")
+                _wrangler_exec_ddl(alter_sql, local=local)
+
 
 # Tables that use INSERT OR IGNORE in diff mode (append-only, have date PK)
 _DIFF_TABLES: set[str] = {"daily_close"}
@@ -163,15 +253,13 @@ def _dump_table(
 
     Returns ``(sql, row_count)``.
     """
-    cols = _D1_COLUMNS.get(table)
-    col_list = ", ".join(cols) if cols else "*"
     if mode == "range":
         if date_expr is None or since is None:
             msg = "mode='range' requires date_expr and since"
             raise ValueError(msg)
-        cursor = conn.execute(f"SELECT {col_list} FROM {table} WHERE {date_expr} > ?", (since,))  # noqa: S608
+        cursor = conn.execute(f"SELECT * FROM {table} WHERE {date_expr} > ?", (since,))  # noqa: S608
     else:
-        cursor = conn.execute(f"SELECT {col_list} FROM {table}")  # noqa: S608
+        cursor = conn.execute(f"SELECT * FROM {table}")  # noqa: S608
     columns = [desc[0] for desc in cursor.description]
     rows = cursor.fetchall()
 
@@ -252,8 +340,12 @@ def main() -> None:
     conn = sqlite3.connect(str(_DB_PATH))
     conn.row_factory = None  # ensure tuples
 
-    # Fail fast if the local schema has drifted from our column whitelist.
-    _check_d1_column_drift(conn)
+    # Local and D1 share one schema — close any column-level gap by ALTER-ing
+    # D1 up to local's shape before the first INSERT references a column D1
+    # doesn't yet have. Dry-run skips this entirely (both the read PRAGMA
+    # and the ALTER are wrangler roundtrips — dry-run stays offline).
+    if not args.dry_run:
+        _ensure_d1_schema_aligned(conn, local=args.local, dry_run=False)
 
     mode = "full" if args.full else "diff"
     since = args.since

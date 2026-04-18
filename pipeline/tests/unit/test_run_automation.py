@@ -281,6 +281,18 @@ class TestExitCodeMapping:
         assert marker.exists()
         assert marker.read_text().strip()  # non-empty ISO timestamp
 
+    def test_dry_run_does_not_write_marker(self, monkeypatch, tmp_path):
+        """--dry-run must NOT update marker — otherwise the next non-dry-run
+        is short-circuited by change-detection thinking the DB is fresh.
+        """
+        marker = tmp_path / ".last_run"
+        assert not marker.exists()
+        rc, _ = self._invoke(["--force", "--dry-run"], [0, 0], monkeypatch, tmp_path)
+        assert rc == run_automation.EXIT_OK
+        assert not marker.exists(), (
+            "dry-run wrote the marker; next real sync would be skipped"
+        )
+
     def test_no_changes_returns_0_without_invoking_build(self, monkeypatch, tmp_path):
         """Without --force: no CSV changes AND DB fresh → exit 0, no subprocess."""
         from datetime import date

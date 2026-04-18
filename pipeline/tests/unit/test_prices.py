@@ -410,9 +410,9 @@ def _seed_fidelity_txn(
     conn = get_connection(db_path)
     conn.execute(
         "INSERT INTO fidelity_transactions"
-        " (run_date, account, account_number, action, action_kind, symbol, quantity)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (run_date, "TEST", "Z29", f"TEST {action_kind} ({symbol})", action_kind, symbol, quantity),
+        " (run_date, account_number, action, action_kind, symbol, quantity)"
+        " VALUES (?, ?, ?, ?, ?, ?)",
+        (run_date, "Z29", f"TEST {action_kind} ({symbol})", action_kind, symbol, quantity),
     )
     conn.commit()
     conn.close()

@@ -19,7 +19,8 @@ import os
 import re
 import sqlite3
 import sys
-from datetime import UTC, datetime
+from collections.abc import Mapping
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -93,7 +94,35 @@ def _decode_curr(extra_str: str | None) -> dict[str, Any] | None:
     return curr if isinstance(curr, dict) else None
 
 
-def parse_qj_amount(money: float, extra_str: str | None, cny_rate: float | None = None) -> float:
+def _resolve_cny_rate(
+    bill_date: date | None,
+    historical: Mapping[date, float] | None,
+    fallback: float | None,
+) -> float | None:
+    """Pick the CNY rate for a given bill date, with weekend walk-back.
+
+    yfinance only publishes CNY=X close rates on weekdays, but Qianji bills
+    get wall-clock timestamps that fall on any day. Walking back up to a
+    week covers weekends + US market holidays. Returns the scalar fallback
+    when no historical data is available at all — preserves backward-compat
+    for callers (and tests) that never supply historical rates.
+    """
+    if bill_date is not None and historical:
+        for delta in range(8):
+            d = bill_date - timedelta(days=delta)
+            if d in historical:
+                return historical[d]
+    return fallback
+
+
+def parse_qj_amount(
+    money: float,
+    extra_str: str | None,
+    cny_rate: float | None = None,
+    *,
+    bill_date: date | None = None,
+    historical_cny_rates: Mapping[date, float] | None = None,
+) -> float:
     """Return the base-currency (USD) amount for a Qianji bill.
 
     Qianji's ``extra.curr`` encodes currency conversion metadata:
@@ -107,8 +136,13 @@ def parse_qj_amount(money: float, extra_str: str | None, cny_rate: float | None 
     **Qianji data quirk:** Some bills have ``ss != bs`` (e.g. source CNY, base
     USD) but ``bv == sv`` — Qianji labelled the base as USD but the user
     never entered the conversion. When this happens:
-      - If ``cny_rate`` is provided and ``ss == "CNY"`` and ``bs == "USD"``,
-        convert ``money`` (source CNY) using the live rate.
+      - If ``bill_date`` + ``historical_cny_rates`` are supplied, use the
+        rate for the bill's date (walks back up to 7 days for weekends /
+        holidays). **This is the primary path** — it makes the USD amount
+        stable across runs, so the changelog snapshot's content-tuple
+        identity doesn't ghost on FX drift.
+      - Else if ``cny_rate`` is supplied, use the scalar (legacy path,
+        still needed by tests and offline fixtures).
       - Else log a warning and fall back to ``money`` unchanged.
     """
     curr = _decode_curr(extra_str)
@@ -119,13 +153,15 @@ def parse_qj_amount(money: float, extra_str: str | None, cny_rate: float | None 
         if abs(bv - sv) > _CONVERSION_TOLERANCE:
             return float(bv)
         # Unconverted quirk: ss != bs but bv == sv.
-        if ss == "CNY" and bs == "USD" and cny_rate:
-            log.warning(
-                "Qianji bill with unconverted CNY→USD label (bv=sv=%.2f); "
-                "converting source amount %.2f CNY → USD at live rate %.4f",
-                sv, money, cny_rate,
-            )
-            return float(money) / cny_rate
+        if ss == "CNY" and bs == "USD":
+            rate = _resolve_cny_rate(bill_date, historical_cny_rates, cny_rate)
+            if rate:
+                log.warning(
+                    "Qianji bill with unconverted CNY→USD label (bv=sv=%.2f); "
+                    "converting source amount %.2f CNY → USD at rate %.4f",
+                    sv, money, rate,
+                )
+                return float(money) / rate
         log.warning(
             "Qianji bill with unconverted cross-currency label (ss=%s bs=%s "
             "bv==sv=%.2f); returning source amount unchanged", ss, bs, sv,
@@ -149,13 +185,20 @@ def parse_qj_target_amount(money: float, extra_str: str | None) -> float:
     return float(money)
 
 
-def _load_records(conn: sqlite3.Connection, cny_rate: float | None = None) -> list[QianjiRecord]:
+def _load_records(
+    conn: sqlite3.Connection,
+    cny_rate: float | None = None,
+    *,
+    historical_cny_rates: Mapping[date, float] | None = None,
+) -> list[QianjiRecord]:
     """Load cashflow records from an open DB connection.
 
-    ``cny_rate`` (optional) is passed through to :func:`parse_qj_amount` so
-    the data-quirk fallback (``ss != bs`` but ``bv == sv``) can convert
-    CNY source amounts to USD. When not provided, quirky rows emit a
-    warning and fall back to ``money`` unchanged.
+    For the CNY→USD unconverted-label quirk, ``historical_cny_rates`` is the
+    primary input: it's a per-date dict of closing rates (loaded via
+    :func:`etl.prices.load_cny_rates`) so each bill gets revalued at the FX
+    rate of the day it was spent — not today's live rate. That stabilises
+    the USD amount of legacy bills across runs. ``cny_rate`` remains as a
+    scalar fallback for offline tests that don't build a historical dict.
 
     Bills are date-truncated in ``_USER_TZ`` (default ``America/Los_Angeles``)
     so the daily cashflow reflects the user's wall-clock, not UTC.
@@ -174,7 +217,10 @@ def _load_records(conn: sqlite3.Connection, cny_rate: float | None = None) -> li
             skipped_balance_adjustments += 1
             continue
         dt = datetime.fromtimestamp(ts, tz=_USER_TZ)
-        amount = parse_qj_amount(money, extra_str, cny_rate=cny_rate)
+        amount = parse_qj_amount(
+            money, extra_str, cny_rate=cny_rate,
+            bill_date=dt.date(), historical_cny_rates=historical_cny_rates,
+        )
         if abs(amount - float(money)) > 0.01:
             cny_converted += 1
         records.append(
@@ -257,12 +303,16 @@ def _build_snapshot(
 
 def load_all_from_db(
     db_path: Path = DEFAULT_DB_PATH,
+    *,
+    historical_cny_rates: Mapping[date, float] | None = None,
 ) -> tuple[list[QianjiRecord], dict[str, Any]]:
     """Load both cashflow records and balances in a single DB connection.
 
-    Fetches the live USD/CNY rate once and shares it with both the record
-    loader (for the unconverted-label data quirk — see :func:`parse_qj_amount`)
-    and the snapshot. Returns ``([], {})`` when the DB doesn't exist.
+    The live USD/CNY rate is fetched once: records use it only as a fallback
+    when ``historical_cny_rates`` is missing or doesn't cover the bill's
+    date; the snapshot still uses the live rate directly because it
+    represents current account balances. Returns ``([], {})`` when the
+    Qianji DB file doesn't exist.
     """
     if not db_path.exists():
         return [], {}
@@ -270,7 +320,9 @@ def load_all_from_db(
     cny_rate = _fetch_live_cny_rate()
     conn = get_readonly_connection(db_path)
     try:
-        records = _load_records(conn, cny_rate=cny_rate)
+        records = _load_records(
+            conn, cny_rate=cny_rate, historical_cny_rates=historical_cny_rates,
+        )
         balances = _load_balances(conn)
         snapshot = _build_snapshot(db_path, balances, cny_rate)
         return records, snapshot
@@ -304,15 +356,14 @@ def ingest_qianji_transactions(
         if records:
             conn.executemany(
                 "INSERT INTO qianji_transactions"
-                " (date, type, category, amount, account, note, is_retirement)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                " (date, type, category, amount, note, is_retirement)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
                 [
                     (
                         r["date"][:10],  # truncate datetime to date
                         r["type"],
                         r.get("category", ""),
                         r["amount"],
-                        r.get("account_from", ""),
                         r.get("note", ""),
                         1 if (r["type"] == "income" and r.get("category", "") in retirement_set) else 0,
                     )

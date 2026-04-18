@@ -12,21 +12,23 @@ from .types import AllocationRow
 
 _TABLES = """
 -- Fidelity transaction rows (from merged CSVs)
+-- ``account_number`` is replay's grouping key; ``action`` is the raw CSV
+-- string that feeds the action_kind resync migration; ``action_kind`` is the
+-- normalized enum populated at ingest; ``lot_type`` is read by replay's
+-- lot-type bookkeeping. ``action_type`` is the coarse (deposit/buy/sell/...)
+-- classification exposed to the frontend via v_fidelity_txns.
 CREATE TABLE IF NOT EXISTS fidelity_transactions (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     run_date        TEXT NOT NULL,
-    account         TEXT NOT NULL,
     account_number  TEXT NOT NULL,
     action          TEXT NOT NULL,
     action_type     TEXT NOT NULL DEFAULT '',
-    action_kind     TEXT,                          -- normalized ActionKind enum (buy/sell/...); populated by ingest + backfill migration
+    action_kind     TEXT,
     symbol          TEXT NOT NULL DEFAULT '',
-    description     TEXT NOT NULL DEFAULT '',
     lot_type        TEXT NOT NULL DEFAULT '',
     quantity        REAL NOT NULL DEFAULT 0,
     price           REAL NOT NULL DEFAULT 0,
-    amount          REAL NOT NULL DEFAULT 0,
-    settlement_date TEXT NOT NULL DEFAULT ''
+    amount          REAL NOT NULL DEFAULT 0
 );
 
 -- Robinhood transaction rows (from activity report CSV).
@@ -80,12 +82,14 @@ CREATE TABLE IF NOT EXISTS empower_funds (
 );
 
 -- Qianji transaction rows (from Qianji app DB)
+-- ``note`` is read by changelog.py for the low-count-category row expansion
+-- in the daily sync email; ``is_retirement`` lets the frontend split income
+-- into retirement vs take-home without substring sniffing.
 CREATE TABLE IF NOT EXISTS qianji_transactions (
     date           TEXT NOT NULL,
     type           TEXT NOT NULL,
     category       TEXT NOT NULL DEFAULT '',
     amount         REAL NOT NULL,
-    account        TEXT NOT NULL DEFAULT '',
     note           TEXT NOT NULL DEFAULT '',
     is_retirement  INTEGER NOT NULL DEFAULT 0
 );
