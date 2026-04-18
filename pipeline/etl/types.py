@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import re
-from typing import NotRequired, TypedDict
+from typing import TypedDict
 
 # ── Constants ───────────────────────────────────────────────────────────────
-
-EQUITY_CATEGORIES = ["US Equity", "Non-US Equity"]
 
 # Trading-day lookback windows (US equity market)
 TRADING_DAYS_MONTH = 23  # index offset for ~22 trading days back (~1 month)
@@ -71,26 +69,10 @@ class QianjiAccountsConfig(TypedDict, total=False):
     ticker_map: dict[str, str]
 
 
-class Config(TypedDict):
-    assets: dict[str, AssetInfo]
-    weights: dict[str, float]
-    order: list[str]
-    aliases: dict[str, str]
-    goal: float
-    qianji_accounts: QianjiAccountsConfig
-    # Optional: account number -> money market fund ticker. Unknown accounts fall back to FZFXX.
-    fidelity_accounts: NotRequired[dict[str, str]]
-
-
 class RawConfig(TypedDict, total=False):
     """Raw shape of config.json as it sits on disk. Matches the JSON keys
-    directly (unlike :class:`Config`, which is the normalized form produced
-    by :func:`etl.config.load_config` with renamed / defaulted fields).
-
-    The pipeline mostly reads the raw form because it wants the original
-    key names (``target_weights`` vs ``weights``, ``category_order`` vs
-    ``order``) and a few raw-only fields (``retirement_income_categories``).
-    All fields are optional via ``total=False``; callers use ``.get()``.
+    directly (``target_weights``, ``category_order``, ``retirement_income_categories``
+    etc.). All fields are optional via ``total=False``; callers use ``.get()``.
     """
     assets: dict[str, AssetInfo]
     target_weights: dict[str, float]
@@ -157,9 +139,4 @@ class AllocationRow(TypedDict):
     tickers: list[TickerDetail]
 
 
-# ── Exceptions ──────────────────────────────────────────────────────────────
-
-
-class ConfigError(Exception):
-    """Raised when the configuration file is missing, malformed, or invalid."""
 

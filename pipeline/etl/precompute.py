@@ -6,7 +6,6 @@ import logging
 import os
 import sqlite3
 from dataclasses import asdict, dataclass
-from datetime import date
 from pathlib import Path
 
 from .types import TRADING_DAYS_MONTH, TRADING_DAYS_YEAR
@@ -23,30 +22,6 @@ class MarketIndexRow:
     high_52w: float
     low_52w: float
     sparkline: str  # JSON-encoded list[float]
-
-_ASSET_KEY_MAP: dict[str, str] = {
-    "US Equity": "usEquity",
-    "Non-US Equity": "nonUsEquity",
-    "Crypto": "crypto",
-    "Safe Net": "safeNet",
-}
-
-
-def compute_daily_series(
-    snapshots: dict[date, dict[str, float]],
-) -> list[dict[str, object]]:
-    """Convert {date: {group: value}} → sorted list with camelCase keys."""
-    result: list[dict[str, object]] = []
-    for dt in sorted(snapshots):
-        row = snapshots[dt]
-        entry: dict[str, object] = {"date": dt.isoformat()}
-        entry["total"] = round(row["total"], 2)
-        for src_key, dst_key in _ASSET_KEY_MAP.items():
-            entry[dst_key] = round(row[src_key], 2)
-        result.append(entry)
-    return result
-
-
 
 # ── Market index precomputation ─────────────────────────────────────────────
 
