@@ -14,11 +14,12 @@ import {
 import type { TooltipContentProps } from "recharts/types/component/Tooltip";
 import type { CategoryMeta, DailyPoint } from "@/lib/schemas";
 import type { CashflowResponse, ActivityResponse } from "@/lib/computed-types";
-import { fmtCurrency, fmtCurrencyShort, fmtDateLong, fmtDateMedium, fmtDateMonthYear, fmtTick, parseLocalDate } from "@/lib/format";
+import { fmtCurrency, fmtCurrencyShort, fmtDateLong, fmtDateMedium, fmtTick, parseLocalDate } from "@/lib/format";
 import { useIsDark, useIsMobile } from "@/lib/hooks";
 import { gridStroke, axisProps, brushColors } from "@/lib/chart-styles";
 import { TooltipCard } from "@/components/charts/tooltip-card";
 import { CAT_COLOR_BY_KEY } from "@/lib/chart-colors";
+import { SectionMessage } from "@/components/finance/section";
 
 // ── Constants ─────────────────────────────────────────────────────────────
 
@@ -334,7 +335,7 @@ export function TimemachineSection({ timeline: tl }: { timeline: BundleState }) 
   if (tl.chartDaily.length === 0) {
     return (
       <div id="timemachine" className="scroll-mt-20 md:scroll-mt-8">
-        <p className="text-sm text-muted-foreground">Not enough data points yet.</p>
+        <SectionMessage kind="empty">Not enough data points yet.</SectionMessage>
       </div>
     );
   }

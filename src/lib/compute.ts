@@ -106,6 +106,18 @@ export function computeCashflow(qianjiTxns: QianjiTxn[], start: string, end: str
   return { incomeItems, expenseItems, totalIncome, totalExpenses, netCashflow, ccPayments: round(ccPayments), savingsRate, takehomeSavingsRate };
 }
 
+/** UI-side cashflow state: distinguishes bundle failure, no-data window, and real data. */
+export type CashflowState =
+  | { kind: "unavailable" }
+  | { kind: "empty" }
+  | { kind: "data"; data: CashflowResponse };
+
+export function cashflowState(cashflow: CashflowResponse | null): CashflowState {
+  if (!cashflow) return { kind: "unavailable" };
+  if (cashflow.totalIncome === 0 && cashflow.totalExpenses === 0) return { kind: "empty" };
+  return { kind: "data", data: cashflow };
+}
+
 // ── Cross-check (Fidelity deposits vs Qianji transfers) ─────────────────
 
 // Fidelity runDate is ISO YYYY-MM-DD (normalized at the pipeline ingestion
