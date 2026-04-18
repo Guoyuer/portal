@@ -43,8 +43,9 @@ cd pipeline && .venv/Scripts/python.exe scripts/run_automation.py            # d
 cd pipeline && .venv/Scripts/python.exe scripts/run_automation.py --dry-run   # build + verify, skip sync
 cd pipeline && .venv/Scripts/python.exe scripts/run_automation.py --force --local  # bypass change-detection, push to local D1
 
-# Register with Task Scheduler (daily 06:00) — schtasks still points at the PS1 shim
-schtasks /create /tn "PortalSync" /tr "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Users\guoyu\Projects\portal\pipeline\scripts\run_portal_sync.ps1" /sc daily /st 06:00
+# Register with Task Scheduler (at logon, +2min delay for network to settle — laptop is asleep at fixed daily times)
+# Use PowerShell's Register-ScheduledTask; schtasks.exe's /delay flag needs admin, Register-ScheduledTask doesn't.
+powershell -NoProfile -Command "$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-NoProfile -ExecutionPolicy Bypass -File C:\Users\guoyu\Projects\portal\pipeline\scripts\run_portal_sync.ps1'; $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME; $trigger.Delay = 'PT2M'; Register-ScheduledTask -TaskName 'PortalSync' -Action $action -Trigger $trigger"
 
 # Gmail triage (classifier + Worker + /mail tab)
 cd pipeline && .venv/Scripts/python.exe scripts/gmail/triage.py --sync --dry-run  # local dry-run
