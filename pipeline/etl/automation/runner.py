@@ -38,6 +38,8 @@ from .paths import (
     get_qianji_db_path,
 )
 
+log = logging.getLogger(__name__)
+
 # ── Exit codes ───────────────────────────────────────────────────────────────
 
 EXIT_OK = 0
@@ -167,6 +169,17 @@ class Runner:
     def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
         self.started_at = datetime.now()
+        # Warn (but don't fail) if the healthcheck URL isn't configured.
+        # Without it, ``notify.ping_healthcheck`` silently no-ops and a dead
+        # healthchecks.io check would never fire on failure. Loud warning keeps
+        # it in front of the operator without breaking automation for users
+        # who haven't set up healthchecks.io yet.
+        if not os.environ.get("PORTAL_HEALTHCHECK_URL"):
+            log.warning(
+                "PORTAL_HEALTHCHECK_URL is not set — automation failures will "
+                "only surface via email, not an external monitor. "
+                "See docs/RUNBOOK.md §8 to configure.",
+            )
 
     @classmethod
     def from_args(cls, args: argparse.Namespace) -> Runner:
@@ -249,7 +262,6 @@ class Runner:
                     return self._report_stage_failure(
                         log, "POSITIONS CHECK", rc, EXIT_POSITIONS_FAIL, "verify_positions.py",
                         email_config, snapshot_before, db_path, log_file,
-                        include_started_at=False,
                     )
             else:
                 log.info("[3b] No new Portfolio_Positions CSV — skipping ground-truth check")
@@ -299,19 +311,13 @@ class Runner:
         snapshot_before: SyncSnapshot,
         db_path: Path,
         log_file: Path,
-        *,
-        include_started_at: bool = True,
     ) -> int:
         """Shared error-report path used by every stage in :meth:`run`.
 
-        Logs the failure, pings healthcheck, sends the failure email, and returns
-        the stage-specific exit code. Collapses four near-identical blocks that
-        differ only by ``label`` / ``exit_code`` / ``script_name``.
-
-        ``include_started_at`` preserves a pre-refactor quirk where the
-        positions-gate failure branch did NOT pass ``started_at`` (and therefore
-        the email had no ``duration`` line). Kept byte-identical for now; could
-        be normalized in a follow-up.
+        Logs the failure, pings healthcheck, sends the failure email (with the
+        per-run duration always included), and returns the stage-specific exit
+        code. Collapses four near-identical blocks that differ only by
+        ``label`` / ``exit_code`` / ``script_name``.
         """
         log.error("  %s FAILED (exit=%d)", label, rc)
         notify.ping_healthcheck("fail")
@@ -322,6 +328,6 @@ class Runner:
             validation_warnings=notify.extract_validation_warnings(
                 log_file, buffer=get_script_output_buffer(),
             ),
-            started_at=self.started_at if include_started_at else None,
+            started_at=self.started_at,
         )
         return exit_code

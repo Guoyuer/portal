@@ -523,6 +523,13 @@ def qianji_balances_at(db_path: Path, as_of: date | None = None) -> QianjiSnapsh
                     balances[fromact] = balances.get(fromact, 0) + money
                 if targetact:
                     balances[targetact] = balances.get(targetact, 0) - tv
+            else:
+                # Unknown bill kind (e.g. type 4/5 collapsed categories or a
+                # future Qianji feature). Don't raise — an unexpected bill must
+                # not break reverse-replay for every other account. Just surface.
+                log.warning(
+                    "Qianji bill_type=%d unhandled (bill skipped)", bill_type,
+                )
 
         return QianjiSnapshot(balances=balances, currencies=currencies)
     finally:

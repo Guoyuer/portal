@@ -84,9 +84,11 @@ npx wrangler pages deploy out --project-name=portal --commit-dirty=true
 
 ## 6. Regression baseline went stale
 
-Symptom: CI or `pipeline/scripts/regression.sh` reports a L1 hash mismatch after a legitimate behavior change (e.g. a CNY conversion fix, a new ingest filter, a rounding correction). The committed `pipeline/tests/regression/baseline/*.sha256` files need to move.
+Symptom: CI or `pytest tests/regression/` reports a L1 hash mismatch after a legitimate behavior change (e.g. a CNY conversion fix, a new ingest filter, a rounding correction). The committed `pipeline/tests/regression/baseline/*.sha256` files need to move.
 
-Attach the **`baseline-refresh`** label to the PR. `.github/workflows/regression-baseline-refresh.yml` rebuilds the fixture-derived DB (same inputs as the L2 `test_pipeline_golden.py`), overwrites `computed_daily.sha256` + `computed_daily_tickers.sha256` (the `.json` companions are gitignored), pushes one commit back to the PR branch, comments, and removes the label so a follow-up push does not re-trigger. Review the diff in the bot commit — if the baseline move reflects your intended behavior change, merge; if not, revert the bot commit and re-investigate. L3 (`timeline.sha256`) is not auto-refreshed — it needs wrangler + the worker, still a local step via `scripts/regression_baseline.sh`.
+Attach the **`baseline-refresh`** label to the PR. `.github/workflows/regression-baseline-refresh.yml` rebuilds the fixture-derived DB (same inputs as the L2 `test_pipeline_golden.py`), overwrites `computed_daily.sha256` + `computed_daily_tickers.sha256` (the `.json` companions are gitignored), pushes one commit back to the PR branch, comments, and removes the label so a follow-up push does not re-trigger. Review the diff in the bot commit — if the baseline move reflects your intended behavior change, merge; if not, revert the bot commit and re-investigate.
+
+To refresh locally instead: `cd pipeline && python scripts/refresh_l1_baseline_from_fixtures.py`.
 
 ## 7. Rebuilding from scratch (disk crash / clean laptop)
 
@@ -109,3 +111,9 @@ cd pipeline && python -m venv .venv && .venv/Scripts/pip install -r requirements
 ```
 
 For frontend: `cd .. && npm install && npm run build`. Pages deploy inherits the existing project via `wrangler pages deploy out --project-name=portal`.
+
+## 8. `PORTAL_HEALTHCHECK_URL` is recommended
+
+`run_automation.py` logs a loud WARNING at startup when `PORTAL_HEALTHCHECK_URL` is unset but continues. Automation failures then only surface via email — no external dead-man's switch.
+
+Fix: set the var in `pipeline/.env` (or at user level via `setx`). Value format: `https://hc-ping.com/<your-uuid>`. Create the check at https://healthchecks.io/ → new check → copy the ping URL. See `docs/automation-setup.md` §1-§2 for the full walkthrough.

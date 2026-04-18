@@ -9,9 +9,9 @@ One-time steps to register `run_portal_sync.ps1` with Windows Task Scheduler and
 
 ---
 
-## 1. Healthchecks.io check (optional but recommended)
+## 1. Healthchecks.io check (required)
 
-Gives you a heartbeat monitor — alerts if the task didn't run or failed. Free tier is enough.
+Gives you a heartbeat monitor — alerts if the task didn't run or failed. Free tier is enough. `run_automation.py` refuses to start without the URL set (see RUNBOOK §8 for rationale).
 
 1. Sign up at https://healthchecks.io/accounts/signup/
 2. Create a new check:
@@ -30,7 +30,7 @@ setx PORTAL_HEALTHCHECK_URL "https://hc-ping.com/<your-uuid>"
 
 **Note**: `setx` affects future processes only; current shells won't see it. Open a new PowerShell to verify: `echo $env:PORTAL_HEALTHCHECK_URL`.
 
-Skip this step if you don't want monitoring — `run_automation.py` is silent when `PORTAL_HEALTHCHECK_URL` is unset.
+Alternative: drop the same line into `pipeline/.env` (see `.env.example`).
 
 ## 3. Dry-run first (sanity check before scheduling)
 

@@ -191,6 +191,27 @@ class TestQianjiBalances:
         # Reverse: +500 (expense), -2000 (income) → 3500 + 500 - 2000 = 2000
         assert snapshot.balances["Checking"] == pytest.approx(2000.0)
 
+    def test_unknown_bill_type_logs_warning(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+        """Bills with an unrecognised type (e.g. 4/5) are skipped with a WARNING.
+
+        Regression for F3 — prior to this, unknown types silently fell through
+        and the missing reversal went unnoticed. We never raise: a single odd
+        bill must not break replay for every other account.
+        """
+        db = tmp_path / "qianji.db"
+        _create_qianji_db(
+            db,
+            [("Checking", 5000.0, "USD")],
+            [{"type": 4, "money": 999.0, "fromact": "Checking", "time": _ts(2025, 3, 15)}],
+        )
+        import logging as _logging
+        with caplog.at_level(_logging.WARNING, logger="etl.qianji"):
+            snapshot = qianji_balances_at(db, as_of=date(2025, 3, 1))
+        # Unknown type should not have touched balances.
+        assert snapshot.balances["Checking"] == pytest.approx(5000.0)
+        # And should surface a warning.
+        assert any("bill_type=4" in rec.message for rec in caplog.records)
+
     def test_inactive_asset_excluded(self, tmp_path: Path) -> None:
         """Assets with status != 0 should not appear."""
         db = tmp_path / "qianji.db"
