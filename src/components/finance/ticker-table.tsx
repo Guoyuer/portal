@@ -19,11 +19,77 @@ export const TOTAL_ROW_CLASS = "font-bold border-t-2 border-b-2 border-foregroun
 
 export function DeviationCell({ value }: { value: number }) {
   return (
-    <TableCell
-      className={`text-right hidden sm:table-cell ${valueColor(value)}`}
-    >
+    <TableCell className={`text-right hidden sm:table-cell ${valueColor(value)}`}>
       {fmtPct(value, true)}
     </TableCell>
+  );
+}
+
+interface TickerRowProps {
+  symbol: string;
+  count: number;
+  total: number;
+  expanded: boolean;
+  onToggle: () => void;
+  startDate?: string;
+  endDate?: string;
+}
+
+function ExpanderIndicator({ expanded }: { expanded: boolean }) {
+  return (
+    <span className={`inline-block w-3 text-[10px] text-muted-foreground transition-transform ${expanded ? "rotate-90" : ""}`}>
+      &#9654;
+    </span>
+  );
+}
+
+/** Primary table row: uses shadcn TableRow/TableCell. */
+function TickerRow({ symbol, count, total, expanded, onToggle, startDate, endDate }: TickerRowProps) {
+  return (
+    <>
+      <TableRow className="even:bg-muted/50 cursor-pointer hover:bg-muted/80 group" onClick={onToggle}>
+        <TableCell className="font-mono">
+          <ExpanderIndicator expanded={expanded} />
+          {symbol}
+        </TableCell>
+        <TableCell className="text-right">{count}</TableCell>
+        <TableCell className="text-right">{fmtCurrency(total)}</TableCell>
+      </TableRow>
+      {expanded && (
+        <TableRow>
+          <TableCell colSpan={3} className="p-2">
+            <TickerChart symbol={symbol} startDate={startDate} endDate={endDate} />
+          </TableCell>
+        </TableRow>
+      )}
+    </>
+  );
+}
+
+/** Overflow row rendered inside a nested <details> <table>; raw tr/td + muted palette. */
+function TickerRowOverflow({ symbol, count, total, expanded, onToggle, startDate, endDate }: TickerRowProps) {
+  const numCell = "px-2 py-1.5 text-right text-muted-foreground";
+  return (
+    <>
+      <tr
+        className="border-b border-border even:bg-muted/50 cursor-pointer hover:bg-muted/80"
+        onClick={onToggle}
+      >
+        <td className="px-2 py-1.5 font-mono text-muted-foreground">
+          <ExpanderIndicator expanded={expanded} />
+          {symbol}
+        </td>
+        <td className={numCell}>{count}</td>
+        <td className={numCell}>{fmtCurrency(total)}</td>
+      </tr>
+      {expanded && (
+        <tr>
+          <td colSpan={3} className="px-2 py-2">
+            <TickerChart symbol={symbol} startDate={startDate} endDate={endDate} />
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
 
@@ -45,7 +111,15 @@ export function TickerTable({
   const rest = data.slice(ACTIVITY_TOP_SYMBOLS);
   const restTotal = rest.reduce((s, t) => s + t.total, 0);
 
-  const toggle = (sym: string) => setExpanded((prev) => (prev === sym ? null : sym));
+  const rowProps = (item: { symbol: string; count: number; total: number }): TickerRowProps => ({
+    symbol: item.symbol,
+    count: item.count,
+    total: item.total,
+    expanded: expanded === item.symbol,
+    onToggle: () => setExpanded((prev) => (prev === item.symbol ? null : item.symbol)),
+    startDate,
+    endDate,
+  });
 
   return (
     <div className="overflow-x-auto">
@@ -59,18 +133,7 @@ export function TickerTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {top.map(({ symbol, count, total }) => (
-            <TickerRow
-              key={symbol}
-              symbol={symbol}
-              count={count}
-              total={total}
-              expanded={expanded === symbol}
-              onToggle={() => toggle(symbol)}
-              startDate={startDate}
-              endDate={endDate}
-            />
-          ))}
+          {top.map((item) => <TickerRow key={item.symbol} {...rowProps(item)} />)}
           {rest.length > 0 && (
             <TableRow>
               <TableCell colSpan={3} className="p-0">
@@ -80,19 +143,7 @@ export function TickerTable({
                   </summary>
                   <table className="w-full text-sm">
                     <tbody>
-                      {rest.map(({ symbol, count, total }) => (
-                        <TickerRow
-                          key={symbol}
-                          symbol={symbol}
-                          count={count}
-                          total={total}
-                          expanded={expanded === symbol}
-                          onToggle={() => toggle(symbol)}
-                          startDate={startDate}
-                          endDate={endDate}
-                          plain
-                        />
-                      ))}
+                      {rest.map((item) => <TickerRowOverflow key={item.symbol} {...rowProps(item)} />)}
                     </tbody>
                   </table>
                 </details>
@@ -102,56 +153,5 @@ export function TickerTable({
         </TableBody>
       </Table>
     </div>
-  );
-}
-
-// ── Expandable ticker row ─────────────────────────────────────────────────
-
-function TickerRow({
-  symbol,
-  count,
-  total,
-  expanded,
-  onToggle,
-  startDate,
-  endDate,
-  plain,
-}: {
-  symbol: string;
-  count: number;
-  total: number;
-  expanded: boolean;
-  onToggle: () => void;
-  startDate?: string;
-  endDate?: string;
-  plain?: boolean;
-}) {
-  const Row = plain ? "tr" : TableRow;
-  const Cell = plain ? "td" : TableCell;
-  const rowClass = plain
-    ? "border-b border-border even:bg-muted/50 cursor-pointer hover:bg-muted/80"
-    : "even:bg-muted/50 cursor-pointer hover:bg-muted/80 group";
-  const cellClass = plain ? "px-2 py-1.5 font-mono text-muted-foreground" : "font-mono";
-  const numClass = plain ? "px-2 py-1.5 text-right text-muted-foreground" : "text-right";
-  const chartCellClass = plain ? "px-2 py-2" : "p-2";
-
-  return (
-    <>
-      <Row className={rowClass} onClick={onToggle}>
-        <Cell className={cellClass}>
-          <span className={`inline-block w-3 text-[10px] ${plain ? "" : "text-muted-foreground "}transition-transform ${expanded ? "rotate-90" : ""}`}>&#9654;</span>
-          {symbol}
-        </Cell>
-        <Cell className={numClass}>{count}</Cell>
-        <Cell className={numClass}>{fmtCurrency(total)}</Cell>
-      </Row>
-      {expanded && (
-        <Row>
-          <Cell colSpan={3} className={chartCellClass}>
-            <TickerChart symbol={symbol} startDate={startDate} endDate={endDate} />
-          </Cell>
-        </Row>
-      )}
-    </>
   );
 }

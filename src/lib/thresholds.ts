@@ -15,6 +15,9 @@ export const SAVINGS_RATE_WARNING = 15;
 /** Cash-flow: expenses below this are grouped into "... and N more" */
 export const MAJOR_EXPENSE_THRESHOLD = 200;
 
+/** Cash-flow: income items below this are folded into "Other" */
+export const SMALL_INCOME_THRESHOLD = 10;
+
 
 /** Back-to-top button: show after scrolling past this many pixels */
 export const SCROLL_SHOW_THRESHOLD = 600;
