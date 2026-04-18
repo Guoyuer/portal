@@ -16,7 +16,7 @@ import {
 } from "recharts";
 import type { TooltipContentProps } from "recharts/types/component/Tooltip";
 import { fmtCurrency, fmtDateMedium, fmtQty, fmtTick } from "@/lib/format";
-import { useIsDark } from "@/lib/hooks";
+import { useIsDark, useIsMobile } from "@/lib/hooks";
 import { tooltipStyle, gridStroke, axisProps } from "@/lib/chart-styles";
 import { TooltipCard } from "@/components/charts/tooltip-card";
 import type { TickerTransaction } from "@/lib/schemas";
@@ -166,7 +166,9 @@ function TickerDialogChart({
   );
 }
 
-// ── Transaction table — 2 transactions per visual row to halve height ──
+// ── Transaction table ──────────────────────────────────────────────────
+// Single column on narrow screens, two transactions per row (to halve
+// height) once the dialog is wide enough to give each column headroom.
 
 function TransactionTable({
   transactions,
@@ -179,6 +181,7 @@ function TransactionTable({
   tableScrollRef: React.RefObject<HTMLDivElement | null>;
   isDark: boolean;
 }) {
+  const isMobile = useIsMobile();
   if (transactions.length === 0) return null;
 
   const selectedDateSet = selected ? new Set(selected.dates) : null;
@@ -186,18 +189,18 @@ function TransactionTable({
     ? (isDark ? "bg-amber-900/30" : "bg-amber-100")
     : (isDark ? "bg-emerald-900/30" : "bg-emerald-100");
 
+  const emptyCells = (
+    <>
+      <td className="px-2 py-1.5" />
+      <td className="px-2 py-1.5" />
+      <td className="px-2 py-1.5" />
+      <td className="px-2 py-1.5" />
+      <td className="px-2 py-1.5" />
+    </>
+  );
+
   const renderCells = (t: TickerTransaction | null) => {
-    if (!t) {
-      return (
-        <>
-          <td className="py-1.5" />
-          <td className="py-1.5" />
-          <td className="py-1.5" />
-          <td className="py-1.5" />
-          <td className="py-1.5" />
-        </>
-      );
-    }
+    if (!t) return emptyCells;
     const sideMatches = selected
       ? selected.side === "sell"
         ? t.actionType === "sell"
@@ -208,51 +211,62 @@ function TransactionTable({
     const dataSide = t.actionType === "sell" ? "sell" : "buy";
     return (
       <>
-        <td data-date={t.runDate} data-side={dataSide} className={`py-1.5 ${bg}`}>{fmtDateMedium(t.runDate)}</td>
+        <td data-date={t.runDate} data-side={dataSide} className={`px-2 py-1.5 ${bg}`}>{fmtDateMedium(t.runDate)}</td>
         {/* Arbitrary-value Tailwind classes must be literal strings so the JIT can extract them */}
-        <td className={`py-1.5 capitalize ${bg} ${t.actionType === "sell" ? "text-[#E69F00]" : "text-[#009E73]"}`}>{t.actionType}</td>
-        <td className={`py-1.5 text-right font-mono ${bg}`}>{fmtQty(Math.abs(t.quantity))}</td>
-        <td className={`py-1.5 text-right font-mono ${bg}`}>{fmtCurrency(t.price)}</td>
-        <td className={`py-1.5 text-right font-mono ${bg}`}>{fmtCurrency(Math.abs(t.amount))}</td>
+        <td className={`px-2 py-1.5 capitalize ${bg} ${t.actionType === "sell" ? "text-[#E69F00]" : "text-[#009E73]"}`}>{t.actionType}</td>
+        <td className={`px-2 py-1.5 text-right font-mono ${bg}`}>{fmtQty(Math.abs(t.quantity))}</td>
+        <td className={`px-2 py-1.5 text-right font-mono ${bg}`}>{fmtCurrency(t.price)}</td>
+        <td className={`px-2 py-1.5 text-right font-mono ${bg}`}>{fmtCurrency(Math.abs(t.amount))}</td>
       </>
     );
   };
 
-  const pairs: [TickerTransaction, TickerTransaction | null][] = [];
-  for (let i = 0; i < transactions.length; i += 2) {
-    pairs.push([transactions[i], transactions[i + 1] ?? null]);
-  }
   const headerGroup = (
     <>
-      <th className="text-left py-1.5 font-medium">Date</th>
-      <th className="text-left py-1.5 font-medium">Type</th>
-      <th className="text-right py-1.5 font-medium">Qty</th>
-      <th className="text-right py-1.5 font-medium">Price</th>
-      <th className="text-right py-1.5 font-medium">Amount</th>
+      <th className="text-left px-2 py-1.5 font-medium">Date</th>
+      <th className="text-left px-2 py-1.5 font-medium">Type</th>
+      <th className="text-right px-2 py-1.5 font-medium">Qty</th>
+      <th className="text-right px-2 py-1.5 font-medium">Price</th>
+      <th className="text-right px-2 py-1.5 font-medium">Amount</th>
     </>
   );
+
+  const rowBase = `border-b ${isDark ? "border-zinc-800" : "border-zinc-100"} transition-colors`;
+  const headRowClass = `text-xs ${isDark ? "text-zinc-400" : "text-zinc-500"} border-b ${isDark ? "border-zinc-700" : "border-zinc-200"}`;
+
+  const body = isMobile
+    ? transactions.map((t, i) => (
+        <tr key={i} className={rowBase}>{renderCells(t)}</tr>
+      ))
+    : (() => {
+        const pairs: [TickerTransaction, TickerTransaction | null][] = [];
+        for (let i = 0; i < transactions.length; i += 2) {
+          pairs.push([transactions[i], transactions[i + 1] ?? null]);
+        }
+        return pairs.map(([a, b], i) => (
+          <tr key={i} className={rowBase}>
+            {renderCells(a)}
+            <td className="w-6" />
+            {renderCells(b)}
+          </tr>
+        ));
+      })();
+
   return (
-    <div ref={tableScrollRef} className="shrink-0 max-h-[40%] overflow-y-auto px-5 pb-4 border-t border-foreground/10">
-      <table className="w-full text-sm">
+    <div ref={tableScrollRef} className="shrink-0 max-h-[40%] overflow-auto px-3 sm:px-5 pb-4 border-t border-foreground/10">
+      <table className="w-full text-sm whitespace-nowrap">
         <thead>
-          <tr className={`text-xs ${isDark ? "text-zinc-400" : "text-zinc-500"} border-b ${isDark ? "border-zinc-700" : "border-zinc-200"}`}>
+          <tr className={headRowClass}>
             {headerGroup}
-            <th className="w-6" />
-            {headerGroup}
+            {!isMobile && (
+              <>
+                <th className="w-6" />
+                {headerGroup}
+              </>
+            )}
           </tr>
         </thead>
-        <tbody>
-          {pairs.map(([a, b], i) => (
-            <tr
-              key={i}
-              className={`border-b ${isDark ? "border-zinc-800" : "border-zinc-100"} transition-colors`}
-            >
-              {renderCells(a)}
-              <td className="w-6" />
-              {renderCells(b)}
-            </tr>
-          ))}
-        </tbody>
+        <tbody>{body}</tbody>
       </table>
     </div>
   );
