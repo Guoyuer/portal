@@ -620,9 +620,13 @@ def main(argv: list[str] | None = None) -> int:
                 started_at=started_at,
             )
 
-    # Success: update marker
-    _MARKER.parent.mkdir(parents=True, exist_ok=True)
-    _MARKER.write_text(datetime.now().isoformat(timespec="seconds"))
+    # Success: update marker — but NOT in dry-run mode. Dry-run skipped the
+    # sync step, so nothing reached D1; touching the marker would make the
+    # next change-detection pass treat the DB as already synced and short-
+    # circuit a legitimate follow-up run.
+    if not args.dry_run:
+        _MARKER.parent.mkdir(parents=True, exist_ok=True)
+        _MARKER.write_text(datetime.now().isoformat(timespec="seconds"))
     log.info("=" * 60)
     log.info("  Done")
     log.info("=" * 60)
