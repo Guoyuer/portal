@@ -1,6 +1,13 @@
 """Tests for scripts/run_automation.py — the Python orchestrator that replaces
 the old PowerShell logic. Covers change detection, CLI parsing, exit-code
-mapping, and healthcheck behaviour."""
+mapping, and healthcheck behaviour.
+
+After the ``etl/automation/`` split (PR refactor/a2-automation-split) the
+orchestration logic moved into the package; this file now patches canonical
+symbols on those submodules (``etl.automation.runner`` etc.) rather than the
+old monolithic ``scripts/run_automation`` module. The entry-point script
+itself stays as a thin ``parse_args → Runner.from_args → run`` shim.
+"""
 from __future__ import annotations
 
 import logging
@@ -13,6 +20,7 @@ from unittest.mock import patch
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from etl.automation import changes, notify, paths, runner  # noqa: E402
 from scripts import run_automation  # noqa: E402
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -38,7 +46,7 @@ def qianji_db_file(tmp_path: Path) -> Path:
 @pytest.fixture(autouse=True)
 def _silence_logs(caplog):
     """Let pytest-caplog capture but don't let real handlers spam stdout during tests."""
-    # Clear handlers attached by run_automation.setup_logging() in prior tests.
+    # Clear handlers attached by setup_logging() in prior tests.
     for h in list(logging.getLogger().handlers):
         logging.getLogger().removeHandler(h)
     caplog.set_level(logging.INFO)
@@ -53,7 +61,7 @@ class TestChangesDetected:
     def test_marker_missing_returns_true(self, marker, downloads):
         """First run: no marker means we must build + sync."""
         assert not marker.exists()
-        assert run_automation.changes_detected(marker, downloads, None) is True
+        assert changes.changes_detected(marker, downloads, None) is True
 
     def test_watched_file_newer_than_marker_returns_true(self, marker, downloads):
         marker.write_text("old")
@@ -64,21 +72,21 @@ class TestChangesDetected:
         csv = downloads / "Accounts_History_latest.csv"
         csv.write_text("data")
         # csv mtime = now > past
-        assert run_automation.changes_detected(marker, downloads, None) is True
+        assert changes.changes_detected(marker, downloads, None) is True
 
     def test_qfx_newer_than_marker_returns_true(self, marker, downloads):
         marker.write_text("old")
         os.utime(marker, (time.time() - 3600,) * 2)
         qfx = downloads / "Bloomberg.Download_2026.qfx"
         qfx.write_text("qfx")
-        assert run_automation.changes_detected(marker, downloads, None) is True
+        assert changes.changes_detected(marker, downloads, None) is True
 
     def test_robinhood_newer_than_marker_returns_true(self, marker, downloads):
         marker.write_text("old")
         os.utime(marker, (time.time() - 3600,) * 2)
         rh = downloads / "Robinhood_history.csv"
         rh.write_text("rh")
-        assert run_automation.changes_detected(marker, downloads, None) is True
+        assert changes.changes_detected(marker, downloads, None) is True
 
     def test_no_newer_files_returns_false(self, marker, downloads):
         # Write file FIRST (stale), then refresh marker so marker > file mtime.
@@ -89,17 +97,17 @@ class TestChangesDetected:
 
         marker.write_text("new")
         # marker's mtime is now (fresh), files are 1h old → no change
-        assert run_automation.changes_detected(marker, downloads, None) is False
+        assert changes.changes_detected(marker, downloads, None) is False
 
     def test_empty_downloads_returns_false(self, marker, downloads):
         marker.write_text("new")
-        assert run_automation.changes_detected(marker, downloads, None) is False
+        assert changes.changes_detected(marker, downloads, None) is False
 
     def test_qianji_db_newer_returns_true(self, marker, downloads, qianji_db_file):
         marker.write_text("old")
         os.utime(marker, (time.time() - 3600,) * 2)
         qianji_db_file.write_text("db")
-        assert run_automation.changes_detected(marker, downloads, qianji_db_file) is True
+        assert changes.changes_detected(marker, downloads, qianji_db_file) is True
 
     def test_portfolio_positions_IS_watched(self, marker, downloads):
         """Portfolio_Positions_*.csv IS watched (re-enabled in S5 to drive the [3b] gate)."""
@@ -107,13 +115,13 @@ class TestChangesDetected:
         os.utime(marker, (time.time() - 3600,) * 2)
         pp = downloads / "Portfolio_Positions_Apr-12-2026.csv"
         pp.write_text("positions")
-        assert run_automation.changes_detected(marker, downloads, None) is True
+        assert changes.changes_detected(marker, downloads, None) is True
 
     def test_missing_downloads_dir_returns_false(self, marker, tmp_path):
         marker.write_text("new")
         os.utime(marker, (time.time() - 3600,) * 2)
         nonexistent = tmp_path / "nope"
-        assert run_automation.changes_detected(marker, nonexistent, None) is False
+        assert changes.changes_detected(marker, nonexistent, None) is False
 
 
 # ── needs_catchup() ───────────────────────────────────────────────────────────
@@ -141,58 +149,64 @@ class TestNeedsCatchup:
         db = tmp_path / "tm.db"
         init_db(db)
         from datetime import date
-        assert run_automation.needs_catchup(db, today=date(2026, 4, 14)) is True
+        assert changes.needs_catchup(db, today=date(2026, 4, 14)) is True
 
     def test_fresh_db_skips(self, tmp_path):
         from datetime import date
         db = self._seed_computed_daily(tmp_path, "2026-04-13")
-        assert run_automation.needs_catchup(db, today=date(2026, 4, 14)) is False
+        assert changes.needs_catchup(db, today=date(2026, 4, 14)) is False
 
     def test_db_4_days_behind_still_ok(self, tmp_path):
         """Standard long weekend (Fri→Tue = 4 days): tolerable."""
         from datetime import date
         db = self._seed_computed_daily(tmp_path, "2026-04-10")
-        assert run_automation.needs_catchup(db, today=date(2026, 4, 14)) is False
+        assert changes.needs_catchup(db, today=date(2026, 4, 14)) is False
 
     def test_db_5_days_behind_triggers_catchup(self, tmp_path):
         from datetime import date
         db = self._seed_computed_daily(tmp_path, "2026-04-09")
-        assert run_automation.needs_catchup(db, today=date(2026, 4, 14)) is True
+        assert changes.needs_catchup(db, today=date(2026, 4, 14)) is True
 
     def test_missing_db_file_triggers_catchup(self, tmp_path):
         from datetime import date
         nonexistent = tmp_path / "does-not-exist.db"
-        assert run_automation.needs_catchup(nonexistent, today=date(2026, 4, 14)) is True
+        assert changes.needs_catchup(nonexistent, today=date(2026, 4, 14)) is True
 
 
 # ── parse_args() ──────────────────────────────────────────────────────────────
 
 class TestParseArgs:
     def test_no_args_defaults_all_false(self):
-        ns = run_automation.parse_args([])
+        ns = runner.parse_args([])
         assert ns.force is False
         assert ns.dry_run is False
         assert ns.local is False
 
     def test_force(self):
-        ns = run_automation.parse_args(["--force"])
+        ns = runner.parse_args(["--force"])
         assert ns.force is True
 
     def test_dry_run(self):
-        ns = run_automation.parse_args(["--dry-run"])
+        ns = runner.parse_args(["--dry-run"])
         assert ns.dry_run is True
 
     def test_local(self):
-        ns = run_automation.parse_args(["--local"])
+        ns = runner.parse_args(["--local"])
         assert ns.local is True
 
     def test_combined(self):
-        ns = run_automation.parse_args(["--force", "--dry-run", "--local"])
+        ns = runner.parse_args(["--force", "--dry-run", "--local"])
         assert (ns.force, ns.dry_run, ns.local) == (True, True, True)
 
     def test_unknown_flag_exits(self):
         with pytest.raises(SystemExit):
-            run_automation.parse_args(["--bogus"])
+            runner.parse_args(["--bogus"])
+
+    def test_entry_point_script_reexports_parse_args(self):
+        """``scripts/run_automation.py`` must continue to expose ``parse_args``
+        so the Task Scheduler shim (run_portal_sync.ps1) keeps working even if
+        a caller imports the script directly."""
+        assert run_automation.parse_args is runner.parse_args
 
 
 # ── Exit-code mapping ─────────────────────────────────────────────────────────
@@ -217,9 +231,9 @@ class TestExitCodeMapping:
         for [3b] gate testing).
         """
         fake = _FakeRun(codes)
-        monkeypatch.setattr(run_automation, "run_python_script", fake)
-        monkeypatch.setattr(run_automation, "_MARKER", tmp_path / ".last_run")
-        monkeypatch.setattr(run_automation, "get_log_dir", lambda: tmp_path / "logs")
+        monkeypatch.setattr(runner, "run_python_script", fake)
+        monkeypatch.setattr(runner, "MARKER", tmp_path / ".last_run")
+        monkeypatch.setattr(runner, "get_log_dir", lambda: tmp_path / "logs")
         # Isolate DB path so capture() sees a missing / empty file rather than the real one.
         monkeypatch.setenv("PORTAL_DB_PATH", str(tmp_path / "timemachine.db"))
         # Isolate from the real ~/Downloads so [3b] doesn't pick up real CSVs.
@@ -227,8 +241,8 @@ class TestExitCodeMapping:
         iso_downloads.mkdir(exist_ok=True)
         for fname in downloads_seed or ():
             (iso_downloads / fname).write_text("stub")
-        monkeypatch.setattr(run_automation, "get_downloads_dir", lambda: iso_downloads)
-        monkeypatch.setattr(run_automation, "get_qianji_db_path", lambda: None)
+        monkeypatch.setattr(runner, "get_downloads_dir", lambda: iso_downloads)
+        monkeypatch.setattr(runner, "get_qianji_db_path", lambda: None)
         # Ensure no network pings + no email (env vars unset by default).
         monkeypatch.delenv("PORTAL_HEALTHCHECK_URL", raising=False)
         monkeypatch.delenv("PORTAL_SMTP_USER", raising=False)
@@ -239,29 +253,29 @@ class TestExitCodeMapping:
 
     def test_all_ok_returns_0(self, monkeypatch, tmp_path):
         rc, fake = self._invoke(["--force"], [0, 0, 0], monkeypatch, tmp_path)
-        assert rc == run_automation.EXIT_OK
+        assert rc == runner.EXIT_OK
         # Build, verify, sync — all three called.
         scripts = [c[0].name for c in fake.calls]
         assert scripts == ["build_timemachine_db.py", "verify_vs_prod.py", "sync_to_d1.py"]
 
     def test_build_fail_returns_1(self, monkeypatch, tmp_path):
         rc, fake = self._invoke(["--force"], [5], monkeypatch, tmp_path)
-        assert rc == run_automation.EXIT_BUILD_FAIL
+        assert rc == runner.EXIT_BUILD_FAIL
         assert [c[0].name for c in fake.calls] == ["build_timemachine_db.py"]
 
     def test_parity_fail_returns_2(self, monkeypatch, tmp_path):
         rc, fake = self._invoke(["--force"], [0, 7], monkeypatch, tmp_path)
-        assert rc == run_automation.EXIT_PARITY_FAIL
+        assert rc == runner.EXIT_PARITY_FAIL
         # Sync must NOT have been attempted after parity fails.
         assert [c[0].name for c in fake.calls] == ["build_timemachine_db.py", "verify_vs_prod.py"]
 
     def test_sync_fail_returns_3(self, monkeypatch, tmp_path):
         rc, _ = self._invoke(["--force"], [0, 0, 9], monkeypatch, tmp_path)
-        assert rc == run_automation.EXIT_SYNC_FAIL
+        assert rc == runner.EXIT_SYNC_FAIL
 
     def test_local_skips_verify_and_passes_local_to_sync(self, monkeypatch, tmp_path):
         rc, fake = self._invoke(["--force", "--local"], [0, 0], monkeypatch, tmp_path)
-        assert rc == run_automation.EXIT_OK
+        assert rc == runner.EXIT_OK
         names = [c[0].name for c in fake.calls]
         assert names == ["build_timemachine_db.py", "sync_to_d1.py"]
         # sync invoked with --local arg
@@ -269,7 +283,7 @@ class TestExitCodeMapping:
 
     def test_dry_run_skips_sync(self, monkeypatch, tmp_path):
         rc, fake = self._invoke(["--force", "--dry-run"], [0, 0], monkeypatch, tmp_path)
-        assert rc == run_automation.EXIT_OK
+        assert rc == runner.EXIT_OK
         names = [c[0].name for c in fake.calls]
         assert names == ["build_timemachine_db.py", "verify_vs_prod.py"]
 
@@ -288,7 +302,7 @@ class TestExitCodeMapping:
         marker = tmp_path / ".last_run"
         assert not marker.exists()
         rc, _ = self._invoke(["--force", "--dry-run"], [0, 0], monkeypatch, tmp_path)
-        assert rc == run_automation.EXIT_OK
+        assert rc == runner.EXIT_OK
         assert not marker.exists(), (
             "dry-run wrote the marker; next real sync would be skipped"
         )
@@ -300,11 +314,11 @@ class TestExitCodeMapping:
         from etl.db import get_connection, init_db
 
         fake = _FakeRun([])
-        monkeypatch.setattr(run_automation, "run_python_script", fake)
-        monkeypatch.setattr(run_automation, "_MARKER", tmp_path / ".last_run")
-        monkeypatch.setattr(run_automation, "get_log_dir", lambda: tmp_path / "logs")
-        monkeypatch.setattr(run_automation, "get_downloads_dir", lambda: tmp_path / "empty_downloads")
-        monkeypatch.setattr(run_automation, "get_qianji_db_path", lambda: None)
+        monkeypatch.setattr(runner, "run_python_script", fake)
+        monkeypatch.setattr(runner, "MARKER", tmp_path / ".last_run")
+        monkeypatch.setattr(runner, "get_log_dir", lambda: tmp_path / "logs")
+        monkeypatch.setattr(runner, "get_downloads_dir", lambda: tmp_path / "empty_downloads")
+        monkeypatch.setattr(runner, "get_qianji_db_path", lambda: None)
         monkeypatch.delenv("PORTAL_HEALTHCHECK_URL", raising=False)
         (tmp_path / "empty_downloads").mkdir()
         (tmp_path / ".last_run").write_text("seeded")
@@ -323,7 +337,7 @@ class TestExitCodeMapping:
         conn.close()
 
         rc = run_automation.main([])
-        assert rc == run_automation.EXIT_OK
+        assert rc == runner.EXIT_OK
         assert fake.calls == []
 
     def test_positions_gate_runs_when_fresh_csv_present(self, monkeypatch, tmp_path):
@@ -332,7 +346,7 @@ class TestExitCodeMapping:
             ["--force"], [0, 0, 0, 0], monkeypatch, tmp_path,
             downloads_seed=("Portfolio_Positions_Apr-07-2026.csv",),
         )
-        assert rc == run_automation.EXIT_OK
+        assert rc == runner.EXIT_OK
         names = [c[0].name for c in fake.calls]
         assert names == [
             "build_timemachine_db.py", "verify_vs_prod.py",
@@ -346,7 +360,7 @@ class TestExitCodeMapping:
     def test_positions_gate_skipped_when_no_csv(self, monkeypatch, tmp_path):
         """[3b] is skipped (not failed) when no Portfolio_Positions CSV is present."""
         rc, fake = self._invoke(["--force"], [0, 0, 0], monkeypatch, tmp_path)
-        assert rc == run_automation.EXIT_OK
+        assert rc == runner.EXIT_OK
         names = [c[0].name for c in fake.calls]
         assert names == ["build_timemachine_db.py", "verify_vs_prod.py", "sync_to_d1.py"]
 
@@ -356,7 +370,7 @@ class TestExitCodeMapping:
             ["--force"], [0, 0, 1], monkeypatch, tmp_path,
             downloads_seed=("Portfolio_Positions_Apr-07-2026.csv",),
         )
-        assert rc == run_automation.EXIT_POSITIONS_FAIL
+        assert rc == runner.EXIT_POSITIONS_FAIL
         names = [c[0].name for c in fake.calls]
         assert names == ["build_timemachine_db.py", "verify_vs_prod.py", "verify_positions.py"]
         # Sync must NOT have run.
@@ -367,7 +381,7 @@ class TestExitCodeMapping:
             ["--force", "--local"], [0, 0], monkeypatch, tmp_path,
             downloads_seed=("Portfolio_Positions_Apr-07-2026.csv",),
         )
-        assert rc == run_automation.EXIT_OK
+        assert rc == runner.EXIT_OK
         names = [c[0].name for c in fake.calls]
         assert names == ["build_timemachine_db.py", "sync_to_d1.py"]
 
@@ -378,14 +392,14 @@ class TestFindNewPositionsCSV:
     def test_returns_none_when_downloads_missing(self, tmp_path):
         downloads = tmp_path / "nope"
         marker = tmp_path / ".last_run"
-        assert run_automation.find_new_positions_csv(downloads, marker) is None
+        assert changes.find_new_positions_csv(downloads, marker) is None
 
     def test_returns_none_when_no_matching_files(self, tmp_path):
         downloads = tmp_path / "dl"
         downloads.mkdir()
         marker = tmp_path / ".last_run"
         (downloads / "Accounts_History.csv").write_text("x")
-        assert run_automation.find_new_positions_csv(downloads, marker) is None
+        assert changes.find_new_positions_csv(downloads, marker) is None
 
     def test_returns_csv_when_marker_missing(self, tmp_path):
         downloads = tmp_path / "dl"
@@ -393,7 +407,7 @@ class TestFindNewPositionsCSV:
         marker = tmp_path / ".last_run"  # does not exist
         f = downloads / "Portfolio_Positions_Apr-07-2026.csv"
         f.write_text("x")
-        result = run_automation.find_new_positions_csv(downloads, marker)
+        result = changes.find_new_positions_csv(downloads, marker)
         assert result == f
 
     def test_returns_none_when_csv_older_than_marker(self, tmp_path):
@@ -406,7 +420,7 @@ class TestFindNewPositionsCSV:
         past = time.time() - 3600
         os.utime(f, (past, past))
         marker.write_text("fresh")
-        assert run_automation.find_new_positions_csv(downloads, marker) is None
+        assert changes.find_new_positions_csv(downloads, marker) is None
 
     def test_returns_newest_csv_when_multiple_fresh(self, tmp_path):
         downloads = tmp_path / "dl"
@@ -419,7 +433,7 @@ class TestFindNewPositionsCSV:
         older.write_text("x")
         os.utime(older, (time.time() - 1800,) * 2)
         newer.write_text("x")  # mtime = now
-        assert run_automation.find_new_positions_csv(downloads, marker) == newer
+        assert changes.find_new_positions_csv(downloads, marker) == newer
 
 
 # ── ping_healthcheck() ────────────────────────────────────────────────────────
@@ -429,17 +443,17 @@ class TestPingHealthcheck:
         monkeypatch.delenv("PORTAL_HEALTHCHECK_URL", raising=False)
         # Should return without raising and without calling urlopen.
         with patch("urllib.request.urlopen") as mock_open:
-            run_automation.ping_healthcheck()
-            run_automation.ping_healthcheck("start")
-            run_automation.ping_healthcheck("fail")
+            notify.ping_healthcheck()
+            notify.ping_healthcheck("start")
+            notify.ping_healthcheck("fail")
         mock_open.assert_not_called()
 
     def test_pings_when_url_set(self, monkeypatch):
         monkeypatch.setenv("PORTAL_HEALTHCHECK_URL", "https://hc.example/abc")
         with patch("urllib.request.urlopen") as mock_open:
-            run_automation.ping_healthcheck()
-            run_automation.ping_healthcheck("start")
-            run_automation.ping_healthcheck("fail")
+            notify.ping_healthcheck()
+            notify.ping_healthcheck("start")
+            notify.ping_healthcheck("fail")
         assert mock_open.call_count == 3
         urls = [call.args[0] for call in mock_open.call_args_list]
         assert urls == [
@@ -457,7 +471,7 @@ class TestPingHealthcheck:
 
         with patch("urllib.request.urlopen", side_effect=boom):
             # Must not raise — healthcheck failure is never fatal.
-            run_automation.ping_healthcheck("start")
+            notify.ping_healthcheck("start")
 
 
 # ── Path helpers ──────────────────────────────────────────────────────────────
@@ -465,42 +479,53 @@ class TestPingHealthcheck:
 class TestPathHelpers:
     def test_downloads_override_env(self, monkeypatch, tmp_path):
         monkeypatch.setenv("PORTAL_DOWNLOADS", str(tmp_path))
-        assert run_automation.get_downloads_dir() == tmp_path
+        assert paths.get_downloads_dir() == tmp_path
 
     def test_downloads_fallback_userprofile(self, monkeypatch, tmp_path):
         monkeypatch.delenv("PORTAL_DOWNLOADS", raising=False)
         monkeypatch.setenv("USERPROFILE", str(tmp_path))
-        assert run_automation.get_downloads_dir() == tmp_path / "Downloads"
+        assert paths.get_downloads_dir() == tmp_path / "Downloads"
 
     def test_qianji_db_path_none_without_appdata(self, monkeypatch):
         monkeypatch.delenv("APPDATA", raising=False)
-        assert run_automation.get_qianji_db_path() is None
+        assert paths.get_qianji_db_path() is None
 
     def test_qianji_db_path_uses_appdata(self, monkeypatch, tmp_path):
         monkeypatch.setenv("APPDATA", str(tmp_path))
-        p = run_automation.get_qianji_db_path()
+        p = paths.get_qianji_db_path()
         assert p is not None
         assert p.is_relative_to(tmp_path)
         assert p.name == "qianjiapp.db"
 
     def test_log_dir_uses_localappdata(self, monkeypatch, tmp_path):
         monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
-        assert run_automation.get_log_dir() == tmp_path / "portal" / "logs"
+        assert paths.get_log_dir() == tmp_path / "portal" / "logs"
 
     def test_log_dir_fallback_non_windows(self, monkeypatch):
         monkeypatch.delenv("LOCALAPPDATA", raising=False)
-        p = run_automation.get_log_dir()
+        p = paths.get_log_dir()
         assert p.parts[-2:] == ("portal", "logs")
+
+    def test_db_path_override_env(self, monkeypatch, tmp_path):
+        override = tmp_path / "custom.db"
+        monkeypatch.setenv("PORTAL_DB_PATH", str(override))
+        assert paths.get_db_path() == override
+
+    def test_db_path_default_under_data_dir(self, monkeypatch):
+        monkeypatch.delenv("PORTAL_DB_PATH", raising=False)
+        p = paths.get_db_path()
+        assert p.name == "timemachine.db"
+        assert p.parent == paths.DATA_DIR
 
 
 # ── Email notifications ───────────────────────────────────────────────────────
 
 
 class TestEmailNotifications:
-    """Integration tests for the email-send branch of main().
+    """Integration tests for the email-send branch of Runner.run().
 
     Strategy: monkeypatch ``etl.email_report.send`` (the low-level SMTP call)
-    and ``run_automation.capture`` (to inject before/after snapshots). This
+    and ``etl.changelog.capture`` (to inject before/after snapshots). This
     lets us assert send-or-skip policy without touching real SMTP or SQLite.
     """
 
@@ -520,14 +545,14 @@ class TestEmailNotifications:
         from etl.changelog import SyncSnapshot
 
         fake = _FakeRun(codes)
-        monkeypatch.setattr(run_automation, "run_python_script", fake)
-        monkeypatch.setattr(run_automation, "_MARKER", tmp_path / ".last_run")
-        monkeypatch.setattr(run_automation, "get_log_dir", lambda: tmp_path / "logs")
+        monkeypatch.setattr(runner, "run_python_script", fake)
+        monkeypatch.setattr(runner, "MARKER", tmp_path / ".last_run")
+        monkeypatch.setattr(runner, "get_log_dir", lambda: tmp_path / "logs")
         monkeypatch.setenv("PORTAL_DB_PATH", str(tmp_path / "timemachine.db"))
         iso_downloads = tmp_path / "iso_downloads"
         iso_downloads.mkdir(exist_ok=True)
-        monkeypatch.setattr(run_automation, "get_downloads_dir", lambda: iso_downloads)
-        monkeypatch.setattr(run_automation, "get_qianji_db_path", lambda: None)
+        monkeypatch.setattr(runner, "get_downloads_dir", lambda: iso_downloads)
+        monkeypatch.setattr(runner, "get_qianji_db_path", lambda: None)
         monkeypatch.delenv("PORTAL_HEALTHCHECK_URL", raising=False)
 
         if disable_email:
@@ -548,9 +573,9 @@ class TestEmailNotifications:
                 return snapshots.pop(0)
             return snapshots[0]
 
-        monkeypatch.setattr(run_automation, "capture", fake_capture)
+        monkeypatch.setattr(runner, "capture", fake_capture)
 
-        # Mock the SMTP send path (imported into run_automation as `send`).
+        # Mock the SMTP send path (imported into notify as ``send``).
         sent_calls = []
 
         def fake_send(subject, html, text, config):
@@ -558,7 +583,7 @@ class TestEmailNotifications:
             if send_side_effect:
                 raise send_side_effect
 
-        monkeypatch.setattr(run_automation, "send", fake_send)
+        monkeypatch.setattr(notify, "send", fake_send)
 
         rc = run_automation.main(argv)
         return rc, fake, sent_calls
@@ -572,7 +597,7 @@ class TestEmailNotifications:
             snapshot_before=SyncSnapshot(),
             snapshot_after=SyncSnapshot(),  # identical -> no meaningful changes
         )
-        assert rc == run_automation.EXIT_OK
+        assert rc == runner.EXIT_OK
         assert sent == []
 
     def test_meaningful_changes_sends_email(self, monkeypatch, tmp_path):
@@ -587,7 +612,7 @@ class TestEmailNotifications:
             ["--force"], [0, 0, 0], monkeypatch, tmp_path,
             snapshot_before=before, snapshot_after=after,
         )
-        assert rc == run_automation.EXIT_OK
+        assert rc == runner.EXIT_OK
         assert len(sent) == 1
         assert sent[0]["subject"].startswith("[Portal Sync] OK")
         assert "VOO" in sent[0]["text"]
@@ -601,7 +626,7 @@ class TestEmailNotifications:
             snapshot_before=SyncSnapshot(),
             snapshot_after=None,  # build failed — no after snapshot
         )
-        assert rc == run_automation.EXIT_BUILD_FAIL
+        assert rc == runner.EXIT_BUILD_FAIL
         assert len(sent) == 1
         assert "FAIL" in sent[0]["subject"]
         assert "1" in sent[0]["subject"]
@@ -620,9 +645,9 @@ class TestEmailNotifications:
             ),
             disable_email=True,
         )
-        assert rc == run_automation.EXIT_OK
+        assert rc == runner.EXIT_OK
         assert sent == []  # No SMTP activity even with meaningful changes
-        # run_automation installs its own handlers on stdout via setup_logging
+        # Runner installs its own handlers on stdout via setup_logging
         captured = capsys.readouterr()
         assert "Email reporting: disabled" in captured.out
 
@@ -639,7 +664,7 @@ class TestEmailNotifications:
             send_side_effect=ConnectionRefusedError("smtp down"),
         )
         # Sync must still return OK even though email throw
-        assert rc == run_automation.EXIT_OK
+        assert rc == runner.EXIT_OK
         assert len(sent) == 1
         captured = capsys.readouterr()
         assert "Email send FAILED" in captured.out
@@ -652,13 +677,13 @@ class TestExtractValidationWarnings:
     def setup_method(self) -> None:
         # Start each test with an empty capture buffer so "buffer-primary"
         # and "log-file-fallback" paths are both exercised cleanly.
-        run_automation._reset_script_output_buffer()
+        runner._reset_script_output_buffer()
 
     def teardown_method(self) -> None:
-        run_automation._reset_script_output_buffer()
+        runner._reset_script_output_buffer()
 
     def test_returns_empty_when_log_missing(self, tmp_path):
-        assert run_automation.extract_validation_warnings(tmp_path / "nope.log") == []
+        assert notify.extract_validation_warnings(tmp_path / "nope.log") == []
 
     def test_parses_warning_lines(self, tmp_path):
         log = tmp_path / "sync.log"
@@ -669,7 +694,7 @@ class TestExtractValidationWarnings:
             "2026-04-12 WARNING date_gaps 8-day gap between dates\n",
             encoding="utf-8",
         )
-        warnings = run_automation.extract_validation_warnings(log)
+        warnings = notify.extract_validation_warnings(log)
         assert len(warnings) == 2
         assert "15.7%" in warnings[0]
         assert "date_gaps" in warnings[1]
@@ -680,7 +705,7 @@ class TestExtractValidationWarnings:
             "2026-04-12 WARNING: healthcheck ping failed (ignored): network down\n",
             encoding="utf-8",
         )
-        assert run_automation.extract_validation_warnings(log) == []
+        assert notify.extract_validation_warnings(log) == []
 
     # PR-S8 Bug 1 regression: per-run scoping + dedup
     def test_extract_warnings_per_run_scope_from_log_banner(self, tmp_path):
@@ -707,7 +732,7 @@ class TestExtractValidationWarnings:
             "2026-04-12T12:00:01 WARNING: CURRENT day_over_day 2023-07-04 -> 2023-07-05: 15.7% change\n",
             encoding="utf-8",
         )
-        warnings = run_automation.extract_validation_warnings(log)
+        warnings = notify.extract_validation_warnings(log)
         assert len(warnings) == 1
         assert "CURRENT" in warnings[0]
         assert "OLD_RUN" not in warnings[0]
@@ -721,36 +746,37 @@ class TestExtractValidationWarnings:
             "2026-04-12T12:00:03 WARNING: day_over_day 2023-07-04 -> 2023-07-05: 15.7% change\n",
             encoding="utf-8",
         )
-        warnings = run_automation.extract_validation_warnings(log)
+        warnings = notify.extract_validation_warnings(log)
         assert len(warnings) == 1
         assert "15.7%" in warnings[0]
 
     def test_extract_warnings_uses_capture_buffer_when_available(self):
         """In-memory capture buffer is preferred over the log file (which may
         contain warnings from older runs on the same day)."""
-        # Simulate what run_python_script would append across one run:
-        from scripts.run_automation import _SCRIPT_OUTPUT_BUFFER
-        _SCRIPT_OUTPUT_BUFFER.extend([
+        # Simulate what run_python_script would append across one run, then
+        # read the buffer and pass it to the extractor.
+        runner._SCRIPT_OUTPUT_BUFFER.extend([
             "2026-04-12T12:00:00 INFO [2] build",
             "2026-04-12T12:00:01 WARNING: day_over_day 2023-07-04 -> 2023-07-05: 15.7% change",
             "2026-04-12T12:00:01 WARNING: day_over_day 2023-07-04 -> 2023-07-05: 15.7% change",
             "2026-04-12T12:00:02 INFO done",
         ])
         # log_file is ignored when the buffer is populated.
-        warnings = run_automation.extract_validation_warnings(log_file=None)
+        warnings = notify.extract_validation_warnings(
+            log_file=None, buffer=runner.get_script_output_buffer(),
+        )
         assert len(warnings) == 1  # deduped
         assert "15.7%" in warnings[0]
 
     def test_extract_warnings_buffer_scopes_to_current_main_run(
         self, monkeypatch, tmp_path, caplog
     ):
-        """End-to-end: main() resets the buffer at start → a second invocation
-        in the same process does NOT see warnings from the first."""
+        """End-to-end: Runner.run() resets the buffer at start → a second
+        invocation in the same process does NOT see warnings from the first."""
         from etl.changelog import SyncSnapshot
-        from scripts.run_automation import _SCRIPT_OUTPUT_BUFFER
 
         # Pre-seed the buffer as if a prior run had left stale warnings around.
-        _SCRIPT_OUTPUT_BUFFER.extend([
+        runner._SCRIPT_OUTPUT_BUFFER.extend([
             "2026-04-12T08:00:01 WARNING: STALE bad_data found",
         ])
 
@@ -761,23 +787,23 @@ class TestExtractValidationWarnings:
             def __call__(self, script, *args):
                 return 0
 
-        monkeypatch.setattr(run_automation, "run_python_script", _Fake())
-        monkeypatch.setattr(run_automation, "_MARKER", tmp_path / ".last_run")
-        monkeypatch.setattr(run_automation, "get_log_dir", lambda: tmp_path / "logs")
+        monkeypatch.setattr(runner, "run_python_script", _Fake())
+        monkeypatch.setattr(runner, "MARKER", tmp_path / ".last_run")
+        monkeypatch.setattr(runner, "get_log_dir", lambda: tmp_path / "logs")
         monkeypatch.setenv("PORTAL_DB_PATH", str(tmp_path / "timemachine.db"))
         iso_downloads = tmp_path / "iso_downloads"
         iso_downloads.mkdir()
-        monkeypatch.setattr(run_automation, "get_downloads_dir", lambda: iso_downloads)
-        monkeypatch.setattr(run_automation, "get_qianji_db_path", lambda: None)
+        monkeypatch.setattr(runner, "get_downloads_dir", lambda: iso_downloads)
+        monkeypatch.setattr(runner, "get_qianji_db_path", lambda: None)
         monkeypatch.delenv("PORTAL_HEALTHCHECK_URL", raising=False)
         monkeypatch.delenv("PORTAL_SMTP_USER", raising=False)
         monkeypatch.delenv("PORTAL_SMTP_PASSWORD", raising=False)
 
         # Stub capture so no real DB is needed.
-        monkeypatch.setattr(run_automation, "capture", lambda _p: SyncSnapshot())
+        monkeypatch.setattr(runner, "capture", lambda _p: SyncSnapshot())
 
         rc = run_automation.main(["--force"])
-        assert rc == run_automation.EXIT_OK
-        # Buffer should have been reset at start-of-main; since _Fake() did
+        assert rc == runner.EXIT_OK
+        # Buffer should have been reset at start-of-run; since _Fake() did
         # not write anything to the buffer, it stays empty post-run.
-        assert run_automation.get_script_output_buffer() == []
+        assert runner.get_script_output_buffer() == []
