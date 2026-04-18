@@ -20,8 +20,12 @@ _TABLES = """
 CREATE TABLE IF NOT EXISTS fidelity_transactions (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     run_date        TEXT NOT NULL,
-    account_number  TEXT NOT NULL,
-    action          TEXT NOT NULL,
+    -- account_number + action default to '' so auto-ALTER on D1 (see
+    -- _ensure_d1_schema_aligned) can ADD COLUMN without a reject; real
+    -- ingest always populates both from the Fidelity CSV, so the default
+    -- only ever applies to pre-existing rows during a schema upgrade.
+    account_number  TEXT NOT NULL DEFAULT '',
+    action          TEXT NOT NULL DEFAULT '',
     action_type     TEXT NOT NULL DEFAULT '',
     action_kind     TEXT,
     symbol          TEXT NOT NULL DEFAULT '',

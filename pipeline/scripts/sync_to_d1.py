@@ -150,13 +150,25 @@ def _column_add_ddl(local_conn: sqlite3.Connection, table: str, col: str) -> str
     ):
         if name != col:
             continue
-        parts = [str(name), str(ctype) if ctype else "TEXT"]
+        ctype_str = str(ctype) if ctype else "TEXT"
+        parts = [str(name), ctype_str]
+        # SQLite's ALTER TABLE ADD COLUMN rejects NOT NULL without a DEFAULT.
+        # Emit an implicit ``DEFAULT ''`` for TEXT columns that lack one —
+        # real ingest always populates these (they come from CSV fields), so
+        # the default only affects pre-existing rows during the one-off
+        # schema upgrade. For non-TEXT types we can't invent a safe default,
+        # so raise and ask the author to declare one in etl/db.py.
         if notnull and dflt is None:
-            msg = (
-                f"Local column {table}.{col} is NOT NULL without a DEFAULT — "
-                f"D1 ALTER ADD COLUMN would reject it. Add a DEFAULT to etl/db.py."
-            )
-            raise RuntimeError(msg)
+            if ctype_str.upper() == "TEXT":
+                dflt = "''"
+            else:
+                msg = (
+                    f"Local column {table}.{col} is {ctype_str} NOT NULL "
+                    f"without a DEFAULT — D1 ALTER ADD COLUMN would reject "
+                    f"it and no safe implicit default exists for this type. "
+                    f"Add an explicit DEFAULT to etl/db.py."
+                )
+                raise RuntimeError(msg)
         if notnull:
             parts.append("NOT NULL")
         if dflt is not None:

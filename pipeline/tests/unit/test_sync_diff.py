@@ -162,12 +162,24 @@ class TestColumnAddDdl:
             _column_add_ddl(conn, "qianji_transactions", "does_not_exist")
         conn.close()
 
-    def test_not_null_without_default_raises(self, tmp_path):
-        """Adding a NOT NULL column without a DEFAULT on D1 is illegal — we
-        fail loudly in advance rather than letting wrangler error at runtime."""
+    def test_text_not_null_without_default_falls_back_to_empty_string(self, tmp_path):
+        """TEXT NOT NULL without a DEFAULT is common for CSV-ingested columns;
+        auto-ALTER emits ``DEFAULT ''`` so legacy DBs (whose local schema
+        predates the explicit default declaration) can still be aligned
+        to D1 without a manual schema migration."""
         db_path = tmp_path / "tiny.db"
         conn = sqlite3.connect(str(db_path))
         conn.execute("CREATE TABLE t (a TEXT NOT NULL)")
+        ddl = _column_add_ddl(conn, "t", "a")
+        conn.close()
+        assert ddl == "a TEXT NOT NULL DEFAULT ''"
+
+    def test_non_text_not_null_without_default_raises(self, tmp_path):
+        """REAL/INTEGER NOT NULL without a DEFAULT has no safe implicit value
+        — fail loudly and ask the author to declare one."""
+        db_path = tmp_path / "tiny.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("CREATE TABLE t (a REAL NOT NULL)")
         with pytest.raises(RuntimeError, match=r"NOT NULL without a DEFAULT"):
             _column_add_ddl(conn, "t", "a")
         conn.close()
