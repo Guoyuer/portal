@@ -144,20 +144,7 @@ export default function FinancePage() {
         <TimemachineSection timeline={tl} fallback={<NetWorthGrowth data={[]} />} />
       </ErrorBoundary>
 
-      {/* ── 3. Cash Flow ────────────────────────────────────────────────── */}
-      <ErrorBoundary fallback={<SectionError label="Cash Flow" />}>
-        <section id="cashflow" className="scroll-mt-20 md:scroll-mt-8">
-          <SectionHeader>{SECTION_LABELS["cashflow"]}</SectionHeader>
-          <CashFlowContent
-            cashflow={tl.cashflow}
-            monthlyFlows={tl.monthlyFlows}
-            activeMonth={snapshotDate?.slice(0, 7)}
-          />
-        </section>
-      </ErrorBoundary>
-
-
-      {/* ── 4. Portfolio Activity ───────────────────────────────────────── */}
+      {/* ── 3. Portfolio Activity ───────────────────────────────────────── */}
       <ErrorBoundary fallback={<SectionError label="Fidelity Activity" />}>
         <section id="fidelity-activity" className="scroll-mt-20 md:scroll-mt-8">
           <SectionHeader>
@@ -188,6 +175,18 @@ export default function FinancePage() {
           ) : (
             <SectionBody><p className="text-sm text-red-400">Activity data unavailable</p></SectionBody>
           )}
+        </section>
+      </ErrorBoundary>
+
+      {/* ── 4. Cash Flow ────────────────────────────────────────────────── */}
+      <ErrorBoundary fallback={<SectionError label="Cash Flow" />}>
+        <section id="cashflow" className="scroll-mt-20 md:scroll-mt-8">
+          <SectionHeader>{SECTION_LABELS["cashflow"]}</SectionHeader>
+          <CashFlowContent
+            cashflow={tl.cashflow}
+            monthlyFlows={tl.monthlyFlows}
+            activeMonth={snapshotDate?.slice(0, 7)}
+          />
         </section>
       </ErrorBoundary>
 
