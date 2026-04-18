@@ -67,8 +67,7 @@ graph TB
 | `computed_holdings_detail` | Per-ticker performance | Full replace |
 | `econ_series` | Monthly time-series — FRED macro keys + `dxy` (Yahoo) + `usdCny` (Yahoo) | Full replace |
 | `sync_meta` | last_sync timestamp, last_date coverage | Full replace |
-| `replay_checkpoint` | Cached positions/cash/cost_basis (local only) | Not synced |
-| `calibration_log` | Drift between replay and positions CSV (local only) | Not synced |
+| `sync_log` | Append-only audit trail of D1 schema changes + sync runs | Not synced (D1-only) |
 
 D1 has 10 camelCase views — `v_daily`, `v_daily_tickers`, `v_fidelity_txns`, `v_qianji_txns`, `v_categories`, `v_market_indices`, `v_holdings_detail`, `v_econ_series`, `v_econ_series_grouped`, `v_econ_snapshot`.
 

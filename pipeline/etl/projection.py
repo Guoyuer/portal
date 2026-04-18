@@ -21,7 +21,7 @@ from datetime import date, timedelta
 from typing import TypedDict
 
 
-class TickerSnapshot(TypedDict):
+class ProjectedTickerRow(TypedDict):
     """Per-ticker output shape — same keys as _build_allocation_row produces."""
 
     ticker: str
@@ -66,7 +66,7 @@ class ProjectedDay:
     crypto: float
     safe_net: float
     liabilities: float
-    tickers: list[TickerSnapshot]
+    tickers: list[ProjectedTickerRow]
 
 
 # ── Core per-day math ───────────────────────────────────────────────────────
@@ -110,7 +110,7 @@ def project_one_day(
     category_totals: dict[str, float] = {}
     total = 0.0
     liabilities = 0.0
-    out_tickers: list[TickerSnapshot] = []
+    out_tickers: list[ProjectedTickerRow] = []
 
     for r in prev:
         ratio = _price_ratio(r.ticker, prices_today, prices_prev)

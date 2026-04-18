@@ -22,22 +22,18 @@ if "yfinance" not in sys.modules:
     _yf.download = MagicMock(return_value=MagicMock(empty=True))
     sys.modules["yfinance"] = _yf
 
+from dataclasses import replace  # noqa: E402
+
 from etl.allocation import compute_daily_allocation  # noqa: E402
 from etl.db import init_db  # noqa: E402
 from etl.prices import symbol_holding_periods_from_db  # noqa: E402
-from etl.replay import ReplayConfig, replay_transactions  # noqa: E402
-from etl.sources.fidelity import MM_SYMBOLS, classify_fidelity_action  # noqa: E402
+from etl.replay import replay_transactions  # noqa: E402
+from etl.sources.fidelity import FIDELITY_REPLAY, classify_fidelity_action  # noqa: E402
 
-# Local replay config — excludes MM funds from position accumulation but
-# doesn't track cash (these tests only assert position quantities + cost
-# basis, not cash ledgers).
-_FIDELITY_POSITIONS_ONLY = ReplayConfig(
-    table="fidelity_transactions",
-    date_col="run_date",
-    ticker_col="symbol",
-    amount_col="amount",
-    account_col="account_number",
-    exclude_tickers=MM_SYMBOLS,
+# Strip cash tracking — these tests only assert position quantities + cost
+# basis, not cash ledgers.
+_FIDELITY_POSITIONS_ONLY = replace(
+    FIDELITY_REPLAY, track_cash=False, lot_type_col=None, mm_drip_tickers=frozenset(),
 )
 
 

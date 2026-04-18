@@ -5,7 +5,6 @@ for the Fidelity gate automation uses.
 """
 from __future__ import annotations
 
-import os
 import sys
 from datetime import date
 from pathlib import Path
@@ -13,9 +12,7 @@ from pathlib import Path
 # Ensure the pipeline package is importable
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from etl.ingest.qianji_db import qianji_balances_at
-
-DB_PATH = Path(os.environ.get("APPDATA", "")) / "com.mutangtech.qianji.win/qianji_flutter/qianjiapp.db"
+from etl.ingest.qianji_db import DEFAULT_DB_PATH, qianji_balances_at
 
 
 def main() -> None:
@@ -26,7 +23,7 @@ def main() -> None:
     else:
         print("Current balances (no replay)")
 
-    snapshot = qianji_balances_at(DB_PATH, as_of)
+    snapshot = qianji_balances_at(DEFAULT_DB_PATH, as_of)
 
     print(f"\n{'Account':<25} {'Balance':>12}")
     print("-" * 40)

@@ -530,7 +530,7 @@ def _full_build(
     # quirk bill gets revalued at its own date's FX rate — stable across
     # runs, unlike the old live-rate fallback which re-converted every run.
     historical_cny = load_cny_rates(paths.db_path)
-    qianji_records, _ = load_all_from_db(
+    qianji_records = load_all_from_db(
         DEFAULT_QJ_DB, historical_cny_rates=historical_cny,
     )
     retirement_cats = list(config.get("retirement_income_categories") or [])
@@ -622,7 +622,7 @@ def _build_refresh_window(
     # user edits a bill in Qianji — or, as in the balance-adjustment and
     # timezone fixes, whenever ingest logic itself changes.
     historical_cny = load_cny_rates(paths.db_path)
-    qianji_records, _ = load_all_from_db(
+    qianji_records = load_all_from_db(
         DEFAULT_QJ_DB, historical_cny_rates=historical_cny,
     )
     retirement_cats = list(config.get("retirement_income_categories") or [])

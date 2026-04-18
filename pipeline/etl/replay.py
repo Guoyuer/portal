@@ -83,14 +83,12 @@ class ReplayConfig:
             basis updates. These rows can still flow through the cash
             ledger (Fidelity's money-market funds).
         track_cash: When ``True``, accumulate per-account cash from every
-            row that isn't tagged ``cash_exclude_lot_type``. Fidelity-
-            only today; Robinhood leaves this disabled.
+            row whose ``lot_type`` isn't ``"Shares"`` — Fidelity-only
+            today. ``"Shares"`` rows (stock distributions / lending / MM
+            sweeps) don't participate so they don't double-count.
         lot_type_col: Column carrying the Fidelity lot-type marker
             (``Cash`` / ``Margin`` / ``Shares`` / ``Financing``).
             Required when ``track_cash=True``.
-        cash_exclude_lot_type: Lot-type value whose rows don't
-            participate in cash accumulation — ``Shares`` means stock
-            distributions, lending, and MM sweeps don't double-count.
         mm_drip_tickers: MM-fund tickers whose ``REINVESTMENT`` rows
             fold share-count deltas back into the cash ledger (match
             legacy ``mm_drip`` tallying).
@@ -103,7 +101,6 @@ class ReplayConfig:
     exclude_tickers: frozenset[str] = frozenset()
     track_cash: bool = False
     lot_type_col: str | None = None
-    cash_exclude_lot_type: str = "Shares"
     mm_drip_tickers: frozenset[str] = frozenset()
 
 
@@ -202,7 +199,7 @@ def replay_transactions(
                 qty[key] += q
 
         # ── Cash (Fidelity-only; guarded by track_cash) ──
-        if config.track_cash and acct and lot_type != config.cash_exclude_lot_type:
+        if config.track_cash and acct and lot_type != "Shares":
             cash_flow[acct] += amt
             if ticker in config.mm_drip_tickers and kind == ActionKind.REINVESTMENT and q != 0:
                 mm_drip[acct] += q
