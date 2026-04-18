@@ -33,11 +33,9 @@ cd pipeline && python3 scripts/sync_to_d1.py --local # push to local D1
 # Regenerate Zod schemas from etl/types.py (parity-checked in pytest)
 cd pipeline && python3 tools/gen_zod.py --write ../src/lib/schemas/_generated.ts
 
-# Regression gate (source-abstraction refactor)
-bash pipeline/scripts/regression.sh                 # L1 + L3 regression gate (run before every commit during refactors)
-bash pipeline/scripts/regression_baseline.sh        # capture fresh L1 + L3 baselines locally (after approved behavior change)
-cd pipeline && .venv/Scripts/python.exe scripts/refresh_l1_baseline_from_fixtures.py  # fixture-derived L1 only (CI-deterministic; no wrangler)
-cd pipeline && .venv/Scripts/python.exe -m pytest tests/regression/test_pipeline_golden.py -v   # L2 fixture-based golden test (CI-friendly)
+# Regression gate (fixture-driven — see docs/RUNBOOK.md §6)
+cd pipeline && .venv/Scripts/python.exe -m pytest tests/regression/ -v              # L1 row-level + L2 fixture-based golden (CI-friendly, fully offline)
+cd pipeline && .venv/Scripts/python.exe scripts/refresh_l1_baseline_from_fixtures.py  # refresh L1 baselines from fixtures locally
 # Attach `baseline-refresh` label to a PR → CI runs the fixture refresh + pushes the new .sha256 back (see docs/RUNBOOK.md §6).
 
 # Automated pipeline (orchestration in run_automation.py; PS1 is a thin Task Scheduler shim)

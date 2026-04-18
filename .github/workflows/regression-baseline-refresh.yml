@@ -3,12 +3,12 @@ name: Regression baseline refresh
 # Refreshes the committed L1 regression baselines
 # (``pipeline/tests/regression/baseline/*.sha256`` + ``*.json``) from the
 # committed synthetic fixtures under ``pipeline/tests/fixtures/regression/``.
-# L3 (``timeline.sha256``) is NOT touched — it needs wrangler + the worker and
-# is still a manual local step via ``scripts/regression_baseline.sh``.
 #
 # To use: attach the ``baseline-refresh`` label to a PR. CI builds the fixture
 # DB, rewrites the L1 hashes, commits back to the PR branch, and removes the
 # label so a follow-up push does not re-trigger the run.
+#
+# To refresh locally: cd pipeline && python scripts/refresh_l1_baseline_from_fixtures.py
 
 on:
   pull_request:

@@ -46,9 +46,8 @@ jobs:
         run: bash pipeline/scripts/seed_local_d1_from_fixtures.sh
 
       # ── Start wrangler dev --local in the background ──────────
-      # Same invocation as pipeline/scripts/regression.sh's L3 step. We
-      # background it, then poll /timeline until 200 so the Next build
-      # knows the Worker is reachable at bake time.
+      # Background wrangler, then poll /timeline until 200 so the Next
+      # build knows the Worker is reachable at bake time.
       - name: Start wrangler dev (local D1)
         working-directory: worker
         run: |
