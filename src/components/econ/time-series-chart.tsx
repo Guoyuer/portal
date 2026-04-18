@@ -7,7 +7,7 @@ import {
 import type { EconPoint } from "@/lib/schemas";
 import { fmtMonthYear } from "@/lib/format";
 import { useIsDark } from "@/lib/hooks";
-import { tooltipStyle, gridStroke } from "@/lib/chart-styles";
+import { tooltipStyle, gridStroke, legendStyle } from "@/lib/chart-styles";
 
 export interface LineConfig {
   dataKey: string;
@@ -49,17 +49,6 @@ export function TimeSeriesChart({ title, lines, data, height = 280 }: TimeSeries
   const filterId = useId();
 
   const merged = mergeSeriesByDate(lines, data);
-
-  const legendStyle = {
-    paddingTop: "8px",
-    background: isDark ? "rgba(255,255,255,0.03)" : "rgba(255,255,255,0.4)",
-    backdropFilter: "blur(12px)",
-    WebkitBackdropFilter: "blur(12px)",
-    borderRadius: "10px",
-    padding: "4px 12px",
-    border: `1px solid ${isDark ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.3)"}`,
-  };
-
   if (merged.length === 0) return null;
 
   return (
@@ -81,7 +70,7 @@ export function TimeSeriesChart({ title, lines, data, height = 280 }: TimeSeries
             }}
           />
           {lines.length > 1 && (
-            <Legend wrapperStyle={legendStyle} />
+            <Legend wrapperStyle={legendStyle(isDark)} />
           )}
           {lines.map((line) => (
             <Line key={line.dataKey} dataKey={line.dataKey} name={line.label} stroke={line.color} strokeWidth={2} dot={false} connectNulls filter={`url(#${filterId})`} />

@@ -1,9 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { ECON_URL, FETCH_TIMEOUT_MS } from "@/lib/config";
 import { fetchWithSchema } from "@/lib/fetch-schema";
 import { EconDataSchema, type EconData, type EconPoint } from "@/lib/schemas";
+import { ECON_FORMATTERS } from "@/lib/econ-formatters";
+import { ECON_LINE_COLORS } from "@/lib/chart-colors";
 import { Button } from "@/components/ui/button";
 import { SectionHeader, SectionBody } from "@/components/finance/section";
 import { MacroCards } from "@/components/econ/macro-cards";
@@ -32,25 +34,25 @@ function filterSeries(series: Record<string, EconPoint[]>, months: number): Reco
 // ── Line configs ─────────────────────────────────────────────────────
 
 const RATE_LINES: LineConfig[] = [
-  { dataKey: "fedFundsRate", label: "Fed Rate", color: "#2563eb", formatter: (v) => `${v.toFixed(2)}%` },
-  { dataKey: "treasury10y", label: "10Y Treasury", color: "#7c3aed", formatter: (v) => `${v.toFixed(2)}%` },
-  { dataKey: "treasury2y", label: "2Y Treasury", color: "#f59e0b", formatter: (v) => `${v.toFixed(2)}%` },
+  { dataKey: "fedFundsRate", label: "Fed Rate", color: ECON_LINE_COLORS.blue, formatter: ECON_FORMATTERS.fedFundsRate },
+  { dataKey: "treasury10y", label: "10Y Treasury", color: ECON_LINE_COLORS.violet, formatter: ECON_FORMATTERS.treasury10y },
+  { dataKey: "treasury2y", label: "2Y Treasury", color: ECON_LINE_COLORS.amber, formatter: ECON_FORMATTERS.treasury2y },
 ];
 const SPREAD_LINES: LineConfig[] = [
-  { dataKey: "spread2s10s", label: "2s10s Spread", color: "#ef4444", formatter: (v) => `${(v * 100).toFixed(0)} bps` },
+  { dataKey: "spread2s10s", label: "2s10s Spread", color: ECON_LINE_COLORS.red, formatter: ECON_FORMATTERS.spread2s10s },
 ];
 const INFLATION_LINES: LineConfig[] = [
-  { dataKey: "cpiYoy", label: "CPI (YoY)", color: "#ef4444", formatter: (v) => `${v.toFixed(1)}%` },
-  { dataKey: "coreCpiYoy", label: "Core CPI (YoY)", color: "#f59e0b", formatter: (v) => `${v.toFixed(1)}%` },
+  { dataKey: "cpiYoy", label: "CPI (YoY)", color: ECON_LINE_COLORS.red, formatter: ECON_FORMATTERS.cpiYoy },
+  { dataKey: "coreCpiYoy", label: "Core CPI (YoY)", color: ECON_LINE_COLORS.amber, formatter: ECON_FORMATTERS.coreCpiYoy },
 ];
 const UNEMPLOYMENT_LINES: LineConfig[] = [
-  { dataKey: "unemployment", label: "Unemployment Rate", color: "#2563eb", formatter: (v) => `${v.toFixed(1)}%` },
+  { dataKey: "unemployment", label: "Unemployment Rate", color: ECON_LINE_COLORS.blue, formatter: ECON_FORMATTERS.unemployment },
 ];
 const VIX_LINES: LineConfig[] = [
-  { dataKey: "vix", label: "VIX", color: "#ef4444", formatter: (v) => v.toFixed(1) },
+  { dataKey: "vix", label: "VIX", color: ECON_LINE_COLORS.red, formatter: ECON_FORMATTERS.vix },
 ];
 const OIL_LINES: LineConfig[] = [
-  { dataKey: "oilWti", label: "WTI Crude", color: "#10b981", formatter: (v) => `$${v.toFixed(0)}` },
+  { dataKey: "oilWti", label: "WTI Crude", color: ECON_LINE_COLORS.green, formatter: ECON_FORMATTERS.oilWti },
 ];
 
 // ── Economy Page ─────────────────────────────────────────────────────
@@ -61,7 +63,7 @@ export default function EconPage() {
   const [loading, setLoading] = useState(true);
   const [range, setRange] = useState<Range>("3Y");
 
-  const fetchData = useCallback(async () => {
+  const fetchData = async () => {
     setLoading(true);
     setError(null);
     try {
@@ -71,9 +73,9 @@ export default function EconPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  };
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => { fetchData(); }, []);
 
   const filtered = data ? filterSeries(data.series, RANGE_MONTHS[range]) : {};
 

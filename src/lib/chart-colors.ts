@@ -31,3 +31,19 @@ export const CAT_COLOR_BY_KEY: Record<string, string> = {
   crypto: OKABE_ITO.orange,
   safeNet: OKABE_ITO.skyBlue,
 };
+
+// ── Economy page line colors ───────────────────────────────────────────
+//
+// Distinct palette from the Okabe-Ito allocation colors above — econ charts
+// never mix red and green on the same axis (inflation uses red + amber;
+// rates use blue + violet + amber; single-line charts use one of red / blue
+// / green) so the protanomaly risk is already mitigated by layout, not
+// palette constraints.
+
+export const ECON_LINE_COLORS = {
+  blue: "#2563eb",
+  violet: "#7c3aed",
+  amber: "#f59e0b",
+  red: "#ef4444",
+  green: "#10b981",
+} as const;

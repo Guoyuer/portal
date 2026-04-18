@@ -4,6 +4,7 @@
 
 import type { TriagedEmail } from "@/lib/schemas/mail";
 import { MailRow } from "@/components/mail/mail-row";
+import { SectionMessage } from "@/components/finance/section";
 
 interface Props {
   title: string;
@@ -19,7 +20,7 @@ export function MailSection({ title, emoji, emails, onDelete }: Props) {
         {emoji} {title} ({emails.length})
       </h2>
       {emails.length === 0 ? (
-        <div className="text-sm text-gray-500 italic">None</div>
+        <SectionMessage kind="empty" wrap={false}>None</SectionMessage>
       ) : (
         <div className="rounded border border-gray-200 bg-white px-4">
           {emails.map((e) => (
