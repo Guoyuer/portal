@@ -1,6 +1,7 @@
-"""Tests for the timemachine module — Qianji balance replay.
+"""Tests for Qianji balance replay (``qianji_balances_at`` + ``QianjiSnapshot``).
 
-The Fidelity replay engine lives in :mod:`etl.replay`; its tests live in
+Implementation lives in :mod:`etl.ingest.qianji_db`. The Fidelity replay
+engine lives in :mod:`etl.replay`; its tests live in
 ``test_replay_primitive.py``.
 """
 
@@ -12,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from etl.timemachine import QianjiSnapshot, qianji_balances_at
+from etl.ingest.qianji_db import QianjiSnapshot, qianji_balances_at
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
