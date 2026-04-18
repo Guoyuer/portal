@@ -20,6 +20,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import sqlite3
@@ -68,11 +69,8 @@ _D1_COLUMNS: dict[str, list[str] | None] = {
 # this opt-out set; otherwise ``_check_d1_column_drift`` refuses to run. This
 # forces a conscious decision when a new column lands in ``etl/db.py``.
 _D1_OMITTED: dict[str, set[str]] = {
-    "fidelity_transactions": {
-        "id", "account", "account_number", "action", "action_kind",
-        "description", "lot_type", "settlement_date",
-    },
-    "qianji_transactions": {"account", "note"},
+    "fidelity_transactions": {"id", "account_number", "action", "action_kind", "lot_type"},
+    "qianji_transactions": {"note"},
     "daily_close": set(),
 }
 
@@ -114,6 +112,138 @@ def _check_d1_column_drift(conn: sqlite3.Connection) -> None:
             + "\n  ".join(errors)
         )
         raise RuntimeError(msg)
+
+# ── D1 schema alignment ────────────────────────────────────────────────────
+#
+# Local and D1 schemas are intentionally independent (see CLAUDE.md and the
+# ``_D1_OMITTED`` comment above), but when a new column lands in the synced
+# subset, prod D1 still needs a matching ALTER TABLE ADD COLUMN — otherwise
+# the next INSERT blows up with "no such column". Historically that ALTER
+# was a manual ``wrangler d1 execute`` step; easy to forget. The helpers
+# below let ``main()`` detect the mismatch and apply ``ALTER TABLE ADD
+# COLUMN`` automatically. D1's ALTER is an O(1) metadata op — unlike MySQL,
+# it doesn't rewrite the table — so auto-applying is safe at the scale we
+# care about. Each ALTER is logged so the sync output still reads as an
+# audit trail.
+
+
+def _wrangler_remote_flag(local: bool) -> str:
+    return "--local" if local else "--remote"
+
+
+def _wrangler_pragma(table: str, local: bool) -> list[dict[str, object]]:
+    """Run ``PRAGMA table_info(<table>)`` against D1 and parse the JSON rows.
+
+    Returns an empty list when the table doesn't exist on D1 — callers treat
+    this as "skip, D1 is unbootstrapped" rather than trying to auto-create
+    the table.
+    """
+    npx = shutil.which("npx")
+    if npx is None:
+        msg = "npx not found in PATH — install Node.js or add npm bin to PATH"
+        raise RuntimeError(msg)
+    result = subprocess.run(
+        [npx, "wrangler", "d1", "execute", "portal-db", _wrangler_remote_flag(local),
+         "--json", f"--command=PRAGMA table_info({table})"],
+        cwd=str(_WORKER_DIR),
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"wrangler PRAGMA failed for {table} (rc={result.returncode})\n"
+            f"stderr:\n{result.stderr or '(empty)'}\n"
+            f"stdout:\n{result.stdout or '(empty)'}"
+        )
+    data = json.loads(result.stdout)
+    if isinstance(data, list) and data and "results" in data[0]:
+        return list(data[0]["results"])
+    return []
+
+
+def _wrangler_exec_ddl(sql: str, local: bool) -> None:
+    """Execute one DDL statement (ALTER TABLE ...) on D1. Raises on failure."""
+    npx = shutil.which("npx")
+    if npx is None:
+        msg = "npx not found in PATH — install Node.js or add npm bin to PATH"
+        raise RuntimeError(msg)
+    result = subprocess.run(
+        [npx, "wrangler", "d1", "execute", "portal-db", _wrangler_remote_flag(local),
+         f"--command={sql}"],
+        cwd=str(_WORKER_DIR),
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"wrangler DDL failed (rc={result.returncode})\nSQL: {sql}\n"
+            f"stderr:\n{result.stderr or '(empty)'}\n"
+            f"stdout:\n{result.stdout or '(empty)'}"
+        )
+
+
+def _column_add_ddl(local_conn: sqlite3.Connection, table: str, col: str) -> str:
+    """Return the ``col type [NOT NULL] [DEFAULT X]`` fragment for ALTER ADD.
+
+    Reads the local schema (``etl/db.py``'s CREATE TABLE, as introspected via
+    PRAGMA table_info) so the column added to D1 has the same type and
+    nullability as the local source of truth. SQLite requires that NOT NULL
+    columns added via ALTER have a DEFAULT — we enforce that by raising if
+    the local schema has a NOT NULL column without one.
+    """
+    for _cid, name, ctype, notnull, dflt, _pk in local_conn.execute(
+        f"PRAGMA table_info({table})"  # noqa: S608 — table is a trusted constant
+    ):
+        if name != col:
+            continue
+        parts = [str(name), str(ctype) if ctype else "TEXT"]
+        if notnull and dflt is None:
+            msg = (
+                f"Local column {table}.{col} is NOT NULL without a DEFAULT — "
+                f"D1 ALTER ADD COLUMN would reject it. Add a DEFAULT to etl/db.py."
+            )
+            raise RuntimeError(msg)
+        if notnull:
+            parts.append("NOT NULL")
+        if dflt is not None:
+            parts.append(f"DEFAULT {dflt}")
+        return " ".join(parts)
+    msg = f"Column {col} not found in local schema of {table}"
+    raise RuntimeError(msg)
+
+
+def _ensure_d1_schema_aligned(
+    local_conn: sqlite3.Connection, *, local: bool, dry_run: bool,
+) -> None:
+    """Add any declared-synced column missing from D1 via ALTER TABLE ADD COLUMN.
+
+    Iterates ``_D1_COLUMNS`` (the explicit whitelist of columns we sync),
+    compares to D1's current schema, and closes the gap. No-op when schemas
+    already agree. Skips tables that don't exist in D1 at all — too big a
+    jump to auto-create; user should apply the init schema first.
+    """
+    for table, declared in _D1_COLUMNS.items():
+        if declared is None:
+            continue
+        d1_info = _wrangler_pragma(table, local=local)
+        d1_cols = {str(row["name"]) for row in d1_info}
+        if not d1_cols:
+            print(
+                f"  ! Table {table} not found in D1 — apply init schema before re-running sync"
+            )
+            continue
+        missing = [c for c in declared if c not in d1_cols]
+        if not missing:
+            continue
+        for col in missing:
+            ddl = _column_add_ddl(local_conn, table, col)
+            alter_sql = f"ALTER TABLE {table} ADD COLUMN {ddl}"
+            if dry_run:
+                print(f"  [dry-run] Would align D1 schema: {alter_sql}")
+            else:
+                print(f"  Aligning D1 schema: {alter_sql}")
+                _wrangler_exec_ddl(alter_sql, local=local)
+
 
 # Tables that use INSERT OR IGNORE in diff mode (append-only, have date PK)
 _DIFF_TABLES: set[str] = {"daily_close"}
@@ -254,6 +384,12 @@ def main() -> None:
 
     # Fail fast if the local schema has drifted from our column whitelist.
     _check_d1_column_drift(conn)
+
+    # Close any column-level gaps between local's declared-synced set and D1
+    # via ALTER TABLE ADD COLUMN. Dry-run skips this entirely (both the read
+    # PRAGMA and the ALTER are wrangler roundtrips — dry-run stays offline).
+    if not args.dry_run:
+        _ensure_d1_schema_aligned(conn, local=args.local, dry_run=False)
 
     mode = "full" if args.full else "diff"
     since = args.since

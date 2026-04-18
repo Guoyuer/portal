@@ -34,12 +34,12 @@ def fake_db(tmp_path):
     init_db(p)
     conn = get_connection(p)
     conn.execute(
-        "INSERT INTO fidelity_transactions (run_date, account, account_number, action, action_type)"
-        " VALUES ('2026-01-15', 'A', 'X', 'raw', 'buy')"
+        "INSERT INTO fidelity_transactions (run_date, account_number, action, action_type)"
+        " VALUES ('2026-01-15', 'X', 'raw', 'buy')"
     )
     conn.execute(
-        "INSERT INTO fidelity_transactions (run_date, account, account_number, action, action_type)"
-        " VALUES ('2026-04-10', 'A', 'X', 'raw', 'buy')"
+        "INSERT INTO fidelity_transactions (run_date, account_number, action, action_type)"
+        " VALUES ('2026-04-10', 'X', 'raw', 'buy')"
     )
     conn.commit()
     conn.close()

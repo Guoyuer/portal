@@ -55,7 +55,6 @@ from etl.changelog import (  # noqa: E402
     build_subject,
     capture,
     diff,
-    empty_changelog,
     format_html,
     format_text,
 )
@@ -307,6 +306,7 @@ def _report_stage_failure(
     snapshot_before: SyncSnapshot,
     db_path: Path,
     log_file: Path,
+    started_at: datetime | None = None,
 ) -> int:
     """Shared error-report path used by every stage in ``main()``.
 
@@ -321,6 +321,7 @@ def _report_stage_failure(
         exit_code, log_file,
         error=f"{script_name} exited with code {rc}",
         validation_warnings=extract_validation_warnings(log_file),
+        started_at=started_at,
     )
     return exit_code
 
@@ -400,6 +401,14 @@ def extract_validation_warnings(log_file: Path | None = None) -> list[str]:
     return _parse_warnings_from_lines([ln.rstrip("\n") for ln in tail])
 
 
+def _fmt_duration(seconds: float) -> str:
+    """Compact ``NmNNs``-style duration (or ``NNs`` when under a minute)."""
+    if seconds < 60:
+        return f"{seconds:.0f}s"
+    m, s = divmod(int(seconds), 60)
+    return f"{m}m{s:02d}s"
+
+
 def _build_context(
     changelog: SyncChangelog,
     exit_code: int,
@@ -408,6 +417,7 @@ def _build_context(
     snapshot_after: SyncSnapshot | None,
     error: str | None,
     warnings: list[str] | None,
+    started_at: datetime | None = None,
 ) -> dict[str, object]:
     """Assemble the template context dict consumed by format_text / format_html."""
     before_dates = sorted(snapshot_before.computed_daily.keys()) if snapshot_before.computed_daily else []
@@ -416,6 +426,9 @@ def _build_context(
     if snapshot_after is not None:
         after_dates = sorted(snapshot_after.computed_daily.keys())
         econ_keys = sorted(snapshot_after.econ_series_keys)
+    duration = ""
+    if started_at is not None:
+        duration = _fmt_duration((datetime.now() - started_at).total_seconds())
     return {
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "status_label": _STATUS_LABELS.get(exit_code, f"EXIT {exit_code}"),
@@ -426,6 +439,7 @@ def _build_context(
         "before_dates": before_dates,
         "after_dates": after_dates,
         "econ_keys": econ_keys,
+        "duration": duration,
     }
 
 
@@ -438,6 +452,7 @@ def _send_report_email(
     log_file: Path,
     error: str | None = None,
     validation_warnings: list[str] | None = None,
+    started_at: datetime | None = None,
 ) -> None:
     """Build a changelog, decide whether to send, send if yes.
 
@@ -455,7 +470,7 @@ def _send_report_email(
     if snapshot_after is not None:
         changelog = diff(snapshot_before, snapshot_after)
     else:
-        changelog = empty_changelog()
+        changelog = SyncChangelog()
 
     should_send = exit_code != 0 or changelog.has_meaningful_changes()
     if not should_send:
@@ -463,7 +478,8 @@ def _send_report_email(
         return
 
     context = _build_context(
-        changelog, exit_code, log_file, snapshot_before, snapshot_after, error, validation_warnings,
+        changelog, exit_code, log_file, snapshot_before, snapshot_after, error,
+        validation_warnings, started_at=started_at,
     )
     subject = build_subject(changelog, exit_code)
     html = format_html(changelog, context)
@@ -507,6 +523,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    started_at = datetime.now()
 
     # Reset the per-run subprocess capture so validation warnings extracted
     # later in this invocation never include leftovers from a previous call
@@ -557,6 +574,7 @@ def main(argv: list[str] | None = None) -> int:
         return _report_stage_failure(
             log, "BUILD", rc, EXIT_BUILD_FAIL, "build_timemachine_db.py",
             email_config, snapshot_before, db_path, log_file,
+            started_at=started_at,
         )
 
     # [3] Pre-sync gate: guard against local data loss + historical drift
@@ -570,6 +588,7 @@ def main(argv: list[str] | None = None) -> int:
             return _report_stage_failure(
                 log, "PRE-SYNC GATE", rc, EXIT_PARITY_FAIL, "verify_vs_prod.py",
                 email_config, snapshot_before, db_path, log_file,
+                started_at=started_at,
             )
 
     # [3b] Optional Portfolio_Positions ground-truth gate
@@ -598,6 +617,7 @@ def main(argv: list[str] | None = None) -> int:
             return _report_stage_failure(
                 log, "SYNC", rc, EXIT_SYNC_FAIL, "sync_to_d1.py",
                 email_config, snapshot_before, db_path, log_file,
+                started_at=started_at,
             )
 
     # Success: update marker
@@ -611,6 +631,7 @@ def main(argv: list[str] | None = None) -> int:
         email_config, log, snapshot_before, capture(db_path),
         EXIT_OK, log_file,
         validation_warnings=extract_validation_warnings(log_file),
+        started_at=started_at,
     )
     return EXIT_OK
 

@@ -162,9 +162,9 @@ class TestBackfillMigration:
         conn = sqlite3.connect(str(db))
         conn.execute(
             "INSERT INTO fidelity_transactions "
-            "(run_date, account, account_number, action, action_type, action_kind, symbol) "
-            "VALUES (?,?,?,?,?,?,?)",
-            ("2024-02-01", "Brokerage", "X1", "YOU BOUGHT FOO", "buy", ActionKind.BUY.value, "FOO"),
+            "(run_date, account_number, action, action_type, action_kind, symbol) "
+            "VALUES (?,?,?,?,?,?)",
+            ("2024-02-01", "X1", "YOU BOUGHT FOO", "buy", ActionKind.BUY.value, "FOO"),
         )
         conn.commit()
         conn.close()
@@ -190,17 +190,17 @@ class TestBackfillMigration:
         conn = sqlite3.connect(str(db))
         conn.executemany(
             "INSERT INTO fidelity_transactions "
-            "(run_date, account, account_number, action, action_type, action_kind, symbol) "
-            "VALUES (?,?,?,?,?,?,?)",
+            "(run_date, account_number, action, action_type, action_kind, symbol) "
+            "VALUES (?,?,?,?,?,?)",
             [
                 # Legacy "other" for what's now REDEMPTION
-                ("2024-02-01", "B", "X1", "REDEMPTION PAYOUT SGOV", "redemption",
+                ("2024-02-01", "X1", "REDEMPTION PAYOUT SGOV", "redemption",
                  ActionKind.OTHER.value, "91279Q"),
                 # Legacy "other" for what's now DISTRIBUTION
-                ("2024-02-02", "B", "X1", "DISTRIBUTION VTI", "distribution",
+                ("2024-02-02", "X1", "DISTRIBUTION VTI", "distribution",
                  ActionKind.OTHER.value, "VTI"),
                 # Already correct — must NOT be re-written
-                ("2024-02-03", "B", "X1", "YOU BOUGHT VTI", "buy",
+                ("2024-02-03", "X1", "YOU BOUGHT VTI", "buy",
                  ActionKind.BUY.value, "VTI"),
             ],
         )

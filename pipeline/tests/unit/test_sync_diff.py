@@ -13,7 +13,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from etl.db import get_connection, init_db
 from scripts.sync_to_d1 import (
     _check_d1_column_drift,
+    _column_add_ddl,
     _dump_table,
+    _ensure_d1_schema_aligned,
     _escape,
 )
 
@@ -165,3 +167,171 @@ class TestCheckD1ColumnDrift:
         with pytest.raises(RuntimeError, match=r"does_not_exist"):
             _check_d1_column_drift(conn)
         conn.close()
+
+
+class TestColumnAddDdl:
+    """``_column_add_ddl`` reconstructs the ``<col> <type> ...`` fragment from
+    the local schema so ALTER TABLE ADD COLUMN on D1 matches exactly."""
+
+    def test_text_with_default(self, db):
+        conn = sqlite3.connect(str(db))
+        # qianji_transactions.category is TEXT NOT NULL DEFAULT '' — stable
+        # schema example that exercises the NOT NULL + DEFAULT emit path.
+        ddl = _column_add_ddl(conn, "qianji_transactions", "category")
+        conn.close()
+        assert ddl.startswith("category TEXT")
+        assert "NOT NULL" in ddl
+        assert "DEFAULT" in ddl
+
+    def test_nullable_column_skips_not_null(self, db):
+        conn = sqlite3.connect(str(db))
+        # fidelity_transactions.action_kind is TEXT (nullable, no default).
+        ddl = _column_add_ddl(conn, "fidelity_transactions", "action_kind")
+        conn.close()
+        assert ddl.startswith("action_kind TEXT")
+        assert "NOT NULL" not in ddl
+        assert "DEFAULT" not in ddl
+
+    def test_missing_column_raises(self, db):
+        conn = sqlite3.connect(str(db))
+        with pytest.raises(RuntimeError, match=r"not found"):
+            _column_add_ddl(conn, "qianji_transactions", "does_not_exist")
+        conn.close()
+
+    def test_not_null_without_default_raises(self, tmp_path):
+        """Adding a NOT NULL column without a DEFAULT on D1 is illegal — we
+        fail loudly in advance rather than letting wrangler error at runtime."""
+        db_path = tmp_path / "tiny.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("CREATE TABLE t (a TEXT NOT NULL)")
+        with pytest.raises(RuntimeError, match=r"NOT NULL without a DEFAULT"):
+            _column_add_ddl(conn, "t", "a")
+        conn.close()
+
+
+class TestEnsureD1SchemaAligned:
+    """End-to-end behaviour of the auto-ALTER path, wrangler calls mocked."""
+
+    def test_no_alter_when_d1_has_all_declared_columns(self, db, monkeypatch):
+        from scripts import sync_to_d1
+
+        calls: list[str] = []
+
+        def fake_pragma(table: str, *, local: bool) -> list[dict]:
+            # Claim D1 already has every locally-declared synced column.
+            declared = sync_to_d1._D1_COLUMNS.get(table) or []
+            return [{"name": c} for c in declared]
+
+        def fake_exec(sql: str, *, local: bool) -> None:
+            calls.append(sql)
+
+        monkeypatch.setattr(sync_to_d1, "_wrangler_pragma", fake_pragma)
+        monkeypatch.setattr(sync_to_d1, "_wrangler_exec_ddl", fake_exec)
+
+        conn = sqlite3.connect(str(db))
+        _ensure_d1_schema_aligned(conn, local=False, dry_run=False)
+        conn.close()
+
+        assert calls == []
+
+    def test_alter_issued_for_missing_column(self, db, monkeypatch):
+        from scripts import sync_to_d1
+
+        calls: list[str] = []
+
+        def fake_pragma(table: str, *, local: bool) -> list[dict]:
+            # Pretend qianji_transactions is missing "category" on D1.
+            # (category is TEXT NOT NULL DEFAULT '' locally — a valid ALTER target.)
+            declared = sync_to_d1._D1_COLUMNS.get(table) or []
+            if table == "qianji_transactions":
+                return [{"name": c} for c in declared if c != "category"]
+            return [{"name": c} for c in declared]
+
+        def fake_exec(sql: str, *, local: bool) -> None:
+            calls.append(sql)
+
+        monkeypatch.setattr(sync_to_d1, "_wrangler_pragma", fake_pragma)
+        monkeypatch.setattr(sync_to_d1, "_wrangler_exec_ddl", fake_exec)
+
+        conn = sqlite3.connect(str(db))
+        _ensure_d1_schema_aligned(conn, local=False, dry_run=False)
+        conn.close()
+
+        assert len(calls) == 1
+        assert calls[0].startswith("ALTER TABLE qianji_transactions ADD COLUMN category")
+        assert "TEXT" in calls[0]
+        assert "DEFAULT" in calls[0]
+
+    def test_not_null_without_default_aborts_sync(self, db, monkeypatch):
+        """Declared-synced column that's NOT NULL without DEFAULT locally
+        can't be ALTER-added on D1 — fail loudly rather than ship a sync
+        that will crash mid-INSERT on D1."""
+        from scripts import sync_to_d1
+
+        def fake_pragma(table: str, *, local: bool) -> list[dict]:
+            # Pretend daily_close is missing "close" (REAL NOT NULL, no default).
+            declared = sync_to_d1._D1_COLUMNS.get(table) or []
+            if table == "daily_close":
+                return [{"name": c} for c in declared if c != "close"]
+            return [{"name": c} for c in declared]
+
+        monkeypatch.setattr(sync_to_d1, "_wrangler_pragma", fake_pragma)
+
+        conn = sqlite3.connect(str(db))
+        with pytest.raises(RuntimeError, match=r"NOT NULL without a DEFAULT"):
+            _ensure_d1_schema_aligned(conn, local=False, dry_run=False)
+        conn.close()
+
+    def test_dry_run_logs_but_does_not_issue(self, db, monkeypatch, capsys):
+        from scripts import sync_to_d1
+
+        exec_calls: list[str] = []
+
+        def fake_pragma(table: str, *, local: bool) -> list[dict]:
+            # Pretend qianji is missing "category" on D1.
+            declared = sync_to_d1._D1_COLUMNS.get(table) or []
+            if table == "qianji_transactions":
+                return [{"name": c} for c in declared if c != "category"]
+            return [{"name": c} for c in declared]
+
+        def fake_exec(sql: str, *, local: bool) -> None:
+            exec_calls.append(sql)
+
+        monkeypatch.setattr(sync_to_d1, "_wrangler_pragma", fake_pragma)
+        monkeypatch.setattr(sync_to_d1, "_wrangler_exec_ddl", fake_exec)
+
+        conn = sqlite3.connect(str(db))
+        _ensure_d1_schema_aligned(conn, local=False, dry_run=True)
+        conn.close()
+
+        assert exec_calls == []
+        captured = capsys.readouterr()
+        assert "[dry-run]" in captured.out
+        assert "ALTER TABLE qianji_transactions ADD COLUMN category" in captured.out
+
+    def test_missing_table_warns_and_continues(self, db, monkeypatch, capsys):
+        """When D1 reports an empty table, skip with a warning (too big a jump
+        to auto-create the whole table)."""
+        from scripts import sync_to_d1
+
+        exec_calls: list[str] = []
+
+        def fake_pragma(table: str, *, local: bool) -> list[dict]:
+            if table == "daily_close":
+                return []
+            declared = sync_to_d1._D1_COLUMNS.get(table) or []
+            return [{"name": c} for c in declared]
+
+        def fake_exec(sql: str, *, local: bool) -> None:
+            exec_calls.append(sql)
+
+        monkeypatch.setattr(sync_to_d1, "_wrangler_pragma", fake_pragma)
+        monkeypatch.setattr(sync_to_d1, "_wrangler_exec_ddl", fake_exec)
+
+        conn = sqlite3.connect(str(db))
+        _ensure_d1_schema_aligned(conn, local=False, dry_run=False)
+        conn.close()
+
+        assert exec_calls == []
+        captured = capsys.readouterr()
+        assert "daily_close not found in D1" in captured.out

@@ -124,6 +124,76 @@ class TestParseQjAmount:
         extra = _extra("CNY", 5000.0, None, 0.0, "USD", 5000.0)
         assert parse_qj_amount(5000.0, extra, cny_rate=0.0) == 5000.0
 
+    # ── Historical-rate lookup (per-bill-date) ───────────────────────────
+    # The live-rate fallback used to revalue every quirk bill every build
+    # with today's rate, which caused the USD amount to drift from run to run
+    # and surfaced as "ghost adds" in the changelog email. The right rate for
+    # a 2024 bill is the 2024 rate — look it up by bill_date in a dict of
+    # historical rates (loaded from ``daily_close WHERE symbol='CNY=X'``).
+
+    def test_unconverted_cny_uses_historical_rate_when_bill_date_provided(self):
+        """With bill_date + historical_cny_rates, use that date's rate."""
+        from datetime import date as _date
+        extra = _extra("CNY", 7000.0, None, 0.0, "USD", 7000.0)
+        rates = {_date(2024, 5, 18): 7.2345, _date(2026, 4, 18): 6.8164}
+        # Bill is on 2024-05-18 → uses 7.2345, NOT today's 6.8164
+        assert parse_qj_amount(
+            7000.0, extra, bill_date=_date(2024, 5, 18), historical_cny_rates=rates,
+        ) == pytest.approx(7000.0 / 7.2345, rel=1e-6)
+
+    def test_unconverted_cny_stable_across_live_rate_changes(self):
+        """A 2024 bill's USD amount must NOT drift when today's FX rate moves.
+
+        Regression guard for the root CNY bug — tomorrow's run with a new
+        live rate must still compute the same USD as today's run for a
+        historical bill. This eliminates the need for a cross-run stable
+        identity (source_id) in the changelog snapshot.
+        """
+        from datetime import date as _date
+        extra = _extra("CNY", 7000.0, None, 0.0, "USD", 7000.0)
+        bill_date = _date(2024, 5, 18)
+        historical = {bill_date: 7.2345}
+
+        # Today's live rate fluctuates; history is fixed.
+        run1 = parse_qj_amount(7000.0, extra, cny_rate=6.8164,
+                               bill_date=bill_date, historical_cny_rates=historical)
+        run2 = parse_qj_amount(7000.0, extra, cny_rate=6.9003,
+                               bill_date=bill_date, historical_cny_rates=historical)
+        assert run1 == run2
+        assert run1 == pytest.approx(7000.0 / 7.2345, rel=1e-6)
+
+    def test_unconverted_cny_walks_back_to_last_weekday_rate(self):
+        """Qianji bills are timestamped to wall-clock; yfinance only has
+        weekday close rates. For a Saturday bill, fall back to Friday's rate.
+        """
+        from datetime import date as _date
+        extra = _extra("CNY", 1000.0, None, 0.0, "USD", 1000.0)
+        friday = _date(2024, 5, 17)  # 2024-05-18 is a Saturday
+        saturday = _date(2024, 5, 18)
+        rates = {friday: 7.2345}  # only Friday present
+        result = parse_qj_amount(
+            1000.0, extra, bill_date=saturday, historical_cny_rates=rates,
+        )
+        assert result == pytest.approx(1000.0 / 7.2345, rel=1e-6)
+
+    def test_unconverted_cny_falls_back_to_scalar_when_no_historical_match(self):
+        """If historical_cny_rates has no rate near bill_date, use scalar fallback."""
+        from datetime import date as _date
+        extra = _extra("CNY", 5000.0, None, 0.0, "USD", 5000.0)
+        # Empty historical dict + bill_date → scalar rate used
+        result = parse_qj_amount(
+            5000.0, extra, cny_rate=7.0,
+            bill_date=_date(2024, 5, 18), historical_cny_rates={},
+        )
+        assert result == pytest.approx(5000.0 / 7.0, rel=1e-6)
+
+    def test_unconverted_cny_no_bill_date_preserves_scalar_path(self):
+        """Legacy calls without bill_date still use scalar rate (backcompat)."""
+        extra = _extra("CNY", 5000.0, None, 0.0, "USD", 5000.0)
+        assert parse_qj_amount(5000.0, extra, cny_rate=7.0) == pytest.approx(
+            5000.0 / 7.0, rel=1e-6,
+        )
+
 
 # ── parse_qj_target_amount ────────────────────────────────────────────────────
 

@@ -56,7 +56,6 @@ def _insert_txn(
     amount: float,
     *,
     lot_type: str = "",
-    account: str = "Taxable",
 ) -> None:
     """Insert a single fidelity_transactions row.
 
@@ -66,10 +65,10 @@ def _insert_txn(
     """
     conn.execute(
         "INSERT INTO fidelity_transactions"
-        " (run_date, account, account_number, action, action_type, action_kind, symbol,"
-        "  lot_type, quantity, price, amount, settlement_date)"
-        " VALUES (?, ?, ?, ?, '', ?, ?, ?, ?, 0, ?, '')",
-        (run_date, account, acct_num, action,
+        " (run_date, account_number, action, action_type, action_kind, symbol,"
+        "  lot_type, quantity, price, amount)"
+        " VALUES (?, ?, ?, '', ?, ?, ?, ?, 0, ?)",
+        (run_date, acct_num, action,
          classify_fidelity_action(action).value, symbol, lot_type, qty, amount),
     )
 
