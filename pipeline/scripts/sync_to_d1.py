@@ -203,6 +203,94 @@ def _ensure_d1_schema_aligned(
             else:
                 print(f"  Aligning D1 schema: {alter_sql}")
                 _wrangler_exec_ddl(alter_sql, local=local)
+                _append_sync_log_row(
+                    op="alter",
+                    table_name=table,
+                    rows_affected=0,
+                    description=alter_sql,
+                    local=local,
+                )
+
+
+# ── Audit log ──────────────────────────────────────────────────────────────
+#
+# Every destructive op on D1 appends exactly one row to the ``sync_log``
+# table. The table is append-only by convention (never DELETE) so future
+# forensics can answer "what changed prod on YYYY-MM-DD?". The normal
+# diff/full sync path emits its row as part of the generated SQL bundle
+# (so it's atomic with the data write); auto-ALTER and ad-hoc manual
+# scripts INSERT via separate wrangler calls using the same helpers.
+
+
+def _invocation_context() -> str:
+    """``<hostname> <branch>@<short-sha>`` for the ``invocation`` column.
+
+    Git info is best-effort — falls back to "unknown" when not in a repo or
+    git isn't on PATH. The value goes into an audit log, so approximate is
+    better than absent.
+    """
+    host = os.environ.get("COMPUTERNAME") or os.environ.get("HOSTNAME") or "?"
+    branch = "unknown"
+    sha = "unknown"
+    try:
+        branch = subprocess.check_output(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=str(_PROJECT_DIR), text=True, stderr=subprocess.DEVNULL,
+        ).strip() or branch
+        sha = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=str(_PROJECT_DIR), text=True, stderr=subprocess.DEVNULL,
+        ).strip() or sha
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        pass
+    return f"{host} {branch}@{sha}"
+
+
+def _sync_log_insert_sql(
+    *,
+    op: str,
+    table_name: str | None,
+    rows_affected: int | None,
+    description: str,
+    invocation: str | None = None,
+) -> str:
+    """Generate one ``INSERT INTO sync_log`` statement (no trailing newline).
+
+    Caller chooses whether to append to a batched SQL file or execute via
+    wrangler immediately (see :func:`_append_sync_log_row`).
+    """
+    ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    inv = invocation if invocation is not None else _invocation_context()
+    values = ", ".join([
+        _escape(ts), _escape(op), _escape(table_name),
+        _escape(rows_affected), _escape(description), _escape(inv),
+    ])
+    return (
+        "INSERT INTO sync_log (ts, op, table_name, rows_affected, description, invocation) "
+        f"VALUES ({values});"
+    )
+
+
+def _append_sync_log_row(
+    *,
+    op: str,
+    table_name: str | None,
+    rows_affected: int | None,
+    description: str,
+    local: bool,
+    invocation: str | None = None,
+) -> None:
+    """Execute one ``INSERT INTO sync_log`` against D1 via wrangler.
+
+    Used by standalone code paths (auto-ALTER, ad-hoc manual scripts) that
+    don't build a batched SQL file. For the main sync path, use
+    :func:`_sync_log_insert_sql` to append directly to the batch.
+    """
+    sql = _sync_log_insert_sql(
+        op=op, table_name=table_name, rows_affected=rows_affected,
+        description=description, invocation=invocation,
+    )
+    _wrangler_exec_ddl(sql, local=local)
 
 
 # Tables that use INSERT OR IGNORE in diff mode (append-only, have date PK)
@@ -383,6 +471,17 @@ def main() -> None:
         f"INSERT INTO sync_meta (key, value) VALUES ('last_sync', '{now}');\n"
         f"INSERT INTO sync_meta (key, value) VALUES ('last_date', '{last_date}');"
     )
+
+    # Audit trail — one row per run, appended atomically with the data write.
+    # ``--since`` is captured in the description so forensics can reconstruct
+    # exactly which date window each sync touched.
+    since_hint = f" since={since}" if mode == "diff" and since else ""
+    all_sql.append(_sync_log_insert_sql(
+        op=mode, table_name=None, rows_affected=total_rows,
+        description=(
+            f"{mode} sync: {len(TABLES_TO_SYNC)} tables, {total_rows} rows{since_hint}"
+        ),
+    ))
 
     conn.close()
 

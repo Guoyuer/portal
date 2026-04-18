@@ -107,6 +107,19 @@ CREATE TABLE IF NOT EXISTS sync_meta (
     value TEXT NOT NULL
 );
 
+-- Append-only audit log — one row per destructive op on D1.
+-- Used for later forensics ("what changed prod on YYYY-MM-DD?").
+-- NEVER DELETE from this table.
+CREATE TABLE IF NOT EXISTS sync_log (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts            TEXT NOT NULL,      -- ISO 8601 UTC
+    op            TEXT NOT NULL,      -- 'diff' | 'full' | 'alter' | 'manual'
+    table_name    TEXT,               -- single table if relevant, else NULL
+    rows_affected INTEGER,            -- optional row count
+    description   TEXT NOT NULL,      -- human-readable intent
+    invocation    TEXT                -- hostname + branch@commit or 'manual-<script>'
+);
+
 -- ── camelCase views (match TypeScript type contract) ──────────────────────────
 -- Views use DROP + CREATE to make schema application idempotent — re-running
 -- wrangler d1 execute --file=schema.sql picks up definition changes.
