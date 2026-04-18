@@ -1,9 +1,9 @@
 """Sync notifications: healthchecks.io pings + email summaries.
 
-Healthchecks is REQUIRED (enforced at :class:`etl.automation.runner.Runner`
-construction — see RUNBOOK §8). :func:`ping_healthcheck` itself remains
-tolerant: unset URL silently no-ops and network errors are logged + swallowed,
-so any ad-hoc caller stays safe; the hard requirement is gated one level up.
+Healthchecks is recommended (see RUNBOOK §8). :class:`etl.automation.runner.
+Runner` logs a loud warning at startup when the URL is unset but doesn't
+fail — automation still runs. :func:`ping_healthcheck` itself stays tolerant
+too: unset URL silently no-ops, network errors logged + swallowed.
 
 Email is opt-in: set ``PORTAL_SMTP_USER`` + ``PORTAL_SMTP_PASSWORD``. A no-
 change run is silently successful; failures and meaningful-change successes

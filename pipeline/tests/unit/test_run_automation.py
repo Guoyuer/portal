@@ -439,21 +439,25 @@ class TestFindNewPositionsCSV:
 # ── Runner requires PORTAL_HEALTHCHECK_URL ────────────────────────────────────
 
 
-class TestRunnerRequiresHealthcheckUrl:
-    """B3: constructing a Runner without ``PORTAL_HEALTHCHECK_URL`` must fail
-    fast. Without it, ``ping_healthcheck`` silently no-ops — so a dead check
-    on healthchecks.io would never fire."""
+class TestRunnerWarnsOnMissingHealthcheckUrl:
+    """B3 (softened): constructing a Runner without ``PORTAL_HEALTHCHECK_URL``
+    must log a loud warning but still succeed. Hard fail was too aggressive —
+    users without healthchecks.io setup would get stuck."""
 
-    def test_runner_init_raises_when_url_unset(self, monkeypatch):
+    def test_runner_init_warns_when_url_unset(self, monkeypatch, caplog):
         monkeypatch.delenv("PORTAL_HEALTHCHECK_URL", raising=False)
         args = runner.parse_args(["--force"])
-        with pytest.raises(SystemExit, match="PORTAL_HEALTHCHECK_URL"):
-            runner.Runner(args)
+        with caplog.at_level(logging.WARNING, logger="etl.automation.runner"):
+            r = runner.Runner(args)
+        assert any("PORTAL_HEALTHCHECK_URL" in rec.message for rec in caplog.records)
+        assert r.args.force is True
 
-    def test_runner_init_ok_when_url_set(self, monkeypatch):
+    def test_runner_init_silent_when_url_set(self, monkeypatch, caplog):
         monkeypatch.setenv("PORTAL_HEALTHCHECK_URL", "https://hc.example/abc")
         args = runner.parse_args(["--force"])
-        r = runner.Runner(args)
+        with caplog.at_level(logging.WARNING, logger="etl.automation.runner"):
+            r = runner.Runner(args)
+        assert not any("PORTAL_HEALTHCHECK_URL" in rec.message for rec in caplog.records)
         assert r.args.force is True
 
 

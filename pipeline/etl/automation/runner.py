@@ -38,6 +38,8 @@ from .paths import (
     get_qianji_db_path,
 )
 
+log = logging.getLogger(__name__)
+
 # ── Exit codes ───────────────────────────────────────────────────────────────
 
 EXIT_OK = 0
@@ -167,15 +169,16 @@ class Runner:
     def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
         self.started_at = datetime.now()
-        # Fail-fast if the healthcheck URL isn't configured. Without it,
-        # ``notify.ping_healthcheck`` silently no-ops and a dead
-        # healthchecks.io check would never fire on failure — defeating the
-        # point of the alert. Catching this at __init__ keeps the message at
-        # the earliest actionable moment for the operator.
+        # Warn (but don't fail) if the healthcheck URL isn't configured.
+        # Without it, ``notify.ping_healthcheck`` silently no-ops and a dead
+        # healthchecks.io check would never fire on failure. Loud warning keeps
+        # it in front of the operator without breaking automation for users
+        # who haven't set up healthchecks.io yet.
         if not os.environ.get("PORTAL_HEALTHCHECK_URL"):
-            raise SystemExit(
-                "Set PORTAL_HEALTHCHECK_URL in pipeline/.env — required to "
-                "surface automation failures. See docs/RUNBOOK.md §8.",
+            log.warning(
+                "PORTAL_HEALTHCHECK_URL is not set — automation failures will "
+                "only surface via email, not an external monitor. "
+                "See docs/RUNBOOK.md §8 to configure.",
             )
 
     @classmethod
