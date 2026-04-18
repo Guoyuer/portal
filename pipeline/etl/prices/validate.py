@@ -80,16 +80,25 @@ def _validate_splits_against_transactions(
        ``exchange``, ``transfer``) — this is ``pre_qty``, the share count
        going *into* the split. If ``pre_qty < SPLIT_QTY_TOLERANCE`` (user
        held effectively zero shares that day), the split is skipped.
-    4. Sum ``quantity`` of ``DISTRIBUTION`` rows dated exactly on
-       ``split_date`` — this is ``actual``, the share delta Fidelity
-       recorded. Forward splits come through as ``DISTRIBUTION`` with
-       ``quantity > 0`` equal to ``pre_qty × (ratio - 1)`` (e.g. 2:1 → +1
-       share per held, 3:1 → +2). Dividend distributions are a different
-       ``action_kind``, so this query isolates the split leg.
+    4. Sum ``quantity`` of both ``DISTRIBUTION`` *and* ``REDEMPTION`` rows
+       dated exactly on ``split_date`` — this is ``actual``, the net share
+       delta Fidelity recorded. Forward splits come through as a single
+       ``DISTRIBUTION`` with ``quantity > 0`` equal to ``pre_qty × (ratio - 1)``
+       (e.g. 2:1 → +1 share per held, 3:1 → +2), and no ``REDEMPTION`` leg.
+       Reverse splits come through as a pair: ``REDEMPTION`` for the turn-in
+       (``quantity < 0``) + ``DISTRIBUTION`` for the new shares (``quantity > 0``),
+       which sums to ``pre_qty × (ratio - 1)`` (negative for ``ratio < 1``).
+       Dividend distributions are a different ``action_kind``, so this query
+       isolates the split legs. Co-occurring non-split ``REDEMPTION PAYOUT``
+       on the same symbol and date would be misread as part of the split, but
+       that collision is unrealistic (money-market funds don't split).
     5. Compare ``actual`` with ``expected = pre_qty * (ratio - 1)``. If
        ``|expected - actual| > SPLIT_QTY_TOLERANCE`` (0.01 absolute, sub-share
        tolerance — Fidelity always rounds to whole shares so anything above
-       this is real drift), append a mismatch string and continue.
+       this is real drift), append a mismatch string and continue. The
+       ``(ratio - 1)`` formula produces positive expected deltas for forward
+       splits (``ratio > 1``) and negative deltas for reverse splits
+       (``ratio < 1``), matching Fidelity's sign convention on both legs.
     6. Record ``(symbol, split_date)`` in ``checked_pairs`` so direction 2
        doesn't double-fire on the same day.
     7. **Direction 2** (reverse check): iterate ``fidelity_transactions`` for
@@ -121,12 +130,6 @@ def _validate_splits_against_transactions(
       report "expected > 0, got 0" and direction 2 will report the orphan
       Fidelity row. Both surface the same truth, but the message is
       duplicated — review both lines before concluding there are two bugs.
-    - **Reverse splits are not modeled.** The ``pre_qty × (ratio - 1)``
-      formula produces a negative expected delta for ``ratio < 1`` (e.g. a
-      1:10 reverse split → ratio 0.1 → expected = -0.9 × pre_qty). Fidelity
-      records reverse splits as a pair of ``REDEMPTION`` + ``DISTRIBUTION``
-      rows; only the ``DISTRIBUTION`` leg is queried here. If a reverse
-      split is ever held, this function will false-positive.
     - **Direction 2 aggregates by ``(symbol, run_date)`` only.** Multiple
       distinct ``DISTRIBUTION`` events on the same day (possible for some
       ETFs that pay both a split and a special dividend) collapse into a
@@ -164,10 +167,15 @@ def _validate_splits_against_transactions(
                 pre_qty += qty or 0.0
             if pre_qty < SPLIT_QTY_TOLERANCE:
                 continue  # not held at split boundary
+            # Include REDEMPTION alongside DISTRIBUTION: reverse splits
+            # (ratio < 1) come through as a REDEMPTION (turn-in, qty < 0) +
+            # DISTRIBUTION (new shares, qty > 0) pair whose net matches
+            # ``pre_qty × (ratio - 1)``. Forward splits only have the
+            # DISTRIBUTION leg, so including REDEMPTION is a no-op there.
             actual = 0.0
             for (qty,) in conn.execute(
                 "SELECT quantity FROM fidelity_transactions"
-                " WHERE symbol = ? AND action_kind = 'distribution'"
+                " WHERE symbol = ? AND action_kind IN ('distribution','redemption')"
                 " AND run_date = ?",
                 (sym, split_date.isoformat()),
             ):
@@ -176,7 +184,7 @@ def _validate_splits_against_transactions(
             if abs(expected - actual) > SPLIT_QTY_TOLERANCE:
                 mismatches.append(
                     f"{sym} {split_date.isoformat()} {ratio}:1 — "
-                    f"pre-qty={pre_qty:.4f}, expected DISTRIBUTION qty+={expected:.4f}, "
+                    f"pre-qty={pre_qty:.4f}, expected DISTRIBUTION+REDEMPTION net={expected:.4f}, "
                     f"got={actual:.4f}"
                 )
             checked_pairs.add((sym, split_date))
