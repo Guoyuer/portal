@@ -202,6 +202,76 @@ def _render_net_worth(changelog: SyncChangelog) -> list[str]:
     return lines
 
 
+def _render_modified(changelog: SyncChangelog) -> list[str]:
+    """The "Modified" section — rows whose PK matched but content changed.
+
+    Renders nothing when there are no modifications; otherwise shows a
+    per-table line plus per-row before/after field diff. Only changed
+    fields are surfaced so the body stays readable when many rows touch.
+
+    Example::
+
+        Modified
+          * Qianji: 1 row(s)
+              2026-04-15  Meals  $42.00
+                  note: "lunch" → "lunch + coffee"
+          * computed_daily: 1 row(s)
+              2026-04-10  total: $100,000.00 → $100,125.00   (+$125.00)
+    """
+    has_qianji = bool(changelog.qianji_modified)
+    has_daily = bool(changelog.computed_daily_modified)
+    if not (has_qianji or has_daily):
+        return []
+
+    lines: list[str] = ["Modified"]
+
+    if has_qianji:
+        lines.append(f"  * Qianji: {len(changelog.qianji_modified)} row(s)")
+        for before_row, after_row in changelog.qianji_modified:
+            b_date, b_type, b_cat, b_amt, b_note = before_row
+            _a_date, _a_type, _a_cat, _a_amt, a_note = after_row
+            label = b_cat or "(uncategorized)"
+            header = f"      {b_date}  {label}  {_fmt_money(b_amt)}"
+            if b_type and b_type != "expense":
+                header += f"  [{b_type}]"
+            lines.append(header)
+            # Only the ``note`` field can differ under the PK
+            # (date, type, category, amount) — surface that explicitly.
+            if b_note != a_note:
+                lines.append(f'          note: "{b_note}" → "{a_note}"')
+
+    if has_daily:
+        lines.append(
+            f"  * computed_daily: {len(changelog.computed_daily_modified)} row(s)"
+        )
+        for date in sorted(changelog.computed_daily_modified.keys()):
+            before_pt, after_pt = changelog.computed_daily_modified[date]
+            # Show each component that actually changed, so an
+            # upstream price correction that only moved Crypto is
+            # obvious at a glance.
+            field_deltas: list[tuple[str, float, float]] = []
+            for field_name in (
+                "total", "us_equity", "non_us_equity",
+                "crypto", "safe_net", "liabilities",
+            ):
+                b_val = float(getattr(before_pt, field_name))
+                a_val = float(getattr(after_pt, field_name))
+                if abs(a_val - b_val) > 0.005:
+                    field_deltas.append((field_name, b_val, a_val))
+            if not field_deltas:
+                # Changed floats within rounding — render a single row
+                # so the fact of the change still surfaces.
+                lines.append(f"      {date}  (unchanged within $0.01)")
+                continue
+            for field_name, b_val, a_val in field_deltas:
+                lines.append(
+                    f"      {date}  {field_name}: {_fmt_money(b_val)} → "
+                    f"{_fmt_money(a_val)}   ({_fmt_delta(a_val - b_val)})"
+                )
+    lines.append("")
+    return lines
+
+
 def _render_warnings(context: dict[str, Any]) -> list[str]:
     """'Warnings (from validation)' list, or empty when none."""
     warnings = context.get("warnings") or []
@@ -219,6 +289,7 @@ def format_text(changelog: SyncChangelog, context: dict[str, Any]) -> str:
     lines: list[str] = []
     lines.extend(_render_header(context))
     lines.extend(_render_changes(changelog))
+    lines.extend(_render_modified(changelog))
     lines.extend(_render_net_worth(changelog))
     lines.extend(_render_warnings(context))
 

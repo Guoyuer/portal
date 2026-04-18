@@ -330,6 +330,115 @@ class TestDiff:
         assert cl.net_worth_before_date == "2026-04-10"
         assert cl.net_worth_after_date == "2026-04-10"
 
+    # Modify detection — PR-F2
+    def test_qianji_note_edit_paired_as_modified(self) -> None:
+        """Editing a note on an existing bill: pair via PK (date,type,category,amount)."""
+        before = SyncSnapshot(qianji_txns=frozenset({
+            ("2026-04-15", "expense", "Meals", 42.00, "lunch"),
+        }))
+        after = SyncSnapshot(qianji_txns=frozenset({
+            ("2026-04-15", "expense", "Meals", 42.00, "lunch + coffee"),
+        }))
+        cl = diff(before, after)
+        # Should NOT appear as added/removed — note edit is a modify.
+        assert cl.qianji_added_count == 0
+        assert cl.qianji_added_by_category == {}
+        assert len(cl.qianji_modified) == 1
+        before_row, after_row = cl.qianji_modified[0]
+        assert before_row == ("2026-04-15", "expense", "Meals", 42.00, "lunch")
+        assert after_row == ("2026-04-15", "expense", "Meals", 42.00, "lunch + coffee")
+        # Modified rows ARE considered meaningful.
+        assert cl.has_meaningful_changes() is True
+
+    def test_qianji_added_and_modified_coexist(self) -> None:
+        """Mixed diff: one genuinely new bill + one edited note must bucket correctly."""
+        before = SyncSnapshot(qianji_txns=frozenset({
+            ("2026-04-15", "expense", "Meals", 42.00, "lunch"),
+        }))
+        after = SyncSnapshot(qianji_txns=frozenset({
+            ("2026-04-15", "expense", "Meals", 42.00, "lunch + coffee"),  # modified
+            ("2026-04-16", "expense", "Meals", 18.50, "coffee"),           # genuinely new
+        }))
+        cl = diff(before, after)
+        assert cl.qianji_added_count == 1  # just the 2026-04-16 one
+        assert cl.qianji_added_by_category == {"Meals": (1, 18.50)}
+        assert len(cl.qianji_modified) == 1
+        assert cl.qianji_modified[0][1][0] == "2026-04-15"
+
+    def test_qianji_amount_edit_still_counts_as_add_remove(self) -> None:
+        """PK includes amount — so amount changes fall outside modify pairing.
+
+        This is deliberate: amount changes are substantive and rare, best
+        surfaced as separate (add, remove) than collapsed into a "modified"
+        label that could hide a data-integrity issue.
+        """
+        before = SyncSnapshot(qianji_txns=frozenset({
+            ("2026-04-15", "expense", "Meals", 42.00, "lunch"),
+        }))
+        after = SyncSnapshot(qianji_txns=frozenset({
+            ("2026-04-15", "expense", "Meals", 45.00, "lunch"),
+        }))
+        cl = diff(before, after)
+        assert cl.qianji_added_count == 1
+        assert cl.qianji_modified == []
+
+    def test_qianji_modified_sorted_by_date(self) -> None:
+        """Modified rows sort by date (then type, category) for stable email output."""
+        before = SyncSnapshot(qianji_txns=frozenset({
+            ("2026-04-20", "expense", "Meals", 10.0, ""),
+            ("2026-04-15", "expense", "Meals", 20.0, ""),
+            ("2026-04-18", "expense", "Meals", 30.0, ""),
+        }))
+        after = SyncSnapshot(qianji_txns=frozenset({
+            ("2026-04-20", "expense", "Meals", 10.0, "a"),
+            ("2026-04-15", "expense", "Meals", 20.0, "b"),
+            ("2026-04-18", "expense", "Meals", 30.0, "c"),
+        }))
+        cl = diff(before, after)
+        dates = [pair[0][0] for pair in cl.qianji_modified]
+        assert dates == ["2026-04-15", "2026-04-18", "2026-04-20"]
+
+    def test_computed_daily_same_date_recompute_is_modified(self) -> None:
+        """Same date, different NetWorthPoint → surfaces in computed_daily_modified.
+
+        Regression: previously a same-date recompute (e.g. upstream price
+        correction re-ran the allocation pipeline without advancing the
+        date) was silently dropped because diff() only looked at
+        ``dates not in before``.
+        """
+        before = SyncSnapshot(computed_daily={
+            "2026-04-10": _nwp(100_000.0),
+        })
+        after = SyncSnapshot(computed_daily={
+            "2026-04-10": _nwp(100_125.0),  # +$125 from a recompute
+        })
+        cl = diff(before, after)
+        assert cl.computed_daily_added == {}  # not "added" — the date was there before
+        assert "2026-04-10" in cl.computed_daily_modified
+        b_pt, a_pt = cl.computed_daily_modified["2026-04-10"]
+        assert b_pt.total == 100_000.0
+        assert a_pt.total == 100_125.0
+        assert cl.has_meaningful_changes() is True
+
+    def test_computed_daily_unchanged_date_not_modified(self) -> None:
+        """Identical NetWorthPoint on both sides is NOT reported as modified."""
+        pt = _nwp(100_000.0)
+        before = SyncSnapshot(computed_daily={"2026-04-10": pt})
+        after = SyncSnapshot(computed_daily={"2026-04-10": pt})
+        cl = diff(before, after)
+        assert cl.computed_daily_modified == {}
+
+    def test_computed_daily_new_date_not_modified(self) -> None:
+        """A brand-new date belongs in 'added', never in 'modified'."""
+        before = SyncSnapshot(computed_daily={"2026-04-10": _nwp(100.0)})
+        after = SyncSnapshot(computed_daily={
+            "2026-04-10": _nwp(100.0),
+            "2026-04-11": _nwp(110.0),
+        })
+        cl = diff(before, after)
+        assert cl.computed_daily_added == {"2026-04-11": 110.0}
+        assert cl.computed_daily_modified == {}
+
 
 # ── format_text() / format_html() ────────────────────────────────────────────
 
@@ -690,6 +799,97 @@ class TestFormatText:
         )
         body = format_text(cl, _ctx())
         assert "FRED: -1 indicator(s) removed (oil_wti)" in body
+
+    # Modified section — PR-F2
+    def test_modified_section_omitted_when_empty(self) -> None:
+        """No modified rows → section header absent from body."""
+        body = format_text(SyncChangelog(), _ctx())
+        assert "Modified" not in body
+
+    def test_modified_section_shows_qianji_note_diff(self) -> None:
+        """Edited note renders with before → after field diff."""
+        cl = SyncChangelog(
+            qianji_modified=[
+                (
+                    ("2026-04-15", "expense", "Meals", 42.00, "lunch"),
+                    ("2026-04-15", "expense", "Meals", 42.00, "lunch + coffee"),
+                ),
+            ],
+        )
+        body = format_text(cl, _ctx())
+        assert "Modified" in body
+        assert "Qianji: 1 row(s)" in body
+        assert "2026-04-15" in body
+        assert "Meals" in body
+        assert "$42.00" in body
+        # Before/after note diff on its own line.
+        assert '"lunch" → "lunch + coffee"' in body
+
+    def test_modified_section_shows_computed_daily_component_diff(self) -> None:
+        """Same-date recompute renders per-component delta for changed fields only."""
+        before = NetWorthPoint(
+            total=100_000.0, us_equity=60_000.0, non_us_equity=20_000.0,
+            crypto=5_000.0, safe_net=15_000.0, liabilities=0.0,
+        )
+        after = NetWorthPoint(
+            total=100_125.0, us_equity=60_125.0, non_us_equity=20_000.0,
+            crypto=5_000.0, safe_net=15_000.0, liabilities=0.0,
+        )
+        cl = SyncChangelog(
+            computed_daily_modified={"2026-04-10": (before, after)},
+        )
+        body = format_text(cl, _ctx())
+        assert "Modified" in body
+        assert "computed_daily: 1 row(s)" in body
+        # Changed fields appear; unchanged ones (non_us_equity, crypto, ...)
+        # must NOT pollute the output.
+        assert "total:" in body
+        assert "us_equity:" in body
+        assert "+$125.00" in body
+        assert "non_us_equity" not in body
+        assert "crypto" not in body
+
+    def test_modified_section_renders_both_tables(self) -> None:
+        """Qianji + computed_daily modifications render together as separate bullets."""
+        before_pt = NetWorthPoint(
+            total=100.0, us_equity=100.0, non_us_equity=0.0,
+            crypto=0.0, safe_net=0.0, liabilities=0.0,
+        )
+        after_pt = NetWorthPoint(
+            total=110.0, us_equity=110.0, non_us_equity=0.0,
+            crypto=0.0, safe_net=0.0, liabilities=0.0,
+        )
+        cl = SyncChangelog(
+            qianji_modified=[
+                (
+                    ("2026-04-15", "expense", "Meals", 42.00, "a"),
+                    ("2026-04-15", "expense", "Meals", 42.00, "b"),
+                ),
+            ],
+            computed_daily_modified={"2026-04-10": (before_pt, after_pt)},
+        )
+        body = format_text(cl, _ctx())
+        assert "Qianji: 1 row(s)" in body
+        assert "computed_daily: 1 row(s)" in body
+
+    def test_modified_appears_between_changes_and_net_worth(self) -> None:
+        """Section ordering: Changes → Modified → Net Worth → Warnings."""
+        cl = SyncChangelog(
+            fidelity_added=[("2026-04-10", "buy", "VOO", 1.0, -500.0)],
+            qianji_modified=[
+                (
+                    ("2026-04-15", "expense", "Meals", 42.00, "a"),
+                    ("2026-04-15", "expense", "Meals", 42.00, "b"),
+                ),
+            ],
+            net_worth_before=100.0, net_worth_after=150.0, net_worth_delta=50.0,
+            net_worth_before_date="2026-04-09", net_worth_after_date="2026-04-10",
+        )
+        body = format_text(cl, _ctx())
+        changes_idx = body.index("Changes")
+        modified_idx = body.index("Modified")
+        net_worth_idx = body.index("Net Worth")
+        assert changes_idx < modified_idx < net_worth_idx
 
 
 class TestFormatHtml:
