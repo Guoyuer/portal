@@ -44,11 +44,98 @@ def _validate_splits_against_transactions(
     *,
     today: date | None = None,
 ) -> None:
-    """Two-way cross-check Yahoo splits vs Fidelity DISTRIBUTION rows.
+    """Two-way cross-check Yahoo splits vs Fidelity ``DISTRIBUTION`` rows.
 
-    See :class:`SplitValidationError` for the invariants. ``today`` is
-    injected by tests; production callers leave it ``None`` and the
-    function uses :meth:`date.today`.
+    Called by :func:`etl.prices.fetch.fetch_and_store_prices` immediately after
+    :func:`etl.prices.fetch._build_split_factors` returns, *before* any
+    ``daily_close`` rows are persisted. See :class:`SplitValidationError` for
+    the two invariants. ``today`` is injected by tests; production callers leave
+    it ``None`` and the function uses :meth:`date.today`.
+
+    Inputs
+    ------
+    - ``conn`` — open :class:`sqlite3.Connection` to ``timemachine.db`` (reads
+      ``fidelity_transactions`` only; never writes).
+    - ``holding_periods`` — ``{symbol: (first_buy_date, last_sell_date_or_None)}``
+      produced by :func:`etl.prices.store._holding_periods_from_action_kind_rows`.
+      ``None`` on the right means "still held as of today".
+    - ``split_factors`` — ``{symbol: [(split_date, ratio), ...]}`` from
+      :func:`etl.prices.fetch._build_split_factors` (Yahoo's ``.splits`` feed).
+    - ``today`` — override for testability; production path uses :meth:`date.today`.
+
+    Algorithm (step by step)
+    ------------------------
+    1. Iterate ``split_factors`` symbol-by-symbol. Symbols that appear in
+       Yahoo but are absent from ``holding_periods`` (i.e. we never held them)
+       are skipped silently — we don't care about splits outside holdings.
+    2. For each ``(split_date, ratio)`` pair, resolve the holding window:
+       ``hp_start = first_buy_date`` / ``hp_end = last_sell_date_or today``.
+       A half-open check ``hp_start < split_date <= hp_end`` gates entry —
+       splits on the buy date itself are ignored (the buy already reflects
+       the post-split share count), and splits after the final sell are
+       irrelevant for pre-split price reversal.
+    3. Sum ``quantity`` from all ``fidelity_transactions`` rows for that
+       symbol with ``run_date < split_date`` across the material action kinds
+       (``buy``, ``sell``, ``reinvestment``, ``distribution``, ``redemption``,
+       ``exchange``, ``transfer``) — this is ``pre_qty``, the share count
+       going *into* the split. If ``pre_qty < SPLIT_QTY_TOLERANCE`` (user
+       held effectively zero shares that day), the split is skipped.
+    4. Sum ``quantity`` of ``DISTRIBUTION`` rows dated exactly on
+       ``split_date`` — this is ``actual``, the share delta Fidelity
+       recorded. Forward splits come through as ``DISTRIBUTION`` with
+       ``quantity > 0`` equal to ``pre_qty × (ratio - 1)`` (e.g. 2:1 → +1
+       share per held, 3:1 → +2). Dividend distributions are a different
+       ``action_kind``, so this query isolates the split leg.
+    5. Compare ``actual`` with ``expected = pre_qty * (ratio - 1)``. If
+       ``|expected - actual| > SPLIT_QTY_TOLERANCE`` (0.01 absolute, sub-share
+       tolerance — Fidelity always rounds to whole shares so anything above
+       this is real drift), append a mismatch string and continue.
+    6. Record ``(symbol, split_date)`` in ``checked_pairs`` so direction 2
+       doesn't double-fire on the same day.
+    7. **Direction 2** (reverse check): iterate ``fidelity_transactions`` for
+       every ``(symbol, run_date, SUM(quantity))`` with ``action_kind = 'distribution'``
+       and ``quantity > 0``. For each, skip pairs already covered by direction 1.
+       Any remaining pair means Fidelity recorded a split-like quantity
+       delta on a date with no matching Yahoo entry — almost always a silent
+       :func:`etl.prices.fetch._build_split_factors` failure. Without a Yahoo
+       entry, :func:`etl.prices.fetch._reverse_split_factor` would return 1.0
+       for pre-split dates and leave Yahoo's retroactively-adjusted prices
+       un-reversed; that is a corruption scenario, so the row is added as a
+       mismatch.
+    8. If any mismatches accumulated, build a multi-line message (one line
+       per issue) and raise :class:`SplitValidationError`. Caller (the ETL
+       step) is responsible for not persisting prices on this path.
+
+    Return / raise contract
+    -----------------------
+    Returns ``None`` on success (silent). Raises :class:`SplitValidationError`
+    with every detected mismatch aggregated into one message — the ETL flow
+    is designed so the operator sees all drift in a single failure run
+    rather than whack-a-mole fail-on-first-error.
+
+    Known limitations
+    -----------------
+    - **No fuzzy date window.** Yahoo and Fidelity are expected to report
+      splits on the same calendar date. If Fidelity posts the DISTRIBUTION
+      row a day late (rare but possible around month-end), direction 1 will
+      report "expected > 0, got 0" and direction 2 will report the orphan
+      Fidelity row. Both surface the same truth, but the message is
+      duplicated — review both lines before concluding there are two bugs.
+    - **Reverse splits are not modeled.** The ``pre_qty × (ratio - 1)``
+      formula produces a negative expected delta for ``ratio < 1`` (e.g. a
+      1:10 reverse split → ratio 0.1 → expected = -0.9 × pre_qty). Fidelity
+      records reverse splits as a pair of ``REDEMPTION`` + ``DISTRIBUTION``
+      rows; only the ``DISTRIBUTION`` leg is queried here. If a reverse
+      split is ever held, this function will false-positive.
+    - **Direction 2 aggregates by ``(symbol, run_date)`` only.** Multiple
+      distinct ``DISTRIBUTION`` events on the same day (possible for some
+      ETFs that pay both a split and a special dividend) collapse into a
+      single row. Direction 1 handles multi-event days correctly via the
+      single ``expected`` compare, but the reverse check can't disambiguate.
+    - **Sub-share tolerance assumes Fidelity rounds to whole shares.** This
+      holds for every symbol encountered to date; a future broker source
+      with fractional-share split deltas would need a tighter
+      :data:`SPLIT_QTY_TOLERANCE` or a ratio-aware check.
     """
     today = today or date.today()
     mismatches: list[str] = []
