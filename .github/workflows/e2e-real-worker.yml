@@ -1,0 +1,110 @@
+name: E2E (real Worker)
+
+# Expensive job (build + wrangler startup + Playwright) — gated on an opt-in
+# label OR manual dispatch so it doesn't pile onto every PR. The cheap
+# mock-API E2E runs on the main ci.yml Playwright step; this one catches
+# what the mock can't: schema drift, view column aliasing, worker code
+# defects, payload parity with the frontend's Zod schema.
+on:
+  pull_request:
+    types: [labeled, synchronize, reopened]
+  workflow_dispatch:
+
+jobs:
+  e2e-real-worker:
+    # Label gate: only runs when the PR carries `real-worker-e2e`. The
+    # `contains(...)` form is the documented way to key off labels on both
+    # `labeled` (fires when you add the label to an open PR) and
+    # `synchronize` (fires on subsequent pushes while the label stays on).
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.pull_request.labels.*.name, 'real-worker-e2e')
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pipeline/requirements.txt
+      - run: pip install -r pipeline/requirements.txt
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      # ── Seed local D1 from L2 golden fixtures ──────────────────
+      # Runs the committed seed script: builds timemachine.db from the
+      # fixtures under pipeline/tests/fixtures/regression/, applies
+      # worker/schema.sql to the local D1, and syncs rows via
+      # sync_to_d1.py --local. Fully offline.
+      - name: Seed local D1
+        run: bash pipeline/scripts/seed_local_d1_from_fixtures.sh
+
+      # ── Start wrangler dev --local in the background ──────────
+      # Same invocation as pipeline/scripts/regression.sh's L3 step. We
+      # background it, then poll /timeline until 200 so the Next build
+      # knows the Worker is reachable at bake time.
+      - name: Start wrangler dev (local D1)
+        working-directory: worker
+        run: |
+          nohup npx wrangler dev --local > "$GITHUB_WORKSPACE/wrangler.log" 2>&1 &
+          echo "WRANGLER_PID=$!" >> "$GITHUB_ENV"
+
+      - name: Wait for wrangler /timeline
+        run: |
+          for i in $(seq 1 90); do
+            if curl -sf http://localhost:8787/timeline > /dev/null 2>&1; then
+              echo "wrangler ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::wrangler did not serve /timeline within 90s"
+          cat "$GITHUB_WORKSPACE/wrangler.log" || true
+          exit 1
+
+      # ── Build Next static pointing at the real Worker ─────────
+      # NEXT_PUBLIC_TIMELINE_URL is baked into the JS bundle at build
+      # time, so this MUST happen after wrangler is up (the build
+      # doesn't hit the Worker, but the Playwright run after will).
+      - name: Build Next for real Worker
+        run: npx next build
+        env:
+          NEXT_PUBLIC_TIMELINE_URL: http://localhost:8787/api
+
+      # ── Playwright ────────────────────────────────────────────
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ hashFiles('package-lock.json') }}
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install chromium --with-deps
+      - name: Install Playwright system deps
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      - name: Run real-worker Playwright specs
+        run: npx playwright test --config=playwright.config.real.ts
+
+      # ── On failure, tail wrangler log so CI output is debuggable ─
+      - name: Tail wrangler log on failure
+        if: failure()
+        run: |
+          echo "::group::wrangler.log (last 200 lines)"
+          tail -n 200 "$GITHUB_WORKSPACE/wrangler.log" || true
+          echo "::endgroup::"
+
+      - name: Stop wrangler
+        if: always()
+        run: |
+          if [ -n "${WRANGLER_PID:-}" ]; then
+            kill "$WRANGLER_PID" 2>/dev/null || true
+          fi

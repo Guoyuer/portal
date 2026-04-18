@@ -4,7 +4,10 @@ export default defineConfig({
   testDir: "./e2e",
   // e2e/manual/ holds interactive debug tools (screenshot-capturing specs);
   // run explicitly with `npx playwright test e2e/manual/*.spec.ts --headed`.
-  testIgnore: /manual\//,
+  // real-worker.spec.ts assumes a live wrangler dev on :8787 seeded from L2
+  // fixtures — see playwright.config.real.ts + the e2e-real-worker.yml
+  // workflow; it would fail against the mock-API server this config boots.
+  testIgnore: [/manual\//, /real-worker\.spec\.ts$/],
   fullyParallel: true,
   retries: process.env.CI ? 1 : 0,
   workers: process.env.CI ? 2 : undefined,
