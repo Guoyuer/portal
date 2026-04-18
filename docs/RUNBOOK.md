@@ -82,7 +82,13 @@ npx wrangler pages deploy out --project-name=portal --commit-dirty=true
 
 **Do NOT omit `MSYS_NO_PATHCONV=1`** in Git Bash — MSYS rewrites the URL value into `C:/Program Files/Git/api`, bakes `file:///...` into the JS bundle, and the site silently fails at fetch time. Verify post-build: `grep -r "portal.guoyuer.com/api" out/_next/static/chunks/*.js | head -3`.
 
-## 6. Rebuilding from scratch (disk crash / clean laptop)
+## 6. Regression baseline went stale
+
+Symptom: CI or `pipeline/scripts/regression.sh` reports a L1 hash mismatch after a legitimate behavior change (e.g. a CNY conversion fix, a new ingest filter, a rounding correction). The committed `pipeline/tests/regression/baseline/*.sha256` files need to move.
+
+Attach the **`baseline-refresh`** label to the PR. `.github/workflows/regression-baseline-refresh.yml` rebuilds the fixture-derived DB (same inputs as the L2 `test_pipeline_golden.py`), overwrites `computed_daily.sha256` + `computed_daily_tickers.sha256` (the `.json` companions are gitignored), pushes one commit back to the PR branch, comments, and removes the label so a follow-up push does not re-trigger. Review the diff in the bot commit — if the baseline move reflects your intended behavior change, merge; if not, revert the bot commit and re-investigate. L3 (`timeline.sha256`) is not auto-refreshed — it needs wrangler + the worker, still a local step via `scripts/regression_baseline.sh`.
+
+## 7. Rebuilding from scratch (disk crash / clean laptop)
 
 What you need on disk:
 
