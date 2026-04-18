@@ -28,10 +28,7 @@ from .db import get_readonly_connection
 from .prices import load_cny_rates, load_prices
 from .sources import PriceContext, positions_at_all
 from .sources.robinhood import _csv_paths as _robinhood_csv_paths
-from .timemachine import (
-    replay_qianji,
-    replay_qianji_currencies,
-)
+from .timemachine import qianji_balances_at
 from .types import AllocationRow, AssetInfo, RawConfig, TickerDetail
 
 log = logging.getLogger(__name__)
@@ -293,12 +290,14 @@ def _build_sources(
     if _robinhood_csv_paths(source_config):
         skip_qj = skip_qj | {"Robinhood"}
 
+    # currencies are snapshot-time independent (from user_asset.currency),
+    # so the as_of=None call is cheap and read-once here.
     return AllocationSources(
         prices=load_prices(db_path),
         cny_rates=load_cny_rates(db_path),
         assets=assets,
         ticker_map=ticker_map,
-        qianji_currencies=replay_qianji_currencies(qj_db),
+        qianji_currencies=qianji_balances_at(qj_db).currencies,
         skip_qj_accounts=skip_qj,
         db_path=db_path,
         source_config=source_config,
@@ -349,7 +348,7 @@ def compute_daily_allocation(
             d > (last_qj_replay or date.min) and d <= current for d in qj_txn_dates
         )
         if needs_qj:
-            state.qj_balances = replay_qianji(qj_db, current)
+            state.qj_balances = qianji_balances_at(qj_db, current).balances
             last_qj_replay = current
             qj_replayed = True
 

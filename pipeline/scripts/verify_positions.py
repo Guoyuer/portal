@@ -1,9 +1,10 @@
 """Verify: replay transactions -> compare computed share quantities vs positions snapshot.
 
-Delegates replay to :func:`etl.replay.replay_transactions` with Fidelity's
-column layout + ``MM_SYMBOLS`` exclusion (matching what
-:func:`etl.sources.fidelity.positions_at` does). Exits non-zero on any
-intersection mismatch so the script is usable as an automation gate.
+Delegates replay to :func:`etl.replay.replay_transactions` using the
+module-level :data:`etl.sources.fidelity.FIDELITY_REPLAY` config (same
+config production's :func:`etl.sources.fidelity.positions_at` uses).
+Exits non-zero on any intersection mismatch so the script is usable as
+an automation gate.
 
 Usage:
     python scripts/verify_positions.py --positions ~/Downloads/Portfolio_Positions_Apr-07-2026.csv
@@ -32,7 +33,7 @@ sys.path.insert(0, str(_PROJECT_DIR))
 
 import etl.dotenv_loader  # noqa: E402, F401  (side effect: load pipeline/.env)
 from etl.replay import replay_transactions  # noqa: E402
-from etl.sources.fidelity import MM_SYMBOLS, TABLE  # noqa: E402
+from etl.sources.fidelity import FIDELITY_REPLAY  # noqa: E402
 
 _DB_PATH = Path(os.environ.get("PORTAL_DB_PATH", str(_PROJECT_DIR / "data" / "timemachine.db")))
 
@@ -131,12 +132,7 @@ def main(argv: list[str] | None = None) -> int:
     # to legacy ``replay_from_db(as_of=None)`` for any DB whose latest
     # txn_date is on or before today.
     replay_as_of = as_of if as_of is not None else date.today()
-    result = replay_transactions(
-        _DB_PATH, TABLE, replay_as_of,
-        date_col="run_date", ticker_col="symbol", amount_col="amount",
-        account_col="account_number",
-        exclude_tickers=MM_SYMBOLS,
-    )
+    result = replay_transactions(_DB_PATH, FIDELITY_REPLAY, replay_as_of)
     computed: dict[tuple[str, str], float] = {key: st.quantity for key, st in result.positions.items()}
 
     as_of_str = str(as_of) if as_of else "all time"

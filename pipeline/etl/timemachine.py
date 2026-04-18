@@ -1,53 +1,64 @@
-"""Timemachine: Qianji balance reverse-replay + CLI.
+"""Timemachine: Qianji balance reverse-replay.
 
-The Fidelity replay engine lives in :mod:`etl.replay`
-(:func:`replay_transactions`). This module now only hosts the Qianji-side
-reverse-replay (``replay_qianji``) and the unified CLI that prints both
-sides at a given ``as_of`` date.
+Returns a :class:`QianjiSnapshot` — native-currency per-account balances
+plus each account's currency — at a given ``as_of`` date (or "today" when
+``as_of=None``).
 
-Usage:
-  python -m etl.timemachine 2024-06-15
+Strategy: start from the current ``user_asset`` balances and walk bills
+with ``time > as_of`` in forward order, undoing each bill's effect on
+the source/target account. Cross-currency transfers use
+``extra.curr.tv`` (see :mod:`etl.ingest.qianji_db`).
 """
 
 from __future__ import annotations
 
 import logging
 import sqlite3
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 
-from .ingest.qianji_db import _USER_TZ, DEFAULT_DB_PATH, parse_qj_target_amount
-from .sources.fidelity import MM_SYMBOLS
-
-#: Public re-export of the Qianji DB path. Module-level assignment makes mypy
-#: --strict accept the re-export (which `... as ...` did not under strict).
-DEFAULT_QJ_DB = DEFAULT_DB_PATH
+from .ingest.qianji_db import _USER_TZ, parse_qj_target_amount
 
 log = logging.getLogger(__name__)
 
 
-# ── Qianji replay ─────────────────────────────────────────────────────────────
+@dataclass(frozen=True)
+class QianjiSnapshot:
+    """Qianji account state at some as_of date.
+
+    ``balances`` is the per-account balance in each account's native
+    currency; ``currencies`` maps account name to ISO currency code (3-
+    letter, e.g. ``USD`` / ``CNY``). Currencies are snapshot-time
+    independent — they're read from ``user_asset.currency`` alongside
+    balances and returned here so consumers don't need a second query.
+    """
+    balances: dict[str, float] = field(default_factory=dict)
+    currencies: dict[str, str] = field(default_factory=dict)
 
 
-def replay_qianji(db_path: Path, as_of: date | None = None) -> dict[str, float]:
-    """Replay Qianji account balances at as_of date.
+def qianji_balances_at(db_path: Path, as_of: date | None = None) -> QianjiSnapshot:
+    """Return Qianji account balances + currencies at ``as_of``.
 
-    Strategy: start from current balances (user_asset), reverse transactions
-    after as_of. Each account balance stays in its native currency.
+    Starts from current balances (``user_asset``); when ``as_of`` is
+    given, reverses every bill after end-of-day ``as_of`` (wall-clock in
+    ``_USER_TZ``). Each account balance stays in its native currency.
 
-    Qianji conventions:
+    Qianji bill-type conventions:
       - expense  (type 0): fromact loses money
       - income   (type 1): fromact gains money
-      - transfer (type 2): fromact→targetact (cross-currency uses extra.curr.tv)
+      - transfer (type 2): fromact→targetact (cross-currency uses
+        ``extra.curr.tv``)
       - repayment(type 3): same as transfer
+
+    When the Qianji DB doesn't exist, returns an empty snapshot.
     """
     if not db_path.exists():
         log.warning("Qianji DB not found: %s", db_path)
-        return {}
+        return QianjiSnapshot()
 
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     try:
-        # Current balances and currencies
         balances: dict[str, float] = {}
         currencies: dict[str, str] = {}
         for name, money, currency in conn.execute(
@@ -57,7 +68,7 @@ def replay_qianji(db_path: Path, as_of: date | None = None) -> dict[str, float]:
             currencies[name] = currency or "USD"
 
         if as_of is None:
-            return balances
+            return QianjiSnapshot(balances=balances, currencies=currencies)
 
         # Reverse all transactions after end of as_of day, anchored in the
         # user's wall-clock timezone. UTC cutoff would make "as_of=2026-04-15"
@@ -88,77 +99,6 @@ def replay_qianji(db_path: Path, as_of: date | None = None) -> dict[str, float]:
                 if targetact:
                     balances[targetact] = balances.get(targetact, 0) - tv
 
-        return balances
+        return QianjiSnapshot(balances=balances, currencies=currencies)
     finally:
         conn.close()
-
-
-def replay_qianji_currencies(db_path: Path) -> dict[str, str]:
-    """Return {account_name: currency} from Qianji DB."""
-    if not db_path.exists():
-        return {}
-    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    try:
-        return {
-            name: (currency or "USD")
-            for name, currency in conn.execute("SELECT name, currency FROM user_asset WHERE status = 0")
-        }
-    finally:
-        conn.close()
-
-
-# ── CLI ───────────────────────────────────────────────────────────────────────
-
-def main() -> None:
-    import argparse
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
-
-    p = argparse.ArgumentParser(description="Timemachine: replay Fidelity + Qianji")
-    p.add_argument("date", nargs="?", help="Replay as of YYYY-MM-DD (defaults to today)")
-    p.add_argument(
-        "--db",
-        default="pipeline/data/timemachine.db",
-        help="Path to timemachine SQLite DB (default: pipeline/data/timemachine.db)",
-    )
-    p.add_argument("--qianji-db", default=str(DEFAULT_QJ_DB), help="Path to Qianji SQLite DB")
-    args = p.parse_args()
-
-    # Deferred import sidesteps the ``etl.replay`` ↔ ``etl.sources`` cycle.
-    from etl.replay import replay_transactions
-    from etl.sources.fidelity import TABLE as _T
-
-    db = Path(args.db)
-    qj_db = Path(args.qianji_db)
-    as_of = date.fromisoformat(args.date) if args.date else date.today()
-
-    result = replay_transactions(
-        db, _T, as_of,
-        date_col="run_date", ticker_col="symbol", amount_col="amount",
-        account_col="account_number",
-        exclude_tickers=MM_SYMBOLS,
-        track_cash=True, lot_type_col="lot_type",
-        mm_drip_tickers=MM_SYMBOLS,
-    )
-
-    print(f"As of: {as_of}")
-    print(f"\nFidelity positions ({len(result.positions)} holdings):")
-    for (acct, sym), st in sorted(result.positions.items()):
-        print(f"  {acct}  {sym:<8} {st.quantity:>12.3f}")
-    print("\nFidelity cash:")
-    for acct, bal in sorted(result.cash.items()):
-        print(f"  {acct}  ${bal:>12.2f}")
-
-    # Qianji
-    qj_balances = replay_qianji(qj_db, as_of)
-    if qj_balances:
-        currencies = replay_qianji_currencies(qj_db)
-        print(f"\nQianji accounts ({len([b for b in qj_balances.values() if abs(b) >= 0.01])} with balance):")
-        for acct, bal in sorted(qj_balances.items(), key=lambda x: -abs(x[1])):
-            if abs(bal) >= 0.01:
-                curr = currencies.get(acct, "USD")
-                sym = "¥" if curr == "CNY" else "$"
-                print(f"  {acct:<25} {sym}{bal:>12.2f}")
-
-
-if __name__ == "__main__":
-    main()

@@ -26,12 +26,18 @@ from datetime import date, datetime
 from pathlib import Path
 
 from etl.parsing import read_csv_rows
+from etl.replay import ReplayConfig
 from etl.sources import ActionKind, PositionRow, PriceContext
 from etl.sources._ingest import range_replace_insert
 
 log = logging.getLogger(__name__)
 
 TABLE = "robinhood_transactions"
+
+# Per-source replay config — passed to :func:`etl.replay.replay_transactions`.
+# Robinhood's table already uses the primitive's default column names
+# (``txn_date`` / ``ticker`` / ``amount_usd``) and has no account grouping.
+ROBINHOOD_REPLAY = ReplayConfig(table=TABLE)
 
 
 # ── Amount parsing ─────────────────────────────────────────────────────────
@@ -225,7 +231,7 @@ def positions_at(
     # while that package is still being initialised.
     from etl.replay import replay_transactions
 
-    result = replay_transactions(db_path, TABLE, as_of)
+    result = replay_transactions(db_path, ROBINHOOD_REPLAY, as_of)
     rows: list[PositionRow] = []
     # Robinhood has no account column — the primitive groups every row under
     # the empty account key, so the tuple's account component is discarded.

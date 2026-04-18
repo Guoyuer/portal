@@ -5,10 +5,11 @@ enabled, per-account cash) from a standardized transactions table as of
 a given ``as_of`` date. Used by every source that persists its own
 transactions — Fidelity and Robinhood today.
 
-The primitive is schema-aware via column-name parameters so it can point
-at tables with different layouts (``fidelity_transactions`` uses
-``run_date`` / ``account_number`` / ``symbol`` / ``amount``; Robinhood
-uses ``txn_date`` / ``ticker`` / ``amount_usd`` with no account column).
+Each source declares its schema once via :class:`ReplayConfig` at module
+level (see ``FIDELITY_REPLAY`` in :mod:`etl.sources.fidelity` and
+``ROBINHOOD_REPLAY`` in :mod:`etl.sources.robinhood`). Consumers call
+``replay_transactions(db, config, as_of)`` with that config — no kwargs
+to thread through at every call site.
 
 Supported :class:`~etl.sources.ActionKind` vocabulary:
 
@@ -36,7 +37,11 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
-from etl.sources import ActionKind
+# ── Public dataclasses (defined before the ``etl.sources`` import to avoid a
+# circular-import trap: source modules import ``ReplayConfig`` at module
+# scope; keeping these at the top of this file lets ``etl.sources.fidelity``
+# resolve ``ReplayConfig`` when ``etl.replay`` is still partially initialised)
+# ────────────────────────────────────────────────────────────────────────────
 
 
 @dataclass(frozen=True)
@@ -52,50 +57,28 @@ class ReplayResult:
 
     ``positions`` is keyed by ``(account, ticker)``; when the source has
     no account column (Robinhood), the account component is the empty
-    string. ``cash`` is populated only when ``track_cash=True`` — it maps
-    Fidelity-style account numbers to their net cash balance.
+    string. ``cash`` is populated only when ``config.track_cash=True`` —
+    it maps Fidelity-style account numbers to their net cash balance.
     """
     positions: dict[tuple[str, str], PositionState]
     cash: dict[str, float] = field(default_factory=dict)
 
 
-_POSITION_ONLY_KINDS = frozenset({
-    ActionKind.REDEMPTION,
-    ActionKind.DISTRIBUTION,
-    ActionKind.EXCHANGE,
-    ActionKind.TRANSFER,
-})
+@dataclass(frozen=True)
+class ReplayConfig:
+    """Per-source schema + replay knobs.
 
-_FIDELITY_ACCOUNT_RE = re.compile(r"^[A-Z0-9]+$")
+    Declared once at each source module's top level; consumers pass the
+    single config object to :func:`replay_transactions`.
 
-
-def replay_transactions(
-    db_path: Path,
-    table: str,
-    as_of: date,
-    *,
-    date_col: str = "txn_date",
-    ticker_col: str = "ticker",
-    amount_col: str = "amount_usd",
-    account_col: str | None = None,
-    exclude_tickers: frozenset[str] | None = None,
-    track_cash: bool = False,
-    lot_type_col: str | None = None,
-    cash_exclude_lot_type: str = "Shares",
-    mm_drip_tickers: frozenset[str] | None = None,
-) -> ReplayResult:
-    """Replay transactions in ``table`` up to ``as_of`` inclusive.
-
-    Args:
-        db_path: Path to the SQLite database.
+    Attributes:
         table: Fully-qualified transaction table name.
-        as_of: Inclusive replay cutoff date.
         date_col: Name of the ISO-date column (defaults to ``txn_date``).
         ticker_col: Name of the ticker / symbol column.
         amount_col: Name of the cash-delta column.
-        account_col: Name of the per-account grouping column. When
-            ``None`` (e.g. Robinhood), every row is accumulated under the
-            empty account string.
+        account_col: Name of the per-account grouping column. ``None``
+            (e.g. Robinhood) accumulates every row under the empty
+            account string.
         exclude_tickers: Tickers to skip when applying position / cost-
             basis updates. These rows can still flow through the cash
             ledger (Fidelity's money-market funds).
@@ -112,21 +95,59 @@ def replay_transactions(
             fold share-count deltas back into the cash ledger (match
             legacy ``mm_drip`` tallying).
     """
-    cols: list[str] = [date_col, "action_kind", ticker_col, "quantity", amount_col]
-    if account_col is not None:
-        cols.append(account_col)
-    if track_cash:
-        if lot_type_col is None:
+    table: str
+    date_col: str = "txn_date"
+    ticker_col: str = "ticker"
+    amount_col: str = "amount_usd"
+    account_col: str | None = None
+    exclude_tickers: frozenset[str] = frozenset()
+    track_cash: bool = False
+    lot_type_col: str | None = None
+    cash_exclude_lot_type: str = "Shares"
+    mm_drip_tickers: frozenset[str] = frozenset()
+
+
+# ── Internal constants (require ActionKind) ─────────────────────────────────
+
+from etl.sources import ActionKind  # noqa: E402 — see comment at top of file
+
+_POSITION_ONLY_KINDS = frozenset({
+    ActionKind.REDEMPTION,
+    ActionKind.DISTRIBUTION,
+    ActionKind.EXCHANGE,
+    ActionKind.TRANSFER,
+})
+
+_FIDELITY_ACCOUNT_RE = re.compile(r"^[A-Z0-9]+$")
+
+
+def replay_transactions(
+    db_path: Path,
+    config: ReplayConfig,
+    as_of: date,
+) -> ReplayResult:
+    """Replay transactions in ``config.table`` up to ``as_of`` inclusive.
+
+    Args:
+        db_path: Path to the SQLite database.
+        config: Per-source schema + replay knobs.
+        as_of: Inclusive replay cutoff date.
+    """
+    cols: list[str] = [config.date_col, "action_kind", config.ticker_col, "quantity", config.amount_col]
+    if config.account_col is not None:
+        cols.append(config.account_col)
+    if config.track_cash:
+        if config.lot_type_col is None:
             msg = "track_cash=True requires lot_type_col to be set"
             raise ValueError(msg)
-        cols.append(lot_type_col)
+        cols.append(config.lot_type_col)
 
     conn = sqlite3.connect(str(db_path))
     try:
         # noqa: S608 — table + column names are trusted (caller-supplied constants).
         rows = conn.execute(
-            f"SELECT {', '.join(cols)} FROM {table} "
-            f"WHERE {date_col} <= ? ORDER BY {date_col}, id",
+            f"SELECT {', '.join(cols)} FROM {config.table} "
+            f"WHERE {config.date_col} <= ? ORDER BY {config.date_col}, id",
             (as_of.isoformat(),),
         ).fetchall()
     finally:
@@ -137,9 +158,6 @@ def replay_transactions(
     cash_flow: dict[str, float] = defaultdict(float)
     mm_drip: dict[str, float] = defaultdict(float)
 
-    excludes = exclude_tickers or frozenset()
-    mm_dripset = mm_drip_tickers or frozenset()
-
     for row in rows:
         # Unpack in the order the SELECT emitted (matches `cols`).
         _txn_date = row[0]
@@ -149,11 +167,11 @@ def replay_transactions(
         amt = row[4] or 0.0
         idx = 5
         acct = ""
-        if account_col is not None:
+        if config.account_col is not None:
             acct = (row[idx] or "").strip()
             idx += 1
         lot_type = ""
-        if track_cash:
+        if config.track_cash:
             lot_type = (row[idx] or "").strip()
             idx += 1
 
@@ -167,7 +185,7 @@ def replay_transactions(
         key = (acct, ticker)
 
         # ── Positions (exclude money market + empty/zero-qty rows) ──
-        if ticker and ticker not in excludes and q != 0:
+        if ticker and ticker not in config.exclude_tickers and q != 0:
             if kind == ActionKind.SELL:
                 # Cost-basis reduction must happen before qty is updated.
                 if qty[key] > 0:
@@ -184,9 +202,9 @@ def replay_transactions(
                 qty[key] += q
 
         # ── Cash (Fidelity-only; guarded by track_cash) ──
-        if track_cash and acct and lot_type != cash_exclude_lot_type:
+        if config.track_cash and acct and lot_type != config.cash_exclude_lot_type:
             cash_flow[acct] += amt
-            if ticker in mm_dripset and kind == ActionKind.REINVESTMENT and q != 0:
+            if ticker in config.mm_drip_tickers and kind == ActionKind.REINVESTMENT and q != 0:
                 mm_drip[acct] += q
 
     positions = {
@@ -196,7 +214,7 @@ def replay_transactions(
     }
 
     cash: dict[str, float] = {}
-    if track_cash:
+    if config.track_cash:
         cash = {
             acct: round(cash_flow[acct] + mm_drip.get(acct, 0.0), 2)
             for acct in cash_flow

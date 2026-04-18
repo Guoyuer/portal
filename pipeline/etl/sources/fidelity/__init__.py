@@ -5,19 +5,20 @@ Public surface mirrors :mod:`etl.sources.robinhood` / :mod:`etl.sources.empower`
 ``positions_at(db_path, as_of, prices, config)``.
 
 ``positions_at`` delegates transaction replay to the source-agnostic
-:func:`etl.replay.replay_transactions` primitive. The primitive now
-covers Fidelity's full action vocabulary — BUY / SELL / REINVESTMENT
-plus the qty-only kinds REDEMPTION / DISTRIBUTION / EXCHANGE / TRANSFER
-(``REDEMPTION PAYOUT``, ``TRANSFERRED FROM/TO``, ``DISTRIBUTION``,
-``EXCHANGED TO``) — and accepts ``exclude_tickers`` to filter MM fund
-symbols out of share accumulation while still letting them flow through
-the cash ledger.
+:func:`etl.replay.replay_transactions` primitive via ``FIDELITY_REPLAY``
+(see :class:`etl.replay.ReplayConfig`). The primitive covers Fidelity's
+full action vocabulary — BUY / SELL / REINVESTMENT plus the qty-only
+kinds REDEMPTION / DISTRIBUTION / EXCHANGE / TRANSFER (``REDEMPTION
+PAYOUT``, ``TRANSFERRED FROM/TO``, ``DISTRIBUTION``, ``EXCHANGED TO``)
+— and ``exclude_tickers`` filters MM fund symbols out of share
+accumulation while still letting them flow through the cash ledger.
 """
 from __future__ import annotations
 
 from datetime import date
 from pathlib import Path
 
+from etl.replay import ReplayConfig
 from etl.sources import PositionRow, PriceContext
 
 from . import cash, parse, pricing
@@ -41,7 +42,21 @@ from .parse import (
 # adjustment that corrects for shares credited without a paired cash entry).
 MM_SYMBOLS: frozenset[str] = frozenset({"SPAXX", "FZFXX", "FDRXX"})
 
+# Per-source replay config — passed to :func:`etl.replay.replay_transactions`.
+FIDELITY_REPLAY = ReplayConfig(
+    table=TABLE,
+    date_col="run_date",
+    ticker_col="symbol",
+    amount_col="amount",
+    account_col="account_number",
+    exclude_tickers=MM_SYMBOLS,
+    track_cash=True,
+    lot_type_col="lot_type",
+    mm_drip_tickers=MM_SYMBOLS,
+)
+
 __all__ = [
+    "FIDELITY_REPLAY",
     "MM_SYMBOLS",
     "TABLE",
     "_classify_action",
@@ -95,29 +110,16 @@ def positions_at(
 ) -> list[PositionRow]:
     """Return one PositionRow per (account, ticker) position + cash bucket.
 
-    Delegates to :func:`etl.replay.replay_transactions` with Fidelity's
-    table layout (``run_date`` / ``symbol`` / ``amount`` columns, plus the
-    ``account_number`` grouping column) and cash-ledger bookkeeping turned
-    on (``track_cash=True``, ``lot_type_col="lot_type"``). MM fund symbols
-    are excluded from share accumulation but still flow through cash — the
-    ``mm_drip_tickers`` knob credits ``REINVESTMENT`` rows' share counts
-    back to the cash ledger the way the legacy replay did.
+    Delegates to :func:`etl.replay.replay_transactions` with the module-
+    level :data:`FIDELITY_REPLAY` config (schema + cash-ledger knobs).
+    MM fund symbols are excluded from share accumulation but still flow
+    through cash — the ``mm_drip_tickers`` knob credits ``REINVESTMENT``
+    rows' share counts back to the cash ledger the way the legacy replay
+    did.
     """
     from etl.replay import replay_transactions
 
-    result = replay_transactions(
-        db_path,
-        TABLE,
-        as_of,
-        date_col="run_date",
-        ticker_col="symbol",
-        amount_col="amount",
-        account_col="account_number",
-        exclude_tickers=MM_SYMBOLS,
-        track_cash=True,
-        lot_type_col="lot_type",
-        mm_drip_tickers=MM_SYMBOLS,
-    )
+    result = replay_transactions(db_path, FIDELITY_REPLAY, as_of)
 
     positions = {key: st.quantity for key, st in result.positions.items()}
     cost_basis = {key: st.cost_basis_usd for key, st in result.positions.items()}

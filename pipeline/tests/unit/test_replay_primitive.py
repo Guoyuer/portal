@@ -7,10 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from etl.replay import PositionState, ReplayResult, replay_transactions  # noqa: F401
+from etl.replay import PositionState, ReplayConfig, ReplayResult, replay_transactions  # noqa: F401
 from etl.sources import ActionKind
 
 # ── Robinhood-shaped table (no account, tx_date column) ─────────────────────
+
+
+MINI_REPLAY = ReplayConfig(table="mini_transactions")
 
 
 @pytest.fixture
@@ -47,7 +50,7 @@ def mini_db(tmp_path: Path) -> Path:
 
 
 def test_replay_accumulates_position_and_cost_basis(mini_db: Path) -> None:
-    result = replay_transactions(mini_db, "mini_transactions", date(2024, 2, 15))
+    result = replay_transactions(mini_db, MINI_REPLAY, date(2024, 2, 15))
     assert set(result.positions.keys()) == {("", "FOO")}
     foo = result.positions[("", "FOO")]
     assert foo.quantity == pytest.approx(12.0)  # 10 + 5 - 3
@@ -56,7 +59,7 @@ def test_replay_accumulates_position_and_cost_basis(mini_db: Path) -> None:
 
 
 def test_replay_respects_as_of_cutoff(mini_db: Path) -> None:
-    result = replay_transactions(mini_db, "mini_transactions", date(2024, 1, 2))
+    result = replay_transactions(mini_db, MINI_REPLAY, date(2024, 1, 2))
     foo = result.positions[("", "FOO")]
     assert foo.quantity == pytest.approx(10.0)
     assert foo.cost_basis_usd == pytest.approx(1000.0)
@@ -75,11 +78,30 @@ def test_replay_dropped_zero_positions(mini_db: Path) -> None:
     )
     conn.commit()
     conn.close()
-    result = replay_transactions(mini_db, "mini_transactions", date(2024, 2, 15))
+    result = replay_transactions(mini_db, MINI_REPLAY, date(2024, 2, 15))
     assert ("", "BAR") not in result.positions
 
 
 # ── Fidelity-shaped table (per-account, cash, Type=Shares filter) ───────────
+
+
+FIDELITY_BASIC_REPLAY = ReplayConfig(
+    table="fidelity_transactions",
+    date_col="run_date",
+    ticker_col="symbol",
+    amount_col="amount",
+    account_col="account_number",
+)
+
+FIDELITY_WITH_CASH_REPLAY = ReplayConfig(
+    table="fidelity_transactions",
+    date_col="run_date",
+    ticker_col="symbol",
+    amount_col="amount",
+    account_col="account_number",
+    track_cash=True,
+    lot_type_col="lot_type",
+)
 
 
 @pytest.fixture
@@ -127,11 +149,7 @@ def test_fidelity_per_account_keying(fidelity_like_db: Path) -> None:
     conn.commit()
     conn.close()
 
-    result = replay_transactions(
-        fidelity_like_db, "fidelity_transactions", date(2024, 2, 1),
-        date_col="run_date", ticker_col="symbol", amount_col="amount",
-        account_col="account_number",
-    )
+    result = replay_transactions(fidelity_like_db, FIDELITY_BASIC_REPLAY, date(2024, 2, 1))
 
     assert result.positions[("Z001", "VTI")].quantity == pytest.approx(10.0)
     assert result.positions[("Z002", "VTI")].quantity == pytest.approx(5.0)
@@ -147,11 +165,7 @@ def test_fidelity_redemption_qty_only(fidelity_like_db: Path) -> None:
     conn.commit()
     conn.close()
 
-    result = replay_transactions(
-        fidelity_like_db, "fidelity_transactions", date(2024, 12, 31),
-        date_col="run_date", ticker_col="symbol", amount_col="amount",
-        account_col="account_number",
-    )
+    result = replay_transactions(fidelity_like_db, FIDELITY_BASIC_REPLAY, date(2024, 12, 31))
     # Full redemption wipes the position, keeps cost_basis at the original BUY.
     assert ("Z001", "CUSIP") not in result.positions
 
@@ -165,11 +179,7 @@ def test_fidelity_distribution_qty_only(fidelity_like_db: Path) -> None:
     conn.commit()
     conn.close()
 
-    result = replay_transactions(
-        fidelity_like_db, "fidelity_transactions", date(2024, 12, 31),
-        date_col="run_date", ticker_col="symbol", amount_col="amount",
-        account_col="account_number",
-    )
+    result = replay_transactions(fidelity_like_db, FIDELITY_BASIC_REPLAY, date(2024, 12, 31))
     avgo = result.positions[("Z001", "AVGO")]
     assert avgo.quantity == pytest.approx(19.063)
     assert avgo.cost_basis_usd == pytest.approx(1000.0)  # unchanged by distribution
@@ -186,11 +196,7 @@ def test_fidelity_transfer_qty_only(fidelity_like_db: Path) -> None:
     conn.commit()
     conn.close()
 
-    result = replay_transactions(
-        fidelity_like_db, "fidelity_transactions", date(2024, 12, 31),
-        date_col="run_date", ticker_col="symbol", amount_col="amount",
-        account_col="account_number",
-    )
+    result = replay_transactions(fidelity_like_db, FIDELITY_BASIC_REPLAY, date(2024, 12, 31))
     assert result.positions[("Z001", "VTI")].quantity == pytest.approx(6.0)
     assert result.positions[("Z002", "VTI")].quantity == pytest.approx(4.0)
 
@@ -206,12 +212,7 @@ def test_fidelity_cash_tracking_with_shares_exclusion(fidelity_like_db: Path) ->
     conn.commit()
     conn.close()
 
-    result = replay_transactions(
-        fidelity_like_db, "fidelity_transactions", date(2024, 12, 31),
-        date_col="run_date", ticker_col="symbol", amount_col="amount",
-        account_col="account_number",
-        track_cash=True, lot_type_col="lot_type",
-    )
+    result = replay_transactions(fidelity_like_db, FIDELITY_WITH_CASH_REPLAY, date(2024, 12, 31))
     # 5000 (deposit) + (-2000) (buy) = 3000. The Type=Shares 1553.57 is excluded.
     assert result.cash["Z001"] == pytest.approx(3000.0)
 
@@ -223,12 +224,13 @@ def test_fidelity_mm_symbols_excluded_from_positions(fidelity_like_db: Path) -> 
     conn.commit()
     conn.close()
 
-    result = replay_transactions(
-        fidelity_like_db, "fidelity_transactions", date(2024, 12, 31),
+    cfg = ReplayConfig(
+        table="fidelity_transactions",
         date_col="run_date", ticker_col="symbol", amount_col="amount",
         account_col="account_number",
         exclude_tickers=frozenset({"SPAXX"}),
     )
+    result = replay_transactions(fidelity_like_db, cfg, date(2024, 12, 31))
     assert ("Z001", "SPAXX") not in result.positions
 
 
@@ -243,14 +245,15 @@ def test_fidelity_mm_drip_adds_to_cash(fidelity_like_db: Path) -> None:
     conn.commit()
     conn.close()
 
-    result = replay_transactions(
-        fidelity_like_db, "fidelity_transactions", date(2024, 12, 31),
+    cfg = ReplayConfig(
+        table="fidelity_transactions",
         date_col="run_date", ticker_col="symbol", amount_col="amount",
         account_col="account_number",
         track_cash=True, lot_type_col="lot_type",
         exclude_tickers=frozenset({"SPAXX"}),
         mm_drip_tickers=frozenset({"SPAXX"}),
     )
+    result = replay_transactions(fidelity_like_db, cfg, date(2024, 12, 31))
     # 1000 deposit + 5 DRIP shares at $1 each = 1005
     assert result.cash["Z001"] == pytest.approx(1005.0)
 
@@ -265,12 +268,7 @@ def test_fidelity_cash_account_regex_filter(fidelity_like_db: Path) -> None:
     conn.commit()
     conn.close()
 
-    result = replay_transactions(
-        fidelity_like_db, "fidelity_transactions", date(2024, 12, 31),
-        date_col="run_date", ticker_col="symbol", amount_col="amount",
-        account_col="account_number",
-        track_cash=True, lot_type_col="lot_type",
-    )
+    result = replay_transactions(fidelity_like_db, FIDELITY_WITH_CASH_REPLAY, date(2024, 12, 31))
     assert "Z001" in result.cash
     assert "2ad9d14c-xxx" not in result.cash
 
@@ -284,11 +282,7 @@ def test_fidelity_sell_without_prior_holdings(fidelity_like_db: Path) -> None:
     conn.commit()
     conn.close()
 
-    result = replay_transactions(
-        fidelity_like_db, "fidelity_transactions", date(2024, 12, 31),
-        date_col="run_date", ticker_col="symbol", amount_col="amount",
-        account_col="account_number",
-    )
+    result = replay_transactions(fidelity_like_db, FIDELITY_BASIC_REPLAY, date(2024, 12, 31))
     orphan = result.positions[("Z001", "ORPHAN")]
     assert orphan.quantity == pytest.approx(-3.0)
     assert orphan.cost_basis_usd == pytest.approx(0.0)

@@ -1,8 +1,7 @@
-"""Tests for the timemachine module — Qianji replay only.
+"""Tests for the timemachine module — Qianji balance replay.
 
-The Fidelity replay engine moved to :mod:`etl.replay`; its tests live in
-``test_replay_primitive.py``. The CSV-based ``ingest`` / ``verify`` helpers
-were deleted along with the legacy CSV replay path.
+The Fidelity replay engine lives in :mod:`etl.replay`; its tests live in
+``test_replay_primitive.py``.
 """
 
 from __future__ import annotations
@@ -13,10 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from etl.timemachine import (
-    replay_qianji,
-    replay_qianji_currencies,
-)
+from etl.timemachine import QianjiSnapshot, qianji_balances_at
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -66,20 +62,22 @@ def _ts(year: int, month: int, day: int) -> float:
     return datetime(year, month, day, 12, 0, 0, tzinfo=UTC).timestamp()
 
 
-# ── replay_qianji ───────────────────────────────────────────────────────────
+# ── qianji_balances_at: balance replay ──────────────────────────────────────
 
-class TestReplayQianji:
+class TestQianjiBalances:
     def test_missing_db(self, tmp_path: Path) -> None:
-        result = replay_qianji(tmp_path / "nonexistent.db")
-        assert result == {}
+        snapshot = qianji_balances_at(tmp_path / "nonexistent.db")
+        assert snapshot == QianjiSnapshot()
+        assert snapshot.balances == {}
+        assert snapshot.currencies == {}
 
     def test_current_balances_no_date(self, tmp_path: Path) -> None:
         """Without as_of, return current balances."""
         db = tmp_path / "qianji.db"
         _create_qianji_db(db, [("Checking", 5000.0, "USD"), ("Savings", 10000.0, "USD")], [])
-        result = replay_qianji(db)
-        assert result["Checking"] == pytest.approx(5000.0)
-        assert result["Savings"] == pytest.approx(10000.0)
+        snapshot = qianji_balances_at(db)
+        assert snapshot.balances["Checking"] == pytest.approx(5000.0)
+        assert snapshot.balances["Savings"] == pytest.approx(10000.0)
 
     def test_reverse_expense(self, tmp_path: Path) -> None:
         """Expense after as_of should be added back (reversed)."""
@@ -90,9 +88,9 @@ class TestReplayQianji:
             [("Checking", 4000.0, "USD")],
             [{"type": 0, "money": 1000.0, "fromact": "Checking", "time": _ts(2025, 3, 15)}],
         )
-        result = replay_qianji(db, as_of=date(2025, 3, 1))
+        snapshot = qianji_balances_at(db, as_of=date(2025, 3, 1))
         # Before the expense, balance was 4000 + 1000 = 5000
-        assert result["Checking"] == pytest.approx(5000.0)
+        assert snapshot.balances["Checking"] == pytest.approx(5000.0)
 
     def test_reverse_income(self, tmp_path: Path) -> None:
         """Income after as_of should be subtracted (reversed)."""
@@ -103,9 +101,9 @@ class TestReplayQianji:
             [("Checking", 6000.0, "USD")],
             [{"type": 1, "money": 1000.0, "fromact": "Checking", "time": _ts(2025, 3, 15)}],
         )
-        result = replay_qianji(db, as_of=date(2025, 3, 1))
+        snapshot = qianji_balances_at(db, as_of=date(2025, 3, 1))
         # Before the income, balance was 6000 - 1000 = 5000
-        assert result["Checking"] == pytest.approx(5000.0)
+        assert snapshot.balances["Checking"] == pytest.approx(5000.0)
 
     def test_reverse_transfer(self, tmp_path: Path) -> None:
         """Transfer after as_of should be reversed on both sides."""
@@ -117,10 +115,10 @@ class TestReplayQianji:
             [{"type": 2, "money": 1000.0, "fromact": "Checking", "targetact": "Savings",
               "time": _ts(2025, 3, 15)}],
         )
-        result = replay_qianji(db, as_of=date(2025, 3, 1))
+        snapshot = qianji_balances_at(db, as_of=date(2025, 3, 1))
         # Before transfer: Checking was 4000+1000=5000, Savings was 6000-1000=5000
-        assert result["Checking"] == pytest.approx(5000.0)
-        assert result["Savings"] == pytest.approx(5000.0)
+        assert snapshot.balances["Checking"] == pytest.approx(5000.0)
+        assert snapshot.balances["Savings"] == pytest.approx(5000.0)
 
     def test_reverse_repayment(self, tmp_path: Path) -> None:
         """Repayment (type 3) behaves like transfer."""
@@ -131,10 +129,10 @@ class TestReplayQianji:
             [{"type": 3, "money": 500.0, "fromact": "Checking", "targetact": "Credit Card",
               "time": _ts(2025, 3, 15)}],
         )
-        result = replay_qianji(db, as_of=date(2025, 3, 1))
+        snapshot = qianji_balances_at(db, as_of=date(2025, 3, 1))
         # Before repayment: Checking was 9500+500=10000, Credit Card was -500-(-500)=-1000
-        assert result["Checking"] == pytest.approx(10000.0)
-        assert result["Credit Card"] == pytest.approx(-1000.0)
+        assert snapshot.balances["Checking"] == pytest.approx(10000.0)
+        assert snapshot.balances["Credit Card"] == pytest.approx(-1000.0)
 
     def test_cross_currency_transfer(self, tmp_path: Path) -> None:
         """Cross-currency transfer uses tv for the target account."""
@@ -146,10 +144,10 @@ class TestReplayQianji:
             [{"type": 2, "money": 1000.0, "fromact": "USD Account", "targetact": "CNY Account",
               "time": _ts(2025, 3, 15), "extra": extra}],
         )
-        result = replay_qianji(db, as_of=date(2025, 3, 1))
+        snapshot = qianji_balances_at(db, as_of=date(2025, 3, 1))
         # Before: USD was 9000+1000=10000, CNY was 7000-7000=0
-        assert result["USD Account"] == pytest.approx(10000.0)
-        assert result["CNY Account"] == pytest.approx(0.0)
+        assert snapshot.balances["USD Account"] == pytest.approx(10000.0)
+        assert snapshot.balances["CNY Account"] == pytest.approx(0.0)
 
     def test_inactive_bills_ignored(self, tmp_path: Path) -> None:
         """Bills with status != 1 should not be replayed."""
@@ -159,9 +157,9 @@ class TestReplayQianji:
             [("Checking", 5000.0, "USD")],
             [{"type": 0, "money": 999.0, "fromact": "Checking", "time": _ts(2025, 3, 15), "status": 0}],
         )
-        result = replay_qianji(db, as_of=date(2025, 3, 1))
+        snapshot = qianji_balances_at(db, as_of=date(2025, 3, 1))
         # Inactive bill not reversed, balance stays at current
-        assert result["Checking"] == pytest.approx(5000.0)
+        assert snapshot.balances["Checking"] == pytest.approx(5000.0)
 
     def test_bills_on_cutoff_day_not_reversed(self, tmp_path: Path) -> None:
         """Bills on as_of date (before 23:59:59) should NOT be reversed."""
@@ -172,9 +170,9 @@ class TestReplayQianji:
             [("Checking", 4000.0, "USD")],
             [{"type": 0, "money": 1000.0, "fromact": "Checking", "time": _ts(2025, 3, 1)}],
         )
-        result = replay_qianji(db, as_of=date(2025, 3, 1))
+        snapshot = qianji_balances_at(db, as_of=date(2025, 3, 1))
         # Bill at noon on March 1 is before cutoff (23:59:59 March 1), so NOT reversed
-        assert result["Checking"] == pytest.approx(4000.0)
+        assert snapshot.balances["Checking"] == pytest.approx(4000.0)
 
     def test_multiple_transactions(self, tmp_path: Path) -> None:
         """Multiple mixed transactions should all be reversed correctly."""
@@ -189,9 +187,9 @@ class TestReplayQianji:
                 {"type": 1, "money": 2000.0, "fromact": "Checking", "time": _ts(2025, 3, 15)},
             ],
         )
-        result = replay_qianji(db, as_of=date(2025, 3, 1))
+        snapshot = qianji_balances_at(db, as_of=date(2025, 3, 1))
         # Reverse: +500 (expense), -2000 (income) → 3500 + 500 - 2000 = 2000
-        assert result["Checking"] == pytest.approx(2000.0)
+        assert snapshot.balances["Checking"] == pytest.approx(2000.0)
 
     def test_inactive_asset_excluded(self, tmp_path: Path) -> None:
         """Assets with status != 0 should not appear."""
@@ -208,14 +206,16 @@ class TestReplayQianji:
         conn.execute("INSERT INTO user_asset VALUES ('Closed', 200.0, 'USD', 1)")
         conn.commit()
         conn.close()
-        result = replay_qianji(db)
-        assert "Active" in result
-        assert "Closed" not in result
+        snapshot = qianji_balances_at(db)
+        assert "Active" in snapshot.balances
+        assert "Closed" not in snapshot.balances
 
 
-# ── replay_qianji_currencies ────────────────────────────────────────────────
+# ── qianji_balances_at: currencies ──────────────────────────────────────────
 
-class TestReplayQianjiCurrencies:
+class TestQianjiCurrencies:
+    """Currencies come back on every snapshot (same call populates both)."""
+
     def test_returns_currencies(self, tmp_path: Path) -> None:
         db = tmp_path / "qianji.db"
         _create_qianji_db(
@@ -223,9 +223,9 @@ class TestReplayQianjiCurrencies:
             [("Checking", 5000.0, "USD"), ("Alipay", 30000.0, "CNY")],
             [],
         )
-        currencies = replay_qianji_currencies(db)
-        assert currencies["Checking"] == "USD"
-        assert currencies["Alipay"] == "CNY"
+        snapshot = qianji_balances_at(db)
+        assert snapshot.currencies["Checking"] == "USD"
+        assert snapshot.currencies["Alipay"] == "CNY"
 
     def test_null_currency_defaults_usd(self, tmp_path: Path) -> None:
         db = tmp_path / "qianji.db"
@@ -236,12 +236,12 @@ class TestReplayQianjiCurrencies:
         conn.execute("INSERT INTO user_asset VALUES ('Wallet', 100.0, NULL, 0)")
         conn.commit()
         conn.close()
-        currencies = replay_qianji_currencies(db)
-        assert currencies["Wallet"] == "USD"
+        snapshot = qianji_balances_at(db)
+        assert snapshot.currencies["Wallet"] == "USD"
 
-    def test_missing_db(self, tmp_path: Path) -> None:
-        result = replay_qianji_currencies(tmp_path / "nonexistent.db")
-        assert result == {}
+    def test_missing_db_empty_currencies(self, tmp_path: Path) -> None:
+        snapshot = qianji_balances_at(tmp_path / "nonexistent.db")
+        assert snapshot.currencies == {}
 
     def test_excludes_inactive(self, tmp_path: Path) -> None:
         db = tmp_path / "qianji.db"
@@ -253,8 +253,6 @@ class TestReplayQianjiCurrencies:
         conn.execute("INSERT INTO user_asset VALUES ('Closed', 200.0, 'EUR', 1)")
         conn.commit()
         conn.close()
-        currencies = replay_qianji_currencies(db)
-        assert "Active" in currencies
-        assert "Closed" not in currencies
-
-
+        snapshot = qianji_balances_at(db)
+        assert "Active" in snapshot.currencies
+        assert "Closed" not in snapshot.currencies
