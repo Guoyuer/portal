@@ -18,8 +18,8 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
-from etl.replay import ReplayConfig
-from etl.sources import PositionRow, PriceContext
+from etl.replay import ReplayConfig, replay_transactions
+from etl.sources._types import PositionRow, PriceContext
 
 from . import cash, parse, pricing
 
@@ -117,8 +117,6 @@ def positions_at(
     rows' share counts back to the cash ledger the way the legacy replay
     did.
     """
-    from etl.replay import replay_transactions
-
     result = replay_transactions(db_path, FIDELITY_REPLAY, as_of)
 
     positions = {key: st.quantity for key, st in result.positions.items()}

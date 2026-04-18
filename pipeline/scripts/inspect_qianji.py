@@ -12,7 +12,7 @@ from pathlib import Path
 # Ensure the pipeline package is importable
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from etl.ingest.qianji_db import DEFAULT_DB_PATH, qianji_balances_at
+from etl.qianji import DEFAULT_DB_PATH, qianji_balances_at
 
 
 def main() -> None:
