@@ -1,11 +1,13 @@
 """Sync notifications: healthchecks.io pings + email summaries.
 
-Both channels are opt-in:
-    * Healthchecks: set ``PORTAL_HEALTHCHECK_URL``; ping failures are logged and
-      swallowed — never fatal.
-    * Email: set ``PORTAL_SMTP_USER`` + ``PORTAL_SMTP_PASSWORD``. A no-change
-      run is silently successful; failures and meaningful-change successes
-      send. SMTP errors are logged and swallowed too.
+Healthchecks is REQUIRED (enforced at :class:`etl.automation.runner.Runner`
+construction — see RUNBOOK §8). :func:`ping_healthcheck` itself remains
+tolerant: unset URL silently no-ops and network errors are logged + swallowed,
+so any ad-hoc caller stays safe; the hard requirement is gated one level up.
+
+Email is opt-in: set ``PORTAL_SMTP_USER`` + ``PORTAL_SMTP_PASSWORD``. A no-
+change run is silently successful; failures and meaningful-change successes
+send. SMTP errors are logged and swallowed too.
 
 The :func:`extract_validation_warnings` helper reads the per-run subprocess
 capture buffer (populated by :func:`etl.automation.runner.run_python_script`)

@@ -26,7 +26,7 @@ CLI (mirrors the previous PS1 flags):
     --local     Sync to local D1 (via wrangler --local) and skip verify_vs_prod
 
 Environment variables:
-    PORTAL_HEALTHCHECK_URL   Healthchecks.io base URL (optional; silent if unset)
+    PORTAL_HEALTHCHECK_URL   Healthchecks.io base URL (REQUIRED; see RUNBOOK §8)
     PORTAL_DOWNLOADS         Downloads dir (default: %USERPROFILE%\\Downloads)
     PORTAL_DB_PATH           timemachine.db path (default: pipeline/data/timemachine.db)
     PORTAL_SMTP_USER         Gmail address to send from (required for email)

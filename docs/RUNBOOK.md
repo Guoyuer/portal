@@ -109,3 +109,9 @@ cd pipeline && python -m venv .venv && .venv/Scripts/pip install -r requirements
 ```
 
 For frontend: `cd .. && npm install && npm run build`. Pages deploy inherits the existing project via `wrangler pages deploy out --project-name=portal`.
+
+## 8. `PORTAL_HEALTHCHECK_URL` is required
+
+`run_automation.py` fails fast with a clear error if `PORTAL_HEALTHCHECK_URL` is unset. Rationale: `ping_healthcheck` silently no-ops when the var is missing, which means a dead check on healthchecks.io would never fire — defeating the point of the alert.
+
+Fix: set the var in `pipeline/.env` (or at user level via `setx`). Value format: `https://hc-ping.com/<your-uuid>`. Create the check at https://healthchecks.io/ → new check → copy the ping URL. See `docs/automation-setup.md` §1-§2 for the full walkthrough.

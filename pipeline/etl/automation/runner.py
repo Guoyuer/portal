@@ -167,6 +167,16 @@ class Runner:
     def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
         self.started_at = datetime.now()
+        # Fail-fast if the healthcheck URL isn't configured. Without it,
+        # ``notify.ping_healthcheck`` silently no-ops and a dead
+        # healthchecks.io check would never fire on failure — defeating the
+        # point of the alert. Catching this at __init__ keeps the message at
+        # the earliest actionable moment for the operator.
+        if not os.environ.get("PORTAL_HEALTHCHECK_URL"):
+            raise SystemExit(
+                "Set PORTAL_HEALTHCHECK_URL in pipeline/.env — required to "
+                "surface automation failures. See docs/RUNBOOK.md §8.",
+            )
 
     @classmethod
     def from_args(cls, args: argparse.Namespace) -> Runner:
@@ -249,7 +259,6 @@ class Runner:
                     return self._report_stage_failure(
                         log, "POSITIONS CHECK", rc, EXIT_POSITIONS_FAIL, "verify_positions.py",
                         email_config, snapshot_before, db_path, log_file,
-                        include_started_at=False,
                     )
             else:
                 log.info("[3b] No new Portfolio_Positions CSV — skipping ground-truth check")
@@ -299,19 +308,13 @@ class Runner:
         snapshot_before: SyncSnapshot,
         db_path: Path,
         log_file: Path,
-        *,
-        include_started_at: bool = True,
     ) -> int:
         """Shared error-report path used by every stage in :meth:`run`.
 
-        Logs the failure, pings healthcheck, sends the failure email, and returns
-        the stage-specific exit code. Collapses four near-identical blocks that
-        differ only by ``label`` / ``exit_code`` / ``script_name``.
-
-        ``include_started_at`` preserves a pre-refactor quirk where the
-        positions-gate failure branch did NOT pass ``started_at`` (and therefore
-        the email had no ``duration`` line). Kept byte-identical for now; could
-        be normalized in a follow-up.
+        Logs the failure, pings healthcheck, sends the failure email (with the
+        per-run duration always included), and returns the stage-specific exit
+        code. Collapses four near-identical blocks that differ only by
+        ``label`` / ``exit_code`` / ``script_name``.
         """
         log.error("  %s FAILED (exit=%d)", label, rc)
         notify.ping_healthcheck("fail")
@@ -322,6 +325,6 @@ class Runner:
             validation_warnings=notify.extract_validation_warnings(
                 log_file, buffer=get_script_output_buffer(),
             ),
-            started_at=self.started_at if include_started_at else None,
+            started_at=self.started_at,
         )
         return exit_code

@@ -244,7 +244,7 @@ class TestExitCodeMapping:
         monkeypatch.setattr(runner, "get_downloads_dir", lambda: iso_downloads)
         monkeypatch.setattr(runner, "get_qianji_db_path", lambda: None)
         # Ensure no network pings + no email (env vars unset by default).
-        monkeypatch.delenv("PORTAL_HEALTHCHECK_URL", raising=False)
+        monkeypatch.setenv("PORTAL_HEALTHCHECK_URL", "https://hc.example/dummy")
         monkeypatch.delenv("PORTAL_SMTP_USER", raising=False)
         monkeypatch.delenv("PORTAL_SMTP_PASSWORD", raising=False)
         # Force path so change detection is bypassed (we always pass --force)
@@ -319,7 +319,7 @@ class TestExitCodeMapping:
         monkeypatch.setattr(runner, "get_log_dir", lambda: tmp_path / "logs")
         monkeypatch.setattr(runner, "get_downloads_dir", lambda: tmp_path / "empty_downloads")
         monkeypatch.setattr(runner, "get_qianji_db_path", lambda: None)
-        monkeypatch.delenv("PORTAL_HEALTHCHECK_URL", raising=False)
+        monkeypatch.setenv("PORTAL_HEALTHCHECK_URL", "https://hc.example/dummy")
         (tmp_path / "empty_downloads").mkdir()
         (tmp_path / ".last_run").write_text("seeded")
 
@@ -436,10 +436,36 @@ class TestFindNewPositionsCSV:
         assert changes.find_new_positions_csv(downloads, marker) == newer
 
 
+# ── Runner requires PORTAL_HEALTHCHECK_URL ────────────────────────────────────
+
+
+class TestRunnerRequiresHealthcheckUrl:
+    """B3: constructing a Runner without ``PORTAL_HEALTHCHECK_URL`` must fail
+    fast. Without it, ``ping_healthcheck`` silently no-ops — so a dead check
+    on healthchecks.io would never fire."""
+
+    def test_runner_init_raises_when_url_unset(self, monkeypatch):
+        monkeypatch.delenv("PORTAL_HEALTHCHECK_URL", raising=False)
+        args = runner.parse_args(["--force"])
+        with pytest.raises(SystemExit, match="PORTAL_HEALTHCHECK_URL"):
+            runner.Runner(args)
+
+    def test_runner_init_ok_when_url_set(self, monkeypatch):
+        monkeypatch.setenv("PORTAL_HEALTHCHECK_URL", "https://hc.example/abc")
+        args = runner.parse_args(["--force"])
+        r = runner.Runner(args)
+        assert r.args.force is True
+
+
 # ── ping_healthcheck() ────────────────────────────────────────────────────────
 
 class TestPingHealthcheck:
     def test_no_op_when_url_unset(self, monkeypatch):
+        """Low-level contract: ``notify.ping_healthcheck`` silently no-ops
+        when the env var is unset. Runner-level enforcement happens in
+        :class:`TestRunnerRequiresHealthcheckUrl`; ``ping_healthcheck`` itself
+        stays tolerant for any other caller.
+        """
         monkeypatch.delenv("PORTAL_HEALTHCHECK_URL", raising=False)
         # Should return without raising and without calling urlopen.
         with patch("urllib.request.urlopen") as mock_open:
@@ -540,6 +566,7 @@ class TestEmailNotifications:
         snapshot_after=None,
         send_side_effect=None,
         disable_email=False,
+        downloads_seed=None,
     ):
         """Same as TestExitCodeMapping._invoke but with email-config env vars + send mock."""
         from etl.changelog import SyncSnapshot
@@ -551,9 +578,11 @@ class TestEmailNotifications:
         monkeypatch.setenv("PORTAL_DB_PATH", str(tmp_path / "timemachine.db"))
         iso_downloads = tmp_path / "iso_downloads"
         iso_downloads.mkdir(exist_ok=True)
+        for fname in downloads_seed or ():
+            (iso_downloads / fname).write_text("stub")
         monkeypatch.setattr(runner, "get_downloads_dir", lambda: iso_downloads)
         monkeypatch.setattr(runner, "get_qianji_db_path", lambda: None)
-        monkeypatch.delenv("PORTAL_HEALTHCHECK_URL", raising=False)
+        monkeypatch.setenv("PORTAL_HEALTHCHECK_URL", "https://hc.example/dummy")
 
         if disable_email:
             monkeypatch.delenv("PORTAL_SMTP_USER", raising=False)
@@ -632,6 +661,28 @@ class TestEmailNotifications:
         assert "1" in sent[0]["subject"]
         # Body should mention the error
         assert "build_timemachine_db.py" in sent[0]["text"]
+        # P1 regression: failure emails must include Duration.
+        assert "Duration:" in sent[0]["text"]
+
+    def test_positions_gate_failure_email_includes_duration(self, monkeypatch, tmp_path):
+        """P1 regression: positions-gate failure email must include Duration.
+
+        Prior to the fix, ``_report_stage_failure`` was called with
+        ``include_started_at=False`` on this branch and the email had no
+        ``Duration: …`` line — the only failure email that didn't.
+        """
+        from etl.changelog import SyncSnapshot
+
+        rc, _, sent = self._invoke_with_email(
+            ["--force"], [0, 0, 1], monkeypatch, tmp_path,
+            snapshot_before=SyncSnapshot(),
+            snapshot_after=None,
+            downloads_seed=("Portfolio_Positions_Apr-07-2026.csv",),
+        )
+        assert rc == runner.EXIT_POSITIONS_FAIL
+        assert len(sent) == 1
+        assert "verify_positions.py" in sent[0]["text"]
+        assert "Duration:" in sent[0]["text"]
 
     def test_email_disabled_no_smtp_activity(self, monkeypatch, tmp_path, capsys):
         """No SMTP_USER/PASSWORD -> no send call, log notes disabled."""
@@ -795,7 +846,7 @@ class TestExtractValidationWarnings:
         iso_downloads.mkdir()
         monkeypatch.setattr(runner, "get_downloads_dir", lambda: iso_downloads)
         monkeypatch.setattr(runner, "get_qianji_db_path", lambda: None)
-        monkeypatch.delenv("PORTAL_HEALTHCHECK_URL", raising=False)
+        monkeypatch.setenv("PORTAL_HEALTHCHECK_URL", "https://hc.example/dummy")
         monkeypatch.delenv("PORTAL_SMTP_USER", raising=False)
         monkeypatch.delenv("PORTAL_SMTP_PASSWORD", raising=False)
 
