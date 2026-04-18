@@ -23,7 +23,7 @@ export type HoverState = {
 
 export type Selection = { key: string; dates: string[]; side: "buy" | "sell" };
 
-export function clusterKey(side: "buy" | "sell", c: Cluster): string {
+function clusterKey(side: "buy" | "sell", c: Cluster): string {
   return `${side}-${c.ts}-${c.count}`;
 }
 

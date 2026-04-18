@@ -3,7 +3,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import type { TooltipContentProps } from "recharts/types/component/Tooltip";
-import { TooltipCard, TooltipRow } from "./tooltip-card";
+import { TooltipCard } from "./tooltip-card";
 
 afterEach(cleanup);
 
@@ -60,18 +60,5 @@ describe("TooltipCard", () => {
     );
     const shell = container.firstElementChild as HTMLElement;
     expect(shell.style.backdropFilter).toContain("blur");
-  });
-});
-
-describe("TooltipRow", () => {
-  it("renders label : value with optional color", () => {
-    const { container } = render(<TooltipRow label="Income" value="$1,000" color="#00aa00" />);
-    expect(container.textContent).toBe("Income: $1,000");
-    expect((container.firstElementChild as HTMLElement).style.color).toBeTruthy();
-  });
-
-  it("omits color attribute when none given", () => {
-    const { container } = render(<TooltipRow label="Close" value="$100.40" />);
-    expect(container.textContent).toBe("Close: $100.40");
   });
 });

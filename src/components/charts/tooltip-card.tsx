@@ -29,21 +29,3 @@ export function TooltipCard({ active, payload, title, children }: Props) {
     </div>
   );
 }
-
-/** Render a single `<p>` row inside a TooltipCard. Matches the historical
- *  inline `<p style={{ color, margin: 0 }}>label : value</p>` pattern. */
-export function TooltipRow({
-  label,
-  value,
-  color,
-}: {
-  label: ReactNode;
-  value: ReactNode;
-  color?: string;
-}) {
-  return (
-    <p style={{ color, margin: 0 }}>
-      {label}: {value}
-    </p>
-  );
-}

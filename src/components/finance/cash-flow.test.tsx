@@ -4,7 +4,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, cleanup, within } from "@testing-library/react";
 
 afterEach(cleanup);
-import { CashFlow, CashFlowStatBar } from "./cash-flow";
+import { CashFlow } from "./cash-flow";
 import type { CashflowResponse } from "@/lib/computed-types";
 
 // ── Helpers ─────────────────────────────────────────────────────────────
@@ -56,24 +56,5 @@ describe("CashFlow", () => {
     render(<CashFlow data={BASE_DATA} />);
     const totals = screen.getAllByText("Total");
     expect(totals.length).toBe(2);
-  });
-});
-
-describe("CashFlowStatBar", () => {
-  it("renders net savings, invested, and CC payments", () => {
-    render(<CashFlowStatBar data={BASE_DATA} invested={1500} />);
-    expect(screen.getByText("Net Savings")).toBeTruthy();
-    expect(screen.getByText("Invested")).toBeTruthy();
-    expect(screen.getByText("CC Payments")).toBeTruthy();
-  });
-
-  it("shows savings rate percentage", () => {
-    render(<CashFlowStatBar data={BASE_DATA} invested={1500} />);
-    expect(screen.getAllByText("49%").length).toBeGreaterThanOrEqual(1);
-  });
-
-  it("shows period label when provided", () => {
-    render(<CashFlowStatBar data={BASE_DATA} invested={1500} period="YTD" />);
-    expect(screen.getByText("YTD Summary")).toBeTruthy();
   });
 });

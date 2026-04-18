@@ -8,14 +8,11 @@
 // Pipeline owns category name/order/target; colors live frontend-only so the
 // palette can be tuned without re-syncing D1.
 
-export const OKABE_ITO = {
+const OKABE_ITO = {
   blue: "#0072B2",
   green: "#009E73",
   orange: "#E69F00",
   skyBlue: "#56B4E9",
-  yellow: "#F0E442",
-  vermillion: "#D55E00",
-  reddishPurple: "#CC79A7",
 } as const;
 
 // ── Trade markers ───────────────────────────────────────────────────────

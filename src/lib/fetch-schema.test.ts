@@ -2,7 +2,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { z } from "zod";
-import { fetchWithSchema, FetchSchemaError } from "./fetch-schema";
+import { fetchWithSchema } from "./fetch-schema";
 
 const Shape = z.object({ ok: z.boolean(), n: z.number() });
 
@@ -25,15 +25,12 @@ describe("fetchWithSchema", () => {
     await expect(fetchWithSchema("/x", Shape)).resolves.toEqual({ ok: true, n: 42 });
   });
 
-  it("throws FetchSchemaError with HTTP status + text on non-2xx", async () => {
+  it("throws with HTTP status + text on non-2xx", async () => {
     mock({}, false, 503, "Service Unavailable");
-    await expect(fetchWithSchema("/x", Shape)).rejects.toSatisfy((e: unknown) => {
-      if (!(e instanceof FetchSchemaError)) return false;
-      return /HTTP 5\d\d/.test(e.message) && /Service Unavailable/.test(e.message);
-    });
+    await expect(fetchWithSchema("/x", Shape)).rejects.toThrow(/HTTP 5\d\d.*Service Unavailable/);
   });
 
-  it("throws FetchSchemaError with 'schema drift' prefix on parse failure", async () => {
+  it("throws with 'schema drift' prefix on parse failure", async () => {
     mock({ ok: "not a bool", n: 42 });
     await expect(fetchWithSchema("/x", Shape)).rejects.toThrow(/^schema drift:/);
   });
