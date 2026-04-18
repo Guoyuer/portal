@@ -1,16 +1,17 @@
 import type { EconSnapshot } from "@/lib/schemas";
+import { ECON_FORMATTERS, fmtSpreadSigned } from "@/lib/econ-formatters";
 
 const INDICATORS: { key: keyof EconSnapshot; label: string; format: (v: number) => string }[] = [
-  { key: "fedFundsRate", label: "Fed Rate", format: (v) => `${v.toFixed(2)}%` },
-  { key: "treasury10y", label: "10Y Treasury", format: (v) => `${v.toFixed(2)}%` },
-  { key: "spread2s10s", label: "2s10s Spread", format: (v) => `${v >= 0 ? "+" : ""}${(v * 100).toFixed(0)} bps` },
-  { key: "cpiYoy", label: "CPI (YoY)", format: (v) => `${v.toFixed(1)}%` },
-  { key: "coreCpiYoy", label: "Core CPI", format: (v) => `${v.toFixed(1)}%` },
-  { key: "unemployment", label: "Unemployment", format: (v) => `${v.toFixed(1)}%` },
-  { key: "vix", label: "VIX", format: (v) => v.toFixed(1) },
-  { key: "dxy", label: "DXY", format: (v) => v.toFixed(1) },
-  { key: "oilWti", label: "Oil (WTI)", format: (v) => `$${v.toFixed(0)}` },
-  { key: "usdCny", label: "USD/CNY", format: (v) => v.toFixed(4) },
+  { key: "fedFundsRate", label: "Fed Rate", format: ECON_FORMATTERS.fedFundsRate },
+  { key: "treasury10y", label: "10Y Treasury", format: ECON_FORMATTERS.treasury10y },
+  { key: "spread2s10s", label: "2s10s Spread", format: fmtSpreadSigned },
+  { key: "cpiYoy", label: "CPI (YoY)", format: ECON_FORMATTERS.cpiYoy },
+  { key: "coreCpiYoy", label: "Core CPI", format: ECON_FORMATTERS.coreCpiYoy },
+  { key: "unemployment", label: "Unemployment", format: ECON_FORMATTERS.unemployment },
+  { key: "vix", label: "VIX", format: ECON_FORMATTERS.vix },
+  { key: "dxy", label: "DXY", format: ECON_FORMATTERS.dxy },
+  { key: "oilWti", label: "Oil (WTI)", format: ECON_FORMATTERS.oilWti },
+  { key: "usdCny", label: "USD/CNY", format: ECON_FORMATTERS.usdCny },
 ];
 
 export function MacroCards({ snapshot }: { snapshot: EconSnapshot }) {

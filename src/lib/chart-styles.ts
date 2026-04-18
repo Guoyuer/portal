@@ -33,3 +33,16 @@ export function brushColors(isDark: boolean) {
     fill: isDark ? "rgba(8,145,178,0.2)" : "rgba(207,250,254,0.5)",
   } as const;
 }
+
+/** Liquid-glass styled legend wrapper to match `tooltipStyle()`. */
+export function legendStyle(isDark: boolean) {
+  return {
+    paddingTop: "8px",
+    background: isDark ? "rgba(255,255,255,0.03)" : "rgba(255,255,255,0.4)",
+    backdropFilter: "blur(12px)",
+    WebkitBackdropFilter: "blur(12px)",
+    borderRadius: "10px",
+    padding: "4px 12px",
+    border: `1px solid ${isDark ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.3)"}`,
+  };
+}
