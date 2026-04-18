@@ -629,47 +629,38 @@ class TestFormatText:
         assert "2026-04-10: $100.00" in body
         assert "no prior snapshot" in body
 
-    # PR-S8 Bug 3 regression: D1 Sync section on failure
-    def test_format_text_d1_section_omitted_on_success(self) -> None:
-        """exit_code=0 → no D1 Sync section (counts already in Changes block)."""
+    def test_format_text_no_blocked_at_on_success(self) -> None:
+        """exit_code=0 → header has no ``Blocked at`` line; Changes carries counts."""
         cl = SyncChangelog(
             fidelity_added=[("2026-04-10", "buy", "VOO", 1.0, -500.0)],
             computed_daily_added={"2026-04-10": 100.0},
         )
         body = format_text(cl, _ctx(exit_code=0))
-        # Changes block carries the counts; "D1 Sync" heading only renders on
-        # failure (with the 'not executed' line) to avoid duplicating numbers.
-        assert "D1 Sync" not in body
-        assert "not executed" not in body
-        # Changes block still surfaces the per-source lines.
+        assert "Blocked at" not in body
         assert "Fidelity: +1" in body
 
-    def test_format_text_d1_sync_on_parity_failure(self) -> None:
-        """exit_code=2 → 'not executed — blocked at parity check'."""
+    def test_format_text_header_blocked_at_on_parity_failure(self) -> None:
+        """exit_code=2 → header carries ``Blocked at: parity check (verify_vs_prod)``."""
         cl = SyncChangelog(
             fidelity_added=[("2026-04-10", "buy", "VOO", 1.0, -500.0)],
         )
         body = format_text(cl, _ctx(exit_code=2, status_label="PARITY GATE FAILED"))
-        assert "D1 Sync" in body
-        assert "not executed — blocked at parity check (verify_vs_prod)" in body
-        # Row-count lines must be suppressed — the sync never ran.
+        assert "Blocked at: parity check (verify_vs_prod)" in body
+        # No separate D1 Sync section and no duplicated row counts.
+        assert "D1 Sync" not in body
         assert "fidelity_transactions:" not in body
-        assert "computed_daily:" not in body
 
-    def test_format_text_d1_sync_on_build_failure(self) -> None:
-        """exit_code=1 → 'not executed — blocked at build'."""
+    def test_format_text_header_blocked_at_on_build_failure(self) -> None:
         body = format_text(SyncChangelog(), _ctx(exit_code=1, status_label="BUILD FAILED"))
-        assert "not executed — blocked at build" in body
+        assert "Blocked at: build" in body
 
-    def test_format_text_d1_sync_on_sync_failure(self) -> None:
-        """exit_code=3 → 'not executed — blocked at sync'."""
+    def test_format_text_header_blocked_at_on_sync_failure(self) -> None:
         body = format_text(SyncChangelog(), _ctx(exit_code=3, status_label="SYNC FAILED"))
-        assert "not executed — blocked at sync" in body
+        assert "Blocked at: sync" in body
 
-    def test_format_text_d1_sync_on_positions_failure(self) -> None:
-        """exit_code=4 → 'not executed — blocked at positions check'."""
+    def test_format_text_header_blocked_at_on_positions_failure(self) -> None:
         body = format_text(SyncChangelog(), _ctx(exit_code=4, status_label="POSITIONS GATE FAILED"))
-        assert "not executed — blocked at positions check (verify_positions)" in body
+        assert "Blocked at: positions check (verify_positions)" in body
 
     # PR-S8 Bug 4 regression: FRED line only renders when keys changed
     def test_format_text_fred_omitted_when_not_refreshed(self) -> None:
@@ -735,10 +726,10 @@ class TestFormatHtml:
         # Em-dash is plain Unicode, not HTML-escaped.
         assert "Unchanged — 2026-04-10" in html
 
-    def test_html_d1_sync_on_failure_passthrough(self) -> None:
-        """HTML body reflects the 'not executed' message on failure."""
+    def test_html_blocked_at_passthrough_on_failure(self) -> None:
+        """HTML body reflects the header's ``Blocked at`` line on failure."""
         html = format_html(SyncChangelog(), _ctx(exit_code=2))
-        assert "not executed — blocked at parity check (verify_vs_prod)" in html
+        assert "Blocked at: parity check (verify_vs_prod)" in html
 
 
 # ── build_subject() ──────────────────────────────────────────────────────────
