@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -313,15 +314,20 @@ def main() -> None:
     try:
         print(f"\nExecuting {total_rows} rows against D1 ({len(combined):,} bytes)...")
 
-        # Use shell=True on Windows so npx.cmd is found
+        # shutil.which resolves `npx` to `npx.cmd` on Windows (and the bare
+        # binary on macOS/Linux). Passing the resolved full path + arg list
+        # avoids shell=True + f-string quoting: the filename is passed
+        # directly to CreateProcess / exec.
+        npx = shutil.which("npx")
+        if npx is None:
+            print("Error: `npx` not found in PATH. Install Node.js or add npm bin to PATH.", file=sys.stderr)
+            sys.exit(1)
         remote_flag = "--local" if args.local else "--remote"
-        cmd = f'npx wrangler d1 execute portal-db {remote_flag} --file="{tmp}"'
         result = subprocess.run(
-            cmd,
+            [npx, "wrangler", "d1", "execute", "portal-db", remote_flag, f"--file={tmp}"],
             cwd=str(_WORKER_DIR),
             capture_output=True,
             text=True,
-            shell=True,
         )
 
         if result.returncode != 0:

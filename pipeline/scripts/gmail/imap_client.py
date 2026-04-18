@@ -5,11 +5,11 @@ don't depend on imaplib's awkward response shapes.
 """
 from __future__ import annotations
 
-import contextlib
 import email
 import email.policy
 import email.utils
 import imaplib
+import logging
 from dataclasses import dataclass
 from datetime import UTC, date, timedelta
 
@@ -73,8 +73,13 @@ def fetch_unread_last_24h(config: ImapConfig) -> list[ParsedMessage]:
                         break
         return out
     finally:
-        with contextlib.suppress(Exception):
+        # LOGOUT is a best-effort cleanup; the socket will get closed either
+        # way. But surface the reason if it fails so we notice a broken
+        # connection rather than silently leaking the session.
+        try:
             m.logout()
+        except Exception as e:  # noqa: BLE001 — imaplib raises OSError/imaplib.error; any is cleanup noise
+            logging.getLogger(__name__).warning("imap logout failed: %s", e)
 
 
 def parse_message(raw: bytes) -> ParsedMessage:

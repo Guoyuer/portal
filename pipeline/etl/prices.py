@@ -234,6 +234,10 @@ def _reverse_split_factor(d: date, splits: list[tuple[date, float]]) -> float:
 
 # ── Split cross-validation ──────────────────────────────────────────────────
 
+# Absolute share-count tolerance for matching a Yahoo split against a Fidelity
+# DISTRIBUTION row. Splits announce integer ratios (2:1, 3:2) and Fidelity
+# always rounds to whole shares, so any mismatch beyond a fractional sliver
+# is a real discrepancy worth raising.
 SPLIT_QTY_TOLERANCE = 0.01
 
 

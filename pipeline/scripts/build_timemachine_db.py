@@ -27,6 +27,7 @@ import sys
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from typing import cast
 
 # Ensure the pipeline package is importable
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -178,7 +179,9 @@ def _load_config(path: Path) -> RawConfig:
     if not isinstance(data, dict):
         msg = f"Config root must be an object, got {type(data).__name__}"
         raise ValueError(msg)
-    return data  # type: ignore[return-value]  # shape-validated at runtime by `etl.config.validate_config` on first downstream use
+    # TypedDict is structural-only at runtime; downstream `etl.config.validate_config`
+    # does the field-by-field check on first use, so trust it here.
+    return cast(RawConfig, data)
 
 
 def _ingest_fidelity_csvs(paths: BuildPaths) -> None:
@@ -472,11 +475,13 @@ def _build_source_config(paths: BuildPaths, config: RawConfig) -> RawConfig:
     ``compute_daily_allocation`` threads this dict straight into each source
     module's ``positions_at`` via :class:`AllocationSources.source_config`.
     """
-    return dict(config) | {  # type: ignore[return-value]  # pragma: no cover (typed dict widening)
+    # `dict(td) | {...}` widens the TypedDict to a plain dict; the new keys
+    # are valid RawConfig fields so the resulting shape is still a RawConfig.
+    return cast(RawConfig, dict(config) | {
         "fidelity_downloads": paths.downloads,
         "robinhood_downloads": paths.downloads,
         "empower_downloads": paths.downloads,
-    }
+    })
 
 
 def _full_build(

@@ -38,6 +38,9 @@ QJ_EXPENSE = "expense"
 QJ_TRANSFER = "transfer"
 QJ_REPAYMENT = "repayment"
 
+# Strip everything except digits, dot and minus. Fidelity / Robinhood CSVs
+# format currency as "$1,234.56", "+$100.00", "($50.00)" — drop the symbol
+# and grouping comma, keep the sign.
 CURRENCY_RE = re.compile(r"[^0-9.-]")
 
 
