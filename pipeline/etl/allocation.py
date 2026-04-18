@@ -153,7 +153,8 @@ def _add_qianji_balances(
             ticker_values[ticker] = ticker_values.get(ticker, 0) + usd_val
         else:
             log.warning(
-                "Qianji account %r (%s %.2f → $%.2f USD) has no ticker_map entry — excluded from allocation",
+                "Qianji account %r (%s %.2f → $%.2f USD) has no ticker_map entry "
+                "(add a mapping under config.json → ticker_map.<account>) — excluded from allocation",
                 qj_acct, curr, bal, usd_val,
             )
 
