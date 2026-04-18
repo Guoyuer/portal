@@ -1,0 +1,91 @@
+name: Regression baseline refresh
+
+# Refreshes the committed L1 regression baselines
+# (``pipeline/tests/regression/baseline/*.sha256`` + ``*.json``) from the
+# committed synthetic fixtures under ``pipeline/tests/fixtures/regression/``.
+# L3 (``timeline.sha256``) is NOT touched — it needs wrangler + the worker and
+# is still a manual local step via ``scripts/regression_baseline.sh``.
+#
+# To use: attach the ``baseline-refresh`` label to a PR. CI builds the fixture
+# DB, rewrites the L1 hashes, commits back to the PR branch, and removes the
+# label so a follow-up push does not re-trigger the run.
+
+on:
+  pull_request:
+    types: [labeled]
+
+concurrency:
+  group: baseline-refresh-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    if: github.event.label.name == 'baseline-refresh'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pipeline/requirements.txt
+
+      - name: Install pipeline deps
+        run: pip install -r pipeline/requirements.txt
+
+      - name: Rebuild L1 baselines from fixtures
+        working-directory: pipeline
+        run: python scripts/refresh_l1_baseline_from_fixtures.py
+
+      - name: Commit + push if changed
+        id: commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Only .sha256 is tracked; .json dumps are gitignored (see
+          # pipeline/tests/regression/baseline/.gitignore — they can embed
+          # personal data when run against real user DBs).
+          git add pipeline/tests/regression/baseline/computed_daily.sha256 \
+                  pipeline/tests/regression/baseline/computed_daily_tickers.sha256
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No baseline changes — nothing to commit."
+            exit 0
+          fi
+          git commit -m "chore(regression): refresh L1 baselines (triggered by label)"
+          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Comment on PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ steps.commit.outputs.changed }}" = "true" ]; then
+            gh pr comment "${{ github.event.pull_request.number }}" \
+              --body "Baselines refreshed from fixtures. Review the diff and re-run CI."
+          else
+            gh pr comment "${{ github.event.pull_request.number }}" \
+              --body "No baseline changes — fixture-derived hashes already match the committed values."
+          fi
+
+      - name: Remove label
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr edit "${{ github.event.pull_request.number }}" \
+            --remove-label baseline-refresh || true
