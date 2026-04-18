@@ -7,7 +7,7 @@ import pytest
 
 from etl.db import init_db
 from etl.parsing import parse_us_date
-from etl.sources.fidelity import _ingest_one_csv
+from etl.sources.fidelity.parse import _ingest_one_csv
 
 
 class TestFidelityDateParse:
