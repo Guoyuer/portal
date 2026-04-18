@@ -545,6 +545,52 @@ class TestSplitCrossValidation:
         finally:
             conn.close()
 
+    def test_reverse_split_pair_passes(self, tmp_path: Path) -> None:
+        """Reverse 1:10 split (ratio=0.1) on 100 pre-split shares → Fidelity
+        records a REDEMPTION (-100) + DISTRIBUTION (+10) pair whose net is
+        -90, matching ``pre_qty × (ratio - 1) = 100 × -0.9 = -90``. The
+        validator must accept this without false-positive; previously only
+        the DISTRIBUTION leg was queried and the REDEMPTION row was ignored,
+        so the check fired ``expected=-90, got=+10``."""
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        # Pre-split holding: 100 shares bought before the split.
+        _seed_fidelity_txn(db_path, "2023-01-15", "BOGUS", "buy", 100.0)
+        # Reverse split day: turn-in 100 old shares + receive 10 new.
+        _seed_fidelity_txn(db_path, "2024-06-01", "BOGUS", "redemption", -100.0)
+        _seed_fidelity_txn(db_path, "2024-06-01", "BOGUS", "distribution", 10.0)
+        conn = get_connection(db_path)
+        try:
+            _validate_splits_against_transactions(
+                conn,
+                {"BOGUS": (date(2023, 1, 15), None)},
+                {"BOGUS": [(date(2024, 6, 1), 0.1)]},
+                today=date(2024, 12, 1),
+            )
+        finally:
+            conn.close()
+
+    def test_reverse_split_with_missing_redemption_raises(self, tmp_path: Path) -> None:
+        """Reverse split where only the DISTRIBUTION leg (+10) made it into the
+        DB — the REDEMPTION (-100) is missing, so net=+10 but expected=-90.
+        Must fail loud so the operator knows Fidelity's CSV is incomplete."""
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        _seed_fidelity_txn(db_path, "2023-01-15", "BOGUS", "buy", 100.0)
+        # Missing the REDEMPTION leg — only +10 distribution recorded.
+        _seed_fidelity_txn(db_path, "2024-06-01", "BOGUS", "distribution", 10.0)
+        conn = get_connection(db_path)
+        try:
+            with pytest.raises(SplitValidationError, match="BOGUS.*expected.*-90"):
+                _validate_splits_against_transactions(
+                    conn,
+                    {"BOGUS": (date(2023, 1, 15), None)},
+                    {"BOGUS": [(date(2024, 6, 1), 0.1)]},
+                    today=date(2024, 12, 1),
+                )
+        finally:
+            conn.close()
+
     def test_multi_mismatch_report_includes_all(self, tmp_path: Path) -> None:
         """Every mismatch is aggregated into a single error message so the
         operator sees the full damage in one run."""
