@@ -68,6 +68,17 @@ jobs:
           cat "$GITHUB_WORKSPACE/wrangler.log" || true
           exit 1
 
+      # ── Zod smoke: /timeline vs. frontend schema ──────────────
+      # Worker doesn't validate at runtime (thin SELECT→JSON adapter,
+      # see CLAUDE.md "Worker stays thin"), so a Zod-vs-view drift
+      # would only surface when a user loads the page in prod. This
+      # step runs `TimelineDataSchema.safeParse` against the live
+      # wrangler response — drift fails CI here with a clean
+      # path.message, not downstream as a cryptic Playwright render
+      # error. Runs before the Next build for fast feedback.
+      - name: Validate /timeline against Zod schema
+        run: npx tsx scripts/validate_timeline_zod.ts
+
       # ── Build Next static pointing at the real Worker ─────────
       # NEXT_PUBLIC_TIMELINE_URL is baked into the JS bundle at build
       # time, so this MUST happen after wrangler is up (the build
