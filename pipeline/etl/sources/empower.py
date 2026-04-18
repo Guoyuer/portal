@@ -5,10 +5,7 @@ Owns:
   - Ingest into ``empower_snapshots`` + ``empower_funds`` + ``empower_contributions``.
   - Per-day position lookup: latest snapshot at-or-before ``as_of``, with
     per-fund value scaled by proxy-ticker returns and augmented by any
-    contributions made between the snapshot date and ``as_of``. The proxy
-    interpolation mirrors the legacy ``etl.k401.daily_401k_values`` (which
-    was removed in the Phase 5 refactor) so that migrated output matches the
-    pre-refactor baseline row-for-row.
+    contributions made between the snapshot date and ``as_of``.
 
 QFX files don't carry cost basis, so every ``PositionRow`` here returns
 ``cost_basis_usd=None`` — the spec-documented Empower invariant.
@@ -273,7 +270,7 @@ def positions_at(
 ) -> list[PositionRow]:
     """Return one :class:`PositionRow` per 401k config ticker, scaled to ``as_of``.
 
-    Algorithm mirrors the legacy ``etl.k401.daily_401k_values`` (removed):
+    Algorithm:
 
     1. Find latest snapshot with ``snapshot_date <= as_of``. If none, return
        ``[]`` (before-first-snapshot is a real case during historical replay).

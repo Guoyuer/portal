@@ -41,9 +41,7 @@ from etl.types import (
     ACT_WITHDRAWAL,
     FidelityTransaction,
 )
-from etl.types import (
-    parse_float as _parse_float,
-)
+from etl.types import parse_currency as _parse_float
 
 log = logging.getLogger(__name__)
 
@@ -160,7 +158,7 @@ def _csv_earliest_date(path: Path) -> str:
     return min(d[6:10] + d[0:2] + d[3:5] for d in dates)
 
 
-def _parse_csv_text(text: str, *, source: str = "CSV text") -> list[FidelityTransaction]:
+def _parse_csv_text(text: str, *, origin: str = "CSV text") -> list[FidelityTransaction]:
     """Parse Fidelity history CSV text into structured transaction records."""
     if text.startswith("\ufeff"):
         text = text[1:]
@@ -185,7 +183,7 @@ def _parse_csv_text(text: str, *, source: str = "CSV text") -> list[FidelityTran
         if not STRICT_US_DATE_RE.match(run_date):
             continue
 
-        iso_date = parse_us_date(run_date, strict=True, row_context=f"{source} row {row_num}")
+        iso_date = parse_us_date(run_date, strict=True, row_context=f"{origin} row {row_num}")
 
         raw_action = (row.get("Action") or "").strip()
         symbol = (row.get("Symbol") or "").strip()
@@ -220,7 +218,7 @@ def _parse_csv_text(text: str, *, source: str = "CSV text") -> list[FidelityTran
 
 def load_transactions(csv_path: Path) -> list[FidelityTransaction]:
     """Load Fidelity Accounts History CSV from a file path into memory."""
-    txns = _parse_csv_text(csv_path.read_text(encoding="utf-8-sig"), source=csv_path.name)
+    txns = _parse_csv_text(csv_path.read_text(encoding="utf-8-sig"), origin=csv_path.name)
     by_type: dict[str, int] = {}
     for t in txns:
         by_type[t["action_type"]] = by_type.get(t["action_type"], 0) + 1

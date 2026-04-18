@@ -50,10 +50,6 @@ def parse_currency(val: str) -> float:
     return float(CURRENCY_RE.sub("", val))
 
 
-# Alias for non-currency numeric parsing (same logic)
-parse_float = parse_currency
-
-
 # ── Config / Portfolio types ────────────────────────────────────────────────
 
 

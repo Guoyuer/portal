@@ -9,7 +9,7 @@ This module reconstructs historical asset allocation by combining:
 
 The per-day math is isolated in ``step_one_day(state, sources, current)`` —
 a pure function with no I/O. ``compute_daily_allocation`` is the orchestrator
-that refreshes ``ReplayState`` when Qianji transactions change, then delegates
+that refreshes ``QianjiBalanceCache`` when Qianji transactions change, then delegates
 the valuation to ``step_one_day``. Anything that has full per-day state in
 hand (e.g. a CI projection script reconstructing state from D1) can call
 ``step_one_day`` directly without touching the Python replay engines.
@@ -37,7 +37,7 @@ log = logging.getLogger(__name__)
 # respective ingest tables are populated. The Robinhood account stays
 # data-gated on the CSV's presence — a user who never exported Robinhood
 # activity still has their Qianji balance counted.
-_FIDELITY_REPLAY_ACCOUNTS = frozenset({
+_FIDELITY_SUPERSEDED_QJ_ACCOUNTS = frozenset({
     "Fidelity taxable",
     "Roth IRA",
     "Fidelity Cash Management",
@@ -181,22 +181,20 @@ class AllocationSources:
 
 
 @dataclass
-class ReplayState:
-    """Qianji balances as of the most recent replay.
+class QianjiBalanceCache:
+    """Qianji per-account balances reused across contiguous days.
 
-    ``compute_daily_allocation`` rebinds ``qj_balances`` whenever new Qianji
-    transactions mean the state has changed; ``step_one_day`` only reads.
-    Fidelity / Robinhood / Empower replay state lives inside each source —
-    not here — so this dataclass no longer needs position/cash/cost-basis
-    fields. Kept as a dataclass (rather than a bare dict) so future per-day
-    shared state has an obvious home.
+    ``compute_daily_allocation`` rebinds ``qj_balances`` only when Qianji
+    transactions fall into the current day's window; on other days the
+    cache is reused verbatim. Every investment source self-manages its
+    own replay — none of its state lives here.
     """
 
     qj_balances: dict[str, float] = field(default_factory=dict)
 
 
 def step_one_day(
-    state: ReplayState,
+    state: QianjiBalanceCache,
     sources: AllocationSources,
     current: date,
 ) -> AllocationRow:
@@ -285,7 +283,7 @@ def _build_sources(
     # Robinhood is data-gated on the CSV glob's presence — the
     # ``_csv_paths`` helper encapsulates the "does the user have any
     # Robinhood export?" question (empty list when the directory's missing).
-    skip_qj = _FIDELITY_REPLAY_ACCOUNTS | {"401k"}
+    skip_qj = _FIDELITY_SUPERSEDED_QJ_ACCOUNTS | {"401k"}
     source_config: dict[str, object] = dict(config)
     if _robinhood_csv_paths(source_config):
         skip_qj = skip_qj | {"Robinhood"}
@@ -315,7 +313,7 @@ def compute_daily_allocation(
 
     Orchestrates per-day valuation. The math is in ``step_one_day``; this
     function just decides when to re-run the Qianji replay to keep
-    ``ReplayState`` current. Every source module self-manages its replay
+    ``QianjiBalanceCache`` current. Every source module self-manages its replay
     inside its ``positions_at`` function; none needs state here.
 
     Args:
@@ -333,7 +331,7 @@ def compute_daily_allocation(
     qj_txn_dates = set(_qianji_transaction_dates(qj_db))
 
     results: list[AllocationRow] = []
-    state = ReplayState()
+    state = QianjiBalanceCache()
     last_qj_replay: date | None = None
     qj_replayed = False
 

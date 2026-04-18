@@ -128,9 +128,7 @@ def main(argv: list[str] | None = None) -> int:
     expected = load_positions(args.positions)
     # The script's contract says "all time" when --as-of is omitted and the
     # filename can't be parsed. The primitive needs a concrete date — use
-    # today's date as the inclusive upper bound, which behaves identically
-    # to legacy ``replay_from_db(as_of=None)`` for any DB whose latest
-    # txn_date is on or before today.
+    # today's date as the inclusive upper bound (effectively all rows).
     replay_as_of = as_of if as_of is not None else date.today()
     result = replay_transactions(_DB_PATH, FIDELITY_REPLAY, replay_as_of)
     computed: dict[tuple[str, str], float] = {key: st.quantity for key, st in result.positions.items()}

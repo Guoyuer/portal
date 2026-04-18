@@ -21,7 +21,7 @@ import sqlite3
 import sys
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -280,53 +280,28 @@ def _fetch_live_cny_rate() -> float:
     return rate
 
 
-def _build_snapshot(
-    db_path: Path,
-    balances: dict[str, tuple[float, str]],
-    cny_rate: float,
-) -> dict[str, Any]:
-    """Build a snapshot dict from balances, DB file modification time, and a pre-fetched CNY rate.
-
-    The rate is passed in (rather than fetched here) so ``load_all_from_db``
-    can share one Yahoo call across both :func:`_load_records` (for the
-    cross-currency data-quirk fallback in :func:`parse_qj_amount`) and this
-    snapshot — the user's monthly cashflow math and their balance snapshot
-    must use the same rate, and two separate fetches would risk drift.
-    """
-    mtime = os.path.getmtime(db_path)
-    return {
-        "date": datetime.fromtimestamp(mtime, tz=UTC).strftime("%Y-%m-%d"),
-        "cny_rate": cny_rate,
-        "balances": {name: bal for name, (bal, _) in balances.items()},
-        "currencies": {name: curr for name, (_, curr) in balances.items()},
-    }
-
-
 def load_all_from_db(
     db_path: Path = DEFAULT_DB_PATH,
     *,
     historical_cny_rates: Mapping[date, float] | None = None,
-) -> tuple[list[QianjiRecord], dict[str, Any]]:
-    """Load both cashflow records and balances in a single DB connection.
+) -> list[QianjiRecord]:
+    """Load Qianji cashflow records.
 
-    The live USD/CNY rate is fetched once: records use it only as a fallback
-    when ``historical_cny_rates`` is missing or doesn't cover the bill's
-    date; the snapshot still uses the live rate directly because it
-    represents current account balances. Returns ``([], {})`` when the
-    Qianji DB file doesn't exist.
+    The live USD/CNY rate is fetched as a last-resort fallback for
+    :func:`parse_qj_amount`'s cross-currency quirk handling — in normal
+    operation ``historical_cny_rates`` covers every bill's date (with
+    7-day weekend walk-back). Returns ``[]`` when the Qianji DB file
+    doesn't exist.
     """
     if not db_path.exists():
-        return [], {}
+        return []
 
     cny_rate = _fetch_live_cny_rate()
     conn = get_readonly_connection(db_path)
     try:
-        records = _load_records(
+        return _load_records(
             conn, cny_rate=cny_rate, historical_cny_rates=historical_cny_rates,
         )
-        balances = _load_balances(conn)
-        snapshot = _build_snapshot(db_path, balances, cny_rate)
-        return records, snapshot
     finally:
         conn.close()
 
@@ -415,15 +390,11 @@ def qianji_balances_at(db_path: Path, as_of: date | None = None) -> QianjiSnapsh
         log.warning("Qianji DB not found: %s", db_path)
         return QianjiSnapshot()
 
-    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    conn = get_readonly_connection(db_path)
     try:
-        balances: dict[str, float] = {}
-        currencies: dict[str, str] = {}
-        for name, money, currency in conn.execute(
-            "SELECT name, money, currency FROM user_asset WHERE status = 0"
-        ):
-            balances[name] = float(money)
-            currencies[name] = currency or _BASE_CURRENCY
+        raw = _load_balances(conn)
+        balances = {name: money for name, (money, _) in raw.items()}
+        currencies = {name: curr for name, (_, curr) in raw.items()}
 
         if as_of is None:
             return QianjiSnapshot(balances=balances, currencies=currencies)
