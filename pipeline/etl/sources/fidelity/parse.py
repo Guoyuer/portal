@@ -1,14 +1,11 @@
 """Fidelity Accounts_History CSV → ``fidelity_transactions`` rows.
 
 Owns:
-  - Action classification (verbose Fidelity ``Action`` strings → canonical
-    ``ACT_*`` legacy labels → normalized :class:`ActionKind`).
-  - CSV parsing (``_parse_csv_text`` / :func:`load_transactions`).
+  - Action classification (verbose Fidelity ``Action`` strings →
+    ``ACT_*`` labels for the ``action_type`` column → normalized
+    :class:`ActionKind` for the ``action_kind`` column).
   - Header detection + chronological ordering (``_csv_earliest_date``).
   - Per-file range-replace ingest (:func:`_ingest_one_csv`).
-
-All public names stay re-exported from :mod:`etl.sources.fidelity` for the
-existing call sites (build script, tests, migration).
 """
 from __future__ import annotations
 

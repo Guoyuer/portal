@@ -22,17 +22,7 @@ from etl.replay import ReplayConfig, replay_transactions
 from etl.sources._types import PositionRow, PriceContext
 
 from . import cash, parse, pricing
-
-# Re-exports consumed by tests + the Fidelity action_kind migration. Keeping
-# these at package-level means ``from etl.sources.fidelity import ...`` call
-# sites survive the split.
-from .parse import (
-    TABLE,
-    _classify_action,
-    _csv_earliest_date,
-    _ingest_one_csv,
-    classify_fidelity_action,
-)
+from .parse import TABLE, classify_fidelity_action
 
 # Fidelity-specific money-market fund tickers. Treated as $1/share cash, so
 # they stay out of the per-share position accumulator and instead flow
@@ -57,9 +47,6 @@ __all__ = [
     "FIDELITY_REPLAY",
     "MM_SYMBOLS",
     "TABLE",
-    "_classify_action",
-    "_csv_earliest_date",
-    "_ingest_one_csv",
     "classify_fidelity_action",
     "ingest",
     "positions_at",

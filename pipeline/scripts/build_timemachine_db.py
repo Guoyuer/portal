@@ -198,7 +198,7 @@ def _ingest_fidelity_csvs(paths: BuildPaths) -> None:
             print(f"  ERROR: --csv file not found: {paths.csv}")
             sys.exit(1)
         print(f"  Using single CSV: {paths.csv}")
-        fidelity_src._ingest_one_csv(paths.db_path, paths.csv)
+        fidelity_src.parse._ingest_one_csv(paths.db_path, paths.csv)
         return
 
     print(f"  Ingesting from {paths.downloads}...")
