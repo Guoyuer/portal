@@ -10,12 +10,14 @@
 // src/lib/schemas.
 
 import type { TimelineErrors } from "../../src/lib/schemas";
+import { TTLS } from "./config";
 import {
   cachedJson,
   dbError,
   errorResponse,
   jsonResponse,
   notFoundResponse,
+  querySyncMeta,
   settled,
 } from "./utils";
 
@@ -51,15 +53,14 @@ async function handleTimeline(env: Env): Promise<Response> {
   // D1's `.all<T>()` generic is a compile-time shape hint (not runtime-checked),
   // so we still lean on the frontend Zod parse for actual validation. But the
   // generic replaces later `as` casts and catches refactor typos.
-  type KVRow = { key: string; value: string };
-  const [tickers, fidelity, qianji, indices, holdings, syncMetaRows] =
+  const [tickers, fidelity, qianji, indices, holdings, syncMetaResult] =
     await Promise.all([
       settled(env.DB.prepare("SELECT * FROM v_daily_tickers").all()),
       settled(env.DB.prepare("SELECT * FROM v_fidelity_txns").all()),
       settled(env.DB.prepare("SELECT * FROM v_qianji_txns").all()),
       settled(env.DB.prepare("SELECT * FROM v_market_indices").all()),
       settled(env.DB.prepare("SELECT * FROM v_holdings_detail").all()),
-      settled(env.DB.prepare("SELECT key, value FROM sync_meta").all<KVRow>()),
+      settled(querySyncMeta(env.DB)),
     ]);
 
   const errors: TimelineErrors = {};
@@ -79,8 +80,8 @@ async function handleTimeline(env: Env): Promise<Response> {
   if (!holdings.ok) errors.holdings = holdings.error;
 
   // syncMeta is informational — failure is silent (not included in errors).
-  const syncMeta: Record<string, string> | null = syncMetaRows.ok
-    ? Object.fromEntries(syncMetaRows.value.results.map((r) => [r.key, r.value]))
+  const syncMeta = syncMetaResult.ok && Object.keys(syncMetaResult.value).length > 0
+    ? syncMetaResult.value
     : null;
 
   const payload = {
@@ -91,7 +92,7 @@ async function handleTimeline(env: Env): Promise<Response> {
     categories: categories.results,
     market,
     holdingsDetail: holdings.ok ? holdings.value.results : null,
-    syncMeta: syncMeta && Object.keys(syncMeta).length > 0 ? syncMeta : null,
+    syncMeta,
     errors,
   };
 
@@ -103,12 +104,11 @@ async function handleTimeline(env: Env): Promise<Response> {
 async function handleEcon(env: Env): Promise<Response> {
   type SeriesRow = { key: string; points: string };
   type NumKVRow = { key: string; value: number };
-  type StrKVRow = { key: string; value: string };
   try {
-    const [seriesRows, snapshotRows, syncMetaRows] = await Promise.all([
+    const [seriesRows, snapshotRows, syncMeta] = await Promise.all([
       env.DB.prepare("SELECT key, points FROM v_econ_series_grouped").all<SeriesRow>(),
       env.DB.prepare("SELECT key, value FROM v_econ_snapshot").all<NumKVRow>(),
-      env.DB.prepare("SELECT key, value FROM sync_meta").all<StrKVRow>(),
+      querySyncMeta(env.DB),
     ]);
 
     // Each row's `points` is a JSON string (json_group_array output); the
@@ -121,11 +121,6 @@ async function handleEcon(env: Env): Promise<Response> {
     const snapshot: Record<string, number> = {};
     for (const r of snapshotRows.results) {
       snapshot[r.key] = r.value;
-    }
-
-    const syncMeta: Record<string, string> = {};
-    for (const r of syncMetaRows.results) {
-      syncMeta[r.key] = r.value;
     }
 
     const payload = {
@@ -163,13 +158,6 @@ async function handlePrices(env: Env, symbol: string): Promise<Response> {
 
 // ── Entry ────────────────────────────────────────────────────────────────
 
-// Edge-cache TTLs (seconds). /timeline refreshes on nightly sync + local
-// sync; 60s staleness is invisible to a human reloading the dashboard.
-// /econ and /prices rarely change intraday so we cache harder.
-const TTL_TIMELINE_S = 60;
-const TTL_ECON_S = 600;
-const TTL_PRICES_S = 300;
-
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
@@ -185,17 +173,17 @@ export default {
     }
 
     if (pathname === "/econ") {
-      return cachedJson(request, ctx, TTL_ECON_S, () => handleEcon(env));
+      return cachedJson(request, ctx, TTLS.econ, () => handleEcon(env));
     }
 
     const priceMatch = pathname.match(/^\/prices\/([A-Za-z0-9.^=-]+)$/);
     if (priceMatch) {
       const symbol = decodeURIComponent(priceMatch[1]).toUpperCase();
-      return cachedJson(request, ctx, TTL_PRICES_S, () => handlePrices(env, symbol));
+      return cachedJson(request, ctx, TTLS.prices, () => handlePrices(env, symbol));
     }
 
     if (pathname === "/timeline") {
-      return cachedJson(request, ctx, TTL_TIMELINE_S, () => handleTimeline(env));
+      return cachedJson(request, ctx, TTLS.timeline, () => handleTimeline(env));
     }
 
     return notFoundResponse();

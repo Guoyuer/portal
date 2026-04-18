@@ -1,5 +1,6 @@
 import { upsertEmails, listActiveLast7Days, markTrashed } from "./db.js";
 import type { Category, UpsertInput } from "./types.js";
+import { errorResponse, jsonResponse, notFoundResponse, parseJsonBody, statusResponse } from "./utils.js";
 
 // Mail-sync body validator — no Zod dep to keep the worker bundle small.
 // Returns the validated rows on success, or a short error string on failure.
@@ -152,77 +153,79 @@ export async function imapTrashMessage(
   }
 }
 
+// ── Route handlers ────────────────────────────────────────────────────────
+
+// Route table uses the FULL incoming path — the two audiences live at
+// disjoint prefixes:
+//   /api/mail/list, /api/mail/trash   → browser on portal.guoyuer.com
+//                                       (pre-gated by the portal Access app)
+//   /mail/sync                        → GitHub Actions cron on
+//                                       portal-mail.guoyuer.com (SYNC_SECRET)
+// Bare /mail/list and /mail/trash no longer respond: they'd only be
+// reachable by hitting portal-mail.guoyuer.com directly, which this
+// Worker intentionally does not expose to user sessions.
+
+async function handleSync(request: Request, env: Env): Promise<Response> {
+  if (request.headers.get("X-Sync-Secret") !== env.SYNC_SECRET) {
+    return errorResponse("unauthorized", 401);
+  }
+  const body = await parseJsonBody(request);
+  if (body instanceof Response) return body;
+  const rows = validateSyncBody(body);
+  if (typeof rows === "string") return errorResponse(rows, 400);
+  const result = await upsertEmails(env.DB, rows);
+  return jsonResponse({ inserted: result.inserted, skipped_existing: result.skipped });
+}
+
+async function handleList(_request: Request, env: Env): Promise<Response> {
+  const rows = await listActiveLast7Days(env.DB);
+  // Cache-Control: no-store so the browser re-fetches fresh state after a
+  // trash action (the optimistic UI rollback relies on a follow-up list).
+  return jsonResponse(
+    { emails: rows, as_of: new Date().toISOString() },
+    { headers: { "Cache-Control": "no-store" } },
+  );
+}
+
+function extractMsgId(body: unknown): string | null {
+  if (typeof body !== "object" || body === null) return null;
+  const msgId = (body as Record<string, unknown>).msg_id;
+  return typeof msgId === "string" && msgId ? msgId : null;
+}
+
+async function handleTrash(request: Request, env: Env): Promise<Response> {
+  const body = await parseJsonBody(request);
+  if (body instanceof Response) return body;
+  const msgId = extractMsgId(body);
+  if (!msgId) return errorResponse("missing msg_id", 400);
+
+  const result = await imapTrashMessage(env.SMTP_USER, env.SMTP_PASSWORD, msgId);
+
+  if (result === "trashed") {
+    await markTrashed(env.DB, msgId);
+    return statusResponse("trashed");
+  }
+  if (result === "not_found") {
+    // Email already gone from Gmail (user trashed elsewhere). Update D1 to match.
+    await markTrashed(env.DB, msgId);
+    return statusResponse("already_gone");
+  }
+  if (result === "auth_failed") return statusResponse("auth_failed", 503);
+  return statusResponse("error", 503);
+}
+
+type Handler = (request: Request, env: Env) => Promise<Response>;
+const ROUTES: { method: string; path: string; handler: Handler }[] = [
+  { method: "POST", path: "/mail/sync", handler: handleSync },
+  { method: "GET", path: "/api/mail/list", handler: handleList },
+  { method: "POST", path: "/api/mail/trash", handler: handleTrash },
+];
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
-    const pathname = url.pathname;
-
-    // Route table uses the FULL incoming path — the two audiences live at
-    // disjoint prefixes:
-    //   /api/mail/list, /api/mail/trash   → browser on portal.guoyuer.com
-    //                                       (pre-gated by the portal Access app)
-    //   /mail/sync                        → GitHub Actions cron on
-    //                                       portal-mail.guoyuer.com (SYNC_SECRET)
-    // Bare /mail/list and /mail/trash no longer respond: they'd only be
-    // reachable by hitting portal-mail.guoyuer.com directly, which this
-    // Worker intentionally does not expose to user sessions.
-
-    if (pathname === "/mail/sync" && request.method === "POST") {
-      if (request.headers.get("X-Sync-Secret") !== env.SYNC_SECRET) {
-        return Response.json({ error: "unauthorized" }, { status: 401 });
-      }
-      let body: unknown;
-      try {
-        body = await request.json();
-      } catch {
-        return Response.json({ error: "invalid json" }, { status: 400 });
-      }
-      const rows = validateSyncBody(body);
-      if (typeof rows === "string") {
-        return Response.json({ error: rows }, { status: 400 });
-      }
-      const result = await upsertEmails(env.DB, rows);
-      return Response.json({ inserted: result.inserted, skipped_existing: result.skipped });
-    }
-    if (pathname === "/api/mail/list" && request.method === "GET") {
-      const rows = await listActiveLast7Days(env.DB);
-      // Cache-Control: no-store so the browser re-fetches fresh state after a
-      // trash action (the optimistic UI rollback relies on a follow-up list).
-      return Response.json(
-        { emails: rows, as_of: new Date().toISOString() },
-        { headers: { "Cache-Control": "no-store" } },
-      );
-    }
-    if (pathname === "/api/mail/trash" && request.method === "POST") {
-      let body: unknown;
-      try {
-        body = await request.json();
-      } catch {
-        return Response.json({ error: "invalid json" }, { status: 400 });
-      }
-      const msgId = (body as Record<string, unknown> | null)?.msg_id;
-      if (typeof msgId !== "string" || !msgId) {
-        return Response.json({ error: "missing msg_id" }, { status: 400 });
-      }
-      // Re-bind so subsequent uses stay typed as `string`
-      const parsedMsgId: string = msgId;
-
-      const result = await imapTrashMessage(env.SMTP_USER, env.SMTP_PASSWORD, parsedMsgId);
-
-      if (result === "trashed") {
-        await markTrashed(env.DB, parsedMsgId);
-        return Response.json({ status: "trashed" });
-      }
-      if (result === "not_found") {
-        // Email already gone from Gmail (user trashed elsewhere). Update D1 to match.
-        await markTrashed(env.DB, parsedMsgId);
-        return Response.json({ status: "already_gone" });
-      }
-      if (result === "auth_failed") {
-        return Response.json({ status: "auth_failed" }, { status: 503 });
-      }
-      return Response.json({ status: "error" }, { status: 503 });
-    }
-    return new Response("Not found", { status: 404 });
+    const pathname = new URL(request.url).pathname;
+    const route = ROUTES.find((r) => r.path === pathname && r.method === request.method);
+    if (!route) return notFoundResponse();
+    return route.handler(request, env);
   },
 } satisfies ExportedHandler<Env>;
