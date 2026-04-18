@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ECON_URL } from "@/lib/config";
+import { ECON_URL, FETCH_TIMEOUT_MS } from "@/lib/config";
 import { fetchWithSchema } from "@/lib/fetch-schema";
 import { EconDataSchema, type EconData, type EconPoint } from "@/lib/schemas";
 import { Button } from "@/components/ui/button";
@@ -65,7 +65,7 @@ export default function EconPage() {
     setLoading(true);
     setError(null);
     try {
-      setData(await fetchWithSchema(ECON_URL, EconDataSchema, { cache: "no-store", timeoutMs: 10_000 }));
+      setData(await fetchWithSchema(ECON_URL, EconDataSchema, { cache: "no-store", timeoutMs: FETCH_TIMEOUT_MS }));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load economic data");
     } finally {

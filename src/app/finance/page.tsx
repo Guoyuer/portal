@@ -11,7 +11,6 @@ import { IncomeExpensesChart } from "@/components/finance/charts";
 import { MetricCards } from "@/components/finance/metric-cards";
 import { CashFlow } from "@/components/finance/cash-flow";
 import { MarketContext } from "@/components/finance/market-context";
-import { NetWorthGrowth } from "@/components/finance/net-worth-growth";
 import { BackToTop } from "@/components/layout/back-to-top";
 import { TimemachineSection, StickyBrush } from "@/components/finance/timemachine";
 import { FinanceSkeleton } from "@/components/loading-skeleton";
@@ -30,12 +29,6 @@ function SyncStatus({ syncMeta }: { syncMeta: Record<string, string> | null }) {
 }
 
 // ── Sections ─────────────────────────────────────────────────────────
-
-const SECTION_LABELS = {
-  "cashflow": "Cash Flow",
-  "fidelity-activity": "Fidelity Activity",
-  "market": "Market",
-} as const;
 
 type CashflowData = NonNullable<ReturnType<typeof useBundle>["cashflow"]>;
 
@@ -141,14 +134,14 @@ export default function FinancePage() {
 
       {/* ── 2. Timemachine ─────────────────────────────────────────────── */}
       <ErrorBoundary fallback={<SectionError label="Timemachine" />}>
-        <TimemachineSection timeline={tl} fallback={<NetWorthGrowth data={[]} />} />
+        <TimemachineSection timeline={tl} />
       </ErrorBoundary>
 
       {/* ── 3. Portfolio Activity ───────────────────────────────────────── */}
       <ErrorBoundary fallback={<SectionError label="Fidelity Activity" />}>
         <section id="fidelity-activity" className="scroll-mt-20 md:scroll-mt-8">
           <SectionHeader>
-            {SECTION_LABELS["fidelity-activity"]}
+            Fidelity Activity
             {tl.crossCheck && (
               <span
                 className={`ml-2 inline-flex items-center gap-1 text-xs font-normal ${tl.crossCheck.ok ? "text-green-500" : "text-red-400"}`}
@@ -181,7 +174,7 @@ export default function FinancePage() {
       {/* ── 4. Cash Flow ────────────────────────────────────────────────── */}
       <ErrorBoundary fallback={<SectionError label="Cash Flow" />}>
         <section id="cashflow" className="scroll-mt-20 md:scroll-mt-8">
-          <SectionHeader>{SECTION_LABELS["cashflow"]}</SectionHeader>
+          <SectionHeader>Cash Flow</SectionHeader>
           <CashFlowContent
             cashflow={tl.cashflow}
             monthlyFlows={tl.monthlyFlows}
@@ -194,10 +187,10 @@ export default function FinancePage() {
       <ErrorBoundary fallback={<SectionError label="Market" />}>
         <div id="market" data-testid="market-section" className="scroll-mt-20 md:scroll-mt-8">
           {tl.market ? (
-            <MarketContext data={tl.market} title={SECTION_LABELS["market"]} />
+            <MarketContext data={tl.market} title="Market" />
           ) : (
             <>
-              <SectionHeader>{SECTION_LABELS["market"]}</SectionHeader>
+              <SectionHeader>Market</SectionHeader>
               <p data-testid="market-error" className="text-sm text-red-400">
                 Market data failed to load{tl.marketError ? `: ${tl.marketError}` : ""}
               </p>

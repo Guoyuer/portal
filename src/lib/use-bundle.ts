@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { TIMELINE_URL } from "@/lib/config";
+import { FETCH_TIMEOUT_MS, TIMELINE_URL } from "@/lib/config";
 import { fetchWithSchema } from "@/lib/fetch-schema";
 import {
   TimelineDataSchema,
@@ -29,8 +29,6 @@ import {
   buildTickerIndex,
   type CrossCheck,
 } from "@/lib/compute";
-
-const FETCH_TIMEOUT_MS = 10_000;
 
 // ── Hook ────────────────────────────────────────────────────────────────
 

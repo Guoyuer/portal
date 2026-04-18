@@ -1,6 +1,5 @@
 "use client";
 
-import type { ReactNode } from "react";
 import type { BundleState, CrossCheck } from "@/lib/use-bundle";
 import {
   Area,
@@ -331,15 +330,13 @@ export function TimemachineSummary({
 
 // ── TimemachineSection ──────────────────────────────────────────────────
 
-export function TimemachineSection({
-  timeline: tl,
-  fallback,
-}: {
-  timeline: BundleState;
-  fallback: ReactNode;
-}) {
-  if (tl.loading || tl.error || tl.chartDaily.length === 0) {
-    return <div id="net-worth">{fallback}</div>;
+export function TimemachineSection({ timeline: tl }: { timeline: BundleState }) {
+  if (tl.chartDaily.length === 0) {
+    return (
+      <div id="timemachine" className="scroll-mt-20 md:scroll-mt-8">
+        <p className="text-sm text-muted-foreground">Not enough data points yet.</p>
+      </div>
+    );
   }
 
   return (
