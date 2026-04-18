@@ -106,7 +106,14 @@ def _query_prod(sql: str) -> list[dict[str, Any]]:
     cmd = f'npx wrangler d1 execute portal-db --remote --json --command="{sql}"'
     result = subprocess.run(cmd, cwd=str(_WORKER_DIR), capture_output=True, text=True, shell=True)
     if result.returncode != 0:
-        raise RuntimeError(f"wrangler failed:\n{result.stderr}")
+        # wrangler has been seen to exit non-zero with empty stderr during
+        # onlogon cold-starts (network not yet ready). Include stdout + rc so
+        # the failure isn't silent.
+        raise RuntimeError(
+            f"wrangler failed (rc={result.returncode})\n"
+            f"stderr:\n{result.stderr or '(empty)'}\n"
+            f"stdout:\n{result.stdout or '(empty)'}"
+        )
     return parse_wrangler_json(result.stdout)
 
 
