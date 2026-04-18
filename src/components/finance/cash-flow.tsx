@@ -46,7 +46,7 @@ export function CashFlow({ data }: { data: CashflowResponse }) {
             <TableHeader>
               <TableRow>
                 <TableHead>Category</TableHead>
-                <TableHead className="text-right">Count</TableHead>
+                <TableHead className="text-right">Txns</TableHead>
                 <TableHead className="text-right">Amount</TableHead>
               </TableRow>
             </TableHeader>
@@ -83,7 +83,7 @@ export function CashFlow({ data }: { data: CashflowResponse }) {
             <TableHeader>
               <TableRow>
                 <TableHead>Category</TableHead>
-                <TableHead className="text-right">Count</TableHead>
+                <TableHead className="text-right">Txns</TableHead>
                 <TableHead className="text-right">Amount</TableHead>
               </TableRow>
             </TableHeader>

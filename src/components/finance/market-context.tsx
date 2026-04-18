@@ -83,10 +83,9 @@ function RangeBar({ current, high, low }: { current: number; high: number; low: 
   const pct = range > 0 ? ((current - low) / range) * 100 : 50;
 
   return (
-    <div className="mt-2">
+    <div className="mt-2" title="52-week range">
       <div className="flex justify-between text-[9px] tabular-nums text-muted-foreground mb-0.5">
         <span>{low.toLocaleString("en-US", { maximumFractionDigits: 0 })}</span>
-        <span className="opacity-50">52W</span>
         <span>{high.toLocaleString("en-US", { maximumFractionDigits: 0 })}</span>
       </div>
       <div className="relative h-1 rounded-full bg-foreground/10">
@@ -95,6 +94,7 @@ function RangeBar({ current, high, low }: { current: number; high: number; low: 
           style={{ left: `calc(${Math.min(Math.max(pct, 0), 100)}% - 4px)` }}
         />
       </div>
+      <p className="text-[9px] text-foreground/30 uppercase tracking-widest mt-0.5">52-week range</p>
     </div>
   );
 }

@@ -225,7 +225,7 @@ export function TimemachineSummary({
     : [];
 
   const rangeLabel = startDate
-    ? `${fmtDateMedium(startDate)} — ${fmtDateMedium(snapshot.date)}`
+    ? `Over ${fmtDateMedium(startDate)} — ${fmtDateMedium(snapshot.date)}`
     : "";
 
   return (
