@@ -11,6 +11,31 @@ python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
 
+[tool.coverage.run]
+source = ["etl"]
+branch = false
+omit = [
+    "tests/*",
+    "etl/__init__.py",
+    "etl/market/__init__.py",
+    "etl/migrations/__init__.py",
+]
+
+[tool.coverage.report]
+# Threshold intentionally set well below current ~94% — a floor to catch
+# regressions (e.g., large swaths of etl/ going untested), not a ratchet.
+# Raise only after we've lived with coverage reporting for a few weeks and
+# know what churn looks like on real PRs.
+fail_under = 75
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]
+
 [tool.mypy]
 strict = true
 ignore_missing_imports = true
