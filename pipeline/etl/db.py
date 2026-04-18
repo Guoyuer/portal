@@ -82,12 +82,15 @@ CREATE TABLE IF NOT EXISTS empower_funds (
 );
 
 -- Qianji transaction rows (from Qianji app DB)
+-- ``note`` is read by changelog.py for the low-count-category row expansion
+-- in the daily sync email; ``is_retirement`` lets the frontend split income
+-- into retirement vs take-home without substring sniffing.
 CREATE TABLE IF NOT EXISTS qianji_transactions (
     date           TEXT NOT NULL,
     type           TEXT NOT NULL,
     category       TEXT NOT NULL DEFAULT '',
     amount         REAL NOT NULL,
-    note           TEXT NOT NULL DEFAULT '',      -- read by changelog.py for low-count category expansion
+    note           TEXT NOT NULL DEFAULT '',
     is_retirement  INTEGER NOT NULL DEFAULT 0
 );
 
