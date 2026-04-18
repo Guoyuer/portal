@@ -26,8 +26,8 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from ..db import get_connection, get_readonly_connection
-from ..types import QJ_EXPENSE, QJ_INCOME, QJ_REPAYMENT, QJ_TRANSFER, QianjiRecord
+from .db import get_connection, get_readonly_connection
+from .types import QJ_EXPENSE, QJ_INCOME, QJ_REPAYMENT, QJ_TRANSFER, QianjiRecord
 
 log = logging.getLogger(__name__)
 
@@ -273,9 +273,9 @@ def _fetch_live_cny_rate() -> float:
         rate = float(override)
         log.info("USD/CNY rate: %.4f (override via QIANJI_CNY_RATE_OVERRIDE)", rate)
         return rate
-    from ..market.yahoo import fetch_cny_rate
+    from .market.yahoo import fetch_cny_rate
 
-    rate = fetch_cny_rate()
+    rate = float(fetch_cny_rate())
     log.info("USD/CNY rate: %.4f (live from Yahoo Finance)", rate)
     return rate
 

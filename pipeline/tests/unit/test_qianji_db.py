@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from etl.db import init_db
-from etl.ingest.qianji_db import (
+from etl.qianji import (
     _load_balances,
     _load_records,
     ingest_qianji_transactions,

@@ -37,11 +37,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
-# ── Public dataclasses (defined before the ``etl.sources`` import to avoid a
-# circular-import trap: source modules import ``ReplayConfig`` at module
-# scope; keeping these at the top of this file lets ``etl.sources.fidelity``
-# resolve ``ReplayConfig`` when ``etl.replay`` is still partially initialised)
-# ────────────────────────────────────────────────────────────────────────────
+from etl.sources._types import ActionKind
 
 
 @dataclass(frozen=True)
@@ -103,10 +99,6 @@ class ReplayConfig:
     lot_type_col: str | None = None
     mm_drip_tickers: frozenset[str] = frozenset()
 
-
-# ── Internal constants (require ActionKind) ─────────────────────────────────
-
-from etl.sources import ActionKind  # noqa: E402 — see comment at top of file
 
 _POSITION_ONLY_KINDS = frozenset({
     ActionKind.REDEMPTION,

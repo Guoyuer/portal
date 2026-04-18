@@ -41,8 +41,6 @@ from etl.db import (
     init_db,
     upsert_daily_rows,
 )
-from etl.ingest.qianji_db import DEFAULT_DB_PATH as DEFAULT_QJ_DB
-from etl.ingest.qianji_db import ingest_qianji_transactions, load_all_from_db
 from etl.migrations.add_fidelity_action_kind import migrate as _migrate_fidelity_action_kind
 from etl.migrations.drop_robinhood_unique import migrate as _migrate_drop_robinhood_unique
 from etl.precompute import (
@@ -55,6 +53,8 @@ from etl.prices import (
     load_cny_rates,
     symbol_holding_periods_from_db,
 )
+from etl.qianji import DEFAULT_DB_PATH as DEFAULT_QJ_DB
+from etl.qianji import ingest_qianji_transactions, load_all_from_db
 from etl.refresh import refresh_window_start
 from etl.sources import empower as empower_src
 from etl.sources import fidelity as fidelity_src

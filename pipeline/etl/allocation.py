@@ -25,8 +25,8 @@ from pathlib import Path
 import pandas as pd
 
 from .db import get_readonly_connection
-from .ingest.qianji_db import qianji_balances_at
 from .prices import load_cny_rates, load_prices
+from .qianji import qianji_balances_at
 from .sources import PriceContext, positions_at_all
 from .sources.robinhood import _csv_paths as _robinhood_csv_paths
 from .types import AllocationRow, AssetInfo, RawConfig, TickerDetail
