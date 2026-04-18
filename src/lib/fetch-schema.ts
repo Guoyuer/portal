@@ -14,13 +14,6 @@
 
 import type { z } from "zod";
 
-export class FetchSchemaError extends Error {
-  constructor(message: string, readonly cause?: unknown) {
-    super(message);
-    this.name = "FetchSchemaError";
-  }
-}
-
 export async function fetchWithSchema<T>(
   url: string,
   schema: z.ZodType<T>,
@@ -29,12 +22,12 @@ export async function fetchWithSchema<T>(
   const { timeoutMs, ...rest } = init ?? {};
   const signal = timeoutMs != null ? AbortSignal.timeout(timeoutMs) : rest.signal;
   const res = await fetch(url, { ...rest, signal });
-  if (!res.ok) throw new FetchSchemaError(`HTTP ${res.status} ${res.statusText}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
   const json = await res.json();
   const parsed = schema.safeParse(json);
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
-    throw new FetchSchemaError(`schema drift: ${issue?.path.join(".") ?? "root"}: ${issue?.message ?? "unknown"}`);
+    throw new Error(`schema drift: ${issue?.path.join(".") ?? "root"}: ${issue?.message ?? "unknown"}`);
   }
   return parsed.data;
 }

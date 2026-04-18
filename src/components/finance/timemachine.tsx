@@ -1,6 +1,7 @@
 "use client";
 
-import type { BundleState, CrossCheck } from "@/lib/use-bundle";
+import type { BundleState } from "@/lib/use-bundle";
+import type { CrossCheck } from "@/lib/compute";
 import {
   Area,
   AreaChart,

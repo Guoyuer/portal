@@ -32,8 +32,6 @@ import {
 
 // ── Hook ────────────────────────────────────────────────────────────────
 
-export type { CrossCheck };
-
 export interface BundleState {
   chartDaily: DailyPoint[];
   qianjiTxns: QianjiTxn[];

@@ -47,7 +47,7 @@ export function notFoundResponse(): Response {
 // default "no-cache"). 2xx only — errors and 503s bypass the cache so a
 // transient failure doesn't freeze.
 
-export interface Waiter {
+interface Waiter {
   waitUntil(promise: Promise<unknown>): void;
 }
 
@@ -87,7 +87,7 @@ export async function cachedJson(
 
 // ── Settled helper (optional queries) ────────────────────────────────────
 
-export type SettledResult<T> = { ok: true; value: T } | { ok: false; error: string };
+type SettledResult<T> = { ok: true; value: T } | { ok: false; error: string };
 
 export async function settled<T>(p: Promise<T>): Promise<SettledResult<T>> {
   try {

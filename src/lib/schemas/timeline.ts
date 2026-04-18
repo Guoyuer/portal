@@ -13,10 +13,8 @@ import {
 } from "./_generated";
 
 // ── Sparkline transform (D1 stores sparkline as a JSON string) ───────────
-// Used by IndexReturnSchema below but also re-exported via the barrel so
-// both client and Worker can reuse the same transform.
 
-export const SparklineSchema = z
+const SparklineSchema = z
   .string()
   .transform((s, ctx) => {
     try {
