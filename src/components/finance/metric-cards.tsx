@@ -88,14 +88,7 @@ function SavingsRateCard({
           strokeLinecap="round"
           stroke={colorMuted}
         />
-        {/* Center text */}
-        <text
-          x={RING_SIZE / 2} y={RING_SIZE / 2}
-          textAnchor="middle" dominantBaseline="central"
-          className="fill-foreground text-[13px] font-bold rotate-90 origin-center"
-        >
-          {Math.round(savingsRate)}%
-        </text>
+        <title>{`${Math.round(savingsRate)}% gross savings rate (${Math.round(takehomeSavingsRate)}% of take-home, ${Math.round(pretax)}% pre-tax)`}</title>
       </svg>
     </div>
   );

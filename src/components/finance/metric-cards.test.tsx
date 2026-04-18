@@ -59,8 +59,6 @@ describe("MetricCards", () => {
     expect(screen.getByText("Net Worth")).toBeTruthy();
     expect(screen.getByText("$95,000")).toBeTruthy();
     expect(screen.getByText("Savings Rate")).toBeTruthy();
-    // 42% (total) appears in both text and ring center
-    expect(screen.getAllByText("42%").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("Goal")).toBeTruthy();
     expect(screen.getByText("5%")).toBeTruthy();
   });
@@ -84,12 +82,13 @@ describe("MetricCards", () => {
     expect(screen.getByText("$73k")).toBeTruthy();
   });
 
-  it("shows take-home savings rate as primary and total in ring", () => {
+  it("shows take-home savings rate as primary and exposes gross via tooltip", () => {
     render(<MetricCards {...BASE_PROPS} />);
-    // Take-home (35%) is the big number
     expect(screen.getByText("35%")).toBeTruthy();
-    expect(screen.getByText(/take-home/)).toBeTruthy();
-    // Total (42%) appears in ring center
-    expect(screen.getAllByText("42%").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/take-home/).length).toBeGreaterThanOrEqual(1);
+    // Gross (42%) only appears in the SVG <title> tooltip, not as visible text
+    const tooltip = document.querySelector("title");
+    expect(tooltip?.textContent).toContain("42%");
+    expect(tooltip?.textContent).toContain("35%");
   });
 });

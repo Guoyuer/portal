@@ -112,17 +112,19 @@ function IndexCard({ idx }: { idx: IndexReturn }) {
       style={{ borderColor: "rgba(255,255,255,0.15)" }}
     >
       <div className="flex items-start justify-between">
-        <p className="text-xs font-semibold text-foreground/60 tracking-wide uppercase">
-          {displayName}
-        </p>
+        <div className="min-w-0">
+          <p className="text-xs font-semibold text-foreground/60 tracking-wide uppercase">
+            {displayName}
+          </p>
+          <p className="text-xl font-bold tabular-nums text-foreground mt-1">
+            {pts}
+          </p>
+        </div>
         <div className="flex flex-col items-end gap-0.5">
           <ReturnBadge label="M" value={idx.monthReturn} />
           <ReturnBadge label="YTD" value={idx.ytdReturn} />
         </div>
       </div>
-      <p className="text-xl font-bold tabular-nums text-foreground -mt-1.5">
-        {pts}
-      </p>
       <div className="-mx-1 -mt-0.5 h-[60px]">
         <Sparkline idx={idx} />
       </div>

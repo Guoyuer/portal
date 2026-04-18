@@ -144,22 +144,9 @@ export default function FinancePage() {
         <TimemachineSection timeline={tl} fallback={<NetWorthGrowth data={[]} />} />
       </ErrorBoundary>
 
-      {/* ── 3. Cash Flow ────────────────────────────────────────────────── */}
-      <ErrorBoundary fallback={<SectionError label="Cash Flow" />}>
-        <section id="cashflow">
-          <SectionHeader>{SECTION_LABELS["cashflow"]}</SectionHeader>
-          <CashFlowContent
-            cashflow={tl.cashflow}
-            monthlyFlows={tl.monthlyFlows}
-            activeMonth={snapshotDate?.slice(0, 7)}
-          />
-        </section>
-      </ErrorBoundary>
-
-
-      {/* ── 4. Portfolio Activity ───────────────────────────────────────── */}
+      {/* ── 3. Portfolio Activity ───────────────────────────────────────── */}
       <ErrorBoundary fallback={<SectionError label="Fidelity Activity" />}>
-        <section id="fidelity-activity">
+        <section id="fidelity-activity" className="scroll-mt-20 md:scroll-mt-8">
           <SectionHeader>
             {SECTION_LABELS["fidelity-activity"]}
             {tl.crossCheck && (
@@ -191,9 +178,21 @@ export default function FinancePage() {
         </section>
       </ErrorBoundary>
 
+      {/* ── 4. Cash Flow ────────────────────────────────────────────────── */}
+      <ErrorBoundary fallback={<SectionError label="Cash Flow" />}>
+        <section id="cashflow" className="scroll-mt-20 md:scroll-mt-8">
+          <SectionHeader>{SECTION_LABELS["cashflow"]}</SectionHeader>
+          <CashFlowContent
+            cashflow={tl.cashflow}
+            monthlyFlows={tl.monthlyFlows}
+            activeMonth={snapshotDate?.slice(0, 7)}
+          />
+        </section>
+      </ErrorBoundary>
+
       {/* ── Market Context ──────────────────────────────────────────────── */}
       <ErrorBoundary fallback={<SectionError label="Market" />}>
-        <div id="market" data-testid="market-section">
+        <div id="market" data-testid="market-section" className="scroll-mt-20 md:scroll-mt-8">
           {tl.market ? (
             <MarketContext data={tl.market} title={SECTION_LABELS["market"]} />
           ) : (

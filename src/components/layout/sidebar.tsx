@@ -5,6 +5,13 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 
+const financeSections = [
+  { label: "Overview", hash: "#timemachine" },
+  { label: "Fidelity", hash: "#fidelity-activity" },
+  { label: "Cash Flow", hash: "#cashflow" },
+  { label: "Market", hash: "#market" },
+];
+
 const navItems = [
   {
     label: "Finance",
@@ -100,27 +107,43 @@ export default function Sidebar() {
     <nav className="flex flex-col gap-1 px-3">
       {navItems.map((item) => {
         const active = pathname.startsWith(item.href);
+        const showSubSections = active && item.href === "/finance";
         return (
-          <Link
-            key={item.href}
-            href={item.comingSoon ? "#" : item.href}
-            onClick={() => setOpen(false)}
-            className={`flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition-all duration-200 ${
-              active
-                ? "bg-black/8 dark:bg-white/12 font-semibold border border-black/10 dark:border-white/20 backdrop-blur-sm"
-                : item.comingSoon
-                  ? "cursor-default text-current/40"
-                  : "text-current/70 hover:text-current hover:bg-white/10"
-            }`}
-          >
-            {item.icon}
-            {item.label}
-            {item.comingSoon && (
-              <span className="ml-auto rounded-md bg-white/10 px-1.5 py-0.5 text-[10px] border border-white/10">
-                soon
-              </span>
+          <div key={item.href}>
+            <Link
+              href={item.comingSoon ? "#" : item.href}
+              onClick={() => setOpen(false)}
+              className={`flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition-all duration-200 ${
+                active
+                  ? "bg-black/8 dark:bg-white/12 font-semibold border border-black/10 dark:border-white/20 backdrop-blur-sm"
+                  : item.comingSoon
+                    ? "cursor-default text-current/40"
+                    : "text-current/70 hover:text-current hover:bg-white/10"
+              }`}
+            >
+              {item.icon}
+              {item.label}
+              {item.comingSoon && (
+                <span className="ml-auto rounded-md bg-white/10 px-1.5 py-0.5 text-[10px] border border-white/10">
+                  soon
+                </span>
+              )}
+            </Link>
+            {showSubSections && (
+              <div className="mt-0.5 ml-8 flex flex-col gap-0.5">
+                {financeSections.map((s) => (
+                  <a
+                    key={s.hash}
+                    href={s.hash}
+                    onClick={() => setOpen(false)}
+                    className="rounded-lg px-3 py-1 text-xs text-current/60 hover:text-current hover:bg-white/10 transition-colors"
+                  >
+                    {s.label}
+                  </a>
+                ))}
+              </div>
             )}
-          </Link>
+          </div>
         );
       })}
     </nav>

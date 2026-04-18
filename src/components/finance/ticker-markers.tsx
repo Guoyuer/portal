@@ -1,39 +1,16 @@
 // ── SVG scatter markers for the ticker chart ────────────────────────────
 //
-// Two levels of marker:
-// - Basic BuyMarker/SellMarker (inline chart, one per day, non-interactive)
-// - Cluster markers (dialog chart, aggregated, hover/click-aware)
-//
-// Colors are the Okabe-Ito palette (see CLAUDE.md accessibility section) and
-// always pair with a B/S letter so the signal isn't color-only.
+// Cluster markers render at every scale — inline and dialog. They show a B/S
+// letter paired with an `×N` count badge (not color-alone signaling). When
+// `onSelect` is supplied, the group is hover/click-aware; otherwise it's
+// purely visual and lets parent click handlers through.
 
 import type { Cluster } from "@/lib/ticker-data";
 import { BUY_COLOR, SELL_COLOR } from "@/lib/chart-colors";
 
 export type MarkerProps = { cx?: number; cy?: number };
 
-export function BuyMarker({ cx, cy }: MarkerProps) {
-  if (cx == null || cy == null) return null;
-  return (
-    <g>
-      <circle cx={cx} cy={cy} r={9} fill={BUY_COLOR} />
-      <text x={cx} y={cy} textAnchor="middle" dominantBaseline="central" fill="white" fontSize={11} fontWeight={700}>B</text>
-    </g>
-  );
-}
-
-export function SellMarker({ cx, cy }: MarkerProps) {
-  if (cx == null || cy == null) return null;
-  const r = 9;
-  return (
-    <g>
-      <path d={`M ${cx} ${cy - r} L ${cx + r} ${cy} L ${cx} ${cy + r} L ${cx - r} ${cy} Z`} fill={SELL_COLOR} />
-      <text x={cx} y={cy} textAnchor="middle" dominantBaseline="central" fill="white" fontSize={11} fontWeight={700}>S</text>
-    </g>
-  );
-}
-
-// ── Cluster markers (interactive) ───────────────────────────────────────
+// ── Cluster markers (interactive when onSelect is provided) ─────────────
 
 export type HoverState = {
   cluster: Cluster;
@@ -88,16 +65,17 @@ export function BuyClusterMarker({ cx, cy, payload, onEnter, onMove, onLeave, on
   const fontSize = Math.max(9, Math.min(r * 1.1, 13));
   const key = clusterKey("buy", c);
   const isSelected = selectedKey === key;
+  const interactive = Boolean(onSelect || onEnter);
   return (
     <g
       onMouseEnter={(e) => onEnter?.({ cluster: c, side: "buy", dayIso: payload?.date ?? "", close: payload?.close ?? 0, x: e.clientX, y: e.clientY })}
       onMouseMove={(e) => onMove?.(e.clientX, e.clientY)}
       onMouseLeave={onLeave}
-      onClick={(e) => {
+      onClick={onSelect ? (e) => {
         e.stopPropagation();
-        onSelect?.(isSelected ? null : { key, dates: c.memberDates, side: "buy" });
-      }}
-      style={{ cursor: "pointer" }}
+        onSelect(isSelected ? null : { key, dates: c.memberDates, side: "buy" });
+      } : undefined}
+      style={interactive ? { cursor: "pointer" } : undefined}
     >
       {isSelected && <circle cx={cx} cy={cy} r={r + 4} fill="none" stroke={BUY_COLOR} strokeWidth={2} />}
       <circle cx={cx} cy={cy} r={r} fill={BUY_COLOR} />
@@ -114,16 +92,17 @@ export function SellClusterMarker({ cx, cy, payload, onEnter, onMove, onLeave, o
   const fontSize = Math.max(9, Math.min(r * 1.1, 13));
   const key = clusterKey("sell", c);
   const isSelected = selectedKey === key;
+  const interactive = Boolean(onSelect || onEnter);
   return (
     <g
       onMouseEnter={(e) => onEnter?.({ cluster: c, side: "sell", dayIso: payload?.date ?? "", close: payload?.close ?? 0, x: e.clientX, y: e.clientY })}
       onMouseMove={(e) => onMove?.(e.clientX, e.clientY)}
       onMouseLeave={onLeave}
-      onClick={(e) => {
+      onClick={onSelect ? (e) => {
         e.stopPropagation();
-        onSelect?.(isSelected ? null : { key, dates: c.memberDates, side: "sell" });
-      }}
-      style={{ cursor: "pointer" }}
+        onSelect(isSelected ? null : { key, dates: c.memberDates, side: "sell" });
+      } : undefined}
+      style={interactive ? { cursor: "pointer" } : undefined}
     >
       {isSelected && (
         <path

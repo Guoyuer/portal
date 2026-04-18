@@ -18,30 +18,32 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import type { TooltipContentProps } from "recharts/types/component/Tooltip";
-import { fmtCurrency, fmtDateMedium, fmtTick } from "@/lib/format";
+import { fmtCurrency, fmtDateMedium, fmtQty, fmtTick } from "@/lib/format";
 import { useIsDark } from "@/lib/hooks";
 import { gridStroke, axisProps } from "@/lib/chart-styles";
+import { buildClusteredData, tsToIsoLocal, type ClusteredPoint } from "@/lib/ticker-data";
 import type { TickerChartPoint } from "@/lib/ticker-data";
 import { BUY_COLOR, SELL_COLOR } from "@/lib/chart-colors";
 import { TooltipCard } from "@/components/charts/tooltip-card";
-import { BuyMarker, SellMarker } from "./ticker-markers";
+import { BuyClusterMarker, SellClusterMarker } from "./ticker-markers";
 
 function PriceTooltip({ active, payload }: TooltipContentProps) {
-  const d = payload?.[0]?.payload as TickerChartPoint | undefined;
+  const d = payload?.[0]?.payload as ClusteredPoint | undefined;
   if (!d) return null;
+  const clusterLine = (c: NonNullable<ClusteredPoint["buyCluster"]>, label: string, color: string) => {
+    const tag = c.count > 1 ? ` ×${c.count}` : "";
+    return (
+      <p style={{ color, margin: 0 }}>
+        {label}{tag}: {fmtQty(c.qty)} @ {fmtCurrency(c.price)} = {fmtCurrency(c.amount)}
+        {c.count > 1 && <> <span style={{ opacity: 0.7 }}>(around {fmtDateMedium(tsToIsoLocal(c.ts))})</span></>}
+      </p>
+    );
+  };
   return (
     <TooltipCard active={active} payload={payload} title={fmtDateMedium(d.date)}>
       <p style={{ margin: 0 }}>Close: {fmtCurrency(d.close)}</p>
-      {d.buyPrice != null && (
-        <p style={{ color: BUY_COLOR, margin: 0 }}>
-          Buy: {d.buyQty} × {fmtCurrency(d.buyPrice)} = {fmtCurrency(d.buyAmount!)}
-        </p>
-      )}
-      {d.sellPrice != null && (
-        <p style={{ color: SELL_COLOR, margin: 0 }}>
-          Sell: {d.sellQty} × {fmtCurrency(d.sellPrice)} = {fmtCurrency(d.sellAmount!)}
-        </p>
-      )}
+      {d.buyCluster && clusterLine(d.buyCluster, "Buy", BUY_COLOR)}
+      {d.sellCluster && clusterLine(d.sellCluster, "Sell", SELL_COLOR)}
     </TooltipCard>
   );
 }
@@ -56,10 +58,11 @@ export function TickerChartBase({
   height?: number;
 }) {
   const isDark = useIsDark();
+  const clustered = buildClusteredData(data);
 
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <ComposedChart data={data} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
+      <ComposedChart data={clustered} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke={gridStroke(isDark)} vertical={false} />
         <XAxis
           dataKey="ts"
@@ -85,8 +88,8 @@ export function TickerChartBase({
           dot={false}
           isAnimationActive={false}
         />
-        <Scatter dataKey="buyPrice" shape={BuyMarker} legendType="none" isAnimationActive={false} />
-        <Scatter dataKey="sellPrice" shape={SellMarker} legendType="none" isAnimationActive={false} />
+        <Scatter dataKey="sellClusterPrice" shape={SellClusterMarker} legendType="none" isAnimationActive={false} />
+        <Scatter dataKey="buyClusterPrice" shape={BuyClusterMarker} legendType="none" isAnimationActive={false} />
         {avgCost != null && (
           <ReferenceLine
             y={avgCost}

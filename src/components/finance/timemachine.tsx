@@ -44,9 +44,14 @@ function AreaTooltip({
   const fmtLabel = new Date(Number(label)).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
   return (
     <TooltipCard active={active} payload={payload} title={fmtLabel}>
+      {payload && payload.length > 0 && (
+        <p style={{ margin: 0, fontWeight: 600 }}>
+          Total: {fmtCurrency(payload.reduce((s, e) => s + Number(e.value ?? 0), 0))}
+        </p>
+      )}
       {payload?.map((entry, i) => (
         <p key={i} style={{ color: entry.color, margin: 0 }}>
-          {labels[String(entry.name)] ?? String(entry.name)} : {fmtCurrency(Number(entry.value))}
+          {labels[String(entry.name)] ?? String(entry.name)}: {fmtCurrency(Number(entry.value))}
         </p>
       ))}
     </TooltipCard>
@@ -302,18 +307,18 @@ export function TimemachineSummary({
               </span>
             </p>
           </div>
-          <div className="grid grid-cols-3 gap-2 text-xs">
-            <div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-y-1.5 gap-x-2 text-xs">
+            <div className="flex sm:block justify-between">
               <p className="text-muted-foreground">Fidelity Total</p>
-              <p className="font-semibold tabular-nums mt-0.5">{fmtCurrencyShort(cc.fidelityTotal)}</p>
+              <p className="font-semibold tabular-nums sm:mt-0.5">{fmtCurrencyShort(cc.fidelityTotal)}</p>
             </div>
-            <div>
+            <div className="flex sm:block justify-between">
               <p className="text-muted-foreground">Matched</p>
-              <p className="font-semibold tabular-nums mt-0.5 text-green-500">{fmtCurrencyShort(cc.matchedTotal)}</p>
+              <p className="font-semibold tabular-nums sm:mt-0.5 text-green-500">{fmtCurrencyShort(cc.matchedTotal)}</p>
             </div>
-            <div>
+            <div className="flex sm:block justify-between">
               <p className="text-muted-foreground">Unmatched</p>
-              <p className={`font-semibold tabular-nums mt-0.5 ${cc.unmatchedTotal > 0 ? "text-red-400" : ""}`}>
+              <p className={`font-semibold tabular-nums sm:mt-0.5 ${cc.unmatchedTotal > 0 ? "text-red-400" : ""}`}>
                 {fmtCurrencyShort(cc.unmatchedTotal)}
               </p>
             </div>
@@ -338,7 +343,7 @@ export function TimemachineSection({
   }
 
   return (
-    <div id="timemachine">
+    <div id="timemachine" className="scroll-mt-20 md:scroll-mt-8">
       <div className="liquid-glass p-4 sm:p-5">
         <TimemachineSummary
           snapshot={tl.snapshot}
