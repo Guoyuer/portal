@@ -5,7 +5,7 @@ import { render, screen, cleanup, within } from "@testing-library/react";
 
 afterEach(cleanup);
 import { CashFlow } from "./cash-flow";
-import type { CashflowResponse } from "@/lib/computed-types";
+import type { CashflowResponse } from "@/lib/compute/computed-types";
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 

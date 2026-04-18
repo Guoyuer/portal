@@ -2,8 +2,8 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { useMail, groupByCategory } from "./use-mail";
-import type { TriagedEmail } from "./schemas/mail";
+import { useMail, groupByCategory } from "@/lib/hooks/use-mail";
+import type { TriagedEmail } from "@/lib/schemas/mail";
 
 // ── Test fixtures ────────────────────────────────────────────────────────
 const emails: TriagedEmail[] = [

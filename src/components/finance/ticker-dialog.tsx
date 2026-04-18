@@ -15,9 +15,9 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import type { TooltipContentProps } from "recharts/types/component/Tooltip";
-import { fmtCurrency, fmtDateMedium, fmtQty, fmtTick } from "@/lib/format";
-import { useIsDark, useIsMobile } from "@/lib/hooks";
-import { tooltipStyle, gridStroke, axisProps } from "@/lib/chart-styles";
+import { fmtCurrency, fmtDateMedium, fmtQty, fmtTick } from "@/lib/format/format";
+import { useIsDark, useIsMobile } from "@/lib/hooks/hooks";
+import { tooltipStyle, gridStroke, axisProps } from "@/lib/format/chart-styles";
 import { TooltipCard } from "@/components/charts/tooltip-card";
 import type { TickerTransaction } from "@/lib/schemas";
 import {
@@ -26,8 +26,8 @@ import {
   type TickerChartPoint,
   type ClusteredPoint,
   type Cluster,
-} from "@/lib/ticker-data";
-import { BUY_COLOR, SELL_COLOR } from "@/lib/chart-colors";
+} from "@/lib/format/ticker-data";
+import { BUY_COLOR, SELL_COLOR } from "@/lib/format/chart-colors";
 import {
   BuyClusterMarker,
   SellClusterMarker,

@@ -5,9 +5,9 @@ import {
   CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import type { EconPoint } from "@/lib/schemas";
-import { fmtMonthYear } from "@/lib/format";
-import { useIsDark } from "@/lib/hooks";
-import { tooltipStyle, gridStroke, legendStyle } from "@/lib/chart-styles";
+import { fmtMonthYear } from "@/lib/format/format";
+import { useIsDark } from "@/lib/hooks/hooks";
+import { tooltipStyle, gridStroke, legendStyle } from "@/lib/format/chart-styles";
 
 export interface LineConfig {
   dataKey: string;

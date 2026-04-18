@@ -305,7 +305,7 @@ const server = http.createServer((req, res) => {
 
 // `||` not `??`: an empty-string override should fall back rather than become
 // Number("") === 0 and bind to an arbitrary free port. Matches the convention
-// in src/lib/config.ts + src/lib/use-mail.ts (env vars from CI/secrets can
+// in src/lib/config.ts + src/lib/hooks/use-mail.ts (env vars from CI/secrets can
 // arrive as "" when the underlying secret is unset).
 const PORT = Number(process.env.MOCK_API_PORT || 4444);
 server.listen(PORT, () => {

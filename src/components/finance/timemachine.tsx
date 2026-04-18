@@ -1,7 +1,7 @@
 "use client";
 
-import type { BundleState } from "@/lib/use-bundle";
-import type { CrossCheck } from "@/lib/compute";
+import type { BundleState } from "@/lib/hooks/use-bundle";
+import type { CrossCheck } from "@/lib/compute/compute";
 import {
   Area,
   AreaChart,
@@ -14,12 +14,12 @@ import {
 } from "recharts";
 import type { TooltipContentProps } from "recharts/types/component/Tooltip";
 import type { CategoryMeta, DailyPoint } from "@/lib/schemas";
-import type { CashflowResponse, ActivityResponse } from "@/lib/computed-types";
-import { fmtCurrency, fmtCurrencyShort, fmtDateLong, fmtDateMedium, fmtTick, parseLocalDate } from "@/lib/format";
-import { useIsDark, useIsMobile } from "@/lib/hooks";
-import { gridStroke, axisProps, brushColors } from "@/lib/chart-styles";
+import type { CashflowResponse, ActivityResponse } from "@/lib/compute/computed-types";
+import { fmtCurrency, fmtCurrencyShort, fmtDateLong, fmtDateMedium, fmtTick, parseLocalDate } from "@/lib/format/format";
+import { useIsDark, useIsMobile } from "@/lib/hooks/hooks";
+import { gridStroke, axisProps, brushColors } from "@/lib/format/chart-styles";
 import { TooltipCard } from "@/components/charts/tooltip-card";
-import { CAT_COLOR_BY_KEY } from "@/lib/chart-colors";
+import { CAT_COLOR_BY_KEY } from "@/lib/format/chart-colors";
 import { SectionMessage } from "@/components/finance/section";
 
 // ── Constants ─────────────────────────────────────────────────────────────

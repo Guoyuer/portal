@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { CategoryMeta, DailyPoint, DailyTicker, FidelityTxn, QianjiTxn } from "./schemas";
+import type { CategoryMeta, DailyPoint, DailyTicker, FidelityTxn, QianjiTxn } from "@/lib/schemas";
 import {
   computeAllocation,
   computeCashflow,
@@ -10,8 +10,8 @@ import {
   buildTickerIndex,
   catColorByName,
   cashflowState,
-} from "./compute";
-import { CAT_COLOR_BY_KEY } from "./chart-colors";
+} from "@/lib/compute/compute";
+import { CAT_COLOR_BY_KEY } from "@/lib/format/chart-colors";
 
 // Canonical category metadata (matches the pipeline default; each test is
 // isolated — if a test needs a different shape it declares its own).

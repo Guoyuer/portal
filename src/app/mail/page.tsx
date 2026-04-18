@@ -2,7 +2,7 @@
 
 // ── /mail page ───────────────────────────────────────────────────────────────
 
-import { groupByCategory, useMail } from "@/lib/use-mail";
+import { groupByCategory, useMail } from "@/lib/hooks/use-mail";
 import { MailSection } from "@/components/mail/mail-list";
 import { ErrorBoundary, SectionError } from "@/components/error-boundary";
 

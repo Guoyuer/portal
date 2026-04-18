@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { groupTickers } from "./category-summary";
-import type { ApiCategory, ApiTicker } from "@/lib/computed-types";
+import type { ApiCategory, ApiTicker } from "@/lib/compute/computed-types";
 
 const mkTicker = (over: Partial<ApiTicker>): ApiTicker => ({
   ticker: "X",

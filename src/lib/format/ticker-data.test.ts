@@ -5,7 +5,7 @@ import {
   buildClusteredData,
   tsToIsoLocal,
   type TickerChartPoint,
-} from "./ticker-data";
+} from "@/lib/format/ticker-data";
 
 // Helper to build a chart point
 const pt = (date: string, over: Partial<TickerChartPoint> = {}): TickerChartPoint => {

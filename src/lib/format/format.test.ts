@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { fmtCurrency, fmtCurrencyShort, fmtPct, fmtMonth, fmtMonthYear, fmtDateLong, fmtDateMedium, fmtDateMonthYear, parseLocalDate } from "./format";
+import { fmtCurrency, fmtCurrencyShort, fmtPct, fmtMonth, fmtMonthYear, fmtDateLong, fmtDateMedium, fmtDateMonthYear, parseLocalDate } from "@/lib/format/format";
 
 // ── fmtCurrency ─────────────────────────────────────────────────────────
 

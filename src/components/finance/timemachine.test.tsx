@@ -6,8 +6,8 @@ import { render, screen, cleanup } from "@testing-library/react";
 afterEach(cleanup);
 import { TimemachineSummary } from "./timemachine";
 import type { CategoryMeta, DailyPoint } from "@/lib/schemas";
-import type { CashflowResponse, ActivityResponse } from "@/lib/computed-types";
-import type { CrossCheck } from "@/lib/compute";
+import type { CashflowResponse, ActivityResponse } from "@/lib/compute/computed-types";
+import type { CrossCheck } from "@/lib/compute/compute";
 
 const CATEGORIES: CategoryMeta[] = [
   { key: "usEquity", name: "US Equity", displayOrder: 0, targetPct: 55 },

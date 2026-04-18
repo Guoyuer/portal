@@ -2,7 +2,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { z } from "zod";
-import { fetchWithSchema } from "./fetch-schema";
+import { fetchWithSchema } from "@/lib/schemas/fetch-schema";
 
 const Shape = z.object({ ok: z.boolean(), n: z.number() });
 

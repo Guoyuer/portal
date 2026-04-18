@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { FETCH_TIMEOUT_MS, TIMELINE_URL } from "@/lib/config";
-import { fetchWithSchema } from "@/lib/fetch-schema";
+import { fetchWithSchema } from "@/lib/schemas/fetch-schema";
 import {
   TimelineDataSchema,
   type CategoryMeta,
@@ -18,7 +18,7 @@ import type {
   CashflowResponse,
   ActivityResponse,
   MonthlyFlowPoint,
-} from "@/lib/computed-types";
+} from "@/lib/compute/computed-types";
 import {
   computeAllocation,
   computeCashflow,
@@ -28,7 +28,7 @@ import {
   buildDateIndex,
   buildTickerIndex,
   type CrossCheck,
-} from "@/lib/compute";
+} from "@/lib/compute/compute";
 
 // ── Hook ────────────────────────────────────────────────────────────────
 

@@ -76,7 +76,7 @@ jobs:
 
       # ── Rebuild for production deploy (real Worker URL) ────────
       # Mail worker is same-origin (`/api/mail/*` on portal.guoyuer.com) and
-      # hardcoded in src/lib/use-mail.ts — no env var to set.
+      # hardcoded in src/lib/hooks/use-mail.ts — no env var to set.
       - name: Build for production
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: npx next build

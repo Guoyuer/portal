@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Area, AreaChart, YAxis } from "recharts";
 import type { MarketData, IndexReturn } from "@/lib/schemas";
-import { fmtPct } from "@/lib/format";
+import { fmtPct } from "@/lib/format/format";
 import { SectionHeader } from "@/components/finance/section";
 
 // ── Display name mapping ────────────────────────────────────────────────

@@ -3,7 +3,7 @@
 // ── Ticker chart public entry ────────────────────────────────────────────
 //
 // Composes:
-// - Pure data layer: @/lib/ticker-data (mergeTickerData, clusterByTime, ...)
+// - Pure data layer: @/lib/format/ticker-data (mergeTickerData, clusterByTime, ...)
 // - Inline chart: ./ticker-chart-base  (TickerChartBase, non-interactive)
 // - Dialog: ./ticker-dialog         (near-fullscreen modal with clustering)
 //
@@ -13,8 +13,8 @@
 import { useEffect, useState } from "react";
 import { TickerPriceResponseSchema, type TickerTransaction } from "@/lib/schemas";
 import { WORKER_BASE } from "@/lib/config";
-import { fetchWithSchema } from "@/lib/fetch-schema";
-import { mergeTickerData, type TickerChartPoint } from "@/lib/ticker-data";
+import { fetchWithSchema } from "@/lib/schemas/fetch-schema";
+import { mergeTickerData, type TickerChartPoint } from "@/lib/format/ticker-data";
 import { TickerChartBase } from "./ticker-chart-base";
 import { TickerChartDialog } from "./ticker-dialog";
 

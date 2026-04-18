@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { tooltipStyle, gridStroke, axisProps, brushColors } from "./chart-styles";
+import { tooltipStyle, gridStroke, axisProps, brushColors } from "@/lib/format/chart-styles";
 
 describe("tooltipStyle", () => {
   it("uses a dark background for dark mode", () => {

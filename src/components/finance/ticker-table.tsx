@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { fmtCurrency, fmtPct } from "@/lib/format";
-import { valueColor } from "@/lib/thresholds";
+import { fmtCurrency, fmtPct } from "@/lib/format/format";
+import { valueColor } from "@/lib/format/thresholds";
 import {
   Table,
   TableBody,
