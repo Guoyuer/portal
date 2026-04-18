@@ -60,7 +60,7 @@ identical:
 
 How diff infers add / remove / modify
 -------------------------------------
-:func:`diff` computes pure set differences:
+:func:`diff` computes pure set differences, then pairs survivors:
 - ``added = after - before`` → new rows since the previous snapshot.
 - ``removed = before - after`` → rows that vanished (currently only
   ``econ_series_keys`` surfaces this, as the :class:`SyncChangelog` field
@@ -68,20 +68,43 @@ How diff infers add / remove / modify
   ingest is append-mostly, so ``removed`` is expected to be empty and we
   don't render it — the ``has_meaningful_changes`` check deliberately
   ignores removals.
-- "Modified" has **no native representation** in this identity model. A
-  content change looks like (removed old tuple, added new tuple). For
-  ``computed_daily`` (dict by date), a same-date value change *is*
-  detectable but :func:`diff` only enumerates ``dates not in before`` —
-  re-computations to an existing date silently pass.
+- **Modified pairing**: after the raw set subtraction, Qianji rows run
+  through a per-table primary-key extractor (:func:`_qianji_pk`) and
+  :func:`_pair_by_pk` moves PK-matching (removed_row, added_row) pairs
+  out of added/removed into :attr:`SyncChangelog.qianji_modified`.
+  ``computed_daily`` pairs by date directly (it's already a dict by
+  date) into :attr:`SyncChangelog.computed_daily_modified`. An
+  edited-note Qianji bill or a same-date ``computed_daily`` recompute
+  now reads as "Modified" rather than "(removed old) + (added new)".
+  Tables without a meaningful PK subset stay added/removed only.
+
+Per-table PK choice:
+- ``qianji_transactions`` → ``(date, type, category, amount)``; ``note``
+  is the mutable content field. This catches the most common edit
+  (adding a note after the fact). Amount edits are very rare; if one
+  happens it falls back to add/remove (different PK) — which is
+  arguably correct: a changed amount is more like a replacement than a
+  "small tweak".
+- ``computed_daily`` → ``(date,)``; the :class:`NetWorthPoint` value is
+  the mutable content. Same-date recomputations (e.g. an upstream price
+  correction triggered a rebuild) were previously invisible to the
+  diff; now they surface as Modified rows.
+- ``fidelity_transactions`` → no modify detection. The CSV read path is
+  deterministic USD-native and rows don't get edited retroactively;
+  introducing a PK like ``(run_date, symbol)`` would mis-pair the
+  occasional legitimate second buy on the same day.
 
 Edge cases
 ----------
 - **Same content, different primary key**: treated as the same row.
   Desired; that's the point of content-tuple identity.
-- **Content change under stable primary key**: treated as (remove old,
-  add new). For ``qianji_txns`` with an edited note, this surfaces in
-  ``qianji_added_rows_by_category`` but the corresponding old tuple is
-  silently in ``before - after``. The email body only shows additions.
+- **Content change under stable primary key**: paired as a Modified
+  row via the PK extractor (previously looked like remove+add).
+- **PK collision within added/removed**: if multiple rows share a PK
+  in either set (e.g. two edits to the same bill in a single diff —
+  impossible in practice since ingest runs once per cycle), the
+  pairing is best-effort: extra rows stay in their original
+  added/removed bucket rather than getting mis-paired.
 - **Amount drift** (hypothetical — the snapshot design assumes stable
   amounts): FX drift on Qianji CNY→USD would create ghost tuples every
   run. Kept in check by the historical-rate resolution in
@@ -94,6 +117,7 @@ Edge cases
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -286,6 +310,19 @@ class SyncChangelog:
     empower_value_delta: float | None = None
     empower_value_before: float | None = None
     empower_value_after: float | None = None
+    # Modified Qianji bills — (before_tuple, after_tuple) pairs keyed on
+    # (date, type, category, amount). Typical case: user edited a note on
+    # an existing bill. Populated by diff() via PK pairing.
+    qianji_modified: list[tuple[tuple[str, str, str, float, str], tuple[str, str, str, float, str]]] = field(
+        default_factory=list,
+    )
+    # Modified computed_daily rows — date → (before_point, after_point) for
+    # dates present in BOTH endpoints with a content change. Catches same-date
+    # recomputations (e.g. an upstream price correction re-drove the
+    # allocation pipeline without advancing the date cursor).
+    computed_daily_modified: dict[str, tuple[NetWorthPoint, NetWorthPoint]] = field(
+        default_factory=dict,
+    )
     net_worth_before: float | None = None
     net_worth_after: float | None = None
     net_worth_delta: float | None = None
@@ -308,7 +345,9 @@ class SyncChangelog:
         return bool(
             self.fidelity_added
             or self.qianji_added_count > 0
+            or self.qianji_modified
             or self.computed_daily_added
+            or self.computed_daily_modified
             or self.daily_close_added > 0
             or self.empower_added > 0
         )
@@ -371,7 +410,16 @@ def diff(before: SyncSnapshot, after: SyncSnapshot) -> SyncChangelog:
     # because ``parse_qj_amount`` uses per-bill-date historical CNY rates, so
     # the ``amount`` of a bill doesn't drift run-to-run — any tuple in AFTER
     # but not BEFORE is a genuinely new (or edited) bill.
-    qianji_added_rows = after.qianji_txns - before.qianji_txns
+    qianji_added_raw = after.qianji_txns - before.qianji_txns
+    qianji_removed_raw = before.qianji_txns - after.qianji_txns
+    # Pair rows that share a PK — these represent modifies (typically an
+    # edited note on an existing bill). Unpaired additions/removals keep
+    # their original bucket.
+    qianji_added_rows, _qianji_removed_unpaired, qianji_modified = _pair_by_pk(
+        qianji_added_raw,
+        qianji_removed_raw,
+        _qianji_pk,
+    )
     qianji_by_cat: dict[str, tuple[int, float]] = {}
     qianji_rows_by_cat: dict[str, list[tuple[str, float, str]]] = {}
     for _date, _type, category, amount, note in qianji_added_rows:
@@ -381,14 +429,24 @@ def diff(before: SyncSnapshot, after: SyncSnapshot) -> SyncChangelog:
     qianji_added_count = len(qianji_added_rows)
     for rows in qianji_rows_by_cat.values():
         rows.sort(key=lambda r: r[0])
+    # Stable ordering for modified rows: by date (first PK element).
+    qianji_modified.sort(key=lambda pair: (pair[0][0], pair[0][1], pair[0][2]))
 
-    # computed_daily: dates that weren't in before. Value kept as float (the
-    # ``total``) because the only consumers (``has_meaningful_changes`` and a
-    # couple of existing tests) care about the scalar, not the components.
+    # computed_daily: dates-only identity. "Added" = dates only in AFTER;
+    # "Modified" = dates in BOTH sides with a different NetWorthPoint value.
+    # Value kept as float (the ``total``) in ``computed_daily_added`` because
+    # the only consumers (``has_meaningful_changes`` and a couple of existing
+    # tests) care about the scalar; the modified dict keeps full points so
+    # the email can show per-component drift.
     before_dates = set(before.computed_daily.keys())
     new_daily = {
         dt: point.total for dt, point in after.computed_daily.items() if dt not in before_dates
     }
+    cd_modified: dict[str, tuple[NetWorthPoint, NetWorthPoint]] = {}
+    for dt, after_point in after.computed_daily.items():
+        before_point = before.computed_daily.get(dt)
+        if before_point is not None and before_point != after_point:
+            cd_modified[dt] = (before_point, after_point)
 
     # daily_close is counts-only (too many rows for tuple diff)
     daily_close_delta = max(0, after.daily_close_count - before.daily_close_count)
@@ -441,6 +499,8 @@ def diff(before: SyncSnapshot, after: SyncSnapshot) -> SyncChangelog:
         net_worth_point_after=point_after,
         net_worth_before_date=nw_before_date,
         net_worth_after_date=nw_after_date,
+        qianji_modified=qianji_modified,
+        computed_daily_modified=cd_modified,
     )
 
 
@@ -450,3 +510,55 @@ def _latest_entry(daily: dict[str, NetWorthPoint]) -> tuple[NetWorthPoint | None
         return (None, None)
     latest_date = max(daily.keys())
     return (daily[latest_date], latest_date)
+
+
+# ── Modify-pairing helpers ──────────────────────────────────────────────────
+
+
+# Qianji tuple shape: (date, type, category, amount, note).
+# PK is (date, type, category, amount); ``note`` is the mutable content field.
+# This matches the "user added a note after the fact" use case that motivated
+# modify detection. Amount edits fall back to add/remove (different PK) —
+# acceptable since amount changes are substantive and rare.
+_QianjiTuple = tuple[str, str, str, float, str]
+_QianjiPK = tuple[str, str, str, float]
+
+
+def _qianji_pk(row: _QianjiTuple) -> _QianjiPK:
+    """PK extractor for Qianji rows: drop the mutable ``note`` field."""
+    date, type_, category, amount, _note = row
+    return (date, type_, category, amount)
+
+
+def _pair_by_pk(
+    added: frozenset[_QianjiTuple],
+    removed: frozenset[_QianjiTuple],
+    pk_fn: Callable[[_QianjiTuple], _QianjiPK],
+) -> tuple[list[_QianjiTuple], list[_QianjiTuple], list[tuple[_QianjiTuple, _QianjiTuple]]]:
+    """Split (added, removed) into (still-added, still-removed, paired-modifies).
+
+    Rows on both sides whose ``pk_fn(row)`` matches are paired as
+    ``(before_row, after_row)`` and removed from their original buckets.
+    PK collisions (multiple rows sharing a PK in either set) are resolved
+    best-effort: one pairing per collision, extras remain in their original
+    bucket. In practice a single sync cycle doesn't produce PK collisions
+    because Qianji ingest is full-replace-per-run with stable amounts.
+    """
+    removed_by_pk: dict[_QianjiPK, _QianjiTuple] = {}
+    for row in removed:
+        removed_by_pk.setdefault(pk_fn(row), row)
+
+    paired: list[tuple[_QianjiTuple, _QianjiTuple]] = []
+    added_keep: list[_QianjiTuple] = []
+    consumed_pks: set[_QianjiPK] = set()
+    for row in added:
+        pk = pk_fn(row)
+        match = removed_by_pk.get(pk)
+        if match is not None and pk not in consumed_pks:
+            paired.append((match, row))
+            consumed_pks.add(pk)
+        else:
+            added_keep.append(row)
+
+    removed_keep = [row for row in removed if pk_fn(row) not in consumed_pks]
+    return added_keep, removed_keep, paired
