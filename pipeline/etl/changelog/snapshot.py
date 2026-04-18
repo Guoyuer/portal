@@ -8,6 +8,89 @@ the render layer turns into an email body.
 Snapshot contents are intentionally asymmetric — full tuple sets for small
 tables (so we can diff exact rows) and aggregate counts for big tables
 (``daily_close``, ``econ_series``) where per-row detail is noise.
+
+Identity model — "content-tuple identity"
+-----------------------------------------
+The small-table fields (:attr:`SyncSnapshot.fidelity_txns`,
+:attr:`SyncSnapshot.qianji_txns`) are ``frozenset`` of fixed-shape tuples
+rather than lists-of-objects or dicts-keyed-by-row-id. Two rows are "the
+same" iff every element of their content tuple compares equal.
+
+Per-table tuple shapes (kept in lockstep with :func:`capture`'s ``SELECT``
+list and :func:`diff`'s consumers):
+
+- ``fidelity_transactions`` →
+  ``(run_date: str, action_type: str, symbol: str, quantity: float, amount: float)``
+  — no row id, no ``account``; the business-meaningful combination.
+- ``qianji_transactions`` →
+  ``(date: str, type: str, category: str, amount: float, note: str)``
+  — ``note`` is included so low-count categories (Salary, 401k, ...) can be
+  expanded with date+note detail in the email body; it's part of identity,
+  so editing only a note would surface the row as "added" (and the old
+  tuple as silently "removed" — see edge cases below).
+- ``computed_daily`` →
+  ``dict[date: str, NetWorthPoint]`` (NOT a frozenset). Primary-key identity
+  by date is sufficient here since each day is unique; value is the full
+  :class:`NetWorthPoint` so per-component deltas and assets-vs-total drift
+  are computable without a second SELECT.
+- ``daily_close`` → aggregate only (count + max date). ~300k rows, per-row
+  diff would dominate the email with noise and runtime — the symbol×date
+  fact table is write-once so count delta captures the operation.
+- ``econ_series`` → only the distinct key set (``frozenset[str]``); the
+  timeseries itself is full-replace on every run so row-level diff would
+  fire every successful run (FRED: 9 indicator(s) refreshed noise).
+- ``empower_snapshots`` → count + latest snapshot $ total (single scalar
+  from ``SUM(mktval)``). Same rationale as ``daily_close``.
+
+Why frozenset (vs. row IDs)
+---------------------------
+Ingest routinely re-creates rows with new primary keys while content stays
+identical:
+- ``qianji_transactions`` is fully deleted and re-inserted every run (see
+  :func:`etl.qianji.ingest_qianji_transactions` — ``DELETE FROM`` then
+  ``INSERT``), so ``id`` values rotate. Identity by ``id`` would report
+  every row as "removed + added" on every run.
+- ``fidelity_transactions`` parses CSVs without stable primary keys —
+  ``ROWID`` is monotonic and changes whenever rows are re-ingested in a
+  different order.
+- Qianji's ``amount`` used to drift run-to-run via live CNY rates (the
+  original bug), but :func:`etl.qianji.parse_qj_amount` now resolves
+  CNY→USD via per-bill-date historical rates, so the content tuple is
+  stable. That's a hard prerequisite for frozenset-diff to be ghost-free.
+
+How diff infers add / remove / modify
+-------------------------------------
+:func:`diff` computes pure set differences:
+- ``added = after - before`` → new rows since the previous snapshot.
+- ``removed = before - after`` → rows that vanished (currently only
+  ``econ_series_keys`` surfaces this, as the :class:`SyncChangelog` field
+  ``econ_keys_removed``). For ``fidelity_txns`` and ``qianji_txns`` the
+  ingest is append-mostly, so ``removed`` is expected to be empty and we
+  don't render it — the ``has_meaningful_changes`` check deliberately
+  ignores removals.
+- "Modified" has **no native representation** in this identity model. A
+  content change looks like (removed old tuple, added new tuple). For
+  ``computed_daily`` (dict by date), a same-date value change *is*
+  detectable but :func:`diff` only enumerates ``dates not in before`` —
+  re-computations to an existing date silently pass.
+
+Edge cases
+----------
+- **Same content, different primary key**: treated as the same row.
+  Desired; that's the point of content-tuple identity.
+- **Content change under stable primary key**: treated as (remove old,
+  add new). For ``qianji_txns`` with an edited note, this surfaces in
+  ``qianji_added_rows_by_category`` but the corresponding old tuple is
+  silently in ``before - after``. The email body only shows additions.
+- **Amount drift** (hypothetical — the snapshot design assumes stable
+  amounts): FX drift on Qianji CNY→USD would create ghost tuples every
+  run. Kept in check by the historical-rate resolution in
+  :func:`etl.qianji.parse_qj_amount`. If you change how amounts are
+  derived, re-verify ghost-free diff on a real 2-run baseline.
+- **Empty snapshot from missing DB file**: :func:`capture` returns a bare
+  :class:`SyncSnapshot` (empty frozensets + zero counts); ``diff`` against
+  it reports everything in ``after`` as added — correct behavior for
+  "pipeline rebuilt the DB from scratch".
 """
 from __future__ import annotations
 
@@ -240,7 +323,44 @@ class SyncChangelog:
 
 
 def diff(before: SyncSnapshot, after: SyncSnapshot) -> SyncChangelog:
-    """Compute the set difference between two snapshots."""
+    """Compute the set difference between two snapshots.
+
+    See the module docstring for the identity-model rationale. Walkthrough:
+
+    1. **Fidelity**: ``after.fidelity_txns - before.fidelity_txns`` (frozenset
+       subtraction). Sort by ``(run_date, action_type, symbol)`` so the email
+       renders in deterministic order — important for regression diffing of
+       captured email snapshots in tests.
+    2. **Qianji**: subtract the two frozensets to get added tuples, then fold
+       them into per-category aggregates (``count`` + ``total_amount``) and
+       per-category row lists ``(date, amount, note)``. The row lists are
+       date-sorted so the renderer's small-category expansion produces a
+       stable ordering. ``_date`` and ``_type`` are unused in the fold but
+       kept as named leading tuple positions to document the shape.
+    3. **computed_daily**: dict-key diff by date only. For dates added in
+       ``after``, we keep ``point.total`` (scalar) — consumers don't need
+       per-component data at the added-rows level (that's what the
+       ``net_worth_point_after`` endpoint snapshot is for). Same-date edits
+       are invisible to this diff by design; use the golden-test regression
+       harness if you need to catch re-computations.
+    4. **daily_close**: ``max(0, after.count - before.count)``. Negative
+       deltas (impossible in normal operation — daily_close is append-only)
+       clamp to zero so the email doesn't show "added -5 rows".
+    5. **Net worth endpoints**: :func:`_latest_entry` picks the most recent
+       date on each side. Net worth = ``total + liabilities`` (liabilities
+       is stored negative), matching the frontend's ``netWorth`` in
+       ``compute.ts``. Deltas only compute when both endpoints are present
+       — a fresh DB (empty ``before``) yields ``nw_delta = None`` rather
+       than spuriously reporting the full net worth as a "delta".
+    6. **FRED**: compare the *set* of keys in ``econ_series`` rather than
+       per-row data. The ingest is full-replace-per-run, so row-level diff
+       would fire on every successful sync (the "FRED: 9 indicator(s)
+       refreshed" noise). ``econ_refreshed`` is only True when indicators
+       are added or retired.
+    7. **Empower**: snapshot count delta + latest-snapshot $ delta. The
+       scalar is ``SUM(mktval)`` across funds at the most recent
+       ``empower_snapshots.id``; ``None`` if either endpoint has no data.
+    """
     # Fidelity: sorted by run_date (first tuple element) for stable email output
     fidelity_added = sorted(
         after.fidelity_txns - before.fidelity_txns,

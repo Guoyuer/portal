@@ -371,20 +371,116 @@ class QianjiSnapshot:
 
 
 def qianji_balances_at(db_path: Path, as_of: date | None = None) -> QianjiSnapshot:
-    """Return Qianji account balances + currencies at ``as_of``.
+    """Return Qianji account balances + currencies at ``as_of`` via reverse replay.
 
-    Starts from current balances (``user_asset``); when ``as_of`` is given,
-    reverses every bill with ``time`` after end-of-day ``as_of`` (wall-clock
-    in :data:`_USER_TZ`). Each account balance stays in its native currency.
+    Strategy: read live balances from ``user_asset`` (which reflects *now*, i.e.
+    after every bill Qianji has ever recorded), then walk forward-in-time
+    through every bill with ``time > end_of_day(as_of)`` and *undo* its
+    effect on the live balances. Output balances are in each account's
+    native currency — no FX conversion to USD at replay time.
 
-    Qianji bill-type conventions:
-      - expense  (type 0): fromact loses money
-      - income   (type 1): fromact gains money
-      - transfer (type 2): fromact→targetact (cross-currency uses
-        ``extra.curr.tv``)
-      - repayment(type 3): same as transfer
+    Bill-type dispatch table
+    ------------------------
+    Qianji encodes four bill kinds in ``user_bill.type`` (see
+    :data:`_TYPE_MAP` for the internal-name mapping). For each, this
+    function applies the **inverse** of the forward effect:
 
-    When the Qianji DB doesn't exist, returns an empty snapshot.
+    =====  =========  ============================  ============================
+    type   name       forward effect (on record)    reverse effect (here)
+    =====  =========  ============================  ============================
+    0      expense    ``balances[fromact] -= m``    ``balances[fromact] += m``
+    1      income     ``balances[fromact] += m``    ``balances[fromact] -= m``
+    2      transfer   ``balances[fromact] -= m``    ``balances[fromact] += m``
+                      ``balances[targetact] += tv`` ``balances[targetact] -= tv``
+    3      repayment  same as transfer              same as transfer
+    =====  =========  ============================  ============================
+
+    (``m`` is shorthand for ``money``, ``tv`` for target-value — see
+    :func:`parse_qj_target_amount`.) Repayment is Qianji's model for "pay
+    the credit card off" — a transfer from Checking to Credit Card with
+    the same two-sided arithmetic as type 2.
+
+    Notes on the forward model:
+
+    - ``money`` is always expressed in the **source** account's native
+      currency. For a USD Checking account, ``money`` is USD; for a CNY
+      Alipay account, ``money`` is CNY. No cross-account normalization.
+    - For type 2/3 transfers, ``targetact`` does NOT receive ``money``
+      directly — it receives ``tv`` (target-value), which equals ``money``
+      for same-currency transfers but differs for cross-currency ones.
+    - Other type codes (seen occasionally in the wild: 4/5 collapsed
+      categories) are silently skipped — they're either unsupported
+      features or Qianji-internal bookkeeping and should not move balances.
+
+    Cross-currency transfer — worked example
+    ----------------------------------------
+    User transfers 1000 USD from ``USD Account`` to ``CNY Account`` at an
+    exchange rate of 7 CNY/USD. The bill is stored as:
+
+    - ``type = 2``, ``money = 1000.0`` (source amount, USD)
+    - ``fromact = "USD Account"``, ``targetact = "CNY Account"``
+    - ``extra.curr = {"ss": "USD", "ts": "CNY", "tv": 7000.0}``
+
+    Forward effect: ``USD Account -= 1000``, ``CNY Account += 7000``.
+
+    If ``as_of`` is before the transfer date, this function calls
+    :func:`parse_qj_target_amount` which returns ``tv = 7000.0`` (cross-
+    currency branch: ``ss != ts`` and ``tv > 0``). Then:
+
+    - ``balances["USD Account"] += 1000.0`` — undo the source-side debit.
+    - ``balances["CNY Account"] -= 7000.0`` — undo the target-side credit
+      **in its own native currency**, NOT in USD. This is why currencies
+      stay per-account; the caller (:mod:`etl.allocation`) does the USD
+      conversion at render time using the CNY rate appropriate for the
+      replay date.
+
+    Same-currency transfers fall through the ``ss == ts`` check in
+    :func:`parse_qj_target_amount`, so ``tv == money`` and both sides move
+    by the same magnitude — mathematically identical to "money out, money in".
+
+    Timezone correctness (the 39% bug)
+    ----------------------------------
+    Qianji stores ``user_bill.time`` as a Unix epoch captured at save, so
+    each bill lands at whatever UTC instant corresponds to the user's
+    wall-clock tap. Truncating to a day in UTC mis-attributes every
+    late-evening bill to the next UTC calendar day.
+
+    For a user on US West Coast time, anything logged after ~16:00 local
+    crosses midnight UTC and lands on the wrong day. The real-data audit
+    measured this at **780 / 1994 bills (39%)** — every evening transaction
+    systematically off-by-one. See commit 70373ae (2026-04-15,
+    ``fix(data): 3 Qianji/pricing correctness bugs``) for the
+    before/after validation.
+
+    The cutoff here is constructed as ``datetime(year, month, day,
+    23, 59, 59, tzinfo=_USER_TZ).timestamp()`` — end-of-day in the user's
+    local zone, converted to a Unix epoch. Bills with ``time > cutoff``
+    are reversed. A bill tapped at noon local on ``as_of`` stays (tapped
+    *before* cutoff); a bill tapped at 00:01 the next local day gets
+    reversed, matching the user's intuitive "what did I have at the end
+    of this day?" mental model.
+
+    :data:`_USER_TZ` defaults to ``America/Los_Angeles`` and is overridable
+    via ``QIANJI_USER_TZ`` for tests and fixtures — the L2 regression
+    fixture pins it to UTC to keep the golden deterministic.
+
+    Inputs / outputs
+    ----------------
+    - ``db_path`` — path to the user's live Qianji SQLite DB (see
+      :data:`DEFAULT_DB_PATH`). Missing file → empty :class:`QianjiSnapshot`
+      and a WARNING log line (Qianji ingest is optional in the pipeline).
+    - ``as_of`` — ``None`` returns *current* balances with no replay;
+      otherwise reverse bills after end-of-local-day.
+    - Returns :class:`QianjiSnapshot` with ``balances`` (per-account, native
+      currency) and ``currencies`` (per-account ISO code) — both captured
+      from the same ``user_asset`` SELECT for consistency.
+
+    See also
+    --------
+    - :func:`parse_qj_target_amount` — cross-currency target-value extractor.
+    - :func:`etl.qianji.parse_qj_amount` — USD conversion used during ingest
+      (not here; replay keeps native currency).
+    - :func:`_load_balances` — the live-balance reader this function seeds from.
     """
     if not db_path.exists():
         log.warning("Qianji DB not found: %s", db_path)
