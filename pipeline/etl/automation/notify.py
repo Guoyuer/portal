@@ -1,0 +1,216 @@
+"""Sync notifications: healthchecks.io pings + email summaries.
+
+Both channels are opt-in:
+    * Healthchecks: set ``PORTAL_HEALTHCHECK_URL``; ping failures are logged and
+      swallowed — never fatal.
+    * Email: set ``PORTAL_SMTP_USER`` + ``PORTAL_SMTP_PASSWORD``. A no-change
+      run is silently successful; failures and meaningful-change successes
+      send. SMTP errors are logged and swallowed too.
+
+The :func:`extract_validation_warnings` helper reads the per-run subprocess
+capture buffer (populated by :func:`etl.automation.runner.run_python_script`)
+and falls back to parsing the per-day log file's most recent banner block. See
+PR-S8 Bug 1 for the scoping rationale.
+"""
+from __future__ import annotations
+
+import logging
+import os
+import re
+import urllib.error
+import urllib.request
+from datetime import datetime
+from pathlib import Path
+
+from etl.changelog import (
+    SyncChangelog,
+    SyncSnapshot,
+    build_subject,
+    diff,
+    format_html,
+    format_text,
+)
+from etl.email_report import EmailConfig, send
+
+# ── Healthchecks.io ping ─────────────────────────────────────────────────────
+
+def ping_healthcheck(suffix: str = "") -> None:
+    """Ping ``PORTAL_HEALTHCHECK_URL`` (optionally ``/start`` or ``/fail``).
+
+    Silent on error or when the env var is unset.
+    """
+    url = os.environ.get("PORTAL_HEALTHCHECK_URL")
+    if not url:
+        return
+    target = f"{url}/{suffix}" if suffix else url
+    try:
+        urllib.request.urlopen(target, timeout=10).read()  # noqa: S310 — trusted env URL
+    except (urllib.error.URLError, OSError) as e:
+        logging.getLogger(__name__).warning("  healthcheck ping failed (ignored): %s", e)
+
+
+# ── Email reporting ──────────────────────────────────────────────────────────
+
+# Exit codes are re-imported locally to avoid a circular dependency on
+# ``runner``; the mapping stays in sync with ``runner.EXIT_*`` via constants
+# defined there. Keep both tables aligned whenever either side changes.
+_STATUS_LABELS = {
+    0: "OK",
+    1: "BUILD FAILED",
+    2: "PARITY GATE FAILED",
+    3: "SYNC FAILED",
+    4: "POSITIONS GATE FAILED",
+}
+
+
+def _parse_warnings_from_lines(lines: list[str]) -> list[str]:
+    """Extract ``validate_build`` WARNING messages from an iterable of log lines.
+
+    Matches lines containing ``"WARNING"`` followed by a colon or space. Skips
+    healthcheck noise and de-duplicates exact repeats while preserving order
+    (defense in depth: even if a caller passes a multi-run buffer, repeated
+    warnings collapse to one entry).
+    """
+    warnings: list[str] = []
+    for line in lines:
+        m = re.search(r"WARNING[: ]\s*(.+)", line)
+        if not m:
+            continue
+        msg = m.group(1).strip()
+        if not msg or "healthcheck ping failed" in msg:
+            continue
+        warnings.append(msg)
+    # dict.fromkeys preserves first-seen order while dropping duplicates.
+    return list(dict.fromkeys(warnings))
+
+
+def extract_validation_warnings(
+    log_file: Path | None = None,
+    *,
+    buffer: list[str] | None = None,
+) -> list[str]:
+    """Return validation WARNINGs captured from this run.
+
+    Primary source is the subprocess capture ``buffer`` (typically obtained
+    from :func:`etl.automation.runner.get_script_output_buffer`), which
+    guarantees scoping to the CURRENT ``main()`` invocation. If that buffer is
+    empty or not provided, falls back to parsing the tail of ``log_file``
+    starting from the most recent ``"=" * 60`` banner — which matches the
+    "Portal Sync" opening block emitted at each run.
+
+    This two-tier approach keeps warnings from prior runs on the same day
+    (the per-day log file is append-only) from leaking into the email body.
+    """
+    if buffer:
+        return _parse_warnings_from_lines(buffer)
+
+    if log_file is None or not log_file.exists():
+        return []
+    try:
+        with log_file.open("r", encoding="utf-8", errors="replace") as fh:
+            all_lines = fh.readlines()
+    except OSError:
+        return []
+
+    # Find the start of the *current* run: the last "============" banner. The
+    # orchestrator writes three banner lines ("=" * 60, "Portal Sync", "=" * 60)
+    # at the top of each main() run; slicing from the last banner onward gives
+    # us only the current run's output.
+    banner = "=" * 60
+    last_banner_idx = -1
+    for i, line in enumerate(all_lines):
+        if banner in line:
+            last_banner_idx = i
+    tail = all_lines[last_banner_idx:] if last_banner_idx >= 0 else all_lines
+    return _parse_warnings_from_lines([ln.rstrip("\n") for ln in tail])
+
+
+def _fmt_duration(seconds: float) -> str:
+    """Compact ``NmNNs``-style duration (or ``NNs`` when under a minute)."""
+    if seconds < 60:
+        return f"{seconds:.0f}s"
+    m, s = divmod(int(seconds), 60)
+    return f"{m}m{s:02d}s"
+
+
+def _build_context(
+    changelog: SyncChangelog,
+    exit_code: int,
+    log_file: Path,
+    snapshot_before: SyncSnapshot,
+    snapshot_after: SyncSnapshot | None,
+    error: str | None,
+    warnings: list[str] | None,
+    started_at: datetime | None = None,
+) -> dict[str, object]:
+    """Assemble the template context dict consumed by format_text / format_html."""
+    before_dates = sorted(snapshot_before.computed_daily.keys()) if snapshot_before.computed_daily else []
+    after_dates: list[str] = []
+    econ_keys: list[str] = []
+    if snapshot_after is not None:
+        after_dates = sorted(snapshot_after.computed_daily.keys())
+        econ_keys = sorted(snapshot_after.econ_series_keys)
+    duration = ""
+    if started_at is not None:
+        duration = _fmt_duration((datetime.now() - started_at).total_seconds())
+    return {
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "status_label": _STATUS_LABELS.get(exit_code, f"EXIT {exit_code}"),
+        "exit_code": exit_code,
+        "log_file": str(log_file),
+        "error": error,
+        "warnings": warnings or [],
+        "before_dates": before_dates,
+        "after_dates": after_dates,
+        "econ_keys": econ_keys,
+        "duration": duration,
+    }
+
+
+def send_report_email(
+    config: EmailConfig | None,
+    log: logging.Logger,
+    snapshot_before: SyncSnapshot,
+    snapshot_after: SyncSnapshot | None,
+    exit_code: int,
+    log_file: Path,
+    error: str | None = None,
+    validation_warnings: list[str] | None = None,
+    started_at: datetime | None = None,
+) -> None:
+    """Build a changelog, decide whether to send, send if yes.
+
+    Policy:
+        ``exit_code != 0``                                -> always send
+        ``exit_code == 0`` and has_meaningful_changes     -> send
+        ``exit_code == 0`` and no meaningful changes      -> skip
+
+    Errors during SMTP are logged and swallowed — email must never affect the
+    sync exit code.
+    """
+    if config is None:
+        return
+
+    if snapshot_after is not None:
+        changelog = diff(snapshot_before, snapshot_after)
+    else:
+        changelog = SyncChangelog()
+
+    should_send = exit_code != 0 or changelog.has_meaningful_changes()
+    if not should_send:
+        log.info("  Email skipped (no meaningful changes)")
+        return
+
+    context = _build_context(
+        changelog, exit_code, log_file, snapshot_before, snapshot_after, error,
+        validation_warnings, started_at=started_at,
+    )
+    subject = build_subject(changelog, exit_code)
+    html = format_html(changelog, context)
+    text = format_text(changelog, context)
+
+    try:
+        send(subject, html, text, config)
+        log.info("  Email sent to %s", config.email_to)
+    except Exception as e:  # noqa: BLE001 — email failure must not abort sync
+        log.error("  Email send FAILED (not fatal): %s", e)
