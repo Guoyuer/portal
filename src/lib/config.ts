@@ -8,3 +8,6 @@ export const TIMELINE_URL = `${WORKER_BASE}/timeline`;
 export const ECON_URL = `${WORKER_BASE}/econ`;
 
 export const GOAL = 2_000_000;
+
+/** Abort bundle/econ fetches after this long. */
+export const FETCH_TIMEOUT_MS = 10_000;

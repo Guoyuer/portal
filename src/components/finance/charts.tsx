@@ -1,8 +1,6 @@
 "use client";
 
 import {
-  Area,
-  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
@@ -19,12 +17,8 @@ import {
 } from "recharts";
 import type { Props as LabelProps } from "recharts/types/component/Label";
 import type { TooltipContentProps } from "recharts/types/component/Tooltip";
-import type {
-  CategoryData,
-  MonthlyFlowPoint,
-  SnapshotPoint,
-} from "@/lib/computed-types";
-import { fmtCurrencyShort, fmtDateMonthYear, fmtMonth, fmtMonthYear, fmtTick, parseLocalDate } from "@/lib/format";
+import type { CategoryData, MonthlyFlowPoint } from "@/lib/computed-types";
+import { fmtCurrencyShort, fmtDateMonthYear, fmtMonth, fmtMonthYear, fmtTick } from "@/lib/format";
 import { useIsDark, useIsMobile } from "@/lib/hooks";
 import { tooltipStyle, gridStroke, axisProps } from "@/lib/chart-styles";
 import { TooltipCard } from "@/components/charts/tooltip-card";
@@ -198,75 +192,3 @@ export function IncomeExpensesChart({
   );
 }
 
-// ── Area: Net Worth Trend ──────────────────────────────────────────────────
-
-/** Round Y-axis domain to nice $50k boundaries */
-function niceYDomain(data: SnapshotPoint[]): [number, number] {
-  const vals = data.map((d) => d.total);
-  const min = Math.min(...vals);
-  const max = Math.max(...vals);
-  const step = 50_000;
-  let lo = Math.floor(min / step) * step;
-  let hi = Math.ceil(max / step) * step;
-  if (lo === hi) { lo -= step / 2; hi += step / 2; }
-  return [lo, hi];
-}
-
-export function NetWorthTrendChart({
-  data,
-}: {
-  data: SnapshotPoint[];
-}) {
-  const isDark = useIsDark();
-  const isMobile = useIsMobile();
-
-  if (data.length === 0) return null;
-
-  // Convert dates to timestamps for uniform time-axis spacing. Parse in
-  // local TZ so NY/LA viewers don't see every tick labelled one day early.
-  const chartData = data.map((d) => ({ ...d, ts: parseLocalDate(d.date).getTime() }));
-
-  const [yMin, yMax] = niceYDomain(data);
-  return (
-    <ResponsiveContainer width="100%" height={isMobile ? 260 : 300}>
-      <AreaChart data={chartData} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
-        <defs>
-          <linearGradient id="nwGradient" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={isDark ? "#22d3ee" : "#0891b2"} stopOpacity={0.35} />
-            <stop offset="100%" stopColor={isDark ? "#22d3ee" : "#0891b2"} stopOpacity={0.02} />
-          </linearGradient>
-        </defs>
-        <CartesianGrid strokeDasharray="3 3" stroke={gridStroke(isDark)} />
-        <XAxis
-          dataKey="ts"
-          type="number"
-          scale="time"
-          domain={["dataMin", "dataMax"]}
-          tickFormatter={fmtTick}
-          {...axisProps(isDark)}
-        />
-        <YAxis
-          tickFormatter={fmtCurrencyShort}
-          width={55}
-          domain={[yMin, yMax]}
-          {...axisProps(isDark)}
-          axisLine={false}
-        />
-        <Tooltip
-          contentStyle={tooltipStyle(isDark)}
-          labelStyle={{ fontWeight: 600, marginBottom: 2 }}
-          itemStyle={{ margin: 0, padding: 0 }}
-          formatter={(value) => `$${Number(value).toLocaleString("en-US", { maximumFractionDigits: 0 })}`}
-          labelFormatter={(ts) => new Date(Number(ts)).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
-        />
-        <Area
-          type="monotone"
-          dataKey="total"
-          stroke={isDark ? "#22d3ee" : "#0891b2"}
-          fill="url(#nwGradient)"
-          strokeWidth={2}
-        />
-      </AreaChart>
-    </ResponsiveContainer>
-  );
-}

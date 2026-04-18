@@ -9,6 +9,7 @@ import {
   buildDateIndex,
   buildTickerIndex,
   catColorByName,
+  cashflowState,
 } from "./compute";
 import { CAT_COLOR_BY_KEY } from "./chart-colors";
 
@@ -250,6 +251,27 @@ describe("computeCashflow", () => {
     ];
     const cf = computeCashflow(txns, "2026-01-01", "2026-01-31");
     expect(cf.expenseItems.map(e => e.category)).toEqual(["Rent", "Gas", "Food"]);
+  });
+});
+
+// ── cashflowState ───────────────────────────────────────────────────────
+
+describe("cashflowState", () => {
+  it("returns unavailable when cashflow is null", () => {
+    expect(cashflowState(null)).toEqual({ kind: "unavailable" });
+  });
+
+  it("returns empty when both totals are zero", () => {
+    const cf = computeCashflow([], "2026-01-01", "2026-01-31");
+    expect(cashflowState(cf)).toEqual({ kind: "empty" });
+  });
+
+  it("returns data with the original cashflow attached when there is activity", () => {
+    const txns: QianjiTxn[] = [mkQianjiTxn({ type: "income", amount: 100 })];
+    const cf = computeCashflow(txns, "2026-01-01", "2026-01-31");
+    const state = cashflowState(cf);
+    expect(state.kind).toBe("data");
+    if (state.kind === "data") expect(state.data).toBe(cf);
   });
 });
 

@@ -31,6 +31,17 @@ interface GroupedCategory {
   subtypes: { name: string; tickers: ApiTicker[]; value: number; pct: number }[];
 }
 
+/** Sum value/pct/target across categories; deviation is pct − target of the sum. */
+function aggregateCategories(cats: Pick<GroupedCategory, "value" | "pct" | "target">[]) {
+  let value = 0, pct = 0, target = 0;
+  for (const c of cats) {
+    value += c.value;
+    pct += c.pct;
+    target += c.target;
+  }
+  return { value, pct, target, deviation: pct - target };
+}
+
 export function groupTickers(categories: ApiCategory[], tickers: ApiTicker[], total: number): GroupedCategory[] {
   const tickersByCategory: Record<string, Record<string, ApiTicker[]>> = {};
   for (const t of tickers) {
@@ -136,6 +147,8 @@ export function CategorySummary({
   const totalTarget = categories.reduce((s, c) => s + c.target, 0);
   const totalDeviation = totalPct - totalTarget;
 
+  const nonEquityAggregate = nonEquityCats.length > 0 ? aggregateCategories(nonEquityCats) : null;
+
   // Build CategoryData-compatible array for the donut chart
   const donutCategories: CategoryData[] = categories.map((c) => ({
     name: c.name,
@@ -205,47 +218,41 @@ export function CategorySummary({
             ))}
 
             {/* Non-Equity group — parent row with aggregated values */}
-            {nonEquityCats.length > 0 && (() => {
-              const neValue = nonEquityCats.reduce((s, c) => s + c.value, 0);
-              const nePct = nonEquityCats.reduce((s, c) => s + c.pct, 0);
-              const neTarget = nonEquityCats.reduce((s, c) => s + c.target, 0);
-              const neDeviation = nePct - neTarget;
-              return (
-                <Fragment>
-                  <TableRow className="hover:bg-white/10 dark:hover:bg-white/5 transition-colors">
-                    <TableCell className="font-medium">Non-Equity</TableCell>
-                    <TableCell className="text-right hidden sm:table-cell">
-                      {fmtCurrency(neValue)}
+            {nonEquityAggregate && (
+              <Fragment>
+                <TableRow className="hover:bg-white/10 dark:hover:bg-white/5 transition-colors">
+                  <TableCell className="font-medium">Non-Equity</TableCell>
+                  <TableCell className="text-right hidden sm:table-cell">
+                    {fmtCurrency(nonEquityAggregate.value)}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {fmtPct(nonEquityAggregate.pct, false)}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {fmtPct(nonEquityAggregate.target, false)}
+                  </TableCell>
+                  <DeviationCell value={nonEquityAggregate.deviation} />
+                </TableRow>
+                {nonEquityCats.map((cat) => (
+                  <TableRow
+                    key={cat.name}
+                    className="hover:bg-white/10 dark:hover:bg-white/5 transition-colors"
+                  >
+                    <TableCell className="text-muted-foreground pl-6">
+                      <CategoryTooltip cat={cat}><em>{cat.name}</em></CategoryTooltip>
                     </TableCell>
-                    <TableCell className="text-right">
-                      {fmtPct(nePct, false)}
+                    <TableCell className="text-right text-muted-foreground hidden sm:table-cell">
+                      {fmtCurrency(cat.value)}
                     </TableCell>
-                    <TableCell className="text-right">
-                      {fmtPct(neTarget, false)}
+                    <TableCell className="text-right text-muted-foreground">
+                      {fmtPct(cat.pct, false)}
                     </TableCell>
-                    <DeviationCell value={neDeviation} />
+                    <TableCell />
+                    <TableCell className="hidden sm:table-cell" />
                   </TableRow>
-                  {nonEquityCats.map((cat) => (
-                    <TableRow
-                      key={cat.name}
-                      className="hover:bg-white/10 dark:hover:bg-white/5 transition-colors"
-                    >
-                      <TableCell className="text-muted-foreground pl-6">
-                        <CategoryTooltip cat={cat}><em>{cat.name}</em></CategoryTooltip>
-                      </TableCell>
-                      <TableCell className="text-right text-muted-foreground hidden sm:table-cell">
-                        {fmtCurrency(cat.value)}
-                      </TableCell>
-                      <TableCell className="text-right text-muted-foreground">
-                        {fmtPct(cat.pct, false)}
-                      </TableCell>
-                      <TableCell />
-                      <TableCell className="hidden sm:table-cell" />
-                    </TableRow>
-                  ))}
-                </Fragment>
-              );
-            })()}
+                ))}
+              </Fragment>
+            )}
 
             {/* Total row */}
             <TableRow className={TOTAL_ROW_CLASS}>

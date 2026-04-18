@@ -1,6 +1,6 @@
 import type { CashflowResponse } from "@/lib/computed-types";
 import { fmtCurrency } from "@/lib/format";
-import { MAJOR_EXPENSE_THRESHOLD } from "@/lib/thresholds";
+import { MAJOR_EXPENSE_THRESHOLD, SMALL_INCOME_THRESHOLD } from "@/lib/thresholds";
 import { TOTAL_ROW_CLASS } from "@/components/finance/ticker-table";
 import {
   Table,
@@ -12,10 +12,10 @@ import {
 } from "@/components/ui/table";
 
 
-/** Merge income items below $10 into "Other" */
-function consolidateSmallItems(items: CashflowResponse["incomeItems"], threshold = 10) {
-  const big = items.filter((i) => i.amount >= threshold);
-  const small = items.filter((i) => i.amount < threshold);
+/** Merge income items below SMALL_INCOME_THRESHOLD into "Other" */
+function consolidateSmallItems(items: CashflowResponse["incomeItems"]) {
+  const big = items.filter((i) => i.amount >= SMALL_INCOME_THRESHOLD);
+  const small = items.filter((i) => i.amount < SMALL_INCOME_THRESHOLD);
   if (small.length === 0) return big;
   const extraAmt = small.reduce((s, i) => s + i.amount, 0);
   const extraCnt = small.reduce((s, i) => s + i.count, 0);
