@@ -179,8 +179,9 @@ def _load_config(path: Path) -> RawConfig:
     if not isinstance(data, dict):
         msg = f"Config root must be an object, got {type(data).__name__}"
         raise ValueError(msg)
-    # TypedDict is structural-only at runtime; downstream `etl.config.validate_config`
-    # does the field-by-field check on first use, so trust it here.
+    # TypedDict is structural-only at runtime. Individual consumers read via
+    # `.get(...)` with their own defaults, so a missing key degrades
+    # gracefully — no central schema check runs.
     return cast(RawConfig, data)
 
 

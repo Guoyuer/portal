@@ -78,13 +78,6 @@ def _user_prompt(emails: list[ParsedMessage]) -> str:
     return "\n".join(lines)
 
 
-def _fallback(emails: list[ParsedMessage], reason: str) -> dict[str, Classification]:
-    return {
-        e.msg_id: Classification(category=Category.NEUTRAL, summary=f"AI unavailable — {reason}")
-        for e in emails
-    }
-
-
 def classify_emails(
     emails: list[ParsedMessage], *, api_key: str,
 ) -> dict[str, Classification]:

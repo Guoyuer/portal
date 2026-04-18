@@ -17,7 +17,6 @@ from etl.sources import (
     InvestmentSource,
     PositionRow,
     PriceContext,
-    ingest_all,
     positions_at_all,
 )
 
@@ -76,9 +75,3 @@ def test_positions_at_all_returns_empty_on_empty_db(tmp_path: Path) -> None:
     assert rows == []
 
 
-def test_ingest_all_is_silent_with_empty_config(tmp_path: Path) -> None:
-    """Every ingest path must tolerate a missing-inputs config."""
-    from etl.db import init_db
-    db = tmp_path / "tm.db"
-    init_db(db)
-    ingest_all(db, {"fidelity_downloads": tmp_path})  # no CSVs → no-op

@@ -6,8 +6,9 @@ Architecture rule: all source-specific logic lives in its own module under
 ``produces_positions(config)`` — and this package composes them.
 
 Modules are the identifier (no enum / protocol / class ceremony). The ordered
-``SOURCES`` list drives ``ingest_all`` + ``positions_at_all``; adding a new
-source is one import line here.
+``SOURCES`` list drives ``positions_at_all`` (production uses per-source
+``.ingest()`` calls directly from ``scripts/build_timemachine_db.py``);
+adding a new source is one import line here.
 """
 from __future__ import annotations
 
@@ -119,13 +120,6 @@ SOURCES: list[ModuleType] = _sources()
 
 
 # ── Top-level composition ──────────────────────────────────────────────────
-
-
-def ingest_all(db_path: Path, config: dict[str, object]) -> None:
-    """Run ``ingest`` on every source whose ``produces_positions(config)`` is True."""
-    for mod in SOURCES:
-        if mod.produces_positions(config):
-            mod.ingest(db_path, config)
 
 
 def positions_at_all(
