@@ -84,11 +84,25 @@ def main() -> None:
         parts.append(stmt)
     parts.append("")
 
-    # sync_meta is D1-only (not in local DB) — always include
+    # sync_meta + sync_log are D1-only (they record D1-side events). Kept out
+    # of etl/db.py because they're about remote ops, not local data.
     parts.append("-- Sync metadata (last_sync timestamp, data coverage)")
     parts.append("CREATE TABLE IF NOT EXISTS sync_meta (")
     parts.append("    key   TEXT PRIMARY KEY,")
     parts.append("    value TEXT NOT NULL")
+    parts.append(");")
+    parts.append("")
+    parts.append("-- Append-only audit log — one row per destructive op on D1.")
+    parts.append("-- Used for later forensics (\"what changed prod on YYYY-MM-DD?\").")
+    parts.append("-- NEVER DELETE from this table.")
+    parts.append("CREATE TABLE IF NOT EXISTS sync_log (")
+    parts.append("    id            INTEGER PRIMARY KEY AUTOINCREMENT,")
+    parts.append("    ts            TEXT NOT NULL,      -- ISO 8601 UTC")
+    parts.append("    op            TEXT NOT NULL,      -- 'diff' | 'full' | 'alter' | 'manual'")
+    parts.append("    table_name    TEXT,               -- single table if relevant, else NULL")
+    parts.append("    rows_affected INTEGER,            -- optional row count")
+    parts.append("    description   TEXT NOT NULL,      -- human-readable intent")
+    parts.append("    invocation    TEXT                -- hostname + branch@commit or 'manual-<script>'")
     parts.append(");")
     parts.append("")
 

@@ -16,6 +16,8 @@ from scripts.sync_to_d1 import (
     _dump_table,
     _ensure_d1_schema_aligned,
     _escape,
+    _invocation_context,
+    _sync_log_insert_sql,
 )
 
 
@@ -237,10 +239,14 @@ class TestEnsureD1SchemaAligned:
         _ensure_d1_schema_aligned(conn, local=False, dry_run=False)
         conn.close()
 
-        assert len(calls) == 1
+        # Each ALTER is paired with a matching sync_log INSERT (audit trail).
+        assert len(calls) == 2
         assert calls[0].startswith("ALTER TABLE qianji_transactions ADD COLUMN category")
         assert "TEXT" in calls[0]
         assert "DEFAULT" in calls[0]
+        assert calls[1].startswith("INSERT INTO sync_log")
+        assert "'alter'" in calls[1]
+        assert "'qianji_transactions'" in calls[1]
 
     def test_not_null_without_default_aborts_sync(self, db, monkeypatch):
         """A local column that's NOT NULL without a DEFAULT can't be ALTER-
@@ -326,3 +332,55 @@ class TestEnsureD1SchemaAligned:
         assert exec_calls == []
         captured = capsys.readouterr()
         assert "daily_close not found in D1" in captured.out
+
+
+
+class TestSyncLogInsert:
+    """``sync_log`` write path — audit trail for every destructive D1 op."""
+
+    def test_emits_well_formed_insert(self):
+        sql = _sync_log_insert_sql(
+            op="diff",
+            table_name="qianji_transactions",
+            rows_affected=19,
+            description="diff sync: 9 tables, 19 rows",
+            invocation="host branch@abc123",
+        )
+        assert sql.startswith(
+            "INSERT INTO sync_log (ts, op, table_name, rows_affected, "
+            "description, invocation) VALUES ("
+        )
+        assert sql.endswith(");")
+        assert "'diff'" in sql
+        assert "'qianji_transactions'" in sql
+        assert "19" in sql
+        assert "'diff sync: 9 tables, 19 rows'" in sql
+        assert "'host branch@abc123'" in sql
+
+    def test_escapes_single_quotes_in_description(self):
+        """Audit messages with embedded quotes don't break SQL parsing."""
+        sql = _sync_log_insert_sql(
+            op="manual",
+            table_name=None,
+            rows_affected=None,
+            description="can't say 'hello' here",
+            invocation="x",
+        )
+        # Doubled single-quotes is SQLite's escape
+        assert "'can''t say ''hello'' here'" in sql
+        # NULLs for absent values
+        assert ", NULL, NULL, " in sql
+
+    def test_invocation_context_includes_host(self, monkeypatch):
+        """Host from COMPUTERNAME/HOSTNAME is always present, git info is best-effort."""
+        monkeypatch.setenv("COMPUTERNAME", "TEST-HOST")
+        ctx = _invocation_context()
+        assert ctx.startswith("TEST-HOST ")
+        assert "@" in ctx  # <branch>@<sha> format
+
+    def test_invocation_context_fallbacks_when_git_absent(self, monkeypatch):
+        """When git isn't on PATH, fall back to 'unknown' instead of crashing."""
+        # Force git lookup to fail by pointing PATH at an empty directory.
+        monkeypatch.setenv("PATH", "")
+        ctx = _invocation_context()
+        assert "unknown@unknown" in ctx
