@@ -24,15 +24,9 @@ const PAGE_LOAD_TIME = Date.now();
 function SyncStatus({ syncMeta }: { syncMeta: Record<string, string> | null }) {
   const lastSync = syncMeta?.last_sync;
   if (!lastSync) return null;
-  const syncDate = new Date(lastSync);
-  const daysAgo = Math.floor((PAGE_LOAD_TIME - syncDate.getTime()) / 86_400_000);
-  const stale = daysAgo > 3;
-  return (
-    <p className={`text-xs mt-0.5 ${stale ? "text-yellow-500" : "text-muted-foreground/60"}`}>
-      Data as of {syncDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-      {stale && ` (${daysAgo}d ago)`}
-    </p>
-  );
+  const daysAgo = Math.floor((PAGE_LOAD_TIME - new Date(lastSync).getTime()) / 86_400_000);
+  if (daysAgo <= 3) return null;
+  return <p className="text-xs mt-0.5 text-yellow-500">Stale — last sync {daysAgo}d ago</p>;
 }
 
 // ── Sections ─────────────────────────────────────────────────────────
@@ -172,10 +166,11 @@ export default function FinancePage() {
               <span
                 className={`ml-2 inline-flex items-center gap-1 text-xs font-normal ${tl.crossCheck.ok ? "text-green-500" : "text-red-400"}`}
                 title={tl.crossCheck.ok
-                  ? `${tl.crossCheck.matchedCount}/${tl.crossCheck.totalCount} deposits matched with Qianji`
+                  ? "All Fidelity deposits matched with Qianji transfers"
                   : `${tl.crossCheck.totalCount - tl.crossCheck.matchedCount} of ${tl.crossCheck.totalCount} deposits not found in Qianji`}
               >
-                {tl.crossCheck.ok ? "\u2713" : "\u2717"}
+                {tl.crossCheck.ok ? "\u2713" : "\u2717"}{" "}
+                {tl.crossCheck.matchedCount}/{tl.crossCheck.totalCount} deposits reconciled
               </span>
             )}
           </SectionHeader>
@@ -186,7 +181,7 @@ export default function FinancePage() {
               <SectionBody>
                 <div className="grid md:grid-cols-2 gap-6">
                   <TickerTable title="Buys by Symbol" data={tl.activity.buysBySymbol} startDate={startDate ?? undefined} endDate={snapshotDate ?? undefined} />
-                  <TickerTable title="Dividends by Symbol" data={tl.activity.dividendsBySymbol} startDate={startDate ?? undefined} endDate={snapshotDate ?? undefined} />
+                  <TickerTable title="Dividends by Symbol" data={tl.activity.dividendsBySymbol} startDate={startDate ?? undefined} endDate={snapshotDate ?? undefined} countLabel="Payments" />
                 </div>
               </SectionBody>
             )

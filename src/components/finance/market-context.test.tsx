@@ -66,7 +66,7 @@ describe("MarketContext", () => {
 
   it("renders 52-week range bars", () => {
     render(<MarketContext data={MARKET} title="Market" />);
-    expect(screen.getAllByText("52W").length).toBe(2);
+    expect(screen.getAllByText("52-week range").length).toBe(2);
     expect(screen.getByText("4,200")).toBeTruthy();
     expect(screen.getByText("5,800")).toBeTruthy();
   });

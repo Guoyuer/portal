@@ -145,6 +145,8 @@ export function MetricCards({
           type="button"
           className="w-full p-4 text-left cursor-pointer"
           onClick={onAllocationToggle}
+          aria-expanded={allocationOpen}
+          aria-label={allocationOpen ? "Hide allocation breakdown" : "Show allocation breakdown"}
         >
           <div className="flex items-baseline justify-between">
             <p className="text-sm text-muted-foreground">Net Worth</p>
@@ -166,7 +168,8 @@ export function MetricCards({
               <p className="text-base font-semibold tabular-nums mt-0.5">{fmtCurrencyShort(investmentValue)}</p>
             </div>
           </div>
-          <div className="mt-2 flex justify-center">
+          <div className="mt-2 flex justify-center items-center gap-1.5 text-xs text-muted-foreground">
+            <span>{allocationOpen ? "Hide breakdown" : "Show breakdown"}</span>
             <svg
               xmlns="http://www.w3.org/2000/svg"
               viewBox="0 0 24 24"
@@ -175,7 +178,7 @@ export function MetricCards({
               strokeWidth={2}
               strokeLinecap="round"
               strokeLinejoin="round"
-              className={`h-4 w-4 text-muted-foreground transition-transform duration-300 ${allocationOpen ? "rotate-180" : ""}`}
+              className={`h-3.5 w-3.5 transition-transform duration-300 ${allocationOpen ? "rotate-180" : ""}`}
             >
               <path d="m6 9 6 6 6-6" />
             </svg>

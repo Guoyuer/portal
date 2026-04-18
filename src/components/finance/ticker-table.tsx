@@ -32,11 +32,13 @@ export function TickerTable({
   data,
   startDate,
   endDate,
+  countLabel = "Trades",
 }: {
   title: string;
   data: { symbol: string; count: number; total: number }[];
   startDate?: string;
   endDate?: string;
+  countLabel?: string;
 }) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const top = data.slice(0, ACTIVITY_TOP_SYMBOLS);
@@ -52,7 +54,7 @@ export function TickerTable({
         <TableHeader>
           <TableRow>
             <TableHead>Symbol</TableHead>
-            <TableHead className="text-right">Trades</TableHead>
+            <TableHead className="text-right">{countLabel}</TableHead>
             <TableHead className="text-right">Total</TableHead>
           </TableRow>
         </TableHeader>
