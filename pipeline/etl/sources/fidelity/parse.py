@@ -19,8 +19,8 @@ from pathlib import Path
 
 from etl.db import get_connection
 from etl.parsing import STRICT_US_DATE_RE, parse_us_date
-from etl.sources import ActionKind
 from etl.sources._ingest import range_replace_insert
+from etl.sources._types import ActionKind
 from etl.types import (
     ACT_BUY,
     ACT_COLLATERAL,
@@ -39,7 +39,6 @@ from etl.types import (
     ACT_SELL,
     ACT_TRANSFER,
     ACT_WITHDRAWAL,
-    FidelityTransaction,
 )
 from etl.types import parse_currency as _parse_float
 
@@ -156,78 +155,6 @@ def _csv_earliest_date(path: Path) -> str:
     if not dates:
         return "99999999"
     return min(d[6:10] + d[0:2] + d[3:5] for d in dates)
-
-
-def _parse_csv_text(text: str, *, origin: str = "CSV text") -> list[FidelityTransaction]:
-    """Parse Fidelity history CSV text into structured transaction records."""
-    if text.startswith("\ufeff"):
-        text = text[1:]
-
-    lines = text.splitlines(keepends=True)
-
-    # Skip leading blank lines to find the header.
-    start = 0
-    while start < len(lines) and not lines[start].strip():
-        start += 1
-
-    csv_text = "".join(lines[start:])
-    reader = csv.DictReader(csv_text.splitlines())
-
-    transactions: list[FidelityTransaction] = []
-    for row_num, row in enumerate(reader, start=2):
-        run_date = (row.get("Run Date") or "").strip()
-        if not run_date:
-            continue
-        # Skip footer/disclaimer rows — anything that doesn't look like a
-        # date is assumed to be narrative text and is dropped silently.
-        if not STRICT_US_DATE_RE.match(run_date):
-            continue
-
-        iso_date = parse_us_date(run_date, strict=True, row_context=f"{origin} row {row_num}")
-
-        raw_action = (row.get("Action") or "").strip()
-        symbol = (row.get("Symbol") or "").strip()
-        description = (row.get("Description") or "").strip()
-        account = (row.get("Account Number") or "").strip()
-        lot_type = (row.get("Type") or "").strip()
-        quantity = _parse_float(row.get("Quantity", ""))
-        price = _parse_float(row.get("Price", ""))
-        amount = _parse_float(row.get("Amount", ""))
-        action_type = _classify_action(raw_action)
-        # EFT with negative amount is a withdrawal, not a deposit.
-        if action_type == ACT_DEPOSIT and amount < 0:
-            action_type = ACT_WITHDRAWAL
-
-        txn: FidelityTransaction = {
-            "date": iso_date,
-            "account": account,
-            "action_type": action_type,
-            "symbol": symbol,
-            "description": description,
-            "lot_type": lot_type,
-            "quantity": quantity,
-            "price": price,
-            "amount": amount,
-            "raw_action": raw_action,
-            "dedup_key": (iso_date, account, raw_action, symbol, amount),
-        }
-        transactions.append(txn)
-
-    return transactions
-
-
-def load_transactions(csv_path: Path) -> list[FidelityTransaction]:
-    """Load Fidelity Accounts History CSV from a file path into memory."""
-    txns = _parse_csv_text(csv_path.read_text(encoding="utf-8-sig"), origin=csv_path.name)
-    by_type: dict[str, int] = {}
-    for t in txns:
-        by_type[t["action_type"]] = by_type.get(t["action_type"], 0) + 1
-    log.info(
-        "Transactions: %d from %s (%s)",
-        len(txns), csv_path.name,
-        ", ".join(f"{t}={c}" for t, c in sorted(by_type.items())),
-    )
-    return txns
 
 
 # ── DB ingest ──────────────────────────────────────────────────────────────
