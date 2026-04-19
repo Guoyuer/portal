@@ -23,7 +23,7 @@ from hypothesis import strategies as st
 
 from etl.replay import ReplayConfig, replay_transactions
 from etl.sources import ActionKind
-from tests.unit._replay_fixtures import insert_prop_rows
+from tests.fixtures import insert_prop_rows
 
 # A small ticker pool keeps the state space tight — we want invariants to
 # exercise the aggregation logic across shared keys, not explode into a

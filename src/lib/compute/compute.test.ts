@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { CategoryMeta, DailyPoint, DailyTicker, FidelityTxn, QianjiTxn } from "@/lib/schemas";
+import type { CategoryMeta, DailyTicker, FidelityTxn, QianjiTxn } from "@/lib/schemas";
 import {
   computeAllocation,
   computeCashflow,
@@ -12,33 +12,7 @@ import {
   cashflowState,
 } from "@/lib/compute/compute";
 import { CAT_COLOR_BY_KEY } from "@/lib/format/chart-colors";
-
-// Canonical category metadata (matches the pipeline default; each test is
-// isolated — if a test needs a different shape it declares its own).
-const CATEGORIES: CategoryMeta[] = [
-  { key: "usEquity", name: "US Equity", displayOrder: 0, targetPct: 55 },
-  { key: "nonUsEquity", name: "Non-US Equity", displayOrder: 1, targetPct: 15 },
-  { key: "crypto", name: "Crypto", displayOrder: 2, targetPct: 3 },
-  { key: "safeNet", name: "Safe Net", displayOrder: 3, targetPct: 27 },
-];
-
-// ── Helpers ─────────────────────────────────────────────────────────────
-
-function mkDaily(overrides: Partial<DailyPoint> = {}): DailyPoint {
-  return { date: "2026-01-15", total: 100000, usEquity: 55000, nonUsEquity: 15000, crypto: 3000, safeNet: 27000, liabilities: -5000, ...overrides };
-}
-
-function mkDailyN(n: number): DailyPoint[] {
-  return Array.from({ length: n }, (_, i) => mkDaily({ date: `2026-01-${String(i + 1).padStart(2, "0")}` }));
-}
-
-function mkFidelityTxn(overrides: Partial<FidelityTxn> = {}): FidelityTxn {
-  return { runDate: "2026-01-15", actionType: "buy", symbol: "VTI", amount: -500, quantity: 2, price: 250, ...overrides };
-}
-
-function mkQianjiTxn(overrides: Partial<QianjiTxn> = {}): QianjiTxn {
-  return { date: "2026-01-15", type: "income", category: "Salary", amount: 5000, isRetirement: false, ...overrides };
-}
+import { CATEGORIES, mkDaily, mkDailyN, mkFidelityTxn, mkQianjiTxn } from "@/test/factories";
 
 // ── buildDateIndex ──────────────────────────────────────────────────────
 

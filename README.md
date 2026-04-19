@@ -8,47 +8,51 @@ Personal one-stop dashboard. Finance reports with live data from Fidelity broker
 
 ```mermaid
 graph TB
-    subgraph "Local build"
+    subgraph Local["Local machine"]
+        TASK["Windows Task Scheduler<br/>run_portal_sync.ps1 (AtLogOn + 2m)"]
+        AUTO["run_automation.py<br/>detect → build → verify → sync"]
         BUILD["build_timemachine_db.py<br/>ingest → replay → precompute"]
         DB[(timemachine.db)]
+        SYNC["sync_to_d1.py<br/>diff (default) or --full"]
     end
 
-    subgraph "Cloudflare D1 + Workers"
+    subgraph Cloud["Cloudflare — portal.guoyuer.com (single-origin behind CF Access)"]
+        ACCESS["CF Access<br/>Google SSO cookie"]
+        PAGES["/* Pages<br/>static shell + Service Worker"]
+        WAPI["/api/* portal-api Worker<br/>GET /timeline · /econ · /prices/:sym<br/>edge cache 60s / 600s / 300s"]
+        WMAIL["/api/mail/* worker-gmail Worker<br/>GET list · POST trash"]
         D1[(D1 portal-db)]
-        WORKER["Worker<br/>GET /timeline · /econ · /prices/:sym"]
+        D1M[(D1 portal-gmail)]
     end
 
-    subgraph "GitHub Actions"
-        CI["CI + Deploy<br/>Python lint/test + vitest + Playwright<br/>+ Pages + Worker deploy"]
+    subgraph Browser
+        SW["Service Worker<br/>cache-first static · SWR API"]
+        UI["React 19 + React Compiler<br/>(auto-memoization)"]
+        COMPUTE["src/lib/compute/compute.ts<br/>allocation · cashflow · activity"]
     end
 
-    subgraph "Cloudflare"
-        ACCESS["Cloudflare Access<br/>Google login"]
-        PAGES["Cloudflare Pages<br/>static shell + PWA"]
+    subgraph CI["GitHub Actions"]
+        CI_TEST["pytest + vitest + Playwright (mock API)"]
+        CI_DEPLOY["Pages deploy<br/>(Workers deploy is manual — token<br/>lacks Zone → Workers Routes → Edit)"]
     end
 
-    subgraph "Browser"
-        SW["Service Worker<br/>offline cache"]
-        RC["React Compiler<br/>auto-memoization"]
-        COMPUTE["use-bundle.ts<br/>client-side compute"]
-    end
-
-    BUILD --> DB
-    DB -->|sync_to_d1.py| D1
-    D1 --> WORKER
-    CI -->|static shell| PAGES
-    WORKER -->|"fetch /timeline"| SW
-    SW --> COMPUTE
-    ACCESS -->|protects| PAGES
+    TASK --> AUTO --> BUILD --> DB --> SYNC --> D1
+    ACCESS -.gates.-> PAGES & WAPI & WMAIL
+    PAGES -->|initial load| SW --> UI --> COMPUTE
+    UI -->|"fetch /api/timeline · /econ · /prices/:sym"| WAPI --> D1
+    UI -->|"fetch /api/mail/{list,trash}"| WMAIL --> D1M
+    CI_TEST --> CI_DEPLOY --> PAGES
 
     style BUILD fill:#10b981,color:#fff
-    style WORKER fill:#2563eb,color:#fff
+    style WAPI fill:#2563eb,color:#fff
+    style WMAIL fill:#2563eb,color:#fff
     style PAGES fill:#f59e0b,color:#000
     style ACCESS fill:#f97316,color:#fff
     style D1 fill:#2563eb,color:#fff
+    style D1M fill:#2563eb,color:#fff
 ```
 
-**Key design:** Portal is a static shell (HTML + JS) deployed to Cloudflare Pages. The Cloudflare Worker serves `GET /timeline` from D1 (SQLite-compatible). The frontend fetches once on load, then computes allocation, cashflow, activity, and reconciliation locally in `use-bundle.ts`. Brush drag is zero-latency (no network round-trips).
+**Key design:** Portal is a static shell deployed to Cloudflare Pages. Two Workers are mounted as zone routes on the same origin (`portal.guoyuer.com/api/*` → `portal-api`; `portal.guoyuer.com/api/mail/*` → `worker-gmail`) so every `/api/*` call shares the same CF Access session cookie — no CORS, no cross-subdomain handshake. The frontend fetches once on load via `GET /api/timeline`, then computes allocation, cashflow, activity, and reconciliation locally in `src/lib/compute/compute.ts` via `src/lib/hooks/use-bundle.ts`. Brush drag is zero-latency (no network round-trips). Ticker dialogs fetch `GET /api/prices/:symbol` on demand.
 
 ## Gmail Auto-Triage (`/mail` tab)
 
@@ -56,8 +60,8 @@ Daily cron reads unread Gmail, classifies via Claude Haiku, and caches results i
 
 ```mermaid
 graph TB
-    subgraph "GitHub Actions (daily 07:00)"
-        CRON["gmail-sync.yml<br/>cron: 0 22 * * * UTC"]
+    subgraph "GitHub Actions (daily 07:00 +08 = 22:00 UTC)"
+        CRON["gmail-sync.yml<br/>cron: 0 22 * * *"]
         PY["triage.py<br/>IMAP fetch → Claude classify<br/>(batch 30 · strip ```json fences ·<br/>normalize msg_id brackets)"]
     end
 
@@ -124,19 +128,25 @@ sequenceDiagram
     participant User as Browser
 
     Local->>Local: build_timemachine_db.py<br/>(ingest → replay → precompute)
-    Local->>D1: sync_to_d1.py (wrangler CLI)
+    Local->>D1: sync_to_d1.py (diff by default)
 
-    Note over User: Any time
-    User->>Worker: fetch /timeline
-    Worker->>D1: SELECTs (views)
+    Note over User: Page load
+    User->>Worker: GET /api/timeline
+    Worker->>D1: parallel SELECTs (views)
     D1->>Worker: rows
-    Worker->>User: JSON (no-cache)
+    Worker->>User: JSON ~385 KB gzip (edge cache 60s)
+
+    Note over User: Econ page
+    User->>Worker: GET /api/econ
+    Worker->>D1: econ_series + v_econ_snapshot
+    D1->>Worker: rows
+    Worker->>User: JSON (edge cache 600s)
 
     Note over User: On ticker click
-    User->>Worker: fetch /prices/:symbol
-    Worker->>D1: daily_close + fidelity_transactions
+    User->>Worker: GET /api/prices/:symbol
+    Worker->>D1: daily_close + transactions
     D1->>Worker: rows
-    Worker->>User: JSON
+    Worker->>User: JSON (edge cache 300s)
 ```
 
 ## Project Structure
@@ -152,7 +162,7 @@ portal/
 │   │   ├── econ/
 │   │   │   └── page.tsx               # Economy dashboard (FRED charts)
 │   │   └── mail/
-│   │       └── page.tsx               # Gmail triage tab (client, URL-key auth)
+│   │       └── page.tsx               # Gmail triage tab (client, CF Access cookie auth)
 │   ├── components/
 │   │   ├── layout/
 │   │   │   ├── sidebar.tsx            # Nav sidebar
@@ -167,8 +177,12 @@ portal/
 │   │   │   ├── category-summary.tsx   # Allocation table + donut
 │   │   │   ├── cash-flow.tsx          # Income/expenses + summary
 │   │   │   ├── ticker-chart.tsx       # Per-ticker price chart with buy/sell markers
-│   │   │   ├── market-context.tsx     # Index returns + macro indicators
-│   │   │   └── net-worth-growth.tsx   # MoM/YoY growth rates
+│   │   │   ├── ticker-chart-base.tsx  # Shared price-chart primitive (AreaChart + markers)
+│   │   │   ├── ticker-markers.tsx     # Buy/sell/dividend markers on ticker charts
+│   │   │   ├── ticker-dialog.tsx      # Modal: per-ticker price chart + transaction table
+│   │   │   └── market-context.tsx     # Index returns + macro indicators
+│   │   ├── charts/
+│   │   │   └── tooltip-card.tsx       # Shared Recharts tooltip card primitive
 │   │   ├── econ/
 │   │   │   ├── macro-cards.tsx        # Economic snapshot cards
 │   │   │   └── time-series-chart.tsx  # Multi-line FRED chart viewer
@@ -176,85 +190,127 @@ portal/
 │   │   │   ├── mail-list.tsx          # 3-section grouped list
 │   │   │   ├── mail-row.tsx           # single email row with actions
 │   │   │   └── delete-button.tsx      # optimistic IMAP trash button
+│   │   ├── error-boundary.tsx         # Section-level ErrorBoundary + fallback card
+│   │   ├── loading-skeleton.tsx       # Suspense fallbacks (finance + econ)
 │   │   └── ui/                        # shadcn/ui (Button, Table)
 │   └── lib/
-│       ├── use-bundle.ts              # Core data hook: fetch /timeline → local compute
-│       ├── use-mail.ts                # Gmail triage hook (key-resolve + optimistic delete)
-│       ├── schemas/                   # Zod API schemas (timeline, econ, ticker, mail) + index
-│       ├── computed-types.ts          # Client-computed TS types (not Zod-derived)
-│       ├── compute.ts                 # Pure computation (allocation, cashflow, activity)
 │       ├── config.ts                  # WORKER_BASE, TIMELINE_URL, ECON_URL, GOAL
-│       ├── format.ts                  # Currency/percent formatters
-│       ├── hooks.ts                   # Shared React hooks (inc. getIsDark / useIsDark)
-│       ├── chart-styles.ts            # Recharts theming
-│       ├── thresholds.ts              # Business thresholds + value coloring
-│       └── utils.ts                   # General utilities
+│       ├── utils.ts                   # General utilities (cn, etc.)
+│       ├── compute/
+│       │   ├── compute.ts             # Pure computation (allocation, cashflow, activity)
+│       │   └── computed-types.ts      # Client-computed TS types (not Zod-derived)
+│       ├── format/
+│       │   ├── format.ts              # Currency/percent/date formatters
+│       │   ├── econ-formatters.ts     # Macro-indicator value formatters
+│       │   ├── chart-styles.ts        # Recharts theming
+│       │   ├── chart-colors.ts        # Okabe-Ito palette + category color map
+│       │   ├── thresholds.ts          # Business thresholds + value coloring
+│       │   └── ticker-data.ts         # Price/transaction merge helper for ticker charts
+│       ├── hooks/
+│       │   ├── use-bundle.ts          # Core data hook: fetch /timeline → local compute
+│       │   ├── use-mail.ts            # Gmail triage hook (optimistic delete)
+│       │   └── hooks.ts               # Shared React hooks (useIsDark, useIsMobile, ...)
+│       └── schemas/                   # Zod API schemas (timeline, econ, ticker, mail)
+│           └── _generated.ts          # Auto-generated from pipeline/etl/types.py
 │
 ├── worker/                            # Cloudflare Worker (TypeScript) — Finance/Econ
-│   ├── src/index.ts                   # GET /timeline, /econ, /prices/:symbol → D1 → JSON
-│   ├── schema.sql                     # D1 tables + camelCase views
+│   ├── src/
+│   │   ├── index.ts                   # GET /timeline, /econ, /prices/:symbol → D1 → JSON
+│   │   ├── config.ts                  # Endpoint cache TTLs, error-shape helpers
+│   │   └── utils.ts                   # cachedJson, settled(), D1 row helpers
+│   ├── schema.sql                     # D1 tables + camelCase views (auto-generated)
 │   ├── wrangler.toml                  # D1 binding config
+│   ├── dev-remote.sh                  # `wrangler dev --remote` through CF Access
 │   ├── tsconfig.json
 │   └── package.json
 │
 ├── worker-gmail/                      # Cloudflare Worker (TypeScript) — Gmail triage
-│   ├── src/index.ts                   # POST /mail/sync, GET /mail/list, POST /mail/trash
-│   │                                  # Includes hand-rolled IMAP via cloudflare:sockets
-│   ├── src/db.ts                      # D1 helpers (INSERT OR IGNORE, list, markTrashed)
-│   ├── src/types.ts                   # Category / UpsertInput / TriagedEmail
+│   ├── src/
+│   │   ├── index.ts                   # POST /mail/sync, GET /mail/list, POST /mail/trash
+│   │   ├── imap-parse.ts              # Hand-rolled IMAP framing over cloudflare:sockets
+│   │   ├── db.ts                      # D1 helpers (INSERT OR IGNORE, list, markTrashed)
+│   │   ├── types.ts                   # Category / UpsertInput / TriagedEmail
+│   │   └── utils.ts                   # Response helpers, auth gates
 │   ├── schema.sql                     # triaged_emails table + indexes
 │   ├── wrangler.jsonc                 # D1 binding + nodejs_compat
 │   ├── tsconfig.json
 │   └── package.json
 │
 ├── pipeline/                          # Data pipeline (Python)
-│   ├── etl/       # Core package
+│   ├── etl/                           # Core package
 │   │   ├── db.py                      # SQLite schema + connection helpers
-│   │   ├── timemachine.py             # Historical replay engine
 │   │   ├── allocation.py              # Compute daily per-asset allocation
-│   │   ├── precompute.py              # Build computed_* tables (daily, market)
-│   │   ├── incremental.py             # Incremental DB update mode
+│   │   ├── replay.py                  # Source-agnostic cost-basis replay primitive
+│   │   ├── precompute.py              # Build computed_* tables (daily, market, holdings)
+│   │   ├── refresh.py                 # Incremental refresh window start
 │   │   ├── validate.py                # Post-build validation gate
-│   │   ├── prices.py                  # Yahoo Finance price + CNY rate fetcher
-│   │   ├── empower_401k.py            # Empower 401k QFX snapshot parser
-│   │   ├── types.py                   # Source-of-truth dataclasses
-│   │   ├── config.py                  # JSON config loader
-│   │   ├── ingest/
-│   │   │   ├── fidelity_history.py    # Fidelity transaction CSV parser
-│   │   │   ├── robinhood_history.py   # Robinhood transaction CSV parser
-│   │   │   └── qianji_db.py           # Qianji SQLite reader
-│   │   └── market/
-│   │       ├── yahoo.py               # Yahoo Finance: index returns, CNY rate
-│   │       └── fred.py                # FRED API: Fed rate, CPI, VIX, oil, etc.
+│   │   ├── categories.py              # Category metadata loader
+│   │   ├── qianji.py                  # Qianji SQLite ingest + reverse replay
+│   │   ├── types.py                   # Source-of-truth TypedDicts + dataclasses
+│   │   ├── projection.py              # Net-worth projection (nightly)
+│   │   ├── email_report.py            # SMTP digest sender
+│   │   ├── dotenv_loader.py           # .env loader used by entry scripts
+│   │   ├── sources/                   # Investment sources (InvestmentSource Protocol)
+│   │   │   ├── __init__.py            # SOURCES list + Protocol + PositionRow + ActionKind
+│   │   │   ├── fidelity/              # CSV ingest + classify + cash + pricing
+│   │   │   ├── robinhood.py           # CSV ingest + ReplayConfig
+│   │   │   └── empower.py             # QFX ingest + contribution fallback
+│   │   ├── prices/                    # Price + CNY-rate fetching (Yahoo Finance)
+│   │   ├── market/                    # Market-data fetchers
+│   │   │   ├── yahoo.py               # Index returns, CNY, DXY, USD/CNY
+│   │   │   └── fred.py                # FRED API: Fed rate, CPI, VIX, oil, ...
+│   │   ├── changelog/                 # Nightly changelog diff + email formatter
+│   │   ├── automation/                # run_automation helpers (change detection, exit codes)
+│   │   └── migrations/                # Idempotent in-place schema resyncs
+│   │       └── add_fidelity_action_kind.py  # Continuous classifier resync
 │   ├── scripts/
 │   │   ├── build_timemachine_db.py    # Main build: ingest → replay → precompute → SQLite
-│   │   ├── sync_to_d1.py             # Push timemachine.db tables to D1
+│   │   ├── sync_to_d1.py              # Push timemachine.db tables to D1 (diff or --full)
+│   │   ├── run_automation.py          # Orchestrates detect → build → verify → sync
+│   │   ├── run_portal_sync.ps1        # Task Scheduler shim (forwards args)
 │   │   ├── gen_schema_sql.py          # Auto-generate worker/schema.sql from db.py
-│   │   ├── verify_positions.py        # Verify Fidelity replay accuracy
+│   │   ├── verify_positions.py        # Verify replayed shares vs Portfolio_Positions CSVs
+│   │   ├── verify_vs_prod.py          # Local vs prod D1 row-count parity gate
+│   │   ├── backup_d1.py               # Pull remote D1 → local SQLite snapshot
+│   │   ├── sync_prices_nightly.py     # Nightly price refresh (cron)
+│   │   ├── project_networth_nightly.py # Nightly net-worth projection (cron)
+│   │   ├── refresh_l1_baseline_from_fixtures.py  # Regenerate L1 hashes after behavior change
+│   │   ├── seed_local_d1_from_fixtures.sh  # Populate local D1 for offline dev
 │   │   └── gmail/                     # Gmail triage daily classifier (GH Actions)
 │   │       ├── triage.py              # CLI: fetch 24h unread → classify → POST /mail/sync
 │   │       ├── imap_client.py         # imaplib + MIME parse
 │   │       ├── classify.py            # Anthropic Haiku, batched + fence-strip + bracket-match
 │   │       └── worker_sync.py         # httpx POST to worker-gmail
-│   ├── tests/                         # Unit + contract tests
+│   ├── tests/                         # Unit + contract + regression (L1 + L2)
 │   │   ├── unit/                      # Unit tests
 │   │   ├── contract/                  # Data invariant tests
+│   │   ├── regression/                # L1 row-hash + L2 fixture golden
 │   │   └── fixtures/                  # Sample CSVs, QFX files
+│   ├── tools/
+│   │   └── gen_zod.py                 # Regenerate src/lib/schemas/_generated.ts
 │   ├── data/
 │   │   └── timemachine.db             # Generated SQLite (not in repo)
 │   ├── pyproject.toml                 # pytest, mypy, ruff config
-│   ├── requirements.txt               # yfinance, fredapi, httpx
+│   ├── requirements.txt               # yfinance, fredapi, httpx, anthropic
 │   └── config.example.json            # Template config
 │
 ├── e2e/                               # Playwright e2e tests
+│   ├── mock-api.ts                    # Mock /timeline + /econ + /prices (port 4444)
 │   ├── finance.spec.ts                # Finance dashboard tests
 │   ├── econ.spec.ts                   # Economy dashboard tests
+│   ├── ticker-dialog.spec.ts          # Per-ticker modal interaction
+│   ├── fail-open.spec.ts              # Partial-failure fallbacks render error cards
 │   ├── perf-brush.spec.ts             # Brush performance tests
-│   └── interactive-check.spec.ts      # Interactive component tests
+│   ├── real-worker.spec.ts            # Optional: run against a live Worker
+│   └── manual/                        # Ad-hoc exploratory specs
 │
 ├── .github/workflows/
-│   ├── ci.yml                         # Python + Node CI → Pages + Worker deploy
-│   └── gmail-sync.yml                 # Daily 22:00 UTC → run gmail/triage.py --sync
+│   ├── ci.yml                         # Python + Node CI → Pages deploy
+│   ├── gmail-sync.yml                 # Daily 22:00 UTC → run gmail/triage.py --sync
+│   ├── prices-sync.yml                # Nightly price refresh
+│   ├── d1-backup.yml                  # Periodic D1 → SQLite snapshot
+│   ├── e2e-real-worker.yml            # Optional Playwright run against live Worker
+│   └── regression-baseline-refresh.yml # `baseline-refresh` PR label → refresh L1 hashes
 │
 └── package.json
 ```
@@ -265,10 +321,12 @@ Zero translation layer between Python and TypeScript:
 
 ```mermaid
 graph LR
-    PY["Python types.py<br/>(source of truth)"] -->|"precompute → SQLite"| DB["timemachine.db"]
-    DB -->|"sync_to_d1.py"| D1["D1"]
-    D1 -->|"Worker views<br/>(camelCase aliases)"| JSON["GET /timeline<br/>(JSON)"]
-    JSON -->|"Zod validation"| TS["TypeScript schema.ts<br/>(camelCase mirror)"]
+    PY["pipeline/etl/types.py<br/>(TypedDicts + dataclasses)"] -->|"gen_zod.py<br/>(parity-checked in pytest)"| GEN["src/lib/schemas/_generated.ts"]
+    PY -->|"precompute → SQLite"| DB["timemachine.db"]
+    DB -->|"sync_to_d1.py"| D1["D1 portal-db<br/>+ camelCase views"]
+    D1 -->|"Worker SELECT → JSON"| JSON["GET /api/timeline"]
+    GEN -->|"extend() / omit()"| TS["src/lib/schemas/timeline.ts"]
+    JSON -->|"safeParse at boundary"| TS
 
     style PY fill:#3776ab,color:#fff
     style DB fill:#10b981,color:#fff
@@ -278,8 +336,9 @@ graph LR
 ```
 
 - Python `snake_case` → D1 views `camelCase` aliases → TypeScript `camelCase`
-- Frontend validates with Zod schemas (`schema.ts`)
-- Raw transaction lists are included for local computation in `use-bundle.ts`
+- Schemas auto-generated from `etl/types.py` via `tools/gen_zod.py` (pytest parity check)
+- Frontend validates at the boundary with Zod (`src/lib/schemas/`); Worker ships raw D1 rows (no runtime Zod — the frontend parse is the single drift checkpoint)
+- Raw transaction lists are shipped in `/timeline` for local computation in `src/lib/hooks/use-bundle.ts`
 - No manual field mapping, no divergent schemas
 
 ## Tech Stack
@@ -289,7 +348,7 @@ graph LR
 | Frontend | Next.js 16 (App Router) + React Compiler | Auto-memoization, View Transitions |
 | Charts | Recharts 3 | SVG (accessible for colorblind), brush interaction |
 | Validation | Zod 4 | Runtime schema validation at API boundary |
-| Data | `use-bundle.ts` → Worker `/timeline` | Fetch once, compute locally, zero-lag brush |
+| Data | `use-bundle.ts` → Worker `GET /api/timeline` | Fetch once, compute locally, zero-lag brush |
 | Styling | Tailwind CSS v4 + Container Queries | `@container`-based responsive cards |
 | Offline | Service Worker (PWA) | Cache-first static, stale-while-revalidate API |
 | Hosting | Cloudflare Pages + Workers | Edge CDN, D1 SQLite, free tier |
@@ -297,7 +356,7 @@ graph LR
 | Auth | Cloudflare Access | Zero-trust, Google login |
 | Pipeline | Python 3.14 | Fidelity/Qianji/Robinhood/401k ingest, Yahoo Finance, FRED API |
 | CI/CD | GitHub Actions | Python lint/test + vitest + Playwright E2E + deploy |
-| Tests | vitest (115) + Playwright (5 specs, mock API) + pytest (466) | Coverage thresholds, branch protection |
+| Tests | vitest (24 files) + Playwright (6 specs, mock API) + pytest (45 files) | Coverage thresholds, branch protection |
 | Errors | Sentry | Client-side error tracking in production |
 
 ## Development

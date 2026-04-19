@@ -29,7 +29,7 @@ from etl.db import init_db  # noqa: E402
 from etl.prices import symbol_holding_periods_from_db  # noqa: E402
 from etl.replay import replay_transactions  # noqa: E402
 from etl.sources.fidelity import FIDELITY_REPLAY, classify_fidelity_action  # noqa: E402
-from tests.unit._replay_fixtures import insert_fidelity_txn  # noqa: E402
+from tests.fixtures import insert_fidelity_txn  # noqa: E402
 
 # Strip cash tracking — these tests only assert position quantities + cost
 # basis, not cash ledgers.

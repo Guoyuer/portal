@@ -1,39 +1,19 @@
 // @vitest-environment jsdom
 
-import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
+import { MarketContext } from "./market-context";
+import { MARKET } from "@/test/factories";
 
 afterEach(cleanup);
-import { MarketContext } from "./market-context";
-import type { MarketData } from "@/lib/schemas";
 
-// ── Mock recharts (avoids SVG rendering issues in jsdom) ────────────────
-
+// Mock recharts (avoids SVG rendering issues in jsdom)
 vi.mock("recharts", () => ({
   Area: () => null,
   AreaChart: () => null,
   YAxis: () => null,
   ResponsiveContainer: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
-
-// ── Mock ResizeObserver ─────────────────────────────────────────────────
-
-beforeAll(() => {
-  global.ResizeObserver = class {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-  } as unknown as typeof ResizeObserver;
-});
-
-// ── Helpers ─────────────────────────────────────────────────────────────
-
-const MARKET: MarketData = {
-  indices: [
-    { ticker: "^GSPC", name: "S&P 500", monthReturn: 2.5, ytdReturn: 12.3, current: 5500, sparkline: null, high52w: 5800, low52w: 4200 },
-    { ticker: "^NDX", name: "NASDAQ 100", monthReturn: -1.2, ytdReturn: 8.7, current: 19000, sparkline: null, high52w: 20000, low52w: 15000 },
-  ],
-};
 
 // ── Tests ───────────────────────────────────────────────────────────────
 

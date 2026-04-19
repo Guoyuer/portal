@@ -5,25 +5,7 @@ from pathlib import Path
 
 from etl.db import get_connection
 from etl.validate import Severity, validate_build
-
-
-def _seed_clean_db(db_path: Path) -> None:
-    """Minimal DB that passes all checks. Pre: DB already schema-initialized."""
-    conn = get_connection(db_path)
-    for dt, total in [("2025-01-02", 100000), ("2025-01-03", 100500), ("2025-01-06", 101000)]:
-        conn.execute(
-            "INSERT INTO computed_daily (date, total, us_equity, non_us_equity, crypto, safe_net)"
-            " VALUES (?, ?, 55000, 15000, 3000, 27000)", (dt, total),
-        )
-        conn.execute(
-            "INSERT INTO computed_daily_tickers (date, ticker, value, category) VALUES (?, 'VOO', ?, 'US Equity')",
-            (dt, total),
-        )
-    for sym in ("VOO",):
-        conn.execute("INSERT INTO daily_close (symbol, date, close) VALUES (?, '2025-01-06', 100.0)", (sym,))
-    conn.execute("INSERT INTO daily_close (symbol, date, close) VALUES ('CNY=X', '2025-01-06', 7.25)")
-    conn.commit()
-    conn.close()
+from tests.fixtures import seed_clean_db as _seed_clean_db
 
 
 class TestEmptyDB:

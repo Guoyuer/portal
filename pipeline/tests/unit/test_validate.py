@@ -5,56 +5,7 @@ from pathlib import Path
 
 from etl.db import get_connection
 from etl.validate import Severity, validate_build
-
-# ── Helpers ─────────────────────────────────────────────────────────────────
-
-
-def _seed_clean_db(db_path: Path) -> None:
-    """Populate a minimal DB that passes all validation checks.
-
-    Pre: ``db_path`` is already schema-initialized (use the shared
-    ``empty_db`` fixture)."""
-    conn = get_connection(db_path)
-    try:
-        # Three consecutive trading days with stable totals
-        for dt, total in [("2025-01-02", 100000), ("2025-01-03", 100500), ("2025-01-06", 101000)]:
-            conn.execute(
-                "INSERT INTO computed_daily (date, total, us_equity, non_us_equity, crypto, safe_net)"
-                " VALUES (?, ?, 55000, 15000, 3000, 27000)",
-                (dt, total),
-            )
-            # Ticker breakdown that sums to total (value > 0 only)
-            conn.execute(
-                "INSERT INTO computed_daily_tickers (date, ticker, value, category) VALUES (?, 'VOO', ?, 'US Equity')",
-                (dt, total * 0.55),
-            )
-            conn.execute(
-                "INSERT INTO computed_daily_tickers (date, ticker, value, category) VALUES (?, 'VXUS', ?, 'Non-US Equity')",
-                (dt, total * 0.15),
-            )
-            conn.execute(
-                "INSERT INTO computed_daily_tickers (date, ticker, value, category) VALUES (?, 'BTC', ?, 'Crypto')",
-                (dt, total * 0.03),
-            )
-            conn.execute(
-                "INSERT INTO computed_daily_tickers (date, ticker, value, category) VALUES (?, 'HYSA', ?, 'Safe Net')",
-                (dt, total * 0.27),
-            )
-
-        # Prices for all tickers with value > 100
-        for sym in ("VOO", "VXUS", "BTC", "HYSA"):
-            conn.execute(
-                "INSERT INTO daily_close (symbol, date, close) VALUES (?, '2025-01-06', 100.0)",
-                (sym,),
-            )
-
-        # Fresh CNY rate
-        conn.execute("INSERT INTO daily_close (symbol, date, close) VALUES ('CNY=X', '2025-01-06', 7.25)")
-
-        conn.commit()
-    finally:
-        conn.close()
-
+from tests.fixtures import seed_clean_db as _seed_clean_db
 
 # ── Tests ───────────────────────────────────────────────────────────────────
 

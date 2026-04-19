@@ -1,44 +1,25 @@
 // @vitest-environment jsdom
 
-import { describe, it, expect, vi, beforeAll } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import { afterEach } from "vitest";
 import { MetricCards } from "./metric-cards";
-import type { ApiCategory, ApiTicker } from "@/lib/compute/computed-types";
-
-// ── Mock ResizeObserver (not available in jsdom) ────────────────────────
-
-beforeAll(() => {
-  global.ResizeObserver = class {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-  } as unknown as typeof ResizeObserver;
-});
+import type { ApiTicker } from "@/lib/compute/computed-types";
+import { COLOR_BY_NAME, mkApiCategory } from "@/test/factories";
 
 afterEach(cleanup);
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
-const CATEGORIES: ApiCategory[] = [
-  { name: "US Equity", value: 55000, pct: 55, target: 55, deviation: 0 },
-  { name: "Non-US Equity", value: 15000, pct: 15, target: 15, deviation: 0 },
-  { name: "Crypto", value: 3000, pct: 3, target: 3, deviation: 0 },
-  { name: "Safe Net", value: 27000, pct: 27, target: 27, deviation: 0 },
-];
-
 const ALLOCATION = {
   total: 100000,
   netWorth: 95000,
-  categories: CATEGORIES,
+  categories: [
+    mkApiCategory("US Equity", 55000, { pct: 55, target: 55 }),
+    mkApiCategory("Non-US Equity", 15000, { pct: 15, target: 15 }),
+    mkApiCategory("Crypto", 3000, { pct: 3, target: 3 }),
+    mkApiCategory("Safe Net", 27000, { pct: 27, target: 27 }),
+  ],
   tickers: [] as ApiTicker[],
-};
-
-const COLOR_BY_NAME: Record<string, string> = {
-  "US Equity": "#0072B2",
-  "Non-US Equity": "#009E73",
-  "Crypto": "#E69F00",
-  "Safe Net": "#56B4E9",
 };
 
 const BASE_PROPS = {
