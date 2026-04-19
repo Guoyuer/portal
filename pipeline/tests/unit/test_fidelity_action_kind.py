@@ -153,14 +153,10 @@ class TestBackfillMigration:
         assert first == 3
         assert second == 0  # all rows already have a kind
 
-    def test_backfill_is_noop_on_fresh_schema(self, tmp_path: Path) -> None:
+    def test_backfill_is_noop_on_fresh_schema(self, empty_db: Path) -> None:
         """A fresh DB already has the column — migrate() must not error or
         touch populated rows."""
-        from etl.db import init_db
-        db = tmp_path / "fresh.db"
-        init_db(db)
-
-        conn = sqlite3.connect(str(db))
+        conn = sqlite3.connect(str(empty_db))
         conn.execute(
             "INSERT INTO fidelity_transactions "
             "(run_date, account_number, action, action_type, action_kind, symbol) "
@@ -170,25 +166,21 @@ class TestBackfillMigration:
         conn.commit()
         conn.close()
 
-        touched = migrate(db)
+        touched = migrate(empty_db)
         assert touched == 0  # nothing needing backfill
 
-        conn = sqlite3.connect(str(db))
+        conn = sqlite3.connect(str(empty_db))
         row = conn.execute("SELECT action_kind FROM fidelity_transactions").fetchone()
         conn.close()
         assert row[0] == ActionKind.BUY.value
 
-    def test_backfill_resyncs_stale_kinds(self, tmp_path: Path) -> None:
+    def test_backfill_resyncs_stale_kinds(self, empty_db: Path) -> None:
         """When a row's stored ``action_kind`` disagrees with the current
         classifier (e.g. after the REDEMPTION / DISTRIBUTION / EXCHANGE
         widening moved those from OTHER to their own kinds), migrate() must
         overwrite the stale value instead of leaving it behind.
         """
-        from etl.db import init_db
-        db = tmp_path / "stale.db"
-        init_db(db)
-
-        conn = sqlite3.connect(str(db))
+        conn = sqlite3.connect(str(empty_db))
         conn.executemany(
             "INSERT INTO fidelity_transactions "
             "(run_date, account_number, action, action_type, action_kind, symbol) "
@@ -208,10 +200,10 @@ class TestBackfillMigration:
         conn.commit()
         conn.close()
 
-        touched = migrate(db)
+        touched = migrate(empty_db)
         assert touched == 2  # only the two stale rows
 
-        conn = sqlite3.connect(str(db))
+        conn = sqlite3.connect(str(empty_db))
         kinds = [r[0] for r in conn.execute(
             "SELECT action_kind FROM fidelity_transactions ORDER BY id"
         )]

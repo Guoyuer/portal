@@ -10,7 +10,7 @@ import pytest
 
 pytest.importorskip("yfinance", reason="yfinance required for prices module")
 
-from etl.db import get_connection, init_db  # noqa: E402
+from etl.db import get_connection  # noqa: E402
 from etl.prices import (  # noqa: E402
     SplitValidationError,
     _holding_periods_from_action_kind_rows,
@@ -42,9 +42,8 @@ def _seed_prices(db_path: Path, records: list[tuple[str, str, float]]) -> None:
 
 
 class TestLoadPrices:
-    def test_returns_dataframe_with_correct_shape(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
+    def test_returns_dataframe_with_correct_shape(self, empty_db: Path) -> None:
+        db_path = empty_db
         _seed_prices(db_path, [
             ("VTI", "2025-01-02", 200.0),
             ("VTI", "2025-01-03", 201.0),
@@ -56,9 +55,8 @@ class TestLoadPrices:
         assert "VTI" in df.columns
         assert "VXUS" in df.columns
 
-    def test_forward_fills_gaps(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
+    def test_forward_fills_gaps(self, empty_db: Path) -> None:
+        db_path = empty_db
         _seed_prices(db_path, [
             ("VTI", "2025-01-02", 200.0),
             ("VTI", "2025-01-03", 201.0),
@@ -67,9 +65,8 @@ class TestLoadPrices:
         df = load_prices(db_path)
         assert df.loc[date(2025, 1, 3), "VXUS"] == 60.0
 
-    def test_excludes_cny_rate(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
+    def test_excludes_cny_rate(self, empty_db: Path) -> None:
+        db_path = empty_db
         _seed_prices(db_path, [
             ("VTI", "2025-01-02", 200.0),
             ("CNY=X", "2025-01-02", 7.25),
@@ -78,15 +75,13 @@ class TestLoadPrices:
         assert "CNY=X" not in df.columns
         assert "VTI" in df.columns
 
-    def test_empty_db_returns_empty_dataframe(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
+    def test_empty_db_returns_empty_dataframe(self, empty_db: Path) -> None:
+        db_path = empty_db
         df = load_prices(db_path)
         assert df.empty
 
-    def test_sorted_by_date(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
+    def test_sorted_by_date(self, empty_db: Path) -> None:
+        db_path = empty_db
         _seed_prices(db_path, [
             ("VTI", "2025-01-05", 202.0),
             ("VTI", "2025-01-02", 200.0),
@@ -101,9 +96,8 @@ class TestLoadPrices:
 
 
 class TestLoadCnyRates:
-    def test_loads_rates_as_dict(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
+    def test_loads_rates_as_dict(self, empty_db: Path) -> None:
+        db_path = empty_db
         _seed_prices(db_path, [
             ("CNY=X", "2025-01-02", 7.25),
             ("CNY=X", "2025-01-03", 7.26),
@@ -113,15 +107,13 @@ class TestLoadCnyRates:
         assert rates[date(2025, 1, 2)] == 7.25
         assert rates[date(2025, 1, 3)] == 7.26
 
-    def test_empty_db_returns_empty_dict(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
+    def test_empty_db_returns_empty_dict(self, empty_db: Path) -> None:
+        db_path = empty_db
         rates = load_cny_rates(db_path)
         assert rates == {}
 
-    def test_only_returns_cny_rates(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
+    def test_only_returns_cny_rates(self, empty_db: Path) -> None:
+        db_path = empty_db
         _seed_prices(db_path, [
             ("CNY=X", "2025-01-02", 7.25),
             ("VTI", "2025-01-02", 200.0),
@@ -216,10 +208,9 @@ class TestHistoricalImmutabilityCnyRates:
     """
 
     def test_historical_row_preserved_when_yahoo_returns_different_value(
-        self, tmp_path: Path,
+        self, empty_db: Path,
     ) -> None:
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
+        db_path = empty_db
         _seed_prices(db_path, [("CNY=X", "2023-03-13", 6.9052)])
 
         with patch("etl.prices.fetch.yf.download") as mock_dl:
@@ -235,10 +226,9 @@ class TestHistoricalImmutabilityCnyRates:
         assert r[0] == pytest.approx(6.9052)
 
     def test_historical_gap_filled_without_touching_existing(
-        self, tmp_path: Path,
+        self, empty_db: Path,
     ) -> None:
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
+        db_path = empty_db
         _seed_prices(db_path, [
             ("CNY=X", "2023-07-05", 7.2135),  # existing
         ])
@@ -264,7 +254,7 @@ class TestHistoricalImmutabilityCnyRates:
         assert gap[0] == pytest.approx(6.9052)       # filled
 
     def test_recent_row_NOT_refreshed(
-        self, tmp_path: Path,
+        self, empty_db: Path,
     ) -> None:
         """CNY=X is INSERT OR IGNORE for every date (not just historical).
 
@@ -274,8 +264,7 @@ class TestHistoricalImmutabilityCnyRates:
         rebuilds produce different computed_daily hashes. See commit
         ``5a0468d`` (stabilize CNY=X) for the full reasoning.
         """
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
+        db_path = empty_db
         _seed_prices(db_path, [("CNY=X", "2026-04-10", 7.20)])  # already captured
 
         with patch("etl.prices.fetch.yf.download") as mock_dl:
@@ -294,10 +283,9 @@ class TestHistoricalImmutabilityPrices:
     """`fetch_and_store_prices` enforces the same invariant for per-symbol prices."""
 
     def test_historical_price_preserved_when_yahoo_returns_different_value(
-        self, tmp_path: Path,
+        self, empty_db: Path,
     ) -> None:
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
+        db_path = empty_db
         _seed_prices(db_path, [("VOO", "2024-01-15", 440.50)])
 
         # Open-ended holding period — the recent-window refresh always queues
@@ -332,9 +320,8 @@ class TestFetchGateRefreshesRecentWindow:
     cached_hi=04-10, need_end=04-14 → skip, missing 04-13 and 04-14 closes).
     """
 
-    def test_fetch_triggered_when_cache_is_one_day_stale(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
+    def test_fetch_triggered_when_cache_is_one_day_stale(self, empty_db: Path) -> None:
+        db_path = empty_db
         # Cache ends 2026-04-11; need_end = 2026-04-12. Old logic would skip
         # (04-11 < 04-08 is False). New logic must still fetch recent window.
         _seed_prices(db_path, [
@@ -355,12 +342,11 @@ class TestFetchGateRefreshesRecentWindow:
             )
             assert mock_dl.called
 
-    def test_fetch_uses_refresh_window_not_full_history(self, tmp_path: Path) -> None:
+    def test_fetch_uses_refresh_window_not_full_history(self, empty_db: Path) -> None:
         """When history is covered, fetch only the recent window (not from hp_start)."""
         from etl.refresh import refresh_window_start
 
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
+        db_path = empty_db
         _seed_prices(db_path, [
             ("VOO", "2024-01-15", 440.50),
             ("VOO", "2026-04-11", 500.00),
@@ -379,10 +365,9 @@ class TestFetchGateRefreshesRecentWindow:
             # Should be exactly the refresh-window start (not hp_start 2024-01-15)
             assert start_d == refresh_window_start(end)
 
-    def test_fetch_triggered_when_cache_missing_entirely(self, tmp_path: Path) -> None:
+    def test_fetch_triggered_when_cache_missing_entirely(self, empty_db: Path) -> None:
         """New symbol with no cache → fetch full range from hp_start."""
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
+        db_path = empty_db
 
         with patch("etl.prices.fetch.yf.download") as mock_dl, \
              patch("etl.prices.fetch._build_split_factors", return_value={}):
@@ -453,10 +438,9 @@ class TestSplitCrossValidation:
     """``_validate_splits_against_transactions`` is the backstop that catches
     Yahoo/Fidelity split drift before wrong prices get persisted."""
 
-    def test_matching_split_passes(self, tmp_path: Path) -> None:
+    def test_matching_split_passes(self, empty_db: Path) -> None:
         """SCHD 3:1 with correct DISTRIBUTION row → validation silent."""
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
+        db_path = empty_db
         _seed_fidelity_txn(db_path, "2024-07-08", "SCHD", "buy", 27.022)
         _seed_fidelity_txn(db_path, "2024-10-11", "SCHD", "distribution", 54.044)
         conn = get_connection(db_path)
@@ -470,11 +454,10 @@ class TestSplitCrossValidation:
         finally:
             conn.close()
 
-    def test_missing_distribution_row_raises(self, tmp_path: Path) -> None:
+    def test_missing_distribution_row_raises(self, empty_db: Path) -> None:
         """Yahoo knows about a split but Fidelity CSV has no DISTRIBUTION →
         share count is stale, must fail loud."""
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
+        db_path = empty_db
         _seed_fidelity_txn(db_path, "2024-07-08", "SCHD", "buy", 27.022)
         # No DISTRIBUTION row seeded.
         conn = get_connection(db_path)
@@ -489,10 +472,9 @@ class TestSplitCrossValidation:
         finally:
             conn.close()
 
-    def test_wrong_distribution_qty_raises(self, tmp_path: Path) -> None:
+    def test_wrong_distribution_qty_raises(self, empty_db: Path) -> None:
         """DISTRIBUTION qty doesn't match Yahoo's ratio → data drift, fail."""
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
+        db_path = empty_db
         _seed_fidelity_txn(db_path, "2024-07-08", "SCHD", "buy", 27.022)
         # Expected +54.044 for 3:1; seed only +20 (wrong).
         _seed_fidelity_txn(db_path, "2024-10-11", "SCHD", "distribution", 20.0)
@@ -508,12 +490,11 @@ class TestSplitCrossValidation:
         finally:
             conn.close()
 
-    def test_distribution_without_yahoo_split_raises(self, tmp_path: Path) -> None:
+    def test_distribution_without_yahoo_split_raises(self, empty_db: Path) -> None:
         """Fidelity has a DISTRIBUTION (qty>0) but Yahoo reports no split on
         that date → Yahoo's split-adjusted pre-split prices would be stored
         un-reversed. Fail loud — this is the silent-yfinance-failure case."""
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
+        db_path = empty_db
         _seed_fidelity_txn(db_path, "2024-07-08", "SCHD", "buy", 27.022)
         _seed_fidelity_txn(db_path, "2024-10-11", "SCHD", "distribution", 54.044)
         conn = get_connection(db_path)
@@ -528,10 +509,9 @@ class TestSplitCrossValidation:
         finally:
             conn.close()
 
-    def test_split_outside_holding_period_ignored(self, tmp_path: Path) -> None:
+    def test_split_outside_holding_period_ignored(self, empty_db: Path) -> None:
         """Bought AFTER the split date → no DISTRIBUTION expected, validation OK."""
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
+        db_path = empty_db
         # User bought NVDA AFTER the 2024-06-10 split.
         _seed_fidelity_txn(db_path, "2024-11-27", "NVDA", "buy", 3.0)
         conn = get_connection(db_path)
@@ -545,15 +525,14 @@ class TestSplitCrossValidation:
         finally:
             conn.close()
 
-    def test_reverse_split_pair_passes(self, tmp_path: Path) -> None:
+    def test_reverse_split_pair_passes(self, empty_db: Path) -> None:
         """Reverse 1:10 split (ratio=0.1) on 100 pre-split shares → Fidelity
         records a REDEMPTION (-100) + DISTRIBUTION (+10) pair whose net is
         -90, matching ``pre_qty × (ratio - 1) = 100 × -0.9 = -90``. The
         validator must accept this without false-positive; previously only
         the DISTRIBUTION leg was queried and the REDEMPTION row was ignored,
         so the check fired ``expected=-90, got=+10``."""
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
+        db_path = empty_db
         # Pre-split holding: 100 shares bought before the split.
         _seed_fidelity_txn(db_path, "2023-01-15", "BOGUS", "buy", 100.0)
         # Reverse split day: turn-in 100 old shares + receive 10 new.
@@ -570,12 +549,11 @@ class TestSplitCrossValidation:
         finally:
             conn.close()
 
-    def test_reverse_split_with_missing_redemption_raises(self, tmp_path: Path) -> None:
+    def test_reverse_split_with_missing_redemption_raises(self, empty_db: Path) -> None:
         """Reverse split where only the DISTRIBUTION leg (+10) made it into the
         DB — the REDEMPTION (-100) is missing, so net=+10 but expected=-90.
         Must fail loud so the operator knows Fidelity's CSV is incomplete."""
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
+        db_path = empty_db
         _seed_fidelity_txn(db_path, "2023-01-15", "BOGUS", "buy", 100.0)
         # Missing the REDEMPTION leg — only +10 distribution recorded.
         _seed_fidelity_txn(db_path, "2024-06-01", "BOGUS", "distribution", 10.0)
@@ -591,11 +569,10 @@ class TestSplitCrossValidation:
         finally:
             conn.close()
 
-    def test_multi_mismatch_report_includes_all(self, tmp_path: Path) -> None:
+    def test_multi_mismatch_report_includes_all(self, empty_db: Path) -> None:
         """Every mismatch is aggregated into a single error message so the
         operator sees the full damage in one run."""
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
+        db_path = empty_db
         _seed_fidelity_txn(db_path, "2024-07-08", "SCHD", "buy", 27.022)
         _seed_fidelity_txn(db_path, "2024-07-08", "AVGO", "buy", 1.007)
         # Neither DISTRIBUTION seeded → both directions fire.
@@ -621,7 +598,7 @@ class TestSplitCrossValidation:
             conn.close()
 
     def test_same_day_split_and_special_stock_distribution_reported(
-        self, tmp_path: Path,
+        self, empty_db: Path,
     ) -> None:
         """A ticker with BOTH a 2:1 split AND a same-day special
         stock-distribution must surface the extra qty as a separate mismatch
@@ -636,8 +613,7 @@ class TestSplitCrossValidation:
         split ratio" — a clear signal to the operator that a co-occurring
         special distribution landed on a split day.
         """
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
+        db_path = empty_db
         # Holding 100 VOO prior to the split date.
         _seed_fidelity_txn(db_path, "2025-06-10", "VOO", "buy", 100.0)
         # 2025-12-15: 2-for-1 split → +100 shares (split delta).
@@ -669,13 +645,12 @@ class TestSplitCrossValidation:
             conn.close()
 
     def test_same_day_split_matching_exactly_still_passes(
-        self, tmp_path: Path,
+        self, empty_db: Path,
     ) -> None:
         """Guard the happy path: a single DISTRIBUTION row that exactly
         matches ``pre_qty × (ratio - 1)`` must still pass silently after the
         residual-check refactor (no residual, no raise)."""
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
+        db_path = empty_db
         _seed_fidelity_txn(db_path, "2025-06-10", "VOO", "buy", 100.0)
         _seed_fidelity_txn(db_path, "2025-12-15", "VOO", "distribution", 100.0)
         conn = get_connection(db_path)
@@ -695,7 +670,7 @@ class TestSplitCrossValidation:
 
 class TestIncrementalFetch:
     def test_cached_lo_after_global_start_does_not_trigger_full_batch(
-        self, tmp_path: Path,
+        self, empty_db: Path,
     ) -> None:
         """Regression: a symbol whose cache starts later than ``global_start``
         (e.g. IPO'd after the user's timeline began) must NOT trigger a
@@ -714,8 +689,7 @@ class TestIncrementalFetch:
         """
         from etl.refresh import refresh_window_start
 
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
+        db_path = empty_db
         # Two symbols: VOO cached from 2023 (old, full-history), FBTC
         # cached only from 2024-01-11 (IPO'd later).
         _seed_prices(db_path, [

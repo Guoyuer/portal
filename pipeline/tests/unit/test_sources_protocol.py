@@ -65,13 +65,10 @@ def test_every_source_module_implements_protocol() -> None:
         assert isinstance(mod, InvestmentSource), f"{mod.__name__} missing protocol methods"
 
 
-def test_positions_at_all_returns_empty_on_empty_db(tmp_path: Path) -> None:
+def test_positions_at_all_returns_empty_on_empty_db(empty_db: Path) -> None:
     """Against a fresh DB every source returns ``[]`` — sanity check."""
-    from etl.db import init_db
-    db = tmp_path / "tm.db"
-    init_db(db)
     ctx = PriceContext(prices=pd.DataFrame(), price_date=date(2024, 1, 2), mf_price_date=date(2024, 1, 1))
-    rows = positions_at_all(db, date(2024, 1, 2), ctx, {})
+    rows = positions_at_all(empty_db, date(2024, 1, 2), ctx, {})
     assert rows == []
 
 

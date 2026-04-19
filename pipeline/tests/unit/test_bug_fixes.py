@@ -29,6 +29,7 @@ from etl.db import init_db  # noqa: E402
 from etl.prices import symbol_holding_periods_from_db  # noqa: E402
 from etl.replay import replay_transactions  # noqa: E402
 from etl.sources.fidelity import FIDELITY_REPLAY, classify_fidelity_action  # noqa: E402
+from tests.unit._replay_fixtures import insert_fidelity_txn  # noqa: E402
 
 # Strip cash tracking — these tests only assert position quantities + cost
 # basis, not cash ledgers.
@@ -60,19 +61,24 @@ def _insert_txn(
     *,
     lot_type: str = "",
 ) -> None:
-    """Insert a single fidelity_transactions row.
+    """Insert a single fidelity_transactions row via
+    :func:`tests.unit._replay_fixtures.insert_fidelity_txn`.
 
-    Populates ``action_kind`` via :func:`classify_fidelity_action` so the
-    row is visible to :func:`etl.replay.replay_transactions` — production
-    ingest does the same via ``_ingest_one_csv`` + the backfill migration.
+    Positional-argument convenience — ``action_kind`` is derived from
+    ``action`` via :func:`classify_fidelity_action` so the row is visible to
+    :func:`etl.replay.replay_transactions` (production ingest does the same
+    via ``_ingest_one_csv`` + the backfill migration).
     """
-    conn.execute(
-        "INSERT INTO fidelity_transactions"
-        " (run_date, account_number, action, action_type, action_kind, symbol,"
-        "  lot_type, quantity, price, amount)"
-        " VALUES (?, ?, ?, '', ?, ?, ?, ?, 0, ?)",
-        (run_date, acct_num, action,
-         classify_fidelity_action(action).value, symbol, lot_type, qty, amount),
+    insert_fidelity_txn(
+        conn,
+        run_date=run_date,
+        account_number=acct_num,
+        action=action,
+        action_kind=classify_fidelity_action(action).value,
+        symbol=symbol,
+        lot_type=lot_type,
+        quantity=qty,
+        amount=amount,
     )
 
 

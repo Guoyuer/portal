@@ -10,7 +10,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from etl.db import get_connection, init_db
+from etl.db import get_connection
 from scripts._wrangler import sql_escape
 from scripts.sync_to_d1 import (
     _column_add_ddl,
@@ -22,10 +22,8 @@ from scripts.sync_to_d1 import (
 
 
 @pytest.fixture()
-def db(tmp_path):
-    p = tmp_path / "test.db"
-    init_db(p)
-    conn = get_connection(p)
+def db(empty_db):
+    conn = get_connection(empty_db)
     # Insert test data
     conn.execute(
         "INSERT INTO computed_daily (date, total, us_equity, non_us_equity, crypto, safe_net)"
@@ -39,7 +37,7 @@ def db(tmp_path):
     conn.execute("INSERT INTO qianji_transactions (date, type, category, amount) VALUES ('2025-01-02', 'expense', 'Transport', 5)")
     conn.commit()
     conn.close()
-    return p
+    return empty_db
 
 
 class TestFullMode:
