@@ -1,0 +1,156 @@
+{#-
+  Plain-text email body for the sync changelog. Per-row formatting
+  (money/qty/component rows/drift check) lives in ``categorize.py`` and
+  is passed in as helpers / pre-computed view rows. Section ordering:
+  Header → Changes → Modified → Net Worth → Warnings → Log + Duration.
+  Section separators (blank lines) are emitted by trailing ``{% do
+  lines.append("") %}`` to mirror the original ``_render_*`` shape, then
+  the flat ``lines`` list is joined with ``\n``.
+-#}
+{%- set lines = [] -%}
+{%- do lines.append("Portal Sync Report  " ~ timestamp) -%}
+{%- do lines.append("") -%}
+{%- do lines.append("Status: " ~ status_label) -%}
+{%- if exit_code -%}
+  {%- do lines.append("Exit code: " ~ exit_code) -%}
+  {%- do lines.append("Blocked at: " ~ gate_for_exit(exit_code)) -%}
+  {%- if error %}{%- do lines.append("Error: " ~ error) -%}{%- endif -%}
+{%- endif -%}
+{%- do lines.append("") -%}
+
+{%- do lines.append("Changes") -%}
+{%- set any_changes = changelog.fidelity_added or changelog.qianji_added_count > 0
+    or changelog.daily_close_added > 0 or changelog.empower_added > 0
+    or (changelog.econ_refreshed and (changelog.econ_keys_added or changelog.econ_keys_removed)) -%}
+{%- if changelog.fidelity_added -%}
+  {%- do lines.append("  * Fidelity: +" ~ changelog.fidelity_added|length ~ " transaction(s)") -%}
+  {%- for run_date, action_type, symbol, qty, amount in changelog.fidelity_added -%}
+    {%- set qty_part = ("  " ~ fmt_qty(qty) ~ " share(s)") if qty else "" -%}
+    {%- do lines.append("      " ~ run_date ~ "  " ~ "%-5s"|format(action_type.upper()) ~ " " ~ "%-6s"|format(symbol or "-") ~ qty_part ~ "   " ~ fmt_delta(amount)) -%}
+  {%- endfor -%}
+{%- endif -%}
+{%- if changelog.qianji_added_count > 0 -%}
+  {%- do lines.append("  * Qianji: +" ~ changelog.qianji_added_count ~ " record(s) (" ~ fmt_money(qianji_total) ~ " total)") -%}
+  {%- for cat, tup in changelog.qianji_added_by_category|dictsort -%}
+    {%- set count = tup[0] -%}
+    {%- set tot = tup[1] -%}
+    {%- set label = cat or "(uncategorized)" -%}
+    {%- set avg = (tot / count) if count else 0.0 -%}
+    {%- do lines.append("      " ~ label ~ ": " ~ fmt_money(tot) ~ "  (" ~ count ~ " record(s), avg " ~ fmt_money(avg) ~ ")") -%}
+    {%- if count <= 2 -%}
+      {%- for date, amount, note in changelog.qianji_added_rows_by_category.get(cat, []) -%}
+        {%- do lines.append("          " ~ date ~ "  " ~ fmt_money(amount) ~ (('  "' ~ note ~ '"') if note else "")) -%}
+      {%- endfor -%}
+    {%- endif -%}
+  {%- endfor -%}
+{%- endif -%}
+{%- if changelog.daily_close_added > 0 -%}
+  {%- do lines.append("  * Prices: " ~ changelog.daily_close_added ~ " new close row(s); through " ~ (changelog.daily_close_max_after or "?")) -%}
+{%- endif -%}
+{%- if changelog.econ_refreshed and changelog.econ_keys_added -%}
+  {%- do lines.append("  * FRED: +" ~ changelog.econ_keys_added|length ~ " new indicator(s) (" ~ changelog.econ_keys_added|join(", ") ~ ")") -%}
+{%- endif -%}
+{%- if changelog.econ_refreshed and changelog.econ_keys_removed -%}
+  {%- do lines.append("  * FRED: -" ~ changelog.econ_keys_removed|length ~ " indicator(s) removed (" ~ changelog.econ_keys_removed|join(", ") ~ ")") -%}
+{%- endif -%}
+{%- if changelog.empower_added > 0 -%}
+  {%- if changelog.empower_value_delta is not none -%}
+    {%- set suffix = "  (" ~ fmt_delta(changelog.empower_value_delta) ~ ")" -%}
+  {%- elif changelog.empower_value_after is not none -%}
+    {%- set suffix = "  (opening balance " ~ fmt_money(changelog.empower_value_after) ~ ")" -%}
+  {%- else %}{%- set suffix = "" -%}{%- endif -%}
+  {%- do lines.append("  * Empower: +" ~ changelog.empower_added ~ " 401k snapshot(s)" ~ suffix) -%}
+{%- endif -%}
+{%- if not any_changes %}{%- do lines.append("  (no changes detected)") -%}{%- endif -%}
+{%- do lines.append("") -%}
+
+{%- if changelog.qianji_modified or changelog.computed_daily_modified -%}
+  {%- do lines.append("Modified") -%}
+  {%- if changelog.qianji_modified -%}
+    {%- do lines.append("  * Qianji: " ~ changelog.qianji_modified|length ~ " row(s)") -%}
+    {%- for before_row, after_row in changelog.qianji_modified -%}
+      {%- set b_date, b_type, b_cat, b_amt, b_note = before_row -%}
+      {%- set a_note = after_row[4] -%}
+      {%- set type_tag = ("  [" ~ b_type ~ "]") if (b_type and b_type != "expense") else "" -%}
+      {%- do lines.append("      " ~ b_date ~ "  " ~ (b_cat or "(uncategorized)") ~ "  " ~ fmt_money(b_amt) ~ type_tag) -%}
+      {%- if b_note != a_note -%}
+        {%- do lines.append('          note: "' ~ b_note ~ '" → "' ~ a_note ~ '"') -%}
+      {%- endif -%}
+    {%- endfor -%}
+  {%- endif -%}
+  {%- if changelog.computed_daily_modified -%}
+    {%- do lines.append("  * computed_daily: " ~ changelog.computed_daily_modified|length ~ " row(s)") -%}
+    {%- set fields = ["total", "us_equity", "non_us_equity", "crypto", "safe_net", "liabilities"] -%}
+    {%- for date in changelog.computed_daily_modified|sort -%}
+      {%- set pair = changelog.computed_daily_modified[date] -%}
+      {%- set b_pt = pair[0] -%}
+      {%- set a_pt = pair[1] -%}
+      {%- set ns = namespace(any=false) -%}
+      {%- for f in fields -%}
+        {%- set bv = (b_pt|attr(f))|float -%}
+        {%- set av = (a_pt|attr(f))|float -%}
+        {%- if (av - bv)|abs > 0.005 -%}
+          {%- set ns.any = true -%}
+          {%- do lines.append("      " ~ date ~ "  " ~ f ~ ": " ~ fmt_money(bv) ~ " → " ~ fmt_money(av) ~ "   (" ~ fmt_delta(av - bv) ~ ")") -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {%- if not ns.any -%}{%- do lines.append("      " ~ date ~ "  (unchanged within $0.01)") -%}{%- endif -%}
+    {%- endfor -%}
+  {%- endif -%}
+  {%- do lines.append("") -%}
+{%- endif -%}
+
+{#- Net Worth: emits one of three shapes (both endpoints / after only /
+   before only). Per-component drift check runs against whichever side is
+   rendered (after_pt in the "full" and "after_only" shapes). -#}
+{%- set nw_b = changelog.net_worth_before -%}
+{%- set nw_a = changelog.net_worth_after -%}
+{%- set pt_b = changelog.net_worth_point_before -%}
+{%- set pt_a = changelog.net_worth_point_after -%}
+{%- set bd = changelog.net_worth_before_date or "" -%}
+{%- set ad = changelog.net_worth_after_date or "" -%}
+{%- if nw_b is not none and nw_a is not none -%}
+  {%- set delta = changelog.net_worth_delta -%}
+  {%- set pct = changelog.net_worth_delta_pct() -%}
+  {%- set is_large = delta is not none and (delta|abs >= LARGE_MOVE_USD or (pct is not none and pct|abs >= LARGE_MOVE_PCT)) -%}
+  {%- set unchanged = bd and bd == ad and (delta is none or delta|abs < 0.01) -%}
+  {%- do lines.append("Net Worth" ~ ("  [LARGE MOVE]" if is_large else "")) -%}
+  {%- if unchanged -%}
+    {%- do lines.append("  Unchanged — " ~ ad ~ ": " ~ fmt_money(nw_a)) -%}
+  {%- else -%}
+    {%- do lines.append("  " ~ bd ~ "  →  " ~ ad) -%}
+    {%- if delta is not none -%}
+      {%- set pct_str = (" / %+.2f%%"|format(pct)) if pct is not none else "" -%}
+      {%- do lines.append(render_component_row("Total:", nw_b, nw_a).rstrip(")") ~ pct_str ~ ")") -%}
+      {%- if pt_b is not none and pt_a is not none -%}
+        {%- for label, field in [("US Equity:", "us_equity"), ("Non-US:", "non_us_equity"),
+             ("Crypto:", "crypto"), ("Safe Net:", "safe_net"), ("Liabilities:", "liabilities")] -%}
+          {%- do lines.append(render_component_row(label, pt_b|attr(field), pt_a|attr(field))) -%}
+        {%- endfor -%}
+        {%- set check = component_check_line(pt_a) -%}
+        {%- if check %}{%- do lines.append(check) -%}{%- endif -%}
+      {%- endif -%}
+    {%- endif -%}
+  {%- endif -%}
+  {%- do lines.append("") -%}
+{%- elif nw_a is not none -%}
+  {%- do lines.append("Net Worth") -%}
+  {%- do lines.append("  " ~ ad ~ ": " ~ fmt_money(nw_a) ~ "  (no prior snapshot)") -%}
+  {%- set check = component_check_line(pt_a) if pt_a is not none else none -%}
+  {%- if check %}{%- do lines.append(check) -%}{%- endif -%}
+  {%- do lines.append("") -%}
+{%- elif nw_b is not none -%}
+  {%- do lines.append("Net Worth") -%}
+  {%- do lines.append("  " ~ bd ~ ": " ~ fmt_money(nw_b) ~ "  (no prior snapshot)") -%}
+  {%- do lines.append("") -%}
+{%- endif -%}
+
+{%- if warnings -%}
+  {%- do lines.append("Warnings (from validation)") -%}
+  {%- for w in warnings %}{%- do lines.append("  * " ~ w) -%}{%- endfor -%}
+  {%- do lines.append("") -%}
+{%- endif -%}
+
+{%- if log_file %}{%- do lines.append("Log: " ~ log_file) -%}{%- endif -%}
+{%- if duration %}{%- do lines.append("Duration: " ~ duration) -%}{%- endif -%}
+{{- lines|join("\n") -}}
