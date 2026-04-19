@@ -42,7 +42,6 @@ from etl.db import (
     upsert_daily_rows,
 )
 from etl.migrations.add_fidelity_action_kind import migrate as _migrate_fidelity_action_kind
-from etl.migrations.drop_robinhood_unique import migrate as _migrate_drop_robinhood_unique
 from etl.precompute import (
     precompute_holdings_detail,
     precompute_market,
@@ -300,14 +299,6 @@ def _init_db_and_ingest_sources(
     _ingest_fidelity_csvs(paths)
 
     # ── Step 2b: Ingest Robinhood ──
-    # The original Task-17 schema carried a UNIQUE(txn_date, ticker, action,
-    # quantity, amount_usd) constraint for idempotent re-ingest, but that
-    # silently collapsed legitimate same-day duplicate trades (breaking L1
-    # parity with legacy ``replay_robinhood``). Idempotency now comes from
-    # :func:`etl.sources.robinhood.ingest`'s range-replace (DELETE within CSV's
-    # [min_date, max_date] + INSERT everything) — identical to Fidelity.
-    # Migration below is a no-op on fresh DBs (schema already correct).
-    _migrate_drop_robinhood_unique(paths.db_path)
     # Silent no-op when no CSV matches (user has no Robinhood holdings). Uses
     # the same ``downloads/`` glob as Fidelity — users drop fresh
     # ``Robinhood_history*.csv`` files into the shared downloads folder.
