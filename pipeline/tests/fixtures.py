@@ -16,11 +16,7 @@ from etl.db import get_connection
 
 @contextmanager
 def connected_db(db_path: Path) -> Iterator[sqlite3.Connection]:
-    """Open a connection, commit on successful exit, always close.
-
-    Replaces ``conn = get_connection(db); try: ...; conn.commit(); finally:
-    conn.close()`` boilerplate in test seed helpers.
-    """
+    """Open a connection, commit on successful exit, always close."""
     conn = get_connection(db_path)
     try:
         yield conn
@@ -80,13 +76,13 @@ def insert_fidelity_txn(
     conn: sqlite3.Connection,
     *,
     run_date: str,
-    action_type: str,
+    action_type: str = "",
+    action: str = "",
+    action_kind: str = "",
     symbol: str = "",
     amount: float = 0.0,
     quantity: float = 0.0,
     price: float = 0.0,
-    action_kind: str = "",
-    action: str = "",
     account_number: str = "Z",
     lot_type: str = "",
 ) -> None:
@@ -100,11 +96,26 @@ def insert_fidelity_txn(
     )
 
 
+def insert_prop_rows(
+    db_path: Path,
+    rows: list[tuple[str, str, str, float, float]],
+) -> None:
+    """Insert ``(txn_date, action_kind, ticker, quantity, amount_usd)`` rows
+    into the Robinhood-shaped ``prop_transactions`` table used by hypothesis
+    property tests."""
+    with connected_db(db_path) as conn:
+        conn.executemany(
+            "INSERT INTO prop_transactions "
+            "(txn_date, action_kind, ticker, quantity, amount_usd) VALUES (?,?,?,?,?)",
+            rows,
+        )
+
+
 def insert_qianji_txn(
     conn: sqlite3.Connection,
     *,
     date: str,
-    type: str,
+    kind: str,
     category: str = "",
     amount: float = 0.0,
     is_retirement: bool = False,
@@ -112,7 +123,7 @@ def insert_qianji_txn(
     conn.execute(
         "INSERT INTO qianji_transactions "
         "(date, type, category, amount, is_retirement) VALUES (?, ?, ?, ?, ?)",
-        (date, type, category, amount, int(is_retirement)),
+        (date, kind, category, amount, int(is_retirement)),
     )
 
 

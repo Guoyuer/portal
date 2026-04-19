@@ -15,7 +15,6 @@ from etl.changelog import (
     format_text,
 )
 from etl.db import init_db
-
 from tests.fixtures import (
     connected_db,
     insert_close,
@@ -61,7 +60,7 @@ def _seed_fidelity(db_path: Path, rows: list[tuple[str, str, str, float, float]]
 def _seed_qianji(db_path: Path, rows: list[tuple[str, str, str, float]]) -> None:
     with connected_db(db_path) as conn:
         for date, type_, category, amount in rows:
-            insert_qianji_txn(conn, date=date, type=type_, category=category, amount=amount)
+            insert_qianji_txn(conn, date=date, kind=type_, category=category, amount=amount)
 
 
 def _seed_computed_daily(db_path: Path, rows: list[tuple[str, float]]) -> None:

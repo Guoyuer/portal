@@ -9,7 +9,7 @@ import pytest
 
 from etl.replay import PositionState, ReplayConfig, ReplayResult, replay_transactions  # noqa: F401
 from etl.sources import ActionKind
-from tests.unit._replay_fixtures import insert_fidelity_txn
+from tests.fixtures import insert_fidelity_txn
 
 # ── Robinhood-shaped table (no account, tx_date column) ─────────────────────
 

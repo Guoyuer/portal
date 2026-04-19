@@ -11,7 +11,6 @@ import type {
   FidelityTxn,
   QianjiTxn,
   MarketData,
-  EconSnapshot,
 } from "@/lib/schemas";
 import type {
   ApiCategory,
@@ -133,10 +132,6 @@ export const MARKET: MarketData = {
     { ticker: "^NDX", name: "NASDAQ 100", monthReturn: -1.2, ytdReturn: 8.7, current: 19000, sparkline: null, high52w: 20000, low52w: 15000 },
   ],
 };
-
-export function mkEconSnapshot(overrides: Partial<EconSnapshot> = {}): EconSnapshot {
-  return { fedFundsRate: 4.5, cpiYoy: 3.1, ...overrides };
-}
 
 // Canonical timeline payload — parses with TimelineDataSchema, ready for
 // MSW handlers that want a valid default. `overrides` merges at the top level.

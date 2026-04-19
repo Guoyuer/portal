@@ -5,7 +5,6 @@ from pathlib import Path
 
 from etl.db import get_connection
 from etl.validate import Severity, validate_build
-
 from tests.fixtures import seed_clean_db as _seed_clean_db
 
 # ── Tests ───────────────────────────────────────────────────────────────────

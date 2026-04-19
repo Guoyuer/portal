@@ -1,8 +1,4 @@
-// Global test setup. Loaded by vitest via `test.setupFiles` — runs once per
-// test file, before any test modules import.
-//
-// Installs minimal jsdom polyfills that many tests previously stubbed in
-// per-file beforeAll hooks.
+// jsdom ResizeObserver polyfill for Recharts-based tests.
 
 if (typeof globalThis.ResizeObserver === "undefined") {
   globalThis.ResizeObserver = class {
