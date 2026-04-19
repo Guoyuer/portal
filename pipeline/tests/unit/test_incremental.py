@@ -133,7 +133,7 @@ class TestComputeIncStart:
 
     @staticmethod
     def _compute(last_iso: str, start_iso: str, end_iso: str) -> str:
-        from scripts.build_timemachine_db import compute_inc_start
+        from etl.build import compute_inc_start
         return compute_inc_start(
             date.fromisoformat(last_iso),
             date.fromisoformat(start_iso),
@@ -165,7 +165,7 @@ class TestComputeIncStart:
         """Returned date can exceed `end` — caller detects this as 'nothing to do'."""
         # last > end (call ordering quirk); inc_start = min(last+1, refresh_floor) = refresh_floor
         # refresh_floor = end - 6 days. So inc_start <= end always. Only start > end causes skip.
-        from scripts.build_timemachine_db import compute_inc_start
+        from etl.build import compute_inc_start
         inc = compute_inc_start(
             date(2026, 4, 14), date(2026, 4, 20), date(2026, 4, 14),
         )
@@ -185,7 +185,7 @@ class TestBuildRefreshWindowOrchestration:
 
     def _seeded_db(self, tmp_path, last_date: str):
         """Return a BuildPaths backed by a DB with one computed_daily row."""
-        from scripts.build_timemachine_db import BuildPaths
+        from etl.build import BuildPaths
         paths = BuildPaths(data_dir=tmp_path, config=tmp_path / "cfg.json",
                            downloads=tmp_path, csv=None)
         init_db(paths.db_path)  # property → tmp_path/timemachine.db
@@ -201,7 +201,7 @@ class TestBuildRefreshWindowOrchestration:
 
     def test_passes_correct_range_to_compute(self, tmp_path, monkeypatch):
         """Wrapper reads last=2026-04-13, end=2026-04-14 → inc_start=2026-04-08."""
-        from scripts import build_timemachine_db
+        from etl import build as build_mod
 
         paths = self._seeded_db(tmp_path, "2026-04-13")
 
@@ -212,11 +212,11 @@ class TestBuildRefreshWindowOrchestration:
             captured["end"] = args[4]
             return []
 
-        monkeypatch.setattr(build_timemachine_db, "compute_daily_allocation", _fake_compute)
-        monkeypatch.setattr(build_timemachine_db, "precompute_market", lambda _p: None)
-        monkeypatch.setattr(build_timemachine_db, "precompute_holdings_detail", lambda _p: None)
+        monkeypatch.setattr(build_mod, "compute_daily_allocation", _fake_compute)
+        monkeypatch.setattr(build_mod, "precompute_market", lambda _p: None)
+        monkeypatch.setattr(build_mod, "precompute_holdings_detail", lambda _p: None)
 
-        build_timemachine_db._build_refresh_window(
+        build_mod._build_refresh_window(
             paths, {}, date(2023, 1, 1), date(2026, 4, 14), no_validate=True,
         )
         assert captured["inc_start"] == date(2026, 4, 8)  # refresh_window_start(2026-04-14)
@@ -224,8 +224,8 @@ class TestBuildRefreshWindowOrchestration:
 
     def test_falls_back_to_full_build_when_db_empty(self, tmp_path, monkeypatch):
         """No rows in computed_daily → full rebuild from `start`."""
-        from scripts import build_timemachine_db
-        from scripts.build_timemachine_db import BuildPaths, _build_refresh_window
+        from etl import build as build_mod
+        from etl.build import BuildPaths, _build_refresh_window
 
         paths = BuildPaths(data_dir=tmp_path, config=tmp_path / "cfg.json",
                            downloads=tmp_path, csv=None)
@@ -237,26 +237,26 @@ class TestBuildRefreshWindowOrchestration:
             called["full_build"] = True
             return []
 
-        monkeypatch.setattr(build_timemachine_db, "_full_build", _fake_full)
+        monkeypatch.setattr(build_mod, "_full_build", _fake_full)
         _build_refresh_window(paths, {}, date(2023, 1, 1), date(2026, 4, 14))
         assert called["full_build"] is True
 
     def test_upserts_returned_rows(self, tmp_path, monkeypatch):
         """Rows returned by compute_daily_allocation land in computed_daily."""
-        from scripts import build_timemachine_db
+        from etl import build as build_mod
 
         paths = self._seeded_db(tmp_path, "2026-04-13")
-        monkeypatch.setattr(build_timemachine_db, "compute_daily_allocation",
+        monkeypatch.setattr(build_mod, "compute_daily_allocation",
                             lambda *a, **kw: [{
                                 "date": "2026-04-14", "total": 105000,
                                 "us_equity": 62000, "non_us_equity": 15500,
                                 "crypto": 5500, "safe_net": 22000, "liabilities": 0,
                                 "tickers": [],
                             }])
-        monkeypatch.setattr(build_timemachine_db, "precompute_market", lambda _p: None)
-        monkeypatch.setattr(build_timemachine_db, "precompute_holdings_detail", lambda _p: None)
+        monkeypatch.setattr(build_mod, "precompute_market", lambda _p: None)
+        monkeypatch.setattr(build_mod, "precompute_holdings_detail", lambda _p: None)
 
-        build_timemachine_db._build_refresh_window(
+        build_mod._build_refresh_window(
             paths, {}, date(2023, 1, 1), date(2026, 4, 14), no_validate=True,
         )
         # The new row should be in the DB.
