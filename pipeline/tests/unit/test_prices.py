@@ -620,6 +620,75 @@ class TestSplitCrossValidation:
         finally:
             conn.close()
 
+    def test_same_day_split_and_special_stock_distribution_reported(
+        self, tmp_path: Path,
+    ) -> None:
+        """A ticker with BOTH a 2:1 split AND a same-day special
+        stock-distribution must surface the extra qty as a separate mismatch
+        without blaming the split.
+
+        Pre-fix behaviour: direction 2 aggregates by ``(symbol, run_date)``,
+        so the two DISTRIBUTION rows collapse into one. Direction 1 would
+        fire with a confusing ``got != expected`` on the split line, and the
+        extra event would not be distinctly named. After the fix, direction
+        1's split check passes (split delta matches), and the residual
+        surfaces as "extra DISTRIBUTION qty ... not accounted for by the
+        split ratio" — a clear signal to the operator that a co-occurring
+        special distribution landed on a split day.
+        """
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        # Holding 100 VOO prior to the split date.
+        _seed_fidelity_txn(db_path, "2025-06-10", "VOO", "buy", 100.0)
+        # 2025-12-15: 2-for-1 split → +100 shares (split delta).
+        _seed_fidelity_txn(db_path, "2025-12-15", "VOO", "distribution", 100.0)
+        # Same date, a separate special stock distribution → +5 shares.
+        _seed_fidelity_txn(db_path, "2025-12-15", "VOO", "distribution", 5.0)
+        conn = get_connection(db_path)
+        try:
+            with pytest.raises(SplitValidationError) as exc:
+                _validate_splits_against_transactions(
+                    conn,
+                    {"VOO": (date(2025, 6, 10), None)},
+                    {"VOO": [(date(2025, 12, 15), 2.0)]},
+                    today=date(2026, 1, 1),
+                )
+            msg = str(exc.value)
+            # Direction 1 should NOT raise the underlying split-delta line
+            # (split is matched): the old "expected DISTRIBUTION+REDEMPTION
+            # net=... got=..." text must be absent.
+            assert "expected DISTRIBUTION+REDEMPTION net" not in msg
+            # Residual path surfaces the 5-share extra on the split date.
+            assert "VOO 2025-12-15" in msg
+            assert "split delta matched" in msg
+            assert "extra DISTRIBUTION qty+=5" in msg
+            # And nothing slipped through direction 2's "no matching Yahoo
+            # split" path — the date DID have a Yahoo entry.
+            assert "no matching Yahoo split" not in msg
+        finally:
+            conn.close()
+
+    def test_same_day_split_matching_exactly_still_passes(
+        self, tmp_path: Path,
+    ) -> None:
+        """Guard the happy path: a single DISTRIBUTION row that exactly
+        matches ``pre_qty × (ratio - 1)`` must still pass silently after the
+        residual-check refactor (no residual, no raise)."""
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        _seed_fidelity_txn(db_path, "2025-06-10", "VOO", "buy", 100.0)
+        _seed_fidelity_txn(db_path, "2025-12-15", "VOO", "distribution", 100.0)
+        conn = get_connection(db_path)
+        try:
+            _validate_splits_against_transactions(
+                conn,
+                {"VOO": (date(2025, 6, 10), None)},
+                {"VOO": [(date(2025, 12, 15), 2.0)]},
+                today=date(2026, 1, 1),
+            )
+        finally:
+            conn.close()
+
 
 # ── Incremental fetch regression ───────────────────────────────────────────
 
