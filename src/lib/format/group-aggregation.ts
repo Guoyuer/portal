@@ -4,7 +4,7 @@
 // (added in a later task) uses this taxonomy to decide which txns count
 // toward the group net.
 
-import type { FidelityTxn } from "@/lib/schemas";
+import type { FidelityTxn, DailyTicker } from "@/lib/schemas";
 import { groupOfTicker } from "@/lib/config/equivalent-groups";
 
 export type TxnType = "REAL" | "REINVEST" | "SPLIT" | "ROLLOVER" | "OTHER";
@@ -97,4 +97,37 @@ export function groupNetByDate(
   }
 
   return result;
+}
+
+// ── Group value series (for the group chart Y-axis) ──────────────────────
+
+export type GroupValuePoint = {
+  date: string;
+  ts: number;
+  value: number;
+  constituents: { ticker: string; value: number }[];
+};
+
+/**
+ * Sum constituent tickers' daily `value` into a single per-date $ series
+ * suitable for the group chart's Y-axis.
+ */
+export function buildGroupValueSeries(
+  dailyTickers: DailyTicker[],
+  groupTickers: string[],
+): GroupValuePoint[] {
+  const set = new Set(groupTickers);
+  const byDate = new Map<string, { value: number; parts: { ticker: string; value: number }[] }>();
+  for (const dt of dailyTickers) {
+    if (!set.has(dt.ticker)) continue;
+    const e = byDate.get(dt.date);
+    if (e) { e.value += dt.value; e.parts.push({ ticker: dt.ticker, value: dt.value }); }
+    else byDate.set(dt.date, { value: dt.value, parts: [{ ticker: dt.ticker, value: dt.value }] });
+  }
+  return [...byDate.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, { value, parts }]) => {
+      const [y, m, d] = date.split("-").map(Number);
+      return { date, ts: new Date(y, m - 1, d).getTime(), value, constituents: parts };
+    });
 }

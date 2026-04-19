@@ -64,11 +64,15 @@ function ActivityContent({
   groupedActivity,
   startDate,
   snapshotDate,
+  dailyTickers,
+  fidelityTxns,
 }: {
   activity: ReturnType<typeof useBundle>["activity"];
   groupedActivity: GroupedActivityResponse | null;
   startDate: string | null;
   snapshotDate: string | null;
+  dailyTickers: ReturnType<typeof useBundle>["dailyTickers"];
+  fidelityTxns: ReturnType<typeof useBundle>["fidelityTxns"];
 }) {
   const [grouped, setGrouped] = useState(true);
 
@@ -87,9 +91,9 @@ function ActivityContent({
         </label>
       </div>
       <div className="grid md:grid-cols-2 gap-6">
-        <TickerTable title="Buys by Symbol" data={buysBySymbol} startDate={startDate ?? undefined} endDate={snapshotDate ?? undefined} />
-        <TickerTable title="Sells by Symbol" data={sellsBySymbol} startDate={startDate ?? undefined} endDate={snapshotDate ?? undefined} />
-        <TickerTable title="Dividends by Symbol" data={dividendsBySymbol} startDate={startDate ?? undefined} endDate={snapshotDate ?? undefined} countLabel="Payments" />
+        <TickerTable title="Buys by Symbol" data={buysBySymbol} startDate={startDate ?? undefined} endDate={snapshotDate ?? undefined} dailyTickers={dailyTickers} fidelityTxns={fidelityTxns} />
+        <TickerTable title="Sells by Symbol" data={sellsBySymbol} startDate={startDate ?? undefined} endDate={snapshotDate ?? undefined} dailyTickers={dailyTickers} fidelityTxns={fidelityTxns} />
+        <TickerTable title="Dividends by Symbol" data={dividendsBySymbol} startDate={startDate ?? undefined} endDate={snapshotDate ?? undefined} countLabel="Payments" dailyTickers={dailyTickers} fidelityTxns={fidelityTxns} />
       </div>
     </SectionBody>
   );
@@ -129,6 +133,7 @@ export default function FinancePage() {
     categories, chartDaily, monthlyFlows,
     syncMeta, marketError,
     brushStart, brushEnd, defaultStartIndex, defaultEndIndex, onBrushChange,
+    dailyTickers, fidelityTxns,
   } = tl;
   const colorByName = catColorByName(categories);
   const cfState = cashflowState(cashflow);
@@ -189,7 +194,7 @@ export default function FinancePage() {
               </span>
             )}
           </SectionHeader>
-          <ActivityContent activity={activity} groupedActivity={groupedActivity} startDate={startDate} snapshotDate={snapshotDate} />
+          <ActivityContent activity={activity} groupedActivity={groupedActivity} startDate={startDate} snapshotDate={snapshotDate} dailyTickers={dailyTickers} fidelityTxns={fidelityTxns} />
         </section>
       </ErrorBoundary>
 

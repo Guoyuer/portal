@@ -12,6 +12,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { TickerChart } from "./ticker-chart";
+import { GroupChartDialog } from "./group-dialog";
+import type { DailyTicker, FidelityTxn } from "@/lib/schemas";
 
 const ACTIVITY_TOP_SYMBOLS = 5;
 
@@ -65,13 +67,10 @@ function TickerRow({ symbol, count, total, isGroup, expanded, onToggle, startDat
         <TableCell className="text-right">{count}</TableCell>
         <TableCell className="text-right">{fmtCurrency(total)}</TableCell>
       </TableRow>
-      {expanded && (
+      {expanded && !isGroup && (
         <TableRow>
           <TableCell colSpan={3} className="p-2">
-            {isGroup
-              ? <p className="text-xs text-muted-foreground py-2">Group chart for {symbol} — coming soon</p>
-              : <TickerChart symbol={symbol} startDate={startDate} endDate={endDate} />
-            }
+            <TickerChart symbol={symbol} startDate={startDate} endDate={endDate} />
           </TableCell>
         </TableRow>
       )}
@@ -95,13 +94,10 @@ function TickerRowOverflow({ symbol, count, total, isGroup, expanded, onToggle, 
         <td className={numCell}>{count}</td>
         <td className={numCell}>{fmtCurrency(total)}</td>
       </tr>
-      {expanded && (
+      {expanded && !isGroup && (
         <tr>
           <td colSpan={3} className="px-2 py-2">
-            {isGroup
-              ? <p className="text-xs text-muted-foreground py-2">Group chart for {symbol} — coming soon</p>
-              : <TickerChart symbol={symbol} startDate={startDate} endDate={endDate} />
-            }
+            <TickerChart symbol={symbol} startDate={startDate} endDate={endDate} />
           </td>
         </tr>
       )}
@@ -115,14 +111,19 @@ export function TickerTable({
   startDate,
   endDate,
   countLabel = "Trades",
+  dailyTickers,
+  fidelityTxns,
 }: {
   title: string;
   data: ActivityTableRow[];
   startDate?: string;
   endDate?: string;
   countLabel?: string;
+  dailyTickers?: DailyTicker[];
+  fidelityTxns?: FidelityTxn[];
 }) {
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [dialogGroupKey, setDialogGroupKey] = useState<string | null>(null);
   const top = data.slice(0, ACTIVITY_TOP_SYMBOLS);
   const rest = data.slice(ACTIVITY_TOP_SYMBOLS);
   const restTotal = rest.reduce((s, t) => s + t.total, 0);
@@ -134,7 +135,9 @@ export function TickerTable({
     isGroup: item.isGroup,
     groupKey: item.groupKey,
     expanded: expanded === item.symbol,
-    onToggle: () => setExpanded((prev) => (prev === item.symbol ? null : item.symbol)),
+    onToggle: item.isGroup && item.groupKey
+      ? () => setDialogGroupKey(item.groupKey!)
+      : () => setExpanded((prev) => (prev === item.symbol ? null : item.symbol)),
     startDate,
     endDate,
   });
@@ -170,6 +173,16 @@ export function TickerTable({
           )}
         </TableBody>
       </Table>
+      {dialogGroupKey && dailyTickers && fidelityTxns && (
+        <GroupChartDialog
+          groupKey={dialogGroupKey}
+          dailyTickers={dailyTickers}
+          fidelityTxns={fidelityTxns}
+          startDate={startDate}
+          endDate={endDate}
+          onClose={() => setDialogGroupKey(null)}
+        />
+      )}
     </div>
   );
 }

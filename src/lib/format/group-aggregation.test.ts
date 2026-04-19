@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { classifyTxn, groupNetByDate, type TxnType } from "./group-aggregation";
+import { classifyTxn, groupNetByDate, buildGroupValueSeries, type TxnType } from "./group-aggregation";
 import type { FidelityTxn } from "@/lib/schemas";
 
 const t = (actionType: string, extra: Partial<FidelityTxn> = {}): FidelityTxn => ({
@@ -117,5 +117,32 @@ describe("groupNetByDate", () => {
     const out = groupNetByDate(txns);
     expect(out.get("sp500")?.size).toBe(1);
     expect(out.get("nasdaq_100")?.size).toBe(1);
+  });
+});
+
+const dt = (date: string, ticker: string, value: number) => ({
+  date, ticker, value, category: "", subtype: "", costBasis: 0, gainLoss: 0, gainLossPct: 0,
+});
+
+describe("buildGroupValueSeries", () => {
+  it("sums constituent values per date", () => {
+    const series = buildGroupValueSeries([
+      dt("2026-01-02", "SPY", 1000),
+      dt("2026-01-02", "VOO", 500),
+      dt("2026-01-03", "SPY", 1100),
+    ], ["SPY", "VOO"]);
+    expect(series).toHaveLength(2);
+    expect(series[0]).toMatchObject({ date: "2026-01-02", value: 1500 });
+    expect(series[0].constituents).toHaveLength(2);
+    expect(series[1]).toMatchObject({ date: "2026-01-03", value: 1100 });
+  });
+
+  it("ignores tickers not in the group", () => {
+    const series = buildGroupValueSeries([
+      dt("2026-01-02", "SPY", 1000),
+      dt("2026-01-02", "NVDA", 800),
+    ], ["SPY"]);
+    expect(series).toHaveLength(1);
+    expect(series[0].value).toBe(1000);
   });
 });

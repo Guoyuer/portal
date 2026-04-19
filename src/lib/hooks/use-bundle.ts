@@ -9,6 +9,7 @@ import {
   type MarketData,
   type StockDetail,
   type DailyPoint,
+  type DailyTicker,
   type QianjiTxn,
   type FidelityTxn,
   type TimelineData,
@@ -36,6 +37,7 @@ import {
 
 export interface BundleState {
   chartDaily: DailyPoint[];
+  dailyTickers: DailyTicker[];
   qianjiTxns: QianjiTxn[];
   fidelityTxns: FidelityTxn[];
   categories: CategoryMeta[];
@@ -126,6 +128,7 @@ export function useBundle(): BundleState {
 
   return {
     chartDaily,
+    dailyTickers: data?.dailyTickers ?? [],
     qianjiTxns: data?.qianjiTxns ?? [],
     fidelityTxns: data?.fidelityTxns ?? [],
     categories,
