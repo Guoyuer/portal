@@ -1,11 +1,11 @@
-"""Tests for etl/email_report.py — SMTP config + send path (fully mocked)."""
+"""Tests for the SMTP config + send path in etl/automation/notify.py (fully mocked)."""
 from __future__ import annotations
 
 from unittest.mock import patch
 
 import pytest
 
-from etl.email_report import EmailConfig, send
+from etl.automation.notify import EmailConfig, send
 
 # ── EmailConfig.from_env ─────────────────────────────────────────────────────
 
@@ -72,7 +72,7 @@ def _cfg() -> EmailConfig:
 
 class TestSend:
     def test_uses_starttls_and_correct_host_port(self) -> None:
-        with patch("etl.email_report.smtplib.SMTP") as mock_smtp:
+        with patch("etl.automation.notify.smtplib.SMTP") as mock_smtp:
             instance = mock_smtp.return_value.__enter__.return_value
             send("subj", "<p>html</p>", "plain", _cfg())
             mock_smtp.assert_called_once()
@@ -84,7 +84,7 @@ class TestSend:
             instance.send_message.assert_called_once()
 
     def test_message_has_text_and_html_parts(self) -> None:
-        with patch("etl.email_report.smtplib.SMTP") as mock_smtp:
+        with patch("etl.automation.notify.smtplib.SMTP") as mock_smtp:
             instance = mock_smtp.return_value.__enter__.return_value
             send("subj", "<p>html body</p>", "plain body", _cfg())
             msg = instance.send_message.call_args.args[0]
@@ -101,7 +101,7 @@ class TestSend:
     def test_raises_on_smtp_error(self) -> None:
         import smtplib as _smtplib
 
-        with patch("etl.email_report.smtplib.SMTP") as mock_smtp:
+        with patch("etl.automation.notify.smtplib.SMTP") as mock_smtp:
             instance = mock_smtp.return_value.__enter__.return_value
             instance.login.side_effect = _smtplib.SMTPAuthenticationError(535, b"bad credentials")
             with pytest.raises(_smtplib.SMTPAuthenticationError):
@@ -109,7 +109,7 @@ class TestSend:
 
     def test_raises_when_smtp_construction_fails(self) -> None:
         with (
-            patch("etl.email_report.smtplib.SMTP", side_effect=ConnectionRefusedError("no route")),
+            patch("etl.automation.notify.smtplib.SMTP", side_effect=ConnectionRefusedError("no route")),
             pytest.raises(ConnectionRefusedError),
         ):
             send("subj", "<p>html</p>", "plain", _cfg())

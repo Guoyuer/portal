@@ -25,7 +25,6 @@ from datetime import datetime
 from pathlib import Path
 
 from etl.changelog import SyncSnapshot, capture
-from etl.email_report import EmailConfig
 
 from . import notify
 from ._constants import (
@@ -36,6 +35,7 @@ from ._constants import (
     EXIT_SYNC_FAIL,
 )
 from .changes import changes_detected, find_new_positions_csv, needs_catchup
+from .notify import EmailConfig
 from .paths import (
     MARKER,
     SCRIPTS_DIR,

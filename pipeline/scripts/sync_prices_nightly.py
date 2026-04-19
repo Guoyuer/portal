@@ -27,8 +27,8 @@ from etl.prices import (  # noqa: E402
     _build_split_factors,
     _holding_periods_from_action_kind_rows,
     _reverse_split_factor,
+    refresh_window_start,
 )
-from etl.refresh import refresh_window_start  # noqa: E402
 from etl.sources import ActionKind  # noqa: E402
 from scripts._wrangler import (  # noqa: E402
     run_wrangler_exec_file,

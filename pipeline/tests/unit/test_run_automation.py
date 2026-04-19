@@ -564,7 +564,7 @@ class TestPathHelpers:
 class TestEmailNotifications:
     """Integration tests for the email-send branch of Runner.run().
 
-    Strategy: monkeypatch ``etl.email_report.send`` (the low-level SMTP call)
+    Strategy: monkeypatch ``etl.automation.notify.send`` (the low-level SMTP call)
     and ``etl.changelog.capture`` (to inject before/after snapshots). This
     lets us assert send-or-skip policy without touching real SMTP or SQLite.
     """
