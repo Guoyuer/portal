@@ -92,12 +92,26 @@ def _validate_splits_against_transactions(
        isolates the split legs. Co-occurring non-split ``REDEMPTION PAYOUT``
        on the same symbol and date would be misread as part of the split, but
        that collision is unrealistic (money-market funds don't split).
-    5. Compare ``actual`` with ``expected = pre_qty * (ratio - 1)``. If
-       ``|expected - actual| > SPLIT_QTY_TOLERANCE`` (0.01 absolute, sub-share
-       tolerance — Fidelity always rounds to whole shares so anything above
-       this is real drift), append a mismatch string and continue. The
-       ``(ratio - 1)`` formula produces positive expected deltas for forward
-       splits (``ratio > 1``) and negative deltas for reverse splits
+    5. Compare ``actual`` with ``expected = pre_qty * (ratio - 1)`` and
+       bucket into three outcomes (``SPLIT_QTY_TOLERANCE`` is 0.01 absolute,
+       sub-share tolerance — Fidelity always rounds to whole shares so
+       anything above this is real drift):
+
+       - ``actual < expected - SPLIT_QTY_TOLERANCE`` — split under-reported
+         (missing DISTRIBUTION / REDEMPTION leg). Append a split-mismatch
+         line; the share count is stale.
+       - ``|actual - expected| <= SPLIT_QTY_TOLERANCE`` — split matches
+         cleanly, no action.
+       - ``actual > expected + SPLIT_QTY_TOLERANCE`` — split itself is
+         covered but there is excess DISTRIBUTION qty on the same date
+         (classic "split + special stock-dividend" collision). Append a
+         residual line attributing the extra qty to a co-occurring event,
+         but do NOT raise the split-delta mismatch — the split is accounted
+         for. This is the same-day disambiguation that direction 2 cannot
+         perform on its aggregate query.
+
+       The ``(ratio - 1)`` formula produces positive expected deltas for
+       forward splits (``ratio > 1``) and negative deltas for reverse splits
        (``ratio < 1``), matching Fidelity's sign convention on both legs.
     6. Record ``(symbol, split_date)`` in ``checked_pairs`` so direction 2
        doesn't double-fire on the same day.
@@ -130,11 +144,6 @@ def _validate_splits_against_transactions(
       report "expected > 0, got 0" and direction 2 will report the orphan
       Fidelity row. Both surface the same truth, but the message is
       duplicated — review both lines before concluding there are two bugs.
-    - **Direction 2 aggregates by ``(symbol, run_date)`` only.** Multiple
-      distinct ``DISTRIBUTION`` events on the same day (possible for some
-      ETFs that pay both a split and a special dividend) collapse into a
-      single row. Direction 1 handles multi-event days correctly via the
-      single ``expected`` compare, but the reverse check can't disambiguate.
     - **Sub-share tolerance assumes Fidelity rounds to whole shares.** This
       holds for every symbol encountered to date; a future broker source
       with fractional-share split deltas would need a tighter
@@ -181,11 +190,24 @@ def _validate_splits_against_transactions(
             ):
                 actual += qty or 0.0
             expected = pre_qty * (ratio - 1)
-            if abs(expected - actual) > SPLIT_QTY_TOLERANCE:
+            delta = actual - expected
+            if delta < -SPLIT_QTY_TOLERANCE:
+                # Split under-reported — missing DISTRIBUTION / REDEMPTION leg.
                 mismatches.append(
                     f"{sym} {split_date.isoformat()} {ratio}:1 — "
                     f"pre-qty={pre_qty:.4f}, expected DISTRIBUTION+REDEMPTION net={expected:.4f}, "
                     f"got={actual:.4f}"
+                )
+            elif delta > SPLIT_QTY_TOLERANCE:
+                # Split itself is covered but there is excess DISTRIBUTION qty
+                # on this date — a same-day special-dividend-in-stock or
+                # similar event that direction 2's aggregate query cannot
+                # disambiguate. Surface the residual without blaming the split.
+                mismatches.append(
+                    f"{sym} {split_date.isoformat()} — split delta matched "
+                    f"(expected={expected:.4f}) but extra DISTRIBUTION qty+={delta:.4f} "
+                    f"on the same date is not accounted for by the split ratio "
+                    f"(likely a co-occurring special stock distribution)"
                 )
             checked_pairs.add((sym, split_date))
 
