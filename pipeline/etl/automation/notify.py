@@ -7,9 +7,7 @@ too: unset URL silently no-ops, network errors logged + swallowed.
 
 Email is opt-in: set ``PORTAL_SMTP_USER`` + ``PORTAL_SMTP_PASSWORD``. A no-
 change run is silently successful; failures and meaningful-change successes
-send. SMTP errors are logged and swallowed too. :class:`EmailConfig` +
-:func:`send` are stdlib-only SMTP primitives (smtplib + email.message); the
-password is NEVER logged — only the "enabled/disabled" state is.
+send. SMTP errors are logged and swallowed too.
 
 The :func:`extract_validation_warnings` helper reads the per-run subprocess
 capture buffer (populated by :func:`etl.automation.runner.run_python_script`)
