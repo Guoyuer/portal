@@ -42,11 +42,11 @@ async function handleTimeline(env: Env): Promise<Response> {
   }
 
   if (!daily.results.length) {
-    return errorResponse({ error: "No data available" }, 503);
+    return errorResponse("No data available", 503);
   }
 
   if (!categories.results.length) {
-    return errorResponse({ error: "No category metadata" }, 503);
+    return errorResponse("No category metadata", 503);
   }
 
   // Optional queries — each failure becomes a null section + errors entry.
