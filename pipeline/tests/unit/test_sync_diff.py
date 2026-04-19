@@ -11,11 +11,11 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from etl.db import get_connection, init_db
+from scripts._wrangler import sql_escape
 from scripts.sync_to_d1 import (
     _column_add_ddl,
     _dump_table,
     _ensure_d1_schema_aligned,
-    _escape,
     _invocation_context,
     _sync_log_insert_sql,
 )
@@ -118,19 +118,19 @@ class TestGenSchema:
 
 class TestEscape:
     def test_none(self):
-        assert _escape(None) == "NULL"
+        assert sql_escape(None) == "NULL"
 
     def test_number(self):
-        assert _escape(42) == "42"
+        assert sql_escape(42) == "42"
 
     def test_float(self):
-        assert _escape(3.14) == "3.14"
+        assert sql_escape(3.14) == "3.14"
 
     def test_string_with_quotes(self):
-        assert _escape("it's") == "'it''s'"
+        assert sql_escape("it's") == "'it''s'"
 
     def test_plain_string(self):
-        assert _escape("hello") == "'hello'"
+        assert sql_escape("hello") == "'hello'"
 
 
 class TestColumnAddDdl:
@@ -189,34 +189,52 @@ class TestEnsureD1SchemaAligned:
     """End-to-end behaviour of the auto-ALTER path, wrangler calls mocked.
 
     The function iterates every table in ``TABLES_TO_SYNC`` and ALTERs D1 up
-    to the local shape, so the fakes below report D1's state relative to
-    local's PRAGMA — matching local = no ALTER, missing local column = one
-    ALTER per gap.
+    to the local shape, so the fake ``run_wrangler_query`` reports D1's
+    state relative to local's PRAGMA — matching local = no ALTER, missing
+    local column = one ALTER per gap.
     """
 
     @staticmethod
     def _local_cols(conn: sqlite3.Connection, table: str) -> list[str]:
         return [r[1] for r in conn.execute(f"PRAGMA table_info({table})")]  # noqa: S608
 
-    def test_no_alter_when_d1_mirrors_local(self, db, monkeypatch):
-        from scripts import sync_to_d1
+    @staticmethod
+    def _table_from_pragma_sql(sql: str) -> str:
+        """Extract ``<table>`` from ``PRAGMA table_info(<table>)``."""
+        return sql.partition("(")[2].rstrip(")")
 
-        calls: list[str] = []
+    def _make_pragma_fake(
+        self, db, drop_col: tuple[str, str] | None = None, empty_table: str | None = None,
+    ):
+        """Build a fake ``run_wrangler_query`` that reports D1's PRAGMA shape.
 
-        def fake_pragma(table: str, *, local: bool) -> list[dict]:
-            # Claim D1 already has every local column for every table.
+        ``drop_col=(table, col)`` pretends D1 is missing one column; ``empty_table``
+        pretends D1 has no such table at all.
+        """
+        def fake_query(sql: str, *, local: bool = False, db_name: str = "portal-db") -> list[dict]:
+            table = self._table_from_pragma_sql(sql)
+            if empty_table is not None and table == empty_table:
+                return []
             conn = sqlite3.connect(str(db))
             try:
                 cols = self._local_cols(conn, table)
             finally:
                 conn.close()
+            if drop_col is not None and table == drop_col[0]:
+                cols = [c for c in cols if c != drop_col[1]]
             return [{"name": c} for c in cols]
+        return fake_query
 
-        def fake_exec(sql: str, *, local: bool) -> None:
+    def test_no_alter_when_d1_mirrors_local(self, db, monkeypatch):
+        from scripts import sync_to_d1
+
+        calls: list[str] = []
+
+        def fake_exec(sql: str, *, local: bool = False, db_name: str = "portal-db") -> None:
             calls.append(sql)
 
-        monkeypatch.setattr(sync_to_d1, "_wrangler_pragma", fake_pragma)
-        monkeypatch.setattr(sync_to_d1, "_wrangler_exec_ddl", fake_exec)
+        monkeypatch.setattr(sync_to_d1, "run_wrangler_query", self._make_pragma_fake(db))
+        monkeypatch.setattr(sync_to_d1, "run_wrangler_command", fake_exec)
 
         conn = sqlite3.connect(str(db))
         _ensure_d1_schema_aligned(conn, local=False, dry_run=False)
@@ -229,23 +247,16 @@ class TestEnsureD1SchemaAligned:
 
         calls: list[str] = []
 
-        def fake_pragma(table: str, *, local: bool) -> list[dict]:
-            # Pretend qianji_transactions is missing "category" on D1.
-            # (category is TEXT NOT NULL DEFAULT '' locally — a valid ALTER target.)
-            conn = sqlite3.connect(str(db))
-            try:
-                cols = self._local_cols(conn, table)
-            finally:
-                conn.close()
-            if table == "qianji_transactions":
-                cols = [c for c in cols if c != "category"]
-            return [{"name": c} for c in cols]
-
-        def fake_exec(sql: str, *, local: bool) -> None:
+        def fake_exec(sql: str, *, local: bool = False, db_name: str = "portal-db") -> None:
             calls.append(sql)
 
-        monkeypatch.setattr(sync_to_d1, "_wrangler_pragma", fake_pragma)
-        monkeypatch.setattr(sync_to_d1, "_wrangler_exec_ddl", fake_exec)
+        # Pretend qianji_transactions is missing "category" on D1.
+        # (category is TEXT NOT NULL DEFAULT '' locally — a valid ALTER target.)
+        monkeypatch.setattr(
+            sync_to_d1, "run_wrangler_query",
+            self._make_pragma_fake(db, drop_col=("qianji_transactions", "category")),
+        )
+        monkeypatch.setattr(sync_to_d1, "run_wrangler_command", fake_exec)
 
         conn = sqlite3.connect(str(db))
         _ensure_d1_schema_aligned(conn, local=False, dry_run=False)
@@ -266,18 +277,11 @@ class TestEnsureD1SchemaAligned:
         mid-INSERT on D1."""
         from scripts import sync_to_d1
 
-        def fake_pragma(table: str, *, local: bool) -> list[dict]:
-            # Pretend daily_close is missing "close" (REAL NOT NULL, no default).
-            conn = sqlite3.connect(str(db))
-            try:
-                cols = self._local_cols(conn, table)
-            finally:
-                conn.close()
-            if table == "daily_close":
-                cols = [c for c in cols if c != "close"]
-            return [{"name": c} for c in cols]
-
-        monkeypatch.setattr(sync_to_d1, "_wrangler_pragma", fake_pragma)
+        # Pretend daily_close is missing "close" (REAL NOT NULL, no default).
+        monkeypatch.setattr(
+            sync_to_d1, "run_wrangler_query",
+            self._make_pragma_fake(db, drop_col=("daily_close", "close")),
+        )
 
         conn = sqlite3.connect(str(db))
         with pytest.raises(RuntimeError, match=r"NOT NULL without a DEFAULT"):
@@ -289,21 +293,14 @@ class TestEnsureD1SchemaAligned:
 
         exec_calls: list[str] = []
 
-        def fake_pragma(table: str, *, local: bool) -> list[dict]:
-            conn = sqlite3.connect(str(db))
-            try:
-                cols = self._local_cols(conn, table)
-            finally:
-                conn.close()
-            if table == "qianji_transactions":
-                cols = [c for c in cols if c != "category"]
-            return [{"name": c} for c in cols]
-
-        def fake_exec(sql: str, *, local: bool) -> None:
+        def fake_exec(sql: str, *, local: bool = False, db_name: str = "portal-db") -> None:
             exec_calls.append(sql)
 
-        monkeypatch.setattr(sync_to_d1, "_wrangler_pragma", fake_pragma)
-        monkeypatch.setattr(sync_to_d1, "_wrangler_exec_ddl", fake_exec)
+        monkeypatch.setattr(
+            sync_to_d1, "run_wrangler_query",
+            self._make_pragma_fake(db, drop_col=("qianji_transactions", "category")),
+        )
+        monkeypatch.setattr(sync_to_d1, "run_wrangler_command", fake_exec)
 
         conn = sqlite3.connect(str(db))
         _ensure_d1_schema_aligned(conn, local=False, dry_run=True)
@@ -321,21 +318,14 @@ class TestEnsureD1SchemaAligned:
 
         exec_calls: list[str] = []
 
-        def fake_pragma(table: str, *, local: bool) -> list[dict]:
-            if table == "daily_close":
-                return []
-            conn = sqlite3.connect(str(db))
-            try:
-                cols = self._local_cols(conn, table)
-            finally:
-                conn.close()
-            return [{"name": c} for c in cols]
-
-        def fake_exec(sql: str, *, local: bool) -> None:
+        def fake_exec(sql: str, *, local: bool = False, db_name: str = "portal-db") -> None:
             exec_calls.append(sql)
 
-        monkeypatch.setattr(sync_to_d1, "_wrangler_pragma", fake_pragma)
-        monkeypatch.setattr(sync_to_d1, "_wrangler_exec_ddl", fake_exec)
+        monkeypatch.setattr(
+            sync_to_d1, "run_wrangler_query",
+            self._make_pragma_fake(db, empty_table="daily_close"),
+        )
+        monkeypatch.setattr(sync_to_d1, "run_wrangler_command", fake_exec)
 
         conn = sqlite3.connect(str(db))
         _ensure_d1_schema_aligned(conn, local=False, dry_run=False)

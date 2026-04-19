@@ -20,9 +20,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import json
 import os
-import shutil
 import sqlite3
 import subprocess
 import sys
@@ -37,6 +35,12 @@ _PROJECT_DIR = Path(__file__).resolve().parent.parent
 # Make etl/ importable and load pipeline/.env before any os.environ lookups.
 sys.path.insert(0, str(_PROJECT_DIR))
 import etl.dotenv_loader  # noqa: E402, F401  (side effect: load pipeline/.env)
+from scripts._wrangler import (  # noqa: E402
+    run_wrangler_command,
+    run_wrangler_exec_file,
+    run_wrangler_query,
+    sql_escape,
+)
 
 _DB_PATH = Path(os.environ.get("PORTAL_DB_PATH", str(_PROJECT_DIR / "data" / "timemachine.db")))
 _WORKER_DIR = _PROJECT_DIR.parent / "worker"
@@ -59,81 +63,13 @@ TABLES_TO_SYNC: list[str] = [
 
 # ── D1 schema alignment ────────────────────────────────────────────────────
 #
-# Local and D1 schemas are a single shared shape: every column in ``etl/db.py``
-# is synced to D1, and any ``ALTER TABLE ADD COLUMN`` in local propagates to
-# D1 on the next sync via the helpers below. D1 ALTER is an O(1) metadata
-# op (unlike MySQL, it doesn't rewrite the table), so auto-applying is safe
-# at the scale we care about. Each ALTER is logged so the sync output still
-# reads as an audit trail.
-#
-# The payload-exposure contract (what actually reaches the browser) lives
-# one layer up in views — they project explicit column lists, and
-# ``test_views_no_banned_columns`` guards identifiers that must never appear
-# in a view body. Keeping D1 a faithful mirror of local lets the exposure
-# question stay where it belongs (the view) instead of splitting across two
-# layers of partial-whitelist bookkeeping.
-#
-# The helpers below let ``main()`` detect the mismatch and apply ``ALTER TABLE
-# ADD
-# COLUMN`` automatically. D1's ALTER is an O(1) metadata op — unlike MySQL,
-# it doesn't rewrite the table — so auto-applying is safe at the scale we
-# care about. Each ALTER is logged so the sync output still reads as an
-# audit trail.
-
-
-def _wrangler_remote_flag(local: bool) -> str:
-    return "--local" if local else "--remote"
-
-
-def _wrangler_pragma(table: str, local: bool) -> list[dict[str, object]]:
-    """Run ``PRAGMA table_info(<table>)`` against D1 and parse the JSON rows.
-
-    Returns an empty list when the table doesn't exist on D1 — callers treat
-    this as "skip, D1 is unbootstrapped" rather than trying to auto-create
-    the table.
-    """
-    npx = shutil.which("npx")
-    if npx is None:
-        msg = "npx not found in PATH — install Node.js or add npm bin to PATH"
-        raise RuntimeError(msg)
-    result = subprocess.run(
-        [npx, "wrangler", "d1", "execute", "portal-db", _wrangler_remote_flag(local),
-         "--json", f"--command=PRAGMA table_info({table})"],
-        cwd=str(_WORKER_DIR),
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"wrangler PRAGMA failed for {table} (rc={result.returncode})\n"
-            f"stderr:\n{result.stderr or '(empty)'}\n"
-            f"stdout:\n{result.stdout or '(empty)'}"
-        )
-    data = json.loads(result.stdout)
-    if isinstance(data, list) and data and "results" in data[0]:
-        return list(data[0]["results"])
-    return []
-
-
-def _wrangler_exec_ddl(sql: str, local: bool) -> None:
-    """Execute one DDL statement (ALTER TABLE ...) on D1. Raises on failure."""
-    npx = shutil.which("npx")
-    if npx is None:
-        msg = "npx not found in PATH — install Node.js or add npm bin to PATH"
-        raise RuntimeError(msg)
-    result = subprocess.run(
-        [npx, "wrangler", "d1", "execute", "portal-db", _wrangler_remote_flag(local),
-         f"--command={sql}"],
-        cwd=str(_WORKER_DIR),
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"wrangler DDL failed (rc={result.returncode})\nSQL: {sql}\n"
-            f"stderr:\n{result.stderr or '(empty)'}\n"
-            f"stdout:\n{result.stdout or '(empty)'}"
-        )
+# Local and D1 share one schema. Any ``ALTER TABLE ADD COLUMN`` in local
+# propagates to D1 on the next sync — D1 ALTER is O(1) metadata (unlike
+# MySQL, it doesn't rewrite the table), so auto-applying is safe. Each
+# ALTER lands in ``sync_log`` so the sync output reads as an audit trail.
+# The payload-exposure contract (what reaches the browser) lives in views,
+# which project explicit column lists — so D1 can be a faithful mirror
+# without leaking columns into the client.
 
 
 def _column_add_ddl(local_conn: sqlite3.Connection, table: str, col: str) -> str:
@@ -197,7 +133,10 @@ def _ensure_d1_schema_aligned(
             # Local table missing (fresh DB with incomplete init?) — let the
             # sync's later SELECT surface the real error instead of masking.
             continue
-        d1_info = _wrangler_pragma(table, local=local)
+        d1_info = run_wrangler_query(
+            f"PRAGMA table_info({table})",  # noqa: S608 — trusted constant
+            local=local,
+        )
         d1_cols = {str(row["name"]) for row in d1_info}
         if not d1_cols:
             print(
@@ -214,7 +153,7 @@ def _ensure_d1_schema_aligned(
                 print(f"  [dry-run] Would align D1 schema: {alter_sql}")
             else:
                 print(f"  Aligning D1 schema: {alter_sql}")
-                _wrangler_exec_ddl(alter_sql, local=local)
+                run_wrangler_command(alter_sql, local=local)
                 _append_sync_log_row(
                     op="alter",
                     table_name=table,
@@ -227,11 +166,10 @@ def _ensure_d1_schema_aligned(
 # ── Audit log ──────────────────────────────────────────────────────────────
 #
 # Every destructive op on D1 appends exactly one row to the ``sync_log``
-# table. The table is append-only by convention (never DELETE) so future
-# forensics can answer "what changed prod on YYYY-MM-DD?". The normal
-# diff/full sync path emits its row as part of the generated SQL bundle
-# (so it's atomic with the data write); auto-ALTER and ad-hoc manual
-# scripts INSERT via separate wrangler calls using the same helpers.
+# table. Append-only by convention (never DELETE) so future forensics can
+# answer "what changed prod on YYYY-MM-DD?". The diff/full sync path emits
+# its row as part of the batched SQL file (atomic with the data write);
+# auto-ALTER and ad-hoc scripts INSERT via separate wrangler calls.
 
 
 def _invocation_context() -> str:
@@ -274,8 +212,8 @@ def _sync_log_insert_sql(
     ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     inv = invocation if invocation is not None else _invocation_context()
     values = ", ".join([
-        _escape(ts), _escape(op), _escape(table_name),
-        _escape(rows_affected), _escape(description), _escape(inv),
+        sql_escape(ts), sql_escape(op), sql_escape(table_name),
+        sql_escape(rows_affected), sql_escape(description), sql_escape(inv),
     ])
     return (
         "INSERT INTO sync_log (ts, op, table_name, rows_affected, description, invocation) "
@@ -298,11 +236,13 @@ def _append_sync_log_row(
     don't build a batched SQL file. For the main sync path, use
     :func:`_sync_log_insert_sql` to append directly to the batch.
     """
-    sql = _sync_log_insert_sql(
-        op=op, table_name=table_name, rows_affected=rows_affected,
-        description=description, invocation=invocation,
+    run_wrangler_command(
+        _sync_log_insert_sql(
+            op=op, table_name=table_name, rows_affected=rows_affected,
+            description=description, invocation=invocation,
+        ),
+        local=local,
     )
-    _wrangler_exec_ddl(sql, local=local)
 
 
 # Tables that use INSERT OR IGNORE in diff mode (append-only, have date PK)
@@ -324,16 +264,6 @@ _RANGE_TABLES: dict[str, str] = {
 
 
 # ── SQL generation ─────────────────────────────────────────────────────────────
-
-
-def _escape(value: object) -> str:
-    """Format a Python value as a SQL literal, handling NULLs and quoting."""
-    if value is None:
-        return "NULL"
-    if isinstance(value, (int, float)):
-        return str(value)
-    # String: escape single quotes by doubling them
-    return "'" + str(value).replace("'", "''") + "'"
 
 
 def _dump_table(
@@ -363,8 +293,8 @@ def _dump_table(
     columns = [desc[0] for desc in cursor.description]
     rows = cursor.fetchall()
 
-    # _escape quotes/escapes the cutoff identically to every row value, so the
-    # generated DELETE can't be broken by a typo'd `--since` argument.
+    # sql_escape quotes/escapes the cutoff identically to every row value, so
+    # the generated DELETE can't be broken by a typo'd `--since` argument.
     if mode == "full":
         lines: list[str] = [f"DELETE FROM {table};"]
         insert_verb = "INSERT INTO"
@@ -372,7 +302,7 @@ def _dump_table(
         lines = []
         insert_verb = "INSERT OR IGNORE INTO"
     elif mode == "range":
-        lines = [f"DELETE FROM {table} WHERE {date_expr} > {_escape(since)};"]
+        lines = [f"DELETE FROM {table} WHERE {date_expr} > {sql_escape(since)};"]
         insert_verb = "INSERT INTO"
     else:
         msg = f"unknown mode: {mode!r}"
@@ -380,7 +310,7 @@ def _dump_table(
 
     cols_sql = ", ".join(columns)
     for row in rows:
-        values = ", ".join(_escape(v) for v in row)
+        values = ", ".join(sql_escape(v) for v in row)
         lines.append(f"{insert_verb} {table} ({cols_sql}) VALUES ({values});")
 
     return "\n".join(lines), len(rows)
@@ -516,28 +446,11 @@ def main() -> None:
         tmp = Path(tmpf.name)
     try:
         print(f"\nExecuting {total_rows} rows against D1 ({len(combined):,} bytes)...")
-
-        # shutil.which resolves `npx` to `npx.cmd` on Windows (and the bare
-        # binary on macOS/Linux). Passing the resolved full path + arg list
-        # avoids shell=True + f-string quoting: the filename is passed
-        # directly to CreateProcess / exec.
-        npx = shutil.which("npx")
-        if npx is None:
-            print("Error: `npx` not found in PATH. Install Node.js or add npm bin to PATH.", file=sys.stderr)
+        try:
+            run_wrangler_exec_file(tmp, local=args.local)
+        except RuntimeError as e:
+            print(f"Error: wrangler failed:\n{e}", file=sys.stderr)
             sys.exit(1)
-        remote_flag = "--local" if args.local else "--remote"
-        result = subprocess.run(
-            [npx, "wrangler", "d1", "execute", "portal-db", remote_flag, f"--file={tmp}"],
-            cwd=str(_WORKER_DIR),
-            capture_output=True,
-            text=True,
-        )
-
-        if result.returncode != 0:
-            print(f"Error: wrangler failed:\n{result.stderr}", file=sys.stderr)
-            sys.exit(1)
-
-        print(result.stdout)
         print("D1 sync complete.")
     finally:
         tmp.unlink(missing_ok=True)
