@@ -46,7 +46,6 @@ import json
 import os
 import random
 import sqlite3
-import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -60,9 +59,9 @@ _PROJECT_DIR = Path(__file__).resolve().parent.parent
 # Make etl/ importable and load pipeline/.env before any os.environ lookups.
 sys.path.insert(0, str(_PROJECT_DIR))
 import etl.dotenv_loader  # noqa: E402, F401  (side effect: load pipeline/.env)
+from scripts._wrangler import run_wrangler_query  # noqa: E402
 
 _DB_PATH = Path(os.environ.get("PORTAL_DB_PATH", str(_PROJECT_DIR / "data" / "timemachine.db")))
-_WORKER_DIR = _PROJECT_DIR.parent / "worker"
 
 _TABLES_FOR_COUNT = ["fidelity_transactions", "qianji_transactions", "computed_daily", "daily_close"]
 _CLOSE_TOLERANCE = 0.0001
@@ -94,27 +93,16 @@ class CheckResult:
 # ── Wrangler wrapper ──────────────────────────────────────────────────────
 
 def parse_wrangler_json(raw: str) -> list[dict[str, Any]]:
-    """Extract rows from wrangler d1 execute --json output."""
+    """Extract rows from wrangler d1 execute --json output.
+
+    Exposed for tests that exercise the JSON-unwrap logic directly without
+    hitting subprocess; production calls go through
+    :func:`scripts._wrangler.run_wrangler_query` (which unwraps internally).
+    """
     data = json.loads(raw)
     if isinstance(data, list) and data and "results" in data[0]:
         return data[0]["results"]
     return []
-
-
-def _query_prod(sql: str) -> list[dict[str, Any]]:
-    """Run a SELECT against prod D1, return rows. Raises on failure."""
-    cmd = f'npx wrangler d1 execute portal-db --remote --json --command="{sql}"'
-    result = subprocess.run(cmd, cwd=str(_WORKER_DIR), capture_output=True, text=True, shell=True)
-    if result.returncode != 0:
-        # wrangler has been seen to exit non-zero with empty stderr during
-        # onlogon cold-starts (network not yet ready). Include stdout + rc so
-        # the failure isn't silent.
-        raise RuntimeError(
-            f"wrangler failed (rc={result.returncode})\n"
-            f"stderr:\n{result.stderr or '(empty)'}\n"
-            f"stdout:\n{result.stdout or '(empty)'}"
-        )
-    return parse_wrangler_json(result.stdout)
 
 
 # ── Comparisons ────────────────────────────────────────────────────────────
@@ -303,7 +291,7 @@ def main() -> None:
     print("\n[1] Row counts")
     for table in _TABLES_FOR_COUNT:
         local_n = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]  # noqa: S608
-        prod_rows = _query_prod(f"SELECT COUNT(*) AS n FROM {table}")
+        prod_rows = run_wrangler_query(f"SELECT COUNT(*) AS n FROM {table}")  # noqa: S608 — trusted constant
         prod_n = int(prod_rows[0]["n"]) if prod_rows else 0
         r = compare_row_counts(table, local_n, prod_n, expected_drop=expected_drops.get(table, 0))
         all_results.append(r)
@@ -322,7 +310,7 @@ def main() -> None:
         local_samples.append(dict(row))
     # Batch query prod
     conditions = " OR ".join([f"(symbol='{s['symbol']}' AND date='{s['date']}')" for s in local_samples])
-    prod_samples = _query_prod(f"SELECT symbol, date, close FROM daily_close WHERE {conditions}")
+    prod_samples = run_wrangler_query(f"SELECT symbol, date, close FROM daily_close WHERE {conditions}")  # noqa: S608
     for r in compare_daily_close_samples(local_samples, prod_samples):
         all_results.append(r)
         if args.verbose or not r.ok:
@@ -334,7 +322,7 @@ def main() -> None:
     local_totals = [dict(r) for r in conn.execute(
         "SELECT date, total FROM computed_daily ORDER BY date DESC LIMIT 7"
     ).fetchall()]
-    prod_totals = _query_prod(
+    prod_totals = run_wrangler_query(
         "SELECT date, total FROM computed_daily ORDER BY date DESC LIMIT 7"
     )
     for r in compare_recent_totals(local_totals, prod_totals):
