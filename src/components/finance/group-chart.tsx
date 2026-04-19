@@ -84,6 +84,15 @@ export function GroupChart({ data }: { data: GroupChartPoint[] }) {
         <Tooltip />
         <Line
           type="monotone"
+          dataKey="costBasis"
+          stroke={isDark ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.3)"}
+          strokeWidth={1.25}
+          strokeDasharray="4 4"
+          dot={false}
+          isAnimationActive={false}
+        />
+        <Line
+          type="monotone"
           dataKey="value"
           stroke={isDark ? "#60a5fa" : "#2563eb"}
           strokeWidth={1.5}

@@ -7,7 +7,8 @@ import { GroupChart, buildGroupChartData } from "./group-chart";
 import { buildGroupValueSeries, groupNetByDate } from "@/lib/format/group-aggregation";
 import { EQUIVALENT_GROUPS } from "@/lib/config/equivalent-groups";
 import { useIsDark } from "@/lib/hooks/hooks";
-import { fmtCurrency } from "@/lib/format/format";
+import { fmtCurrency, fmtPct } from "@/lib/format/format";
+import { valueColor } from "@/lib/format/thresholds";
 import type { DailyTicker, FidelityTxn } from "@/lib/schemas";
 
 export function GroupChartDialog({
@@ -62,10 +63,28 @@ export function GroupChartDialog({
     >
       <div className={`${isDark ? "bg-zinc-900 text-zinc-100" : "bg-white text-zinc-900"} rounded-xl shadow-2xl flex flex-col resize overflow-hidden w-[95vw] h-[92vh] min-w-[400px] min-h-[300px] max-w-[99vw] max-h-[98vh]`}>
         <div className="shrink-0 flex items-center justify-between px-5 py-3 border-b border-foreground/10">
-          <div className="flex items-baseline gap-3 min-w-0">
+          <div className="flex items-baseline gap-3 min-w-0 flex-wrap">
             <span className="font-semibold text-lg truncate">{group.display}</span>
-            {latest && <span className="text-sm text-muted-foreground">{fmtCurrency(latest.value)}</span>}
-            <span className="text-xs text-muted-foreground truncate">{group.tickers.join(" · ")}</span>
+            {latest && (
+              <>
+                <span className="text-sm text-muted-foreground">{fmtCurrency(latest.value)}</span>
+                <span className="text-sm text-muted-foreground">cost {fmtCurrency(latest.costBasis)}</span>
+                <span className={`text-sm ${valueColor(latest.value - latest.costBasis)}`}>
+                  {fmtCurrency(latest.value - latest.costBasis)}
+                </span>
+              </>
+            )}
+            {latest && latest.value > 0 ? (
+              <span className="text-xs text-muted-foreground truncate">
+                {latest.constituents
+                  .slice()
+                  .sort((a, b) => b.value - a.value)
+                  .map((c) => `${c.ticker} ${fmtPct((c.value / latest.value) * 100, false)}`)
+                  .join(" · ")}
+              </span>
+            ) : (
+              <span className="text-xs text-muted-foreground truncate">{group.tickers.join(" · ")}</span>
+            )}
           </div>
           <button
             onClick={onClose}
