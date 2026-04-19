@@ -83,6 +83,41 @@ jobs:
         if: github.actor != 'dependabot[bot]'
         run: npx playwright test
 
+      # ── Perf baseline (PR-only; artifacts, no enforcement yet) ──
+      # T4 from docs/TODO.md: establish a frontend perf baseline so future
+      # feature work visibly shows when new deps inflate the bundle or
+      # degrade Lighthouse scores. Thresholds are NOT enforced yet — this
+      # is baseline-establishment. A later PR can add assertions once we
+      # know what "normal" looks like.
+      #
+      # `@next/bundle-analyzer` is a webpack-only plugin; Next 16 defaults
+      # to Turbopack for `next build`, so we force `--webpack` here to
+      # actually emit the HTML reports. The analyzer is inert (returns
+      # config unchanged) unless ANALYZE=true.
+      - name: Build with bundle analyzer (webpack)
+        if: github.event_name == 'pull_request'
+        run: ANALYZE=true npx next build --webpack
+        env:
+          ANALYZE: "true"
+      - name: Upload bundle analyzer reports
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-analyzer
+          path: .next/analyze/*.html
+          if-no-files-found: warn
+
+      # Lighthouse CI on the webpack build's `out/` static export. Using
+      # `staticDistDir` mode in lighthouserc.json — LHCI serves the files
+      # itself, no separate `npx serve` step needed. `uploadArtifacts: true`
+      # publishes the LHR JSON + HTML reports as a workflow artifact.
+      - name: Run Lighthouse CI
+        if: github.event_name == 'pull_request'
+        uses: treosh/lighthouse-ci-action@v12
+        with:
+          configPath: ./lighthouserc.json
+          uploadArtifacts: true
+
       # ── Rebuild for production deploy (real Worker URL) ────────
       # Mail worker is same-origin (`/api/mail/*` on portal.guoyuer.com) and
       # hardcoded in src/lib/hooks/use-mail.ts — no env var to set.
