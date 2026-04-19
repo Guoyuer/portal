@@ -12,11 +12,14 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+import type { TooltipContentProps } from "recharts/types/component/Tooltip";
 import { useIsDark } from "@/lib/hooks/hooks";
 import { gridStroke, axisProps } from "@/lib/format/chart-styles";
-import { fmtCurrencyShort, fmtTick } from "@/lib/format/format";
+import { fmtCurrency, fmtCurrencyShort, fmtDateMedium, fmtTick } from "@/lib/format/format";
 import { BuyClusterMarker, SellClusterMarker } from "./ticker-markers";
 import type { GroupValuePoint, GroupNetEntry } from "@/lib/format/group-aggregation";
+import { TooltipCard } from "@/components/charts/tooltip-card";
+import { BUY_COLOR, SELL_COLOR } from "@/lib/format/chart-colors";
 
 type GroupMarkerCluster = {
   ts: number;
@@ -59,6 +62,36 @@ export function buildGroupChartData(
   });
 }
 
+function GroupTooltip({ active, payload }: TooltipContentProps) {
+  const d = payload?.[0]?.payload as GroupChartPoint | undefined;
+  if (!active || !d) return null;
+
+  const marker = d.sellCluster ?? d.buyCluster;
+  // Sign convention:
+  //   signed > 0  ⇒ sell contribution (exposure went down) — display negative
+  //   signed < 0  ⇒ buy contribution (exposure went up)   — display positive
+  const signIcon = (signed: number) => (signed >= 0 ? "−" : "+");
+
+  return (
+    <TooltipCard active={active} payload={payload} title={fmtDateMedium(d.date)}>
+      <p style={{ margin: 0 }}>Value: {fmtCurrency(d.value)}</p>
+      <p style={{ margin: 0 }}>Cost: {fmtCurrency(d.costBasis)}</p>
+      {marker && (
+        <>
+          <p style={{ margin: "6px 0 0 0", fontWeight: 600, color: d.sellCluster ? SELL_COLOR : BUY_COLOR }}>
+            Net {signIcon(d.sellCluster ? 1 : -1)}{fmtCurrency(marker.amount)} {d.sellCluster ? "sell" : "buy"}
+          </p>
+          {marker.breakdown.map((b) => (
+            <p key={b.symbol} style={{ margin: 0, fontSize: 12, fontFamily: "monospace" }}>
+              {b.symbol}  {signIcon(b.signed)}{fmtCurrency(Math.abs(b.signed))}
+            </p>
+          ))}
+        </>
+      )}
+    </TooltipCard>
+  );
+}
+
 export function GroupChart({ data }: { data: GroupChartPoint[] }) {
   const isDark = useIsDark();
   return (
@@ -81,7 +114,7 @@ export function GroupChart({ data }: { data: GroupChartPoint[] }) {
           {...axisProps(isDark)}
           axisLine={false}
         />
-        <Tooltip />
+        <Tooltip content={GroupTooltip} />
         <Line
           type="monotone"
           dataKey="costBasis"
