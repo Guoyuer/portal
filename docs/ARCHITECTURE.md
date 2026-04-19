@@ -24,12 +24,11 @@ graph TB
         D1[(D1 portal-db)]
         PAGES["/* — Pages static shell"]
         WORKER_API["/api/* — portal-api Worker"]
-        WORKER_MAIL["/api/mail/* — worker-gmail Worker"]
     end
 
     subgraph Frontend["Browser"]
         ACCESS["CF Access — SSO cookie on portal.guoyuer.com"]
-        FETCH["same-origin fetch /api/timeline + /api/econ + /api/prices/:sym + /api/mail/*"]
+        FETCH["same-origin fetch /api/timeline + /api/econ + /api/prices/:sym"]
         COMPUTE["compute.ts — allocation · cashflow · activity"]
         UI["React components"]
     end
@@ -43,14 +42,13 @@ graph TB
     DETECT --> BUILD --> VALIDATE
     VALIDATE -->|PASS| DIFF --> D1
     D1 --> WORKER_API --> FETCH
-    D1 --> WORKER_MAIL --> FETCH
     ACCESS --> FETCH --> COMPUTE --> UI
     TEST --> DEPLOY --> PAGES
 ```
 
 **Principles:** D1 is persistent store, local DB is disposable cache. Diff sync pushes only new rows. Workers are thin adapters (shape work in D1 views, Zod validation at boundary). Frontend computes everything locally after one fetch.
 
-**Routing (2026-04-13 migration):** Both Workers mount as **zone routes on `portal.guoyuer.com`** — same origin as Pages. `portal.guoyuer.com/api/*` → portal-api; `portal.guoyuer.com/api/mail/*` → worker-gmail. One CF Access app on `portal.guoyuer.com` authenticates the page load and every subsequent API call with the same session cookie — no CORS preflight, no cross-subdomain cookie handshake. Only exception: `portal-mail.guoyuer.com/mail/sync` stays on a separate hostname with no Access in front so the GitHub Actions Gmail cron can reach it with just the `X-Sync-Secret` header. See `docs/archive/security-worker-backdoor-2026-04-12.md` for the history.
+**Routing (2026-04-13 migration):** The Worker mounts as a **zone route on `portal.guoyuer.com`** — same origin as Pages. `portal.guoyuer.com/api/*` → portal-api. One CF Access app on `portal.guoyuer.com` authenticates the page load and every subsequent API call with the same session cookie — no CORS preflight, no cross-subdomain cookie handshake.
 
 ---
 
@@ -72,13 +70,11 @@ graph TB
 
 D1 has 10 camelCase views — `v_daily`, `v_daily_tickers`, `v_fidelity_txns`, `v_qianji_txns`, `v_categories`, `v_market_indices`, `v_holdings_detail`, `v_econ_series`, `v_econ_series_grouped`, `v_econ_snapshot`.
 
-Worker endpoints. Path-handling differs by Worker: portal-api strips `/api/` internally (so handlers match on `/timeline`, `/econ`, `/prices/:sym`); worker-gmail matches the full incoming path literally (post-PR #141), so browser routes are `/api/mail/list` + `/api/mail/trash` and the cron route is bare `/mail/sync` — the two prefixes disambiguate audience:
+Worker endpoints. portal-api strips `/api/` internally (so handlers match on `/timeline`, `/econ`, `/prices/:sym`):
 
 - `GET /api/timeline` — parallel SELECTs across critical + optional views, ~4.6 MB / ~385 KB gzip
 - `GET /api/econ` — econ_series snapshot + grouped series (includes `dxy`, `usdCny` alongside FRED keys)
 - `GET /api/prices/:symbol` — daily close + transactions, on-demand per ticker click
-- `GET /api/mail/list`, `POST /api/mail/trash` — Gmail triage (worker-gmail, browser, CF Access)
-- `POST /mail/sync` on `portal-mail.guoyuer.com` — GitHub Actions cron upserts classifications (SYNC_SECRET)
 
 All responses pass through `safeParse` at the Worker boundary — schema drift returns HTTP 500 with the Zod path instead of a silently garbage body.
 

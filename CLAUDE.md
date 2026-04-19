@@ -21,7 +21,7 @@ bash worker/dev-remote.sh                           # --remote through CF Access
 cd worker && npx wrangler dev                       # local D1 (seed first with sync --local)
 
 # Python pipeline
-cd pipeline && .venv/bin/pytest -q                  # 45 test files
+cd pipeline && .venv/bin/pytest -q                  # 42 test files
 cd pipeline && .venv/bin/mypy etl/ --ignore-missing-imports
 cd pipeline && .venv/bin/ruff check .
 
@@ -47,12 +47,8 @@ cd pipeline && .venv/Scripts/python.exe scripts/run_automation.py --force --loca
 # Use PowerShell's Register-ScheduledTask; schtasks.exe's /delay flag needs admin, Register-ScheduledTask doesn't.
 powershell -NoProfile -Command "$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-NoProfile -ExecutionPolicy Bypass -File C:\Users\guoyu\Projects\portal\pipeline\scripts\run_portal_sync.ps1'; $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME; $trigger.Delay = 'PT2M'; Register-ScheduledTask -TaskName 'PortalSync' -Action $action -Trigger $trigger"
 
-# Gmail triage (classifier + Worker + /mail tab)
-cd pipeline && .venv/Scripts/python.exe scripts/gmail/triage.py --sync --dry-run  # local dry-run
-cd worker-gmail && npx wrangler deploy                # deploy Gmail Worker
-
 # E2E (mock API on port 4444 — no real backend needed)
-npx playwright test                                   # 6 Playwright spec files
+npx playwright test                                   # 5 Playwright spec files
 
 # Manual Pages deploy (when CI's Worker deploy step is down or when iterating locally)
 MSYS_NO_PATHCONV=1 NEXT_PUBLIC_TIMELINE_URL='https://portal.guoyuer.com/api' npx next build
@@ -84,8 +80,6 @@ Next.js static shell on Cloudflare Pages. Data served by Cloudflare Worker (`wor
 Frontend fetches all data in a single `GET /timeline` call (~4.6 MB JSON, ~385 KB gzipped by Cloudflare edge), then computes allocation, cashflow, activity, and reconciliation locally in `src/lib/compute/compute.ts` via `src/lib/hooks/use-bundle.ts`. All daily data points are rendered directly (no downsampling). Brush drag is zero-latency (no network). Ticker charts fetch on-demand via `GET /prices/:symbol`.
 
 D1 schema: 11 base tables (incl. `categories`, `sync_log`) + 10 camelCase views (`v_daily`, `v_daily_tickers`, `v_fidelity_txns`, `v_qianji_txns`, `v_categories`, `v_market_indices`, `v_holdings_detail`, `v_econ_series`, `v_econ_series_grouped`, `v_econ_snapshot`). Worker serves 3 endpoints: `GET /timeline`, `GET /econ`, `GET /prices/:symbol`, each wrapped in a CF edge cache (`utils.cachedJson`, 60s/600s/300s TTL). Worker is a thin adapter: `SELECT` → JSON — no runtime Zod validation (the frontend's `use-bundle.ts` parse is the single drift checkpoint; doubling it on the shared schema cost ~200ms CPU per `/timeline` call). All shape work lives in the views; the only TypeScript transform is `JSON.parse(sparkline)`, applied by the client-side Zod.
-
-Gmail triage is a parallel module with its own stack: GitHub Actions cron runs `pipeline/scripts/gmail/triage.py` (IMAP fetch → Claude Haiku classify → POST to `worker-gmail`). `worker-gmail` is a separate Worker with its own D1 (`portal-gmail` → `triaged_emails` table) and a hand-rolled Gmail IMAP client over `cloudflare:sockets` for the trash operation. Route table is split by audience: cron hits `portal-mail.guoyuer.com/mail/sync` (SYNC_SECRET-gated); the browser hits same-origin `portal.guoyuer.com/api/mail/{list,trash}` pre-gated by the same Cloudflare Access app that protects the Pages site — no per-app key. See `docs/archive/gmail-triage-design-2026-04-12.md` (frozen original spec; browser auth superseded by PRs #137-#141).
 
 `/timeline` is fail-open: the critical `v_daily` query returns 503 on failure, but optional sections (market, holdings, txns) degrade to `null` + a `errors: { market?, holdings?, txns? }` entry. Panels render explicit error cards — missing data never hides silently.
 

@@ -6,7 +6,7 @@ export default defineConfig({
     alias: { "@": path.resolve(__dirname, "src") },
   },
   test: {
-    include: ["src/**/*.test.{ts,tsx}", "worker/src/**/*.test.ts", "worker-gmail/src/**/*.test.ts"],
+    include: ["src/**/*.test.{ts,tsx}", "worker/src/**/*.test.ts"],
     setupFiles: ["src/test/setup.ts"],
     coverage: {
       provider: "v8",
@@ -15,9 +15,6 @@ export default defineConfig({
       exclude: [
         "src/lib/format/chart-styles.ts",
         "src/lib/hooks/hooks.ts",
-        // use-mail is integration-heavy (fetch + localStorage + Next.js
-        // router). Covered by the /mail e2e flow, not unit tests.
-        "src/lib/hooks/use-mail.ts",
       ],
       thresholds: {
         statements: 70,
