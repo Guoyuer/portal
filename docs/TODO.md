@@ -67,7 +67,7 @@ Tiering rule: 🟢 = do if touching this area, 🟡 = do if you expect to keep i
 
 **Effort:** 1 hr. **Skip if:** you don't plan to add more frontend features.
 
-- [ ] Done
+- [x] Done
 
 ---
 
