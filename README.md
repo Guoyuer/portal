@@ -112,7 +112,7 @@ graph TB
     style IMAP fill:#dc2626,color:#fff
 ```
 
-**Design decisions** (original spec: `docs/gmail-triage-design-2026-04-12.md`; browser auth superseded by PRs #137-#139 — see `docs/archive/security-worker-backdoor-2026-04-12.md`):
+**Design decisions** (original spec: `docs/archive/gmail-triage-design-2026-04-12.md`; browser auth superseded by PRs #137-#139 — see `docs/archive/security-worker-backdoor-2026-04-12.md`):
 - One Gmail app password covers everything (SMTP send not needed since digest was dropped; IMAP read in Python + IMAP trash in Worker via `cloudflare:sockets` TCP).
 - `INSERT OR IGNORE` preserves user-set `status='trashed'` across daily re-syncs.
 - Browser auth is Cloudflare Access on `portal.guoyuer.com` (same-origin `/api/mail/*`); no in-app URL key. `SYNC_SECRET` gates the GH Actions → Worker sync channel on `portal-mail.guoyuer.com/mail/sync`.
@@ -428,7 +428,7 @@ pipeline/...                     ← data generation (if needed)
 
 ## Roadmap
 
-- [x] Gmail module — important email auto-triage (daily classification + one-click trash, see `docs/gmail-triage-design-2026-04-12.md`)
+- [x] Gmail module — important email auto-triage (daily classification + one-click trash, see `docs/archive/gmail-triage-design-2026-04-12.md`)
 - [ ] News aggregation — RSS feeds
 - [ ] AI-generated macro narrative — LLM summarizing economic conditions and cycle position
 
