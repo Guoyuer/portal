@@ -31,6 +31,7 @@ import { BUY_COLOR, SELL_COLOR } from "@/lib/format/chart-colors";
 import {
   BuyClusterMarker,
   SellClusterMarker,
+  ReinvestMarker,
   type ClusterMarkerProps,
   type HoverState,
   type Selection,
@@ -120,6 +121,8 @@ function TickerDialogChart({
               activeDot={false}
               isAnimationActive={false}
             />
+            {/* Reinvest dots first (paint underneath), then Sell, then Buy on top */}
+            <Scatter dataKey="reinvestDot" shape={ReinvestMarker} legendType="none" isAnimationActive={false} />
             {/* Sell first, Buy second — Buy paints on top so click hit-testing prefers the larger/more-frequent buy cluster when a same-date sell overlaps */}
             <Scatter dataKey="sellClusterPrice" shape={renderSell} legendType="none" isAnimationActive={false} />
             <Scatter dataKey="buyClusterPrice" shape={renderBuy} legendType="none" isAnimationActive={false} />

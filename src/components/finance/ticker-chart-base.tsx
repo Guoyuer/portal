@@ -25,7 +25,7 @@ import { buildClusteredData, tsToIsoLocal, type ClusteredPoint } from "@/lib/for
 import type { TickerChartPoint } from "@/lib/format/ticker-data";
 import { BUY_COLOR, SELL_COLOR } from "@/lib/format/chart-colors";
 import { TooltipCard } from "@/components/charts/tooltip-card";
-import { BuyClusterMarker, SellClusterMarker } from "./ticker-markers";
+import { BuyClusterMarker, SellClusterMarker, ReinvestMarker } from "./ticker-markers";
 
 function PriceTooltip({ active, payload }: TooltipContentProps) {
   const d = payload?.[0]?.payload as ClusteredPoint | undefined;
@@ -88,6 +88,7 @@ export function TickerChartBase({
           dot={false}
           isAnimationActive={false}
         />
+        <Scatter dataKey="reinvestDot" shape={ReinvestMarker} legendType="none" isAnimationActive={false} />
         <Scatter dataKey="sellClusterPrice" shape={SellClusterMarker} legendType="none" isAnimationActive={false} />
         <Scatter dataKey="buyClusterPrice" shape={BuyClusterMarker} legendType="none" isAnimationActive={false} />
         {avgCost != null && (

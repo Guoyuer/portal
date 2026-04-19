@@ -119,3 +119,9 @@ export function SellClusterMarker({ cx, cy, payload, onEnter, onMove, onLeave, o
   );
 }
 
+// ── REINVEST marker: tiny muted dot, non-interactive ──────────────────
+export function ReinvestMarker({ cx, cy }: MarkerProps) {
+  if (cx == null || cy == null) return null;
+  return <circle cx={cx} cy={cy} r={2.5} fill={BUY_COLOR} fillOpacity={0.4} />;
+}
+

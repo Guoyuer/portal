@@ -3,6 +3,7 @@ import {
   clusterByTime,
   sizeClusters,
   buildClusteredData,
+  mergeTickerData,
   tsToIsoLocal,
   type TickerChartPoint,
 } from "@/lib/format/ticker-data";
@@ -127,5 +128,55 @@ describe("tsToIsoLocal", () => {
   it("pads single-digit month and day", () => {
     const ts = new Date(2026, 0, 5).getTime();
     expect(tsToIsoLocal(ts)).toBe("2026-01-05");
+  });
+});
+
+describe("mergeTickerData reinvestment split", () => {
+  it("separates reinvestment from buys", () => {
+    const out = mergeTickerData(
+      [{ date: "2026-01-02", close: 100 }],
+      [
+        { runDate: "2026-01-02", actionType: "buy", amount: 100, quantity: 1, price: 100 },
+        { runDate: "2026-01-02", actionType: "reinvestment", amount: 5, quantity: 0.05, price: 100 },
+      ],
+    );
+    expect(out[0].buyAmount).toBe(100);
+    expect(out[0].buyTxnCount).toBe(1);
+    expect(out[0].reinvestAmount).toBe(5);
+    expect(out[0].reinvestTxnCount).toBe(1);
+  });
+
+  it("reinvestment-only day has no buyAmount but has reinvestAmount", () => {
+    const out = mergeTickerData(
+      [{ date: "2026-01-03", close: 110 }],
+      [
+        { runDate: "2026-01-03", actionType: "reinvestment", amount: 10, quantity: 0.09, price: 110 },
+      ],
+    );
+    expect(out[0].buyAmount).toBeUndefined();
+    expect(out[0].buyTxnCount).toBeUndefined();
+    expect(out[0].reinvestAmount).toBe(10);
+    expect(out[0].reinvestTxnCount).toBe(1);
+  });
+
+  it("multiple reinvestments on the same day are summed", () => {
+    const out = mergeTickerData(
+      [{ date: "2026-01-04", close: 120 }],
+      [
+        { runDate: "2026-01-04", actionType: "reinvestment", amount: 3, quantity: 0.025, price: 120 },
+        { runDate: "2026-01-04", actionType: "reinvestment", amount: 7, quantity: 0.058, price: 120 },
+      ],
+    );
+    expect(out[0].reinvestAmount).toBeCloseTo(10);
+    expect(out[0].reinvestTxnCount).toBe(2);
+  });
+
+  it("buildClusteredData sets reinvestDot to close price when reinvestAmount is present", () => {
+    const out = buildClusteredData([
+      pt("2025-06-01", { reinvestAmount: 5, reinvestTxnCount: 1 }),
+      pt("2026-01-01"),
+    ]);
+    expect(out[0].reinvestDot).toBe(100); // close is 100 from pt helper
+    expect(out[1].reinvestDot).toBeUndefined();
   });
 });
