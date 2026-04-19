@@ -5,6 +5,7 @@ import { ECON_URL, FETCH_TIMEOUT_MS } from "@/lib/config";
 import { fetchWithSchema } from "@/lib/schemas/fetch-schema";
 import { EconDataSchema, type EconData, type EconPoint } from "@/lib/schemas";
 import { ECON_FORMATTERS } from "@/lib/format/econ-formatters";
+import { fmtDateMedium } from "@/lib/format/format";
 import { ECON_LINE_COLORS } from "@/lib/format/chart-colors";
 import { Button } from "@/components/ui/button";
 import { SectionHeader, SectionBody } from "@/components/finance/section";
@@ -98,7 +99,7 @@ export default function EconPage() {
       </h1>
 
       <p className="text-xs text-foreground/50 -mt-4">
-        Updated: {new Date(data.generatedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+        Updated: {fmtDateMedium(data.generatedAt)}
         {" "}
         {new Date(data.generatedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
       </p>

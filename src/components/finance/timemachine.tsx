@@ -42,9 +42,8 @@ function AreaTooltip({
   label,
   labels,
 }: TooltipContentProps & { labels: Record<string, string> }) {
-  const fmtLabel = new Date(Number(label)).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
   return (
-    <TooltipCard active={active} payload={payload} title={fmtLabel}>
+    <TooltipCard active={active} payload={payload} title={fmtDateLong(Number(label))}>
       {payload && payload.length > 0 && (
         <p style={{ margin: 0, fontWeight: 600 }}>
           Total: {fmtCurrency(payload.reduce((s, e) => s + Number(e.value ?? 0), 0))}
