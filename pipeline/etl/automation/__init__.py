@@ -17,15 +17,14 @@ live in their respective submodules and are imported directly when needed.
 """
 from __future__ import annotations
 
-from .runner import (
+from ._constants import (
     EXIT_BUILD_FAIL,
     EXIT_OK,
     EXIT_PARITY_FAIL,
     EXIT_POSITIONS_FAIL,
     EXIT_SYNC_FAIL,
-    Runner,
-    parse_args,
 )
+from .runner import Runner, parse_args
 
 __all__ = [
     "EXIT_BUILD_FAIL",

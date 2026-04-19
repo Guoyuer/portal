@@ -7,7 +7,7 @@ pre-sync gates, dry-run semantics, marker update, and the final email report.
 CLI parsing is here too because the script-side entry point shrinks to
 ``parse_args → Runner.from_args → run`` and we want those bound together.
 
-Exit-code taxonomy (mirrored in :mod:`etl.automation.notify._STATUS_LABELS`):
+Exit-code taxonomy (constants live in :mod:`etl.automation._constants`):
     0 — ok, or no changes detected (both normal outcomes for cron)
     1 — build failed
     2 — verify_vs_prod failed (local <-> prod parity drift — do NOT sync)
@@ -28,6 +28,13 @@ from etl.changelog import SyncSnapshot, capture
 from etl.email_report import EmailConfig
 
 from . import notify
+from ._constants import (
+    EXIT_BUILD_FAIL,
+    EXIT_OK,
+    EXIT_PARITY_FAIL,
+    EXIT_POSITIONS_FAIL,
+    EXIT_SYNC_FAIL,
+)
 from .changes import changes_detected, find_new_positions_csv, needs_catchup
 from .paths import (
     MARKER,
@@ -39,14 +46,6 @@ from .paths import (
 )
 
 log = logging.getLogger(__name__)
-
-# ── Exit codes ───────────────────────────────────────────────────────────────
-
-EXIT_OK = 0
-EXIT_BUILD_FAIL = 1
-EXIT_PARITY_FAIL = 2
-EXIT_SYNC_FAIL = 3
-EXIT_POSITIONS_FAIL = 4
 
 
 # ── Logging ──────────────────────────────────────────────────────────────────
