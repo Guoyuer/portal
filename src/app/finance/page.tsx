@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { GOAL } from "@/lib/config";
 import { useBundle } from "@/lib/hooks/use-bundle";
-import { catColorByName, cashflowState, type CashflowState } from "@/lib/compute/compute";
+import { catColorByName, cashflowState, type CashflowState, type GroupedActivityResponse } from "@/lib/compute/compute";
 import type { MonthlyFlowPoint } from "@/lib/compute/computed-types";
 import { fmtDateMedium } from "@/lib/format/format";
 import { SectionHeader, SectionBody, SectionMessage } from "@/components/finance/section";
@@ -61,22 +61,34 @@ function CashFlowContent({
 
 function ActivityContent({
   activity,
+  groupedActivity,
   startDate,
   snapshotDate,
 }: {
   activity: ReturnType<typeof useBundle>["activity"];
+  groupedActivity: GroupedActivityResponse | null;
   startDate: string | null;
   snapshotDate: string | null;
 }) {
+  const [grouped, setGrouped] = useState(true);
+
   if (!activity) return <SectionMessage kind="unavailable">Activity data unavailable</SectionMessage>;
-  const { buysBySymbol, sellsBySymbol, dividendsBySymbol } = activity;
+  const source = grouped && groupedActivity ? groupedActivity : activity;
+  const { buysBySymbol, sellsBySymbol, dividendsBySymbol } = source;
   if (buysBySymbol.length === 0 && sellsBySymbol.length === 0 && dividendsBySymbol.length === 0) {
     return <SectionMessage kind="empty">No activity in this period</SectionMessage>;
   }
   return (
     <SectionBody>
+      <div className="flex justify-end mb-2">
+        <label className="inline-flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
+          <input type="checkbox" checked={grouped} onChange={(e) => setGrouped(e.target.checked)} />
+          Group equivalent tickers
+        </label>
+      </div>
       <div className="grid md:grid-cols-2 gap-6">
         <TickerTable title="Buys by Symbol" data={buysBySymbol} startDate={startDate ?? undefined} endDate={snapshotDate ?? undefined} />
+        <TickerTable title="Sells by Symbol" data={sellsBySymbol} startDate={startDate ?? undefined} endDate={snapshotDate ?? undefined} />
         <TickerTable title="Dividends by Symbol" data={dividendsBySymbol} startDate={startDate ?? undefined} endDate={snapshotDate ?? undefined} countLabel="Payments" />
       </div>
     </SectionBody>
@@ -113,7 +125,7 @@ export default function FinancePage() {
   }
 
   const {
-    allocation, cashflow, activity, market, crossCheck,
+    allocation, cashflow, activity, groupedActivity, market, crossCheck,
     categories, chartDaily, monthlyFlows,
     syncMeta, marketError,
     brushStart, brushEnd, defaultStartIndex, defaultEndIndex, onBrushChange,
@@ -177,7 +189,7 @@ export default function FinancePage() {
               </span>
             )}
           </SectionHeader>
-          <ActivityContent activity={activity} startDate={startDate} snapshotDate={snapshotDate} />
+          <ActivityContent activity={activity} groupedActivity={groupedActivity} startDate={startDate} snapshotDate={snapshotDate} />
         </section>
       </ErrorBoundary>
 

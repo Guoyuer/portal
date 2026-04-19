@@ -25,10 +25,20 @@ export function DeviationCell({ value }: { value: number }) {
   );
 }
 
+export type ActivityTableRow = {
+  symbol: string;
+  count: number;
+  total: number;
+  isGroup?: boolean;
+  groupKey?: string;
+};
+
 interface TickerRowProps {
   symbol: string;
   count: number;
   total: number;
+  isGroup?: boolean;
+  groupKey?: string;
   expanded: boolean;
   onToggle: () => void;
   startDate?: string;
@@ -44,7 +54,7 @@ function ExpanderIndicator({ expanded }: { expanded: boolean }) {
 }
 
 /** Primary table row: uses shadcn TableRow/TableCell. */
-function TickerRow({ symbol, count, total, expanded, onToggle, startDate, endDate }: TickerRowProps) {
+function TickerRow({ symbol, count, total, isGroup, expanded, onToggle, startDate, endDate }: TickerRowProps) {
   return (
     <>
       <TableRow className="even:bg-muted/50 cursor-pointer hover:bg-muted/80 group" onClick={onToggle}>
@@ -58,7 +68,10 @@ function TickerRow({ symbol, count, total, expanded, onToggle, startDate, endDat
       {expanded && (
         <TableRow>
           <TableCell colSpan={3} className="p-2">
-            <TickerChart symbol={symbol} startDate={startDate} endDate={endDate} />
+            {isGroup
+              ? <p className="text-xs text-muted-foreground py-2">Group chart for {symbol} — coming soon</p>
+              : <TickerChart symbol={symbol} startDate={startDate} endDate={endDate} />
+            }
           </TableCell>
         </TableRow>
       )}
@@ -67,7 +80,7 @@ function TickerRow({ symbol, count, total, expanded, onToggle, startDate, endDat
 }
 
 /** Overflow row rendered inside a nested <details> <table>; raw tr/td + muted palette. */
-function TickerRowOverflow({ symbol, count, total, expanded, onToggle, startDate, endDate }: TickerRowProps) {
+function TickerRowOverflow({ symbol, count, total, isGroup, expanded, onToggle, startDate, endDate }: TickerRowProps) {
   const numCell = "px-2 py-1.5 text-right text-muted-foreground";
   return (
     <>
@@ -85,7 +98,10 @@ function TickerRowOverflow({ symbol, count, total, expanded, onToggle, startDate
       {expanded && (
         <tr>
           <td colSpan={3} className="px-2 py-2">
-            <TickerChart symbol={symbol} startDate={startDate} endDate={endDate} />
+            {isGroup
+              ? <p className="text-xs text-muted-foreground py-2">Group chart for {symbol} — coming soon</p>
+              : <TickerChart symbol={symbol} startDate={startDate} endDate={endDate} />
+            }
           </td>
         </tr>
       )}
@@ -101,7 +117,7 @@ export function TickerTable({
   countLabel = "Trades",
 }: {
   title: string;
-  data: { symbol: string; count: number; total: number }[];
+  data: ActivityTableRow[];
   startDate?: string;
   endDate?: string;
   countLabel?: string;
@@ -111,10 +127,12 @@ export function TickerTable({
   const rest = data.slice(ACTIVITY_TOP_SYMBOLS);
   const restTotal = rest.reduce((s, t) => s + t.total, 0);
 
-  const rowProps = (item: { symbol: string; count: number; total: number }): TickerRowProps => ({
+  const rowProps = (item: ActivityTableRow): TickerRowProps => ({
     symbol: item.symbol,
     count: item.count,
     total: item.total,
+    isGroup: item.isGroup,
+    groupKey: item.groupKey,
     expanded: expanded === item.symbol,
     onToggle: () => setExpanded((prev) => (prev === item.symbol ? null : item.symbol)),
     startDate,

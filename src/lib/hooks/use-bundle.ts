@@ -23,11 +23,13 @@ import {
   computeAllocation,
   computeCashflow,
   computeActivity,
+  computeGroupedActivity,
   computeCrossCheck,
   computeMonthlyFlows,
   buildDateIndex,
   buildTickerIndex,
   type CrossCheck,
+  type GroupedActivityResponse,
 } from "@/lib/compute/compute";
 
 // ── Hook ────────────────────────────────────────────────────────────────
@@ -49,6 +51,7 @@ export interface BundleState {
   allocation: AllocationResponse | null;
   cashflow: CashflowResponse | null;
   activity: ActivityResponse | null;
+  groupedActivity: GroupedActivityResponse | null;
   market: MarketData | null;
   holdingsDetail: StockDetail[] | null;
   crossCheck: CrossCheck | null;
@@ -117,6 +120,7 @@ export function useBundle(): BundleState {
   const allocation = (data && snapshotDate) ? computeAllocation(data.daily, tickerIndex, dateIndex, snapshotDate, categories) : null;
   const cashflow = (data && startDate && snapshotDate) ? computeCashflow(data.qianjiTxns, startDate, snapshotDate) : null;
   const activity = (data && startDate && snapshotDate) ? computeActivity(data.fidelityTxns, startDate, snapshotDate) : null;
+  const groupedActivity = (data && startDate && snapshotDate) ? computeGroupedActivity(data.fidelityTxns, startDate, snapshotDate) : null;
   const crossCheck = (data && startDate && snapshotDate) ? computeCrossCheck(data.fidelityTxns, data.qianjiTxns, startDate, snapshotDate) : null;
   const monthlyFlows = computeMonthlyFlows(data?.qianjiTxns ?? [], startDate, snapshotDate);
 
@@ -137,6 +141,7 @@ export function useBundle(): BundleState {
     allocation,
     cashflow,
     activity,
+    groupedActivity,
     market: data?.market ?? null,
     holdingsDetail: data?.holdingsDetail ?? null,
     crossCheck,
