@@ -1,7 +1,6 @@
 """Timemachine DB build orchestration.
 
-Pure, importable pipeline logic extracted from ``scripts/build_timemachine_db.py``:
-
+Stages:
   1. Initialise ``data/timemachine.db`` with all tables
   2. Ingest Fidelity brokerage transactions from CSV
   3. Ingest Empower 401k quarterly snapshots + contributions from QFX files
@@ -13,10 +12,6 @@ Refreshes the last ``REFRESH_WINDOW_DAYS`` of ``computed_daily`` on every
 run, plus fills any historical gap beyond the window. If the DB is missing
 or empty, a full build runs automatically. To force a clean rebuild, delete
 ``pipeline/data/timemachine.db`` before running.
-
-The outer script (``scripts/build_timemachine_db.py``) is a thin CLI
-wrapper: ``parse_args → build_timemachine_db(args) → sys.exit(rc)``. This
-mirrors the ``run_automation.py`` ↔ ``etl.automation.runner`` split.
 """
 from __future__ import annotations
 
