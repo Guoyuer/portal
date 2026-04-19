@@ -8,47 +8,51 @@ Personal one-stop dashboard. Finance reports with live data from Fidelity broker
 
 ```mermaid
 graph TB
-    subgraph "Local build"
+    subgraph Local["Local machine"]
+        TASK["Windows Task Scheduler<br/>run_portal_sync.ps1 (AtLogOn + 2m)"]
+        AUTO["run_automation.py<br/>detect → build → verify → sync"]
         BUILD["build_timemachine_db.py<br/>ingest → replay → precompute"]
         DB[(timemachine.db)]
+        SYNC["sync_to_d1.py<br/>diff (default) or --full"]
     end
 
-    subgraph "Cloudflare D1 + Workers"
+    subgraph Cloud["Cloudflare — portal.guoyuer.com (single-origin behind CF Access)"]
+        ACCESS["CF Access<br/>Google SSO cookie"]
+        PAGES["/* Pages<br/>static shell + Service Worker"]
+        WAPI["/api/* portal-api Worker<br/>GET /timeline · /econ · /prices/:sym<br/>edge cache 60s / 600s / 300s"]
+        WMAIL["/api/mail/* worker-gmail Worker<br/>GET list · POST trash"]
         D1[(D1 portal-db)]
-        WORKER["Worker<br/>GET /timeline · /econ · /prices/:sym"]
+        D1M[(D1 portal-gmail)]
     end
 
-    subgraph "GitHub Actions"
-        CI["CI + Deploy<br/>Python lint/test + vitest + Playwright<br/>+ Pages + Worker deploy"]
+    subgraph Browser
+        SW["Service Worker<br/>cache-first static · SWR API"]
+        UI["React 19 + React Compiler<br/>(auto-memoization)"]
+        COMPUTE["src/lib/compute/compute.ts<br/>allocation · cashflow · activity"]
     end
 
-    subgraph "Cloudflare"
-        ACCESS["Cloudflare Access<br/>Google login"]
-        PAGES["Cloudflare Pages<br/>static shell + PWA"]
+    subgraph CI["GitHub Actions"]
+        CI_TEST["pytest + vitest + Playwright (mock API)"]
+        CI_DEPLOY["Pages deploy<br/>(Workers deploy is manual — token<br/>lacks Zone → Workers Routes → Edit)"]
     end
 
-    subgraph "Browser"
-        SW["Service Worker<br/>offline cache"]
-        RC["React Compiler<br/>auto-memoization"]
-        COMPUTE["use-bundle.ts<br/>client-side compute"]
-    end
-
-    BUILD --> DB
-    DB -->|sync_to_d1.py| D1
-    D1 --> WORKER
-    CI -->|static shell| PAGES
-    WORKER -->|"fetch /timeline"| SW
-    SW --> COMPUTE
-    ACCESS -->|protects| PAGES
+    TASK --> AUTO --> BUILD --> DB --> SYNC --> D1
+    ACCESS -.gates.-> PAGES & WAPI & WMAIL
+    PAGES -->|initial load| SW --> UI --> COMPUTE
+    UI -->|"fetch /api/timeline · /econ · /prices/:sym"| WAPI --> D1
+    UI -->|"fetch /api/mail/{list,trash}"| WMAIL --> D1M
+    CI_TEST --> CI_DEPLOY --> PAGES
 
     style BUILD fill:#10b981,color:#fff
-    style WORKER fill:#2563eb,color:#fff
+    style WAPI fill:#2563eb,color:#fff
+    style WMAIL fill:#2563eb,color:#fff
     style PAGES fill:#f59e0b,color:#000
     style ACCESS fill:#f97316,color:#fff
     style D1 fill:#2563eb,color:#fff
+    style D1M fill:#2563eb,color:#fff
 ```
 
-**Key design:** Portal is a static shell (HTML + JS) deployed to Cloudflare Pages. The Cloudflare Worker serves `GET /timeline` from D1 (SQLite-compatible). The frontend fetches once on load, then computes allocation, cashflow, activity, and reconciliation locally in `use-bundle.ts`. Brush drag is zero-latency (no network round-trips).
+**Key design:** Portal is a static shell deployed to Cloudflare Pages. Two Workers are mounted as zone routes on the same origin (`portal.guoyuer.com/api/*` → `portal-api`; `portal.guoyuer.com/api/mail/*` → `worker-gmail`) so every `/api/*` call shares the same CF Access session cookie — no CORS, no cross-subdomain handshake. The frontend fetches once on load via `GET /api/timeline`, then computes allocation, cashflow, activity, and reconciliation locally in `src/lib/compute/compute.ts` via `src/lib/hooks/use-bundle.ts`. Brush drag is zero-latency (no network round-trips). Ticker dialogs fetch `GET /api/prices/:symbol` on demand.
 
 ## Gmail Auto-Triage (`/mail` tab)
 
@@ -56,8 +60,8 @@ Daily cron reads unread Gmail, classifies via Claude Haiku, and caches results i
 
 ```mermaid
 graph TB
-    subgraph "GitHub Actions (daily 07:00)"
-        CRON["gmail-sync.yml<br/>cron: 0 22 * * * UTC"]
+    subgraph "GitHub Actions (daily 07:00 +08 = 22:00 UTC)"
+        CRON["gmail-sync.yml<br/>cron: 0 22 * * *"]
         PY["triage.py<br/>IMAP fetch → Claude classify<br/>(batch 30 · strip ```json fences ·<br/>normalize msg_id brackets)"]
     end
 
@@ -124,19 +128,25 @@ sequenceDiagram
     participant User as Browser
 
     Local->>Local: build_timemachine_db.py<br/>(ingest → replay → precompute)
-    Local->>D1: sync_to_d1.py (wrangler CLI)
+    Local->>D1: sync_to_d1.py (diff by default)
 
-    Note over User: Any time
-    User->>Worker: fetch /timeline
-    Worker->>D1: SELECTs (views)
+    Note over User: Page load
+    User->>Worker: GET /api/timeline
+    Worker->>D1: parallel SELECTs (views)
     D1->>Worker: rows
-    Worker->>User: JSON (no-cache)
+    Worker->>User: JSON ~385 KB gzip (edge cache 60s)
+
+    Note over User: Econ page
+    User->>Worker: GET /api/econ
+    Worker->>D1: econ_series + v_econ_snapshot
+    D1->>Worker: rows
+    Worker->>User: JSON (edge cache 600s)
 
     Note over User: On ticker click
-    User->>Worker: fetch /prices/:symbol
-    Worker->>D1: daily_close + fidelity_transactions
+    User->>Worker: GET /api/prices/:symbol
+    Worker->>D1: daily_close + transactions
     D1->>Worker: rows
-    Worker->>User: JSON
+    Worker->>User: JSON (edge cache 300s)
 ```
 
 ## Project Structure
@@ -152,7 +162,7 @@ portal/
 │   │   ├── econ/
 │   │   │   └── page.tsx               # Economy dashboard (FRED charts)
 │   │   └── mail/
-│   │       └── page.tsx               # Gmail triage tab (client, URL-key auth)
+│   │       └── page.tsx               # Gmail triage tab (client, CF Access cookie auth)
 │   ├── components/
 │   │   ├── layout/
 │   │   │   ├── sidebar.tsx            # Nav sidebar
@@ -311,10 +321,12 @@ Zero translation layer between Python and TypeScript:
 
 ```mermaid
 graph LR
-    PY["Python types.py<br/>(source of truth)"] -->|"precompute → SQLite"| DB["timemachine.db"]
-    DB -->|"sync_to_d1.py"| D1["D1"]
-    D1 -->|"Worker views<br/>(camelCase aliases)"| JSON["GET /timeline<br/>(JSON)"]
-    JSON -->|"Zod validation"| TS["TypeScript schema.ts<br/>(camelCase mirror)"]
+    PY["pipeline/etl/types.py<br/>(TypedDicts + dataclasses)"] -->|"gen_zod.py<br/>(parity-checked in pytest)"| GEN["src/lib/schemas/_generated.ts"]
+    PY -->|"precompute → SQLite"| DB["timemachine.db"]
+    DB -->|"sync_to_d1.py"| D1["D1 portal-db<br/>+ camelCase views"]
+    D1 -->|"Worker SELECT → JSON"| JSON["GET /api/timeline"]
+    GEN -->|"extend() / omit()"| TS["src/lib/schemas/timeline.ts"]
+    JSON -->|"safeParse at boundary"| TS
 
     style PY fill:#3776ab,color:#fff
     style DB fill:#10b981,color:#fff
@@ -324,8 +336,9 @@ graph LR
 ```
 
 - Python `snake_case` → D1 views `camelCase` aliases → TypeScript `camelCase`
-- Frontend validates with Zod schemas (`schema.ts`)
-- Raw transaction lists are included for local computation in `use-bundle.ts`
+- Schemas auto-generated from `etl/types.py` via `tools/gen_zod.py` (pytest parity check)
+- Frontend validates at the boundary with Zod (`src/lib/schemas/`); Worker ships raw D1 rows (no runtime Zod — the frontend parse is the single drift checkpoint)
+- Raw transaction lists are shipped in `/timeline` for local computation in `src/lib/hooks/use-bundle.ts`
 - No manual field mapping, no divergent schemas
 
 ## Tech Stack
@@ -335,7 +348,7 @@ graph LR
 | Frontend | Next.js 16 (App Router) + React Compiler | Auto-memoization, View Transitions |
 | Charts | Recharts 3 | SVG (accessible for colorblind), brush interaction |
 | Validation | Zod 4 | Runtime schema validation at API boundary |
-| Data | `use-bundle.ts` → Worker `/timeline` | Fetch once, compute locally, zero-lag brush |
+| Data | `use-bundle.ts` → Worker `GET /api/timeline` | Fetch once, compute locally, zero-lag brush |
 | Styling | Tailwind CSS v4 + Container Queries | `@container`-based responsive cards |
 | Offline | Service Worker (PWA) | Cache-first static, stale-while-revalidate API |
 | Hosting | Cloudflare Pages + Workers | Edge CDN, D1 SQLite, free tier |

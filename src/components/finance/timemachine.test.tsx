@@ -5,45 +5,8 @@ import { render, screen, cleanup } from "@testing-library/react";
 
 afterEach(cleanup);
 import { TimemachineSummary } from "./timemachine";
-import type { CategoryMeta, DailyPoint } from "@/lib/schemas";
-import type { CashflowResponse, ActivityResponse } from "@/lib/compute/computed-types";
 import type { CrossCheck } from "@/lib/compute/compute";
-
-const CATEGORIES: CategoryMeta[] = [
-  { key: "usEquity", name: "US Equity", displayOrder: 0, targetPct: 55 },
-  { key: "nonUsEquity", name: "Non-US Equity", displayOrder: 1, targetPct: 15 },
-  { key: "crypto", name: "Crypto", displayOrder: 2, targetPct: 3 },
-  { key: "safeNet", name: "Safe Net", displayOrder: 3, targetPct: 27 },
-];
-
-// ── Helpers ─────────────────────────────────────────────────────────────
-
-const SNAPSHOT: DailyPoint = {
-  date: "2026-01-15",
-  total: 100000,
-  usEquity: 55000,
-  nonUsEquity: 15000,
-  crypto: 3000,
-  safeNet: 27000,
-  liabilities: -5000,
-};
-
-const CASHFLOW: CashflowResponse = {
-  incomeItems: [{ category: "Salary", amount: 5000, count: 1 }],
-  expenseItems: [{ category: "Rent", amount: 2000, count: 1 }],
-  totalIncome: 5000,
-  totalExpenses: 2000,
-  netCashflow: 3000,
-  ccPayments: 500,
-  savingsRate: 60,
-  takehomeSavingsRate: 55,
-};
-
-const ACTIVITY: ActivityResponse = {
-  buysBySymbol: [{ symbol: "VTI", count: 2, total: 1000 }],
-  sellsBySymbol: [],
-  dividendsBySymbol: [{ symbol: "SCHD", count: 1, total: 50 }],
-};
+import { CATEGORIES, SNAPSHOT, CASHFLOW, ACTIVITY } from "@/test/factories";
 
 // ── Tests ───────────────────────────────────────────────────────────────
 

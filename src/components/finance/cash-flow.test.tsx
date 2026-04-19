@@ -1,13 +1,11 @@
 // @vitest-environment jsdom
 
 import { describe, it, expect, afterEach } from "vitest";
-import { render, screen, cleanup, within } from "@testing-library/react";
-
-afterEach(cleanup);
+import { render, screen, cleanup } from "@testing-library/react";
 import { CashFlow } from "./cash-flow";
 import type { CashflowResponse } from "@/lib/compute/computed-types";
 
-// ── Helpers ─────────────────────────────────────────────────────────────
+afterEach(cleanup);
 
 const BASE_DATA: CashflowResponse = {
   incomeItems: [

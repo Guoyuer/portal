@@ -1,7 +1,6 @@
 """Tests for etl/changelog.py — snapshot, diff, and email body formatting."""
 from __future__ import annotations
 
-import sqlite3
 import tempfile
 from pathlib import Path
 
@@ -16,6 +15,14 @@ from etl.changelog import (
     format_text,
 )
 from etl.db import init_db
+
+from tests.fixtures import (
+    connected_db,
+    insert_close,
+    insert_computed_daily,
+    insert_fidelity_txn,
+    insert_qianji_txn,
+)
 
 
 def _nwp(total: float, **components: float) -> NetWorthPoint:
@@ -43,86 +50,45 @@ def _make_db() -> Path:
 
 
 def _seed_fidelity(db_path: Path, rows: list[tuple[str, str, str, float, float]]) -> None:
-    conn = sqlite3.connect(db_path)
-    try:
+    with connected_db(db_path) as conn:
         for run_date, action_type, symbol, qty, amount in rows:
-            conn.execute(
-                "INSERT INTO fidelity_transactions "
-                "(run_date, account_number, action, action_type, symbol, quantity, amount) "
-                "VALUES (?, 'Z', 'buy', ?, ?, ?, ?)",
-                (run_date, action_type, symbol, qty, amount),
+            insert_fidelity_txn(
+                conn, run_date=run_date, action="buy", action_type=action_type,
+                symbol=symbol, quantity=qty, amount=amount,
             )
-        conn.commit()
-    finally:
-        conn.close()
 
 
 def _seed_qianji(db_path: Path, rows: list[tuple[str, str, str, float]]) -> None:
-    conn = sqlite3.connect(db_path)
-    try:
+    with connected_db(db_path) as conn:
         for date, type_, category, amount in rows:
-            conn.execute(
-                "INSERT INTO qianji_transactions (date, type, category, amount) "
-                "VALUES (?, ?, ?, ?)",
-                (date, type_, category, amount),
-            )
-        conn.commit()
-    finally:
-        conn.close()
+            insert_qianji_txn(conn, date=date, type=type_, category=category, amount=amount)
 
 
 def _seed_computed_daily(db_path: Path, rows: list[tuple[str, float]]) -> None:
-    conn = sqlite3.connect(db_path)
-    try:
+    with connected_db(db_path) as conn:
         for date, total in rows:
-            conn.execute(
-                "INSERT INTO computed_daily "
-                "(date, total, us_equity, non_us_equity, crypto, safe_net) "
-                "VALUES (?, ?, 0, 0, 0, 0)",
-                (date, total),
-            )
-        conn.commit()
-    finally:
-        conn.close()
+            insert_computed_daily(conn, date, total)
 
 
 def _seed_daily_close(db_path: Path, rows: list[tuple[str, str, float]]) -> None:
-    conn = sqlite3.connect(db_path)
-    try:
+    with connected_db(db_path) as conn:
         for symbol, date, close in rows:
-            conn.execute(
-                "INSERT INTO daily_close (symbol, date, close) VALUES (?, ?, ?)",
-                (symbol, date, close),
-            )
-        conn.commit()
-    finally:
-        conn.close()
+            insert_close(conn, symbol, date, close)
 
 
 def _seed_econ(db_path: Path, rows: list[tuple[str, str, float]]) -> None:
-    conn = sqlite3.connect(db_path)
-    try:
+    with connected_db(db_path) as conn:
         for key, date, value in rows:
             conn.execute(
                 "INSERT INTO econ_series (key, date, value) VALUES (?, ?, ?)",
                 (key, date, value),
             )
-        conn.commit()
-    finally:
-        conn.close()
 
 
 def _seed_empower(db_path: Path, dates: list[str]) -> None:
-    conn = sqlite3.connect(db_path)
-    try:
+    with connected_db(db_path) as conn:
         for d in dates:
-            conn.execute(
-                "INSERT INTO empower_snapshots (snapshot_date) VALUES (?)",
-                (d,),
-            )
-        conn.commit()
-    finally:
-        conn.close()
+            conn.execute("INSERT INTO empower_snapshots (snapshot_date) VALUES (?)", (d,))
 
 
 # ── capture() ────────────────────────────────────────────────────────────────

@@ -5,32 +5,12 @@ import { renderHook, waitFor, act } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { useBundle } from "@/lib/hooks/use-bundle";
+import { mkTimelinePayload } from "@/test/factories";
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
 const TIMELINE_URL = "http://localhost:8787/timeline";
-
-const CATEGORIES = [
-  { key: "usEquity", name: "US Equity", displayOrder: 0, targetPct: 55 },
-  { key: "nonUsEquity", name: "Non-US Equity", displayOrder: 1, targetPct: 15 },
-  { key: "crypto", name: "Crypto", displayOrder: 2, targetPct: 3 },
-  { key: "safeNet", name: "Safe Net", displayOrder: 3, targetPct: 27 },
-];
-
-const VALID_PAYLOAD = {
-  daily: [
-    { date: "2026-01-02", total: 100000, usEquity: 55000, nonUsEquity: 15000, crypto: 3000, safeNet: 27000, liabilities: -5000 },
-    { date: "2026-01-03", total: 101000, usEquity: 55500, nonUsEquity: 15200, crypto: 3100, safeNet: 27200, liabilities: -5000 },
-    { date: "2026-01-06", total: 102000, usEquity: 56000, nonUsEquity: 15400, crypto: 3200, safeNet: 27400, liabilities: -5000 },
-  ],
-  dailyTickers: [],
-  fidelityTxns: [],
-  qianjiTxns: [],
-  categories: CATEGORIES,
-  market: null,
-  holdingsDetail: null,
-  syncMeta: null,
-};
+const VALID_PAYLOAD = mkTimelinePayload();
 
 // ── MSW server ──────────────────────────────────────────────────────────
 

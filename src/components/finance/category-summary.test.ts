@@ -1,26 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { groupTickers } from "./category-summary";
-import type { ApiCategory, ApiTicker } from "@/lib/compute/computed-types";
-
-const mkTicker = (over: Partial<ApiTicker>): ApiTicker => ({
-  ticker: "X",
-  value: 100,
-  category: "US Equity",
-  subtype: "Broad",
-  costBasis: 100,
-  gainLoss: 0,
-  gainLossPct: 0,
-  ...over,
-});
-
-const mkCategory = (name: string, value: number, over: Partial<ApiCategory> = {}): ApiCategory => ({
-  name,
-  value,
-  pct: 0,
-  target: 0,
-  deviation: 0,
-  ...over,
-});
+import type { ApiTicker } from "@/lib/compute/computed-types";
+import { mkApiTicker as mkTicker, mkApiCategory as mkCategory } from "@/test/factories";
 
 describe("groupTickers", () => {
   it("groups tickers by category and subtype, summing values into subtypes", () => {

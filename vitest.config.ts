@@ -7,6 +7,7 @@ export default defineConfig({
   },
   test: {
     include: ["src/**/*.test.{ts,tsx}", "worker/src/**/*.test.ts", "worker-gmail/src/**/*.test.ts"],
+    setupFiles: ["src/test/setup.ts"],
     coverage: {
       provider: "v8",
       reporter: ["text", "json-summary", "json"],
