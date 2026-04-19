@@ -369,6 +369,44 @@ describe("computeCrossCheck", () => {
   });
 });
 
+// ── computeGroupedActivity ──────────────────────────────────────────────
+
+import { computeGroupedActivity } from "./compute";
+
+describe("computeGroupedActivity", () => {
+  it("aggregates group tickers into one row (net-sell cluster)", () => {
+    const txns: FidelityTxn[] = [
+      { runDate: "2026-01-02", actionType: "sell", symbol: "SPY", amount: -1000, quantity: 5, price: 200 },
+      { runDate: "2026-01-02", actionType: "buy",  symbol: "VOO", amount:  500, quantity: 1, price: 500 },
+      { runDate: "2026-01-03", actionType: "buy",  symbol: "NVDA", amount: 2000, quantity: 10, price: 200 },
+    ];
+    const act = computeGroupedActivity(txns, "2026-01-01", "2026-01-31");
+    expect(act.sellsBySymbol).toContainEqual({ symbol: "S&P 500", count: 1, total: 500, isGroup: true, groupKey: "sp500" });
+    expect(act.buysBySymbol).toContainEqual({ symbol: "NVDA", count: 1, total: 2000, isGroup: false });
+    expect(act.sellsBySymbol.find(r => r.symbol === "SPY")).toBeUndefined();
+    expect(act.buysBySymbol.find(r => r.symbol === "VOO")).toBeUndefined();
+  });
+
+  it("exact swap produces no group row", () => {
+    const txns: FidelityTxn[] = [
+      { runDate: "2026-01-02", actionType: "sell", symbol: "SPY", amount: -1000, quantity: 5, price: 200 },
+      { runDate: "2026-01-02", actionType: "buy",  symbol: "VOO", amount: 1000, quantity: 2, price: 500 },
+    ];
+    const act = computeGroupedActivity(txns, "2026-01-01", "2026-01-31");
+    expect(act.buysBySymbol).toEqual([]);
+    expect(act.sellsBySymbol).toEqual([]);
+  });
+
+  it("dividends remain per-ticker (not grouped)", () => {
+    const txns: FidelityTxn[] = [
+      { runDate: "2026-01-02", actionType: "dividend", symbol: "VOO", amount: 10, quantity: 0, price: 0 },
+      { runDate: "2026-01-02", actionType: "dividend", symbol: "SPY", amount: 5, quantity: 0, price: 0 },
+    ];
+    const act = computeGroupedActivity(txns, "2026-01-01", "2026-01-31");
+    expect(act.dividendsBySymbol.map(r => r.symbol).sort()).toEqual(["SPY", "VOO"]);
+  });
+});
+
 // ── computeMonthlyFlows ─────────────────────────────────────────────────
 
 describe("computeMonthlyFlows", () => {
