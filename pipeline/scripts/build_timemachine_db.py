@@ -50,11 +50,11 @@ from etl.prices import (
     fetch_and_store_cny_rates,
     fetch_and_store_prices,
     load_cny_rates,
+    refresh_window_start,
     symbol_holding_periods_from_db,
 )
 from etl.qianji import DEFAULT_DB_PATH as DEFAULT_QJ_DB
 from etl.qianji import ingest_qianji_transactions, load_all_from_db
-from etl.refresh import refresh_window_start
 from etl.sources import empower as empower_src
 from etl.sources import fidelity as fidelity_src
 from etl.sources import robinhood as robinhood_src

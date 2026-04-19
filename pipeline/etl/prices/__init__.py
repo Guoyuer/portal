@@ -13,32 +13,48 @@ Split into three cohesive submodules:
 
 Public API is re-exported from this package; external callers continue to
 ``from etl.prices import ...`` without caring about the submodule layout.
-The ``sync_prices_nightly.py`` D1 companion script imports the
 ``_build_split_factors`` / ``_reverse_split_factor`` /
-``_holding_periods_from_action_kind_rows`` internals — these are
-intentionally re-exported alongside the public surface.
+``_holding_periods_from_action_kind_rows`` are re-exported too because
+``sync_prices_nightly.py`` (the D1 companion script) reaches in for them.
 """
 from __future__ import annotations
 
-from .fetch import (
+from datetime import date, timedelta
+
+# Defined before the submodule imports so ``.fetch`` can pick it up via
+# ``from . import refresh_window_start`` during partial package init.
+REFRESH_WINDOW_DAYS = 7
+
+
+def refresh_window_start(end: date) -> date:
+    """Earliest date in the refresh window — inclusive
+    ``[refresh_window_start(end), end]`` spans exactly ``REFRESH_WINDOW_DAYS``
+    calendar days. Rows strictly before this boundary are immutable once
+    persisted; rows inside may be overwritten on the next build to pick up
+    late yfinance corrections (see PR #156)."""
+    return end - timedelta(days=REFRESH_WINDOW_DAYS - 1)
+
+
+from .fetch import (  # noqa: E402 — after refresh_window_start so fetch can see it
     _build_split_factors,
     _reverse_split_factor,
     fetch_and_store_cny_rates,
     fetch_and_store_prices,
 )
-from .store import (
+from .store import (  # noqa: E402
     _holding_periods_from_action_kind_rows,
     load_cny_rates,
     load_prices,
     symbol_holding_periods_from_db,
 )
-from .validate import (
+from .validate import (  # noqa: E402
     SPLIT_QTY_TOLERANCE,
     SplitValidationError,
     _validate_splits_against_transactions,
 )
 
 __all__ = [
+    "REFRESH_WINDOW_DAYS",
     "SPLIT_QTY_TOLERANCE",
     "SplitValidationError",
     "_build_split_factors",
@@ -49,5 +65,6 @@ __all__ = [
     "fetch_and_store_prices",
     "load_cny_rates",
     "load_prices",
+    "refresh_window_start",
     "symbol_holding_periods_from_db",
 ]

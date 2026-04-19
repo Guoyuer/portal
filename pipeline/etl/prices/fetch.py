@@ -16,7 +16,7 @@ import yfinance as yf
 
 from ..db import get_connection
 from ..market._yfinance import extract_close
-from ..refresh import refresh_window_start
+from . import refresh_window_start
 from .store import _cached_range, _persist_close_batch
 from .validate import _validate_splits_against_transactions
 

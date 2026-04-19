@@ -344,7 +344,7 @@ class TestFetchGateRefreshesRecentWindow:
 
     def test_fetch_uses_refresh_window_not_full_history(self, empty_db: Path) -> None:
         """When history is covered, fetch only the recent window (not from hp_start)."""
-        from etl.refresh import refresh_window_start
+        from etl.prices import refresh_window_start
 
         db_path = empty_db
         _seed_prices(db_path, [
@@ -687,7 +687,7 @@ class TestIncrementalFetch:
 
         With the fix, any cached symbol just refreshes the recent window.
         """
-        from etl.refresh import refresh_window_start
+        from etl.prices import refresh_window_start
 
         db_path = empty_db
         # Two symbols: VOO cached from 2023 (old, full-history), FBTC
