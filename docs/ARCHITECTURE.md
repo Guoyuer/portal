@@ -62,6 +62,7 @@ graph TB
 | `computed_daily_tickers` | Per-day per-ticker value, cost basis | INSERT OR IGNORE |
 | `fidelity_transactions` | Classified records (runDate ISO, actionType, symbol, amount) | Range replace |
 | `qianji_transactions` | Records (date, type, category, amount, isRetirement) | Range replace |
+| `daily_close` | Per-symbol daily close prices (cache for ticker charts) | Diff replace |
 | `categories` | Allocation metadata (key, name, displayOrder, targetPct) from `config.json` | Full replace |
 | `computed_market_indices` | Index returns + sparklines | Full replace |
 | `computed_holdings_detail` | Per-ticker performance | Full replace |

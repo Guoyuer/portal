@@ -260,6 +260,6 @@ Revisit this plan (specifically Tier 2/3 decisions) if:
 
 ## Status
 
-- Tier 1: planned, not yet implemented.
-- Tier 2: queued after Tier 1 lands.
-- Tier 3: deferred; reconsider at trigger.
+- Tier 1: ✅ implemented. `ReplayConfig` dataclasses live at `etl/sources/fidelity/__init__.py::FIDELITY_REPLAY` and `etl/sources/robinhood.py::ROBINHOOD_REPLAY`; `replay_transactions` in `etl/replay.py` is the shared primitive.
+- Tier 2: ✅ implemented. `etl/timemachine.py` has been dissolved — Qianji's reverse-replay now lives at `etl/qianji.py` (at package root, alongside `etl/replay.py`); `build_timemachine_db.py` imports `DEFAULT_QJ_DB` directly from `etl/qianji.py`.
+- Tier 3: deferred; reconsider at trigger (`needs_qj` imperative cache in `allocation.py` still present).

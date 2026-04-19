@@ -167,8 +167,12 @@ portal/
 │   │   │   ├── category-summary.tsx   # Allocation table + donut
 │   │   │   ├── cash-flow.tsx          # Income/expenses + summary
 │   │   │   ├── ticker-chart.tsx       # Per-ticker price chart with buy/sell markers
-│   │   │   ├── market-context.tsx     # Index returns + macro indicators
-│   │   │   └── net-worth-growth.tsx   # MoM/YoY growth rates
+│   │   │   ├── ticker-chart-base.tsx  # Shared price-chart primitive (AreaChart + markers)
+│   │   │   ├── ticker-markers.tsx     # Buy/sell/dividend markers on ticker charts
+│   │   │   ├── ticker-dialog.tsx      # Modal: per-ticker price chart + transaction table
+│   │   │   └── market-context.tsx     # Index returns + macro indicators
+│   │   ├── charts/
+│   │   │   └── tooltip-card.tsx       # Shared Recharts tooltip card primitive
 │   │   ├── econ/
 │   │   │   ├── macro-cards.tsx        # Economic snapshot cards
 │   │   │   └── time-series-chart.tsx  # Multi-line FRED chart viewer
@@ -176,85 +180,127 @@ portal/
 │   │   │   ├── mail-list.tsx          # 3-section grouped list
 │   │   │   ├── mail-row.tsx           # single email row with actions
 │   │   │   └── delete-button.tsx      # optimistic IMAP trash button
+│   │   ├── error-boundary.tsx         # Section-level ErrorBoundary + fallback card
+│   │   ├── loading-skeleton.tsx       # Suspense fallbacks (finance + econ)
 │   │   └── ui/                        # shadcn/ui (Button, Table)
 │   └── lib/
-│       ├── use-bundle.ts              # Core data hook: fetch /timeline → local compute
-│       ├── use-mail.ts                # Gmail triage hook (key-resolve + optimistic delete)
-│       ├── schemas/                   # Zod API schemas (timeline, econ, ticker, mail) + index
-│       ├── computed-types.ts          # Client-computed TS types (not Zod-derived)
-│       ├── compute.ts                 # Pure computation (allocation, cashflow, activity)
 │       ├── config.ts                  # WORKER_BASE, TIMELINE_URL, ECON_URL, GOAL
-│       ├── format.ts                  # Currency/percent formatters
-│       ├── hooks.ts                   # Shared React hooks (inc. getIsDark / useIsDark)
-│       ├── chart-styles.ts            # Recharts theming
-│       ├── thresholds.ts              # Business thresholds + value coloring
-│       └── utils.ts                   # General utilities
+│       ├── utils.ts                   # General utilities (cn, etc.)
+│       ├── compute/
+│       │   ├── compute.ts             # Pure computation (allocation, cashflow, activity)
+│       │   └── computed-types.ts      # Client-computed TS types (not Zod-derived)
+│       ├── format/
+│       │   ├── format.ts              # Currency/percent/date formatters
+│       │   ├── econ-formatters.ts     # Macro-indicator value formatters
+│       │   ├── chart-styles.ts        # Recharts theming
+│       │   ├── chart-colors.ts        # Okabe-Ito palette + category color map
+│       │   ├── thresholds.ts          # Business thresholds + value coloring
+│       │   └── ticker-data.ts         # Price/transaction merge helper for ticker charts
+│       ├── hooks/
+│       │   ├── use-bundle.ts          # Core data hook: fetch /timeline → local compute
+│       │   ├── use-mail.ts            # Gmail triage hook (optimistic delete)
+│       │   └── hooks.ts               # Shared React hooks (useIsDark, useIsMobile, ...)
+│       └── schemas/                   # Zod API schemas (timeline, econ, ticker, mail)
+│           └── _generated.ts          # Auto-generated from pipeline/etl/types.py
 │
 ├── worker/                            # Cloudflare Worker (TypeScript) — Finance/Econ
-│   ├── src/index.ts                   # GET /timeline, /econ, /prices/:symbol → D1 → JSON
-│   ├── schema.sql                     # D1 tables + camelCase views
+│   ├── src/
+│   │   ├── index.ts                   # GET /timeline, /econ, /prices/:symbol → D1 → JSON
+│   │   ├── config.ts                  # Endpoint cache TTLs, error-shape helpers
+│   │   └── utils.ts                   # cachedJson, settled(), D1 row helpers
+│   ├── schema.sql                     # D1 tables + camelCase views (auto-generated)
 │   ├── wrangler.toml                  # D1 binding config
+│   ├── dev-remote.sh                  # `wrangler dev --remote` through CF Access
 │   ├── tsconfig.json
 │   └── package.json
 │
 ├── worker-gmail/                      # Cloudflare Worker (TypeScript) — Gmail triage
-│   ├── src/index.ts                   # POST /mail/sync, GET /mail/list, POST /mail/trash
-│   │                                  # Includes hand-rolled IMAP via cloudflare:sockets
-│   ├── src/db.ts                      # D1 helpers (INSERT OR IGNORE, list, markTrashed)
-│   ├── src/types.ts                   # Category / UpsertInput / TriagedEmail
+│   ├── src/
+│   │   ├── index.ts                   # POST /mail/sync, GET /mail/list, POST /mail/trash
+│   │   ├── imap-parse.ts              # Hand-rolled IMAP framing over cloudflare:sockets
+│   │   ├── db.ts                      # D1 helpers (INSERT OR IGNORE, list, markTrashed)
+│   │   ├── types.ts                   # Category / UpsertInput / TriagedEmail
+│   │   └── utils.ts                   # Response helpers, auth gates
 │   ├── schema.sql                     # triaged_emails table + indexes
 │   ├── wrangler.jsonc                 # D1 binding + nodejs_compat
 │   ├── tsconfig.json
 │   └── package.json
 │
 ├── pipeline/                          # Data pipeline (Python)
-│   ├── etl/       # Core package
+│   ├── etl/                           # Core package
 │   │   ├── db.py                      # SQLite schema + connection helpers
-│   │   ├── timemachine.py             # Historical replay engine
 │   │   ├── allocation.py              # Compute daily per-asset allocation
-│   │   ├── precompute.py              # Build computed_* tables (daily, market)
-│   │   ├── incremental.py             # Incremental DB update mode
+│   │   ├── replay.py                  # Source-agnostic cost-basis replay primitive
+│   │   ├── precompute.py              # Build computed_* tables (daily, market, holdings)
+│   │   ├── refresh.py                 # Incremental refresh window start
 │   │   ├── validate.py                # Post-build validation gate
-│   │   ├── prices.py                  # Yahoo Finance price + CNY rate fetcher
-│   │   ├── empower_401k.py            # Empower 401k QFX snapshot parser
-│   │   ├── types.py                   # Source-of-truth dataclasses
-│   │   ├── config.py                  # JSON config loader
-│   │   ├── ingest/
-│   │   │   ├── fidelity_history.py    # Fidelity transaction CSV parser
-│   │   │   ├── robinhood_history.py   # Robinhood transaction CSV parser
-│   │   │   └── qianji_db.py           # Qianji SQLite reader
-│   │   └── market/
-│   │       ├── yahoo.py               # Yahoo Finance: index returns, CNY rate
-│   │       └── fred.py                # FRED API: Fed rate, CPI, VIX, oil, etc.
+│   │   ├── categories.py              # Category metadata loader
+│   │   ├── qianji.py                  # Qianji SQLite ingest + reverse replay
+│   │   ├── types.py                   # Source-of-truth TypedDicts + dataclasses
+│   │   ├── projection.py              # Net-worth projection (nightly)
+│   │   ├── email_report.py            # SMTP digest sender
+│   │   ├── dotenv_loader.py           # .env loader used by entry scripts
+│   │   ├── sources/                   # Investment sources (InvestmentSource Protocol)
+│   │   │   ├── __init__.py            # SOURCES list + Protocol + PositionRow + ActionKind
+│   │   │   ├── fidelity/              # CSV ingest + classify + cash + pricing
+│   │   │   ├── robinhood.py           # CSV ingest + ReplayConfig
+│   │   │   └── empower.py             # QFX ingest + contribution fallback
+│   │   ├── prices/                    # Price + CNY-rate fetching (Yahoo Finance)
+│   │   ├── market/                    # Market-data fetchers
+│   │   │   ├── yahoo.py               # Index returns, CNY, DXY, USD/CNY
+│   │   │   └── fred.py                # FRED API: Fed rate, CPI, VIX, oil, ...
+│   │   ├── changelog/                 # Nightly changelog diff + email formatter
+│   │   ├── automation/                # run_automation helpers (change detection, exit codes)
+│   │   └── migrations/                # Idempotent in-place schema resyncs
+│   │       └── add_fidelity_action_kind.py  # Continuous classifier resync
 │   ├── scripts/
 │   │   ├── build_timemachine_db.py    # Main build: ingest → replay → precompute → SQLite
-│   │   ├── sync_to_d1.py             # Push timemachine.db tables to D1
+│   │   ├── sync_to_d1.py              # Push timemachine.db tables to D1 (diff or --full)
+│   │   ├── run_automation.py          # Orchestrates detect → build → verify → sync
+│   │   ├── run_portal_sync.ps1        # Task Scheduler shim (forwards args)
 │   │   ├── gen_schema_sql.py          # Auto-generate worker/schema.sql from db.py
-│   │   ├── verify_positions.py        # Verify Fidelity replay accuracy
+│   │   ├── verify_positions.py        # Verify replayed shares vs Portfolio_Positions CSVs
+│   │   ├── verify_vs_prod.py          # Local vs prod D1 row-count parity gate
+│   │   ├── backup_d1.py               # Pull remote D1 → local SQLite snapshot
+│   │   ├── sync_prices_nightly.py     # Nightly price refresh (cron)
+│   │   ├── project_networth_nightly.py # Nightly net-worth projection (cron)
+│   │   ├── refresh_l1_baseline_from_fixtures.py  # Regenerate L1 hashes after behavior change
+│   │   ├── seed_local_d1_from_fixtures.sh  # Populate local D1 for offline dev
 │   │   └── gmail/                     # Gmail triage daily classifier (GH Actions)
 │   │       ├── triage.py              # CLI: fetch 24h unread → classify → POST /mail/sync
 │   │       ├── imap_client.py         # imaplib + MIME parse
 │   │       ├── classify.py            # Anthropic Haiku, batched + fence-strip + bracket-match
 │   │       └── worker_sync.py         # httpx POST to worker-gmail
-│   ├── tests/                         # Unit + contract tests
+│   ├── tests/                         # Unit + contract + regression (L1 + L2)
 │   │   ├── unit/                      # Unit tests
 │   │   ├── contract/                  # Data invariant tests
+│   │   ├── regression/                # L1 row-hash + L2 fixture golden
 │   │   └── fixtures/                  # Sample CSVs, QFX files
+│   ├── tools/
+│   │   └── gen_zod.py                 # Regenerate src/lib/schemas/_generated.ts
 │   ├── data/
 │   │   └── timemachine.db             # Generated SQLite (not in repo)
 │   ├── pyproject.toml                 # pytest, mypy, ruff config
-│   ├── requirements.txt               # yfinance, fredapi, httpx
+│   ├── requirements.txt               # yfinance, fredapi, httpx, anthropic
 │   └── config.example.json            # Template config
 │
 ├── e2e/                               # Playwright e2e tests
+│   ├── mock-api.ts                    # Mock /timeline + /econ + /prices (port 4444)
 │   ├── finance.spec.ts                # Finance dashboard tests
 │   ├── econ.spec.ts                   # Economy dashboard tests
+│   ├── ticker-dialog.spec.ts          # Per-ticker modal interaction
+│   ├── fail-open.spec.ts              # Partial-failure fallbacks render error cards
 │   ├── perf-brush.spec.ts             # Brush performance tests
-│   └── interactive-check.spec.ts      # Interactive component tests
+│   ├── real-worker.spec.ts            # Optional: run against a live Worker
+│   └── manual/                        # Ad-hoc exploratory specs
 │
 ├── .github/workflows/
-│   ├── ci.yml                         # Python + Node CI → Pages + Worker deploy
-│   └── gmail-sync.yml                 # Daily 22:00 UTC → run gmail/triage.py --sync
+│   ├── ci.yml                         # Python + Node CI → Pages deploy
+│   ├── gmail-sync.yml                 # Daily 22:00 UTC → run gmail/triage.py --sync
+│   ├── prices-sync.yml                # Nightly price refresh
+│   ├── d1-backup.yml                  # Periodic D1 → SQLite snapshot
+│   ├── e2e-real-worker.yml            # Optional Playwright run against live Worker
+│   └── regression-baseline-refresh.yml # `baseline-refresh` PR label → refresh L1 hashes
 │
 └── package.json
 ```
@@ -297,7 +343,7 @@ graph LR
 | Auth | Cloudflare Access | Zero-trust, Google login |
 | Pipeline | Python 3.14 | Fidelity/Qianji/Robinhood/401k ingest, Yahoo Finance, FRED API |
 | CI/CD | GitHub Actions | Python lint/test + vitest + Playwright E2E + deploy |
-| Tests | vitest (115) + Playwright (5 specs, mock API) + pytest (466) | Coverage thresholds, branch protection |
+| Tests | vitest (24 files) + Playwright (6 specs, mock API) + pytest (45 files) | Coverage thresholds, branch protection |
 | Errors | Sentry | Client-side error tracking in production |
 
 ## Development
