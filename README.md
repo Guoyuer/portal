@@ -20,9 +20,7 @@ graph TB
         ACCESS["CF Access<br/>Google SSO cookie"]
         PAGES["/* Pages<br/>static shell + Service Worker"]
         WAPI["/api/* portal-api Worker<br/>GET /timeline · /econ · /prices/:sym<br/>edge cache 60s / 600s / 300s"]
-        WMAIL["/api/mail/* worker-gmail Worker<br/>GET list · POST trash"]
         D1[(D1 portal-db)]
-        D1M[(D1 portal-gmail)]
     end
 
     subgraph Browser
@@ -37,86 +35,19 @@ graph TB
     end
 
     TASK --> AUTO --> BUILD --> DB --> SYNC --> D1
-    ACCESS -.gates.-> PAGES & WAPI & WMAIL
+    ACCESS -.gates.-> PAGES & WAPI
     PAGES -->|initial load| SW --> UI --> COMPUTE
     UI -->|"fetch /api/timeline · /econ · /prices/:sym"| WAPI --> D1
-    UI -->|"fetch /api/mail/{list,trash}"| WMAIL --> D1M
     CI_TEST --> CI_DEPLOY --> PAGES
 
     style BUILD fill:#10b981,color:#fff
     style WAPI fill:#2563eb,color:#fff
-    style WMAIL fill:#2563eb,color:#fff
     style PAGES fill:#f59e0b,color:#000
     style ACCESS fill:#f97316,color:#fff
     style D1 fill:#2563eb,color:#fff
-    style D1M fill:#2563eb,color:#fff
 ```
 
-**Key design:** Portal is a static shell deployed to Cloudflare Pages. Two Workers are mounted as zone routes on the same origin (`portal.guoyuer.com/api/*` → `portal-api`; `portal.guoyuer.com/api/mail/*` → `worker-gmail`) so every `/api/*` call shares the same CF Access session cookie — no CORS, no cross-subdomain handshake. The frontend fetches once on load via `GET /api/timeline`, then computes allocation, cashflow, activity, and reconciliation locally in `src/lib/compute/compute.ts` via `src/lib/hooks/use-bundle.ts`. Brush drag is zero-latency (no network round-trips). Ticker dialogs fetch `GET /api/prices/:symbol` on demand.
-
-## Gmail Auto-Triage (`/mail` tab)
-
-Daily cron reads unread Gmail, classifies via Claude Haiku, and caches results in a separate D1. The `/mail` page shows three sections (IMPORTANT / NEUTRAL / TRASH_CANDIDATE); delete button on a row does an IMAP trash via the Worker.
-
-```mermaid
-graph TB
-    subgraph "GitHub Actions (daily 07:00 +08 = 22:00 UTC)"
-        CRON["gmail-sync.yml<br/>cron: 0 22 * * *"]
-        PY["triage.py<br/>IMAP fetch → Claude classify<br/>(batch 30 · strip ```json fences ·<br/>normalize msg_id brackets)"]
-    end
-
-    subgraph "Gmail"
-        IMAP["imap.gmail.com<br/>UNSEEN SINCE yesterday"]
-    end
-
-    subgraph "Anthropic"
-        HAIKU["Claude Haiku 4.5<br/>system + few-shot prompt"]
-    end
-
-    subgraph "worker-gmail (Cloudflare)"
-        WSYNC["POST /mail/sync<br/>(SYNC_SECRET)<br/>portal-mail.guoyuer.com"]
-        WLIST["GET /api/mail/list<br/>(CF Access)"]
-        WTRASH["POST /api/mail/trash<br/>(CF Access)"]
-        D1M[(D1 portal-gmail<br/>triaged_emails)]
-        SOCK["cloudflare:sockets<br/>hand-rolled IMAP<br/>UID STORE +X-GM-LABELS \\Trash"]
-    end
-
-    subgraph "Browser (/mail)"
-        MAIL["Next.js page<br/>useMail hook<br/>same-origin fetch"]
-    end
-
-    CRON --> PY
-    PY -->|IMAP SEARCH + FETCH| IMAP
-    IMAP --> PY
-    PY -->|messages.create| HAIKU
-    HAIKU --> PY
-    PY -->|POST per batch| WSYNC
-    WSYNC -->|INSERT OR IGNORE| D1M
-
-    MAIL -->|same-origin fetch| WLIST
-    WLIST -->|SELECT last 7d active| D1M
-    D1M --> WLIST
-    WLIST --> MAIL
-
-    MAIL -->|click Delete| WTRASH
-    WTRASH --> SOCK
-    SOCK -->|LOGIN + UID SEARCH +<br/>UID STORE +X-GM-LABELS| IMAP
-    WTRASH -->|UPDATE status=trashed| D1M
-
-    style PY fill:#10b981,color:#fff
-    style HAIKU fill:#7c3aed,color:#fff
-    style WSYNC fill:#2563eb,color:#fff
-    style WLIST fill:#2563eb,color:#fff
-    style WTRASH fill:#2563eb,color:#fff
-    style D1M fill:#2563eb,color:#fff
-    style IMAP fill:#dc2626,color:#fff
-```
-
-**Design decisions** (original spec: `docs/gmail-triage-design-2026-04-12.md`; browser auth superseded by PRs #137-#139 — see `docs/archive/security-worker-backdoor-2026-04-12.md`):
-- One Gmail app password covers everything (SMTP send not needed since digest was dropped; IMAP read in Python + IMAP trash in Worker via `cloudflare:sockets` TCP).
-- `INSERT OR IGNORE` preserves user-set `status='trashed'` across daily re-syncs.
-- Browser auth is Cloudflare Access on `portal.guoyuer.com` (same-origin `/api/mail/*`); no in-app URL key. `SYNC_SECRET` gates the GH Actions → Worker sync channel on `portal-mail.guoyuer.com/mail/sync`.
-- No `etl.email_report` / SMTP reuse — v1 surfaces triage in the UI, not as digest email.
+**Key design:** Portal is a static shell deployed to Cloudflare Pages. A Worker is mounted as a zone route on the same origin (`portal.guoyuer.com/api/*` → `portal-api`) so every `/api/*` call shares the same CF Access session cookie — no CORS, no cross-subdomain handshake. The frontend fetches once on load via `GET /api/timeline`, then computes allocation, cashflow, activity, and reconciliation locally in `src/lib/compute/compute.ts` via `src/lib/hooks/use-bundle.ts`. Brush drag is zero-latency (no network round-trips). Ticker dialogs fetch `GET /api/prices/:symbol` on demand.
 
 ## Data Pipeline
 
@@ -159,10 +90,8 @@ portal/
 │   │   ├── page.tsx                   # / → redirects to /finance
 │   │   ├── finance/
 │   │   │   └── page.tsx               # Finance dashboard (client component)
-│   │   ├── econ/
-│   │   │   └── page.tsx               # Economy dashboard (FRED charts)
-│   │   └── mail/
-│   │       └── page.tsx               # Gmail triage tab (client, CF Access cookie auth)
+│   │   └── econ/
+│   │       └── page.tsx               # Economy dashboard (FRED charts)
 │   ├── components/
 │   │   ├── layout/
 │   │   │   ├── sidebar.tsx            # Nav sidebar
@@ -186,10 +115,6 @@ portal/
 │   │   ├── econ/
 │   │   │   ├── macro-cards.tsx        # Economic snapshot cards
 │   │   │   └── time-series-chart.tsx  # Multi-line FRED chart viewer
-│   │   ├── mail/
-│   │   │   ├── mail-list.tsx          # 3-section grouped list
-│   │   │   ├── mail-row.tsx           # single email row with actions
-│   │   │   └── delete-button.tsx      # optimistic IMAP trash button
 │   │   ├── error-boundary.tsx         # Section-level ErrorBoundary + fallback card
 │   │   ├── loading-skeleton.tsx       # Suspense fallbacks (finance + econ)
 │   │   └── ui/                        # shadcn/ui (Button, Table)
@@ -208,9 +133,8 @@ portal/
 │       │   └── ticker-data.ts         # Price/transaction merge helper for ticker charts
 │       ├── hooks/
 │       │   ├── use-bundle.ts          # Core data hook: fetch /timeline → local compute
-│       │   ├── use-mail.ts            # Gmail triage hook (optimistic delete)
 │       │   └── hooks.ts               # Shared React hooks (useIsDark, useIsMobile, ...)
-│       └── schemas/                   # Zod API schemas (timeline, econ, ticker, mail)
+│       └── schemas/                   # Zod API schemas (timeline, econ, ticker)
 │           └── _generated.ts          # Auto-generated from pipeline/etl/types.py
 │
 ├── worker/                            # Cloudflare Worker (TypeScript) — Finance/Econ
@@ -221,18 +145,6 @@ portal/
 │   ├── schema.sql                     # D1 tables + camelCase views (auto-generated)
 │   ├── wrangler.toml                  # D1 binding config
 │   ├── dev-remote.sh                  # `wrangler dev --remote` through CF Access
-│   ├── tsconfig.json
-│   └── package.json
-│
-├── worker-gmail/                      # Cloudflare Worker (TypeScript) — Gmail triage
-│   ├── src/
-│   │   ├── index.ts                   # POST /mail/sync, GET /mail/list, POST /mail/trash
-│   │   ├── imap-parse.ts              # Hand-rolled IMAP framing over cloudflare:sockets
-│   │   ├── db.ts                      # D1 helpers (INSERT OR IGNORE, list, markTrashed)
-│   │   ├── types.ts                   # Category / UpsertInput / TriagedEmail
-│   │   └── utils.ts                   # Response helpers, auth gates
-│   ├── schema.sql                     # triaged_emails table + indexes
-│   ├── wrangler.jsonc                 # D1 binding + nodejs_compat
 │   ├── tsconfig.json
 │   └── package.json
 │
@@ -275,12 +187,7 @@ portal/
 │   │   ├── sync_prices_nightly.py     # Nightly price refresh (cron)
 │   │   ├── project_networth_nightly.py # Nightly net-worth projection (cron)
 │   │   ├── refresh_l1_baseline_from_fixtures.py  # Regenerate L1 hashes after behavior change
-│   │   ├── seed_local_d1_from_fixtures.sh  # Populate local D1 for offline dev
-│   │   └── gmail/                     # Gmail triage daily classifier (GH Actions)
-│   │       ├── triage.py              # CLI: fetch 24h unread → classify → POST /mail/sync
-│   │       ├── imap_client.py         # imaplib + MIME parse
-│   │       ├── classify.py            # Anthropic Haiku, batched + fence-strip + bracket-match
-│   │       └── worker_sync.py         # httpx POST to worker-gmail
+│   │   └── seed_local_d1_from_fixtures.sh  # Populate local D1 for offline dev
 │   ├── tests/                         # Unit + contract + regression (L1 + L2)
 │   │   ├── unit/                      # Unit tests
 │   │   ├── contract/                  # Data invariant tests
@@ -291,7 +198,7 @@ portal/
 │   ├── data/
 │   │   └── timemachine.db             # Generated SQLite (not in repo)
 │   ├── pyproject.toml                 # pytest, mypy, ruff config
-│   ├── requirements.txt               # yfinance, fredapi, httpx, anthropic
+│   ├── requirements.txt               # yfinance, fredapi, httpx
 │   └── config.example.json            # Template config
 │
 ├── e2e/                               # Playwright e2e tests
@@ -306,7 +213,6 @@ portal/
 │
 ├── .github/workflows/
 │   ├── ci.yml                         # Python + Node CI → Pages deploy
-│   ├── gmail-sync.yml                 # Daily 22:00 UTC → run gmail/triage.py --sync
 │   ├── prices-sync.yml                # Nightly price refresh
 │   ├── d1-backup.yml                  # Periodic D1 → SQLite snapshot
 │   ├── e2e-real-worker.yml            # Optional Playwright run against live Worker
@@ -356,7 +262,7 @@ graph LR
 | Auth | Cloudflare Access | Zero-trust, Google login |
 | Pipeline | Python 3.14 | Fidelity/Qianji/Robinhood/401k ingest, Yahoo Finance, FRED API |
 | CI/CD | GitHub Actions | Python lint/test + vitest + Playwright E2E + deploy |
-| Tests | vitest (24 files) + Playwright (6 specs, mock API) + pytest (45 files) | Coverage thresholds, branch protection |
+| Tests | vitest (23 files) + Playwright (5 specs, mock API) + pytest (42 files) | Coverage thresholds, branch protection |
 | Errors | Sentry | Client-side error tracking in production |
 
 ## Development
@@ -384,10 +290,6 @@ cd worker && npx wrangler dev --remote   # http://localhost:8787
 # Dev server (fetches from TIMELINE_URL)
 npm run dev              # http://localhost:3000
 
-# Gmail triage — dry-run against real Gmail, skip Worker sync
-# (requires PORTAL_SMTP_USER/PASSWORD + ANTHROPIC_API_KEY in env)
-cd pipeline && .venv/Scripts/python.exe scripts/gmail/triage.py --sync --dry-run
-
 # Run tests
 cd pipeline && .venv/bin/pytest -q                          # Python tests
 cd pipeline && .venv/bin/mypy etl/ --ignore-missing-imports
@@ -414,7 +316,6 @@ cd pipeline && .venv/Scripts/python.exe scripts/run_automation.py
 5. **GitHub Secrets**: `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `NEXT_PUBLIC_TIMELINE_URL`, `FRED_API_KEY`
 6. **Config**: Copy `config.example.json` → `config.json`, fill in your accounts
 7. **First build**: `cd pipeline && python3 scripts/build_timemachine_db.py && python3 scripts/sync_to_d1.py`
-8. **Gmail triage (optional)**: `cd worker-gmail && npx wrangler d1 create portal-gmail` → apply `schema.sql` → `wrangler secret put` for `SYNC_SECRET`, `SMTP_USER`, `SMTP_PASSWORD` → `wrangler deploy`. Add GH secrets `PORTAL_SMTP_*`, `PORTAL_GMAIL_CRON_URL`, `PORTAL_GMAIL_SYNC_SECRET`, `ANTHROPIC_API_KEY`. Browser auth relies on the same Cloudflare Access app that gates `portal.guoyuer.com`.
 
 ## Adding a New Module
 
@@ -428,7 +329,6 @@ pipeline/...                     ← data generation (if needed)
 
 ## Roadmap
 
-- [x] Gmail module — important email auto-triage (daily classification + one-click trash, see `docs/gmail-triage-design-2026-04-12.md`)
 - [ ] News aggregation — RSS feeds
 - [ ] AI-generated macro narrative — LLM summarizing economic conditions and cycle position
 

@@ -1,13 +1,12 @@
 name: D1 Backup
 
-# Weekly export of both production D1 databases to a dated GitHub Release.
+# Weekly export of the production D1 database to a dated GitHub Release.
 # This is the recovery story for accidental schema changes, dropped tables,
-# or a deleted D1 instance — neither portal-db nor portal-gmail had an
-# off-Cloudflare backup before this workflow. Saturday 04:00 UTC keeps the
-# job off business-hours CI traffic; Saturday specifically so a Friday
-# schema change has had a weeknight to settle before being pickled. The
-# `workflow_dispatch` trigger lets me fire it manually for testing or
-# before risky migrations.
+# or a deleted D1 instance — portal-db had no off-Cloudflare backup before
+# this workflow. Saturday 04:00 UTC keeps the job off business-hours CI
+# traffic; Saturday specifically so a Friday schema change has had a
+# weeknight to settle before being pickled. The `workflow_dispatch` trigger
+# lets me fire it manually for testing or before risky migrations.
 on:
   schedule:
     - cron: "0 4 * * 6"
@@ -30,14 +29,10 @@ jobs:
         with:
           node-version: 22
 
-      # wrangler is already a dev-dependency of both Workers — installing
-      # both gives us the exact versions pinned in their package-lock.json.
+      # wrangler is a dev-dependency of the Worker — installing gives us the
+      # exact version pinned in its package-lock.json.
       - name: Install wrangler (portal worker)
         working-directory: worker
-        run: npm ci
-
-      - name: Install wrangler (gmail worker)
-        working-directory: worker-gmail
         run: npm ci
 
       - name: Run backup

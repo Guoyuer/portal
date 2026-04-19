@@ -16,9 +16,9 @@ const RESPONSE_HEADERS: HeadersInit = {
  *  detection; validating twice on the same shared schema was pure CPU tax
  *  (~200ms per ``/timeline`` call on the 4.6 MB payload).
  *
- *  Shape mirrors ``worker-gmail/src/utils.ts``: optional ``init`` layers on
- *  top of the default CORS + no-cache headers so per-route overrides (e.g.
- *  ``Cache-Control: no-store`` for mutations) don't need a second helper. */
+ *  Optional ``init`` layers on top of the default CORS + no-cache headers so
+ *  per-route overrides (e.g. ``Cache-Control: no-store`` for mutations) don't
+ *  need a second helper. */
 export function jsonResponse(payload: unknown, init?: ResponseInit): Response {
   const headers = new Headers(RESPONSE_HEADERS);
   if (init?.headers) new Headers(init.headers).forEach((v, k) => headers.set(k, v));
@@ -32,8 +32,8 @@ export function dbError(e: unknown): Response {
   );
 }
 
-/** Shape mirrors ``worker-gmail/src/utils.ts``: caller passes a plain string
- *  and the helper wraps it in ``{ error: message }``. */
+/** Caller passes a plain string and the helper wraps it in
+ *  ``{ error: message }``. */
 export function errorResponse(message: string, status: number): Response {
   return Response.json({ error: message }, { status, headers: RESPONSE_HEADERS });
 }

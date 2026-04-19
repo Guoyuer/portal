@@ -1,8 +1,8 @@
 """Weekly D1 backup.
 
-Exports both production D1 databases (``portal-db`` + ``portal-gmail``) via
-``npx wrangler d1 export --remote``, gzips the resulting ``.sql`` files, and
-uploads them as assets on a dated GitHub Release in the private repo. The
+Exports the production D1 database (``portal-db``) via
+``npx wrangler d1 export --remote``, gzips the resulting ``.sql`` file, and
+uploads it as an asset on a dated GitHub Release in the private repo. The
 release serves as a cheap, versioned, off-Cloudflare recovery point — before
 this, there was no backup path if the D1 instance was deleted, corrupted, or
 a schema migration went wrong.
@@ -10,8 +10,8 @@ a schema migration went wrong.
 Runs from GitHub Actions (``.github/workflows/d1-backup.yml``) on a weekly
 cron, but can also be invoked locally for testing. Requires:
 
-- ``npx wrangler`` on PATH (installed under ``worker/`` and ``worker-gmail/``
-  node_modules so the subprocess call works with their ``cwd``).
+- ``npx wrangler`` on PATH (installed under ``worker/`` node_modules so the
+  subprocess call works with its ``cwd``).
 - ``CLOUDFLARE_API_TOKEN`` + ``CLOUDFLARE_ACCOUNT_ID`` in the environment
   (wrangler reads them directly — same pattern as ``sync_prices_nightly.py``).
 - ``gh`` CLI authenticated (GitHub Actions provides this automatically via
@@ -34,17 +34,14 @@ from pathlib import Path
 
 _PROJECT_DIR = Path(__file__).resolve().parent.parent.parent
 _WORKER_DIR = _PROJECT_DIR / "worker"
-_WORKER_GMAIL_DIR = _PROJECT_DIR / "worker-gmail"
 
 # (db_name, wrangler cwd) — wrangler resolves the db id from the config file
 # in cwd, so each export has to run from the Worker that owns the binding.
 _DATABASES: list[tuple[str, Path]] = [
     ("portal-db", _WORKER_DIR),
-    ("portal-gmail", _WORKER_GMAIL_DIR),
 ]
 
-# Smoke-test floor. ``portal-db`` is ~12 MB raw; ``portal-gmail`` is ~150 KB
-# raw (schema + ~3 months of triaged emails). 100 KB is a generous lower
+# Smoke-test floor. ``portal-db`` is ~12 MB raw. 100 KB is a generous lower
 # bound that catches a truncated export (wrangler dumps only the schema on
 # download failure, ~1-2 KB) without false-positiving on small databases.
 _MIN_SIZE_BYTES = 100 * 1024
