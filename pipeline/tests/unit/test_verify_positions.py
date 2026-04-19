@@ -12,7 +12,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "pipeline"))
 
-from etl.db import get_connection, init_db  # noqa: E402
+from etl.db import get_connection  # noqa: E402
 from etl.sources.fidelity import classify_fidelity_action  # noqa: E402
 from scripts import verify_positions  # noqa: E402
 
@@ -30,14 +30,13 @@ def _write_csv(path: Path, rows: list[dict[str, str]]) -> None:
 
 
 def _seed_db(db_path: Path, txns: list[tuple[str, str, str, str, str, float, float]]) -> None:
-    """Seed timemachine.db with fidelity_transactions rows.
+    """Seed fidelity_transactions rows into an already schema-initialized DB.
 
     Each tuple: (run_date, account_number, action, symbol, lot_type, quantity, amount).
     Populates ``action_kind`` via :func:`classify_fidelity_action` so the
     rows are visible to :func:`etl.replay.replay_transactions` (production
     ingest does the same).
     """
-    init_db(db_path)
     conn = get_connection(db_path)
     conn.executemany(
         "INSERT INTO fidelity_transactions "
@@ -153,66 +152,61 @@ class TestMainIntegration:
         argv = ["--positions", str(csv_path), *extra_args]
         return verify_positions.main(argv)
 
-    def test_exact_match_pass(self, tmp_path: Path, monkeypatch, capsys) -> None:
-        db = tmp_path / "timemachine.db"
-        _seed_db(db, [
+    def test_exact_match_pass(self, tmp_path: Path, empty_db: Path, monkeypatch, capsys) -> None:
+        _seed_db(empty_db, [
             ("2026-01-05", "Z001", "YOU BOUGHT VOO", "VOO", "Cash", 10.0, -4500.0),
         ])
         csv_path = tmp_path / "Portfolio_Positions_Apr-07-2026.csv"
         _write_csv(csv_path, [
             {"Account Number": "Z001", "Symbol": "VOO", "Quantity": "10"},
         ])
-        rc = self._run(csv_path, db, monkeypatch)
+        rc = self._run(csv_path, empty_db, monkeypatch)
         assert rc == 0
         out = capsys.readouterr().out
         assert "PASS" in out
         assert "2026-04-07" in out
 
-    def test_mismatch_beyond_tolerance_fails(self, tmp_path: Path, monkeypatch, capsys) -> None:
-        db = tmp_path / "timemachine.db"
-        _seed_db(db, [
+    def test_mismatch_beyond_tolerance_fails(self, tmp_path: Path, empty_db: Path, monkeypatch, capsys) -> None:
+        _seed_db(empty_db, [
             ("2026-01-05", "Z001", "YOU BOUGHT VOO", "VOO", "Cash", 10.0, -4500.0),
         ])
         csv_path = tmp_path / "Portfolio_Positions_Apr-07-2026.csv"
         _write_csv(csv_path, [
             {"Account Number": "Z001", "Symbol": "VOO", "Quantity": "10.5"},  # 0.5 off
         ])
-        rc = self._run(csv_path, db, monkeypatch, extra_args=("--tolerance", "0.05"))
+        rc = self._run(csv_path, empty_db, monkeypatch, extra_args=("--tolerance", "0.05"))
         assert rc == 1
         out = capsys.readouterr().out
         assert "FAIL" in out
         assert "1 mismatch" in out
 
-    def test_tolerance_boundary_pass(self, tmp_path: Path, monkeypatch) -> None:
+    def test_tolerance_boundary_pass(self, tmp_path: Path, empty_db: Path, monkeypatch) -> None:
         """Diff of 0.04 with tolerance 0.05 => pass."""
-        db = tmp_path / "timemachine.db"
-        _seed_db(db, [
+        _seed_db(empty_db, [
             ("2026-01-05", "Z001", "YOU BOUGHT VOO", "VOO", "Cash", 10.0, -4500.0),
         ])
         csv_path = tmp_path / "Portfolio_Positions_Apr-07-2026.csv"
         _write_csv(csv_path, [
             {"Account Number": "Z001", "Symbol": "VOO", "Quantity": "10.04"},
         ])
-        rc = self._run(csv_path, db, monkeypatch, extra_args=("--tolerance", "0.05"))
+        rc = self._run(csv_path, empty_db, monkeypatch, extra_args=("--tolerance", "0.05"))
         assert rc == 0
 
-    def test_tolerance_boundary_fail(self, tmp_path: Path, monkeypatch) -> None:
+    def test_tolerance_boundary_fail(self, tmp_path: Path, empty_db: Path, monkeypatch) -> None:
         """Diff of 0.06 with tolerance 0.05 => fail."""
-        db = tmp_path / "timemachine.db"
-        _seed_db(db, [
+        _seed_db(empty_db, [
             ("2026-01-05", "Z001", "YOU BOUGHT VOO", "VOO", "Cash", 10.0, -4500.0),
         ])
         csv_path = tmp_path / "Portfolio_Positions_Apr-07-2026.csv"
         _write_csv(csv_path, [
             {"Account Number": "Z001", "Symbol": "VOO", "Quantity": "10.06"},
         ])
-        rc = self._run(csv_path, db, monkeypatch, extra_args=("--tolerance", "0.05"))
+        rc = self._run(csv_path, empty_db, monkeypatch, extra_args=("--tolerance", "0.05"))
         assert rc == 1
 
-    def test_csv_only_keys_are_informational(self, tmp_path: Path, monkeypatch, capsys) -> None:
+    def test_csv_only_keys_are_informational(self, tmp_path: Path, empty_db: Path, monkeypatch, capsys) -> None:
         """Keys only in CSV (not in computed) are reported, don't cause failure."""
-        db = tmp_path / "timemachine.db"
-        _seed_db(db, [
+        _seed_db(empty_db, [
             ("2026-01-05", "Z001", "YOU BOUGHT VOO", "VOO", "Cash", 10.0, -4500.0),
         ])
         csv_path = tmp_path / "Portfolio_Positions_Apr-07-2026.csv"
@@ -221,17 +215,16 @@ class TestMainIntegration:
             # UUID-account position our history doesn't know about:
             {"Account Number": "2ad9d14c-xxx", "Symbol": "ETH", "Quantity": "0.5"},
         ])
-        rc = self._run(csv_path, db, monkeypatch)
+        rc = self._run(csv_path, empty_db, monkeypatch)
         assert rc == 0
         out = capsys.readouterr().out
         assert "ONLY IN CSV" in out
         assert "ETH" in out
 
-    def test_as_of_cli_overrides_filename(self, tmp_path: Path, monkeypatch, capsys) -> None:
+    def test_as_of_cli_overrides_filename(self, tmp_path: Path, empty_db: Path, monkeypatch, capsys) -> None:
         """--as-of flag wins over filename parsing (used for non-standard paths)."""
-        db = tmp_path / "timemachine.db"
         # Txn AFTER filename's Apr-07, BEFORE CLI override's Jun-01:
-        _seed_db(db, [
+        _seed_db(empty_db, [
             ("2026-01-05", "Z001", "YOU BOUGHT VOO", "VOO", "Cash", 10.0, -4500.0),
             ("2026-05-10", "Z001", "YOU BOUGHT VOO", "VOO", "Cash", 5.0, -2500.0),
         ])
@@ -239,17 +232,16 @@ class TestMainIntegration:
         _write_csv(csv_path, [
             {"Account Number": "Z001", "Symbol": "VOO", "Quantity": "15"},
         ])
-        rc = self._run(csv_path, db, monkeypatch, extra_args=("--as-of", "2026-06-01"))
+        rc = self._run(csv_path, empty_db, monkeypatch, extra_args=("--as-of", "2026-06-01"))
         assert rc == 0
         out = capsys.readouterr().out
         assert "2026-06-01" in out
 
-    def test_mm_symbols_excluded_from_computed(self, tmp_path: Path, monkeypatch, capsys) -> None:
+    def test_mm_symbols_excluded_from_computed(self, tmp_path: Path, empty_db: Path, monkeypatch, capsys) -> None:
         """SPAXX (money market) must NOT appear in computed positions —
         confirms the script wires ``MM_SYMBOLS`` into ``replay_transactions``
         (matches Fidelity-source behaviour)."""
-        db = tmp_path / "timemachine.db"
-        _seed_db(db, [
+        _seed_db(empty_db, [
             ("2026-01-05", "Z001", "YOU BOUGHT VOO", "VOO", "Cash", 10.0, -4500.0),
             ("2026-01-06", "Z001", "REINVESTMENT SPAXX", "SPAXX", "Cash", 100.0, -100.0),
         ])
@@ -257,7 +249,7 @@ class TestMainIntegration:
         _write_csv(csv_path, [
             {"Account Number": "Z001", "Symbol": "VOO", "Quantity": "10"},
         ])
-        rc = self._run(csv_path, db, monkeypatch)
+        rc = self._run(csv_path, empty_db, monkeypatch)
         assert rc == 0
         out = capsys.readouterr().out
         # SPAXX must not surface as an "ONLY IN COMPUTED" surprise.

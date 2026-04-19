@@ -8,6 +8,10 @@ import pytest
 from etl.db import init_db
 from etl.parsing import parse_us_date
 from etl.sources.fidelity.parse import _ingest_one_csv
+from tests.unit.sources.conftest import ROW_AAPL as _ROW_AAPL
+from tests.unit.sources.conftest import ROW_EFT as _ROW_EFT
+from tests.unit.sources.conftest import ROW_GLDM as _ROW_GLDM
+from tests.unit.sources.conftest import write_fidelity_csv as _write_csv
 
 
 class TestFidelityDateParse:
@@ -49,10 +53,8 @@ class TestIngestFidelity:
     """Tests for _ingest_one_csv — CSV → timemachine.db row writes."""
 
     @pytest.fixture()
-    def db_path(self, tmp_path: Path) -> Path:
-        p = tmp_path / "test.db"
-        init_db(p)
-        return p
+    def db_path(self, empty_db: Path) -> Path:
+        return empty_db
 
     def test_ingest_sample_csv(self, db_path: Path, history_sample_csv: Path) -> None:
         count = _ingest_one_csv(db_path, history_sample_csv)
@@ -83,37 +85,6 @@ class TestIngestFidelity:
             assert iso_re.match(rd), f"Non-ISO run_date in DB: {rd!r}"
 
 
-# Header shared by every synthetic CSV below — same shape as the real Fidelity
-# export (2 blank lines + 18-column header).
-_FIDELITY_HEADER = (
-    "\n\n"
-    "Run Date,Account,Account Number,Action,Symbol,Description,Type,"
-    "Exchange Quantity,Exchange Currency,Currency,Price,Quantity,"
-    "Exchange Rate,Commission,Fees,Accrued Interest,Amount,Settlement Date\n"
-)
-
-
-def _write_csv(path: Path, rows: list[str]) -> Path:
-    path.write_text(_FIDELITY_HEADER + "\n".join(rows) + "\n", encoding="utf-8")
-    return path
-
-
-# Canonical rows — line shape mirrors history_sample.csv so _parse_csv/_classify_action
-# behave identically to a real export. Mutate only the fields the test cares about.
-_ROW_AAPL = (
-    '04/02/2026,"Taxable","Z29133576","YOU BOUGHT APPLE INC (AAPL) (Cash)",AAPL,'
-    '"APPLE INC",Cash,0,,USD,252.56,3,0,,,,-757.68,04/06/2026'
-)
-_ROW_GLDM = (
-    '04/02/2026,"Taxable","Z29133576","YOU BOUGHT WORLD GOLD TR SPDR GLD MINIS (GLDM) (Cash)",GLDM,'
-    '"WORLD GOLD TR SPDR GLD MINIS",Cash,0,,USD,91.13,10,0,,,,-911.3,04/06/2026'
-)
-_ROW_EFT = (
-    '04/02/2026,"Taxable","Z29133576","Electronic Funds Transfer Received (Cash)", ,'
-    '"No Description",Cash,0,,USD,,0.000,0,,,,1500,'
-)
-
-
 class TestIngestFidelityRangeReplace:
     """Range-replace semantics for _ingest_one_csv.
 
@@ -126,10 +97,8 @@ class TestIngestFidelityRangeReplace:
     """
 
     @pytest.fixture()
-    def db_path(self, tmp_path: Path) -> Path:
-        p = tmp_path / "test.db"
-        init_db(p)
-        return p
+    def db_path(self, empty_db: Path) -> Path:
+        return empty_db
 
     def test_same_csv_ingest_is_idempotent(self, db_path: Path, history_sample_csv: Path) -> None:
         """Re-ingesting the same CSV produces the same row set — DELETE wipes the range, INSERT rebuilds it."""

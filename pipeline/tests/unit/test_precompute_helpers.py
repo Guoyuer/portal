@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 import pytest
 
-from etl.db import get_connection, init_db
+from etl.db import get_connection
 from etl.precompute import (
     _compute_index_row,
     _precompute_cny,
@@ -71,13 +71,11 @@ class TestComputeIndexRow:
 
 
 class TestPrecomputeIndices:
-    def test_inserts_rows_for_seeded_indices(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
+    def test_inserts_rows_for_seeded_indices(self, empty_db: Path) -> None:
         prices = [(f"2025-01-{d:02d}", 5000.0 + d) for d in range(2, 28)]
-        _seed_prices(db_path, "^GSPC", prices)
+        _seed_prices(empty_db, "^GSPC", prices)
 
-        conn = get_connection(db_path)
+        conn = get_connection(empty_db)
         try:
             _precompute_indices(conn)
             conn.commit()
@@ -86,10 +84,8 @@ class TestPrecomputeIndices:
             conn.close()
         assert ("^GSPC",) in rows
 
-    def test_noop_for_unseeded_indices(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
-        conn = get_connection(db_path)
+    def test_noop_for_unseeded_indices(self, empty_db: Path) -> None:
+        conn = get_connection(empty_db)
         try:
             _precompute_indices(conn)
             conn.commit()
@@ -103,16 +99,14 @@ class TestPrecomputeIndices:
 
 
 class TestPrecomputeCny:
-    def test_writes_monthly_last_close_to_econ_series(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
+    def test_writes_monthly_last_close_to_econ_series(self, empty_db: Path) -> None:
         _seed_prices(
-            db_path,
+            empty_db,
             "CNY=X",
             [("2025-01-15", 7.20), ("2025-01-31", 7.30), ("2025-02-28", 7.25)],
         )
 
-        conn = get_connection(db_path)
+        conn = get_connection(empty_db)
         try:
             _precompute_cny(conn)
             conn.commit()
@@ -124,10 +118,8 @@ class TestPrecomputeCny:
         # Last close per YYYY-MM bucket
         assert rows == [("2025-01", 7.30), ("2025-02", 7.25)]
 
-    def test_noop_without_cny_data(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
-        conn = get_connection(db_path)
+    def test_noop_without_cny_data(self, empty_db: Path) -> None:
+        conn = get_connection(empty_db)
         try:
             _precompute_cny(conn)  # should not raise
             conn.commit()
@@ -141,11 +133,9 @@ class TestPrecomputeCny:
 
 
 class TestPrecomputeFred:
-    def test_noop_without_api_key(self, tmp_path: Path, monkeypatch) -> None:
+    def test_noop_without_api_key(self, empty_db: Path, monkeypatch) -> None:
         monkeypatch.delenv("FRED_API_KEY", raising=False)
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
-        conn = get_connection(db_path)
+        conn = get_connection(empty_db)
         try:
             _precompute_fred(conn)  # should not raise
             conn.commit()
@@ -155,7 +145,7 @@ class TestPrecomputeFred:
         assert rows == []
 
     def test_inserts_series_when_api_returns_data(
-        self, tmp_path: Path, monkeypatch
+        self, empty_db: Path, monkeypatch
     ) -> None:
         """Series rows land in econ_series (1:1, no remapping)."""
         monkeypatch.setenv("FRED_API_KEY", "fake-key")
@@ -175,9 +165,7 @@ class TestPrecomputeFred:
             lambda _key: fake_fred,
         )
 
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
-        conn = get_connection(db_path)
+        conn = get_connection(empty_db)
         try:
             _precompute_fred(conn)
             conn.commit()
@@ -194,16 +182,14 @@ class TestPrecomputeFred:
             ("fedRate", "2025-02-01", 5.00),
         ]
 
-    def test_none_from_api_is_noop(self, tmp_path: Path, monkeypatch) -> None:
+    def test_none_from_api_is_noop(self, empty_db: Path, monkeypatch) -> None:
         """fetch_fred_data returning None (total failure) should not insert or raise."""
         monkeypatch.setenv("FRED_API_KEY", "fake-key")
         monkeypatch.setattr(
             "etl.market.fred.fetch_fred_data",
             lambda _key: None,
         )
-        db_path = tmp_path / "test.db"
-        init_db(db_path)
-        conn = get_connection(db_path)
+        conn = get_connection(empty_db)
         try:
             _precompute_fred(conn)
             conn.commit()

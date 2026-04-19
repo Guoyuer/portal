@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from etl.db import get_connection, init_db
+from etl.db import get_connection
 from etl.precompute import precompute_holdings_detail, precompute_market
 from tests.fixtures import ingest_prices
 
@@ -41,10 +41,9 @@ def _seed_index_prices(db_path: Path, ticker: str, base: float, n_days: int = 30
 
 
 @pytest.fixture()
-def db_path(tmp_path: Path) -> Path:
+def db_path(empty_db: Path) -> Path:
     """Create a fresh timemachine DB seeded with index + CNY prices."""
-    p = tmp_path / "test.db"
-    init_db(p)
+    p = empty_db
 
     # Seed the four index tickers
     _seed_index_prices(p, "^GSPC", 5000.0, 300)
@@ -195,14 +194,12 @@ class TestClearAndRewrite:
 class TestSkipTickerWithTooFewRows:
     """Verify that tickers with < 2 rows are skipped gracefully."""
 
-    def test_skip_ticker_with_one_row(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "sparse.db"
-        init_db(db_path)
+    def test_skip_ticker_with_one_row(self, empty_db: Path) -> None:
         # Only one price row for ^GSPC
-        ingest_prices(db_path, {"^GSPC": {"2025-06-01": 5000.0}})
-        ingest_prices(db_path, {"CNY=X": {"2025-06-01": 7.25}})
-        precompute_market(db_path)
-        conn = get_connection(db_path)
+        ingest_prices(empty_db, {"^GSPC": {"2025-06-01": 5000.0}})
+        ingest_prices(empty_db, {"CNY=X": {"2025-06-01": 7.25}})
+        precompute_market(empty_db)
+        conn = get_connection(empty_db)
         idx_rows = conn.execute("SELECT ticker FROM computed_market_indices").fetchall()
         conn.close()
         # ^GSPC has only 1 row, should be skipped; no other indices seeded
@@ -240,12 +237,10 @@ def _seed_holdings_db(db_path: Path) -> None:
 
 
 @pytest.fixture()
-def holdings_db(tmp_path: Path) -> Path:
+def holdings_db(empty_db: Path) -> Path:
     """DB with computed_daily_tickers + daily_close for holdings detail."""
-    p = tmp_path / "holdings.db"
-    init_db(p)
-    _seed_holdings_db(p)
-    return p
+    _seed_holdings_db(empty_db)
+    return empty_db
 
 
 class TestPrecomputeHoldingsDetailRows:
@@ -337,11 +332,9 @@ class TestHoldingsDetailIdempotent:
 class TestHoldingsDetailEmptyDB:
     """Verify graceful handling when no data exists."""
 
-    def test_no_crash_on_empty_db(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "empty.db"
-        init_db(db_path)
-        precompute_holdings_detail(db_path)
-        conn = get_connection(db_path)
+    def test_no_crash_on_empty_db(self, empty_db: Path) -> None:
+        precompute_holdings_detail(empty_db)
+        conn = get_connection(empty_db)
         count = conn.execute("SELECT COUNT(*) FROM computed_holdings_detail").fetchone()[0]
         conn.close()
         assert count == 0

@@ -417,10 +417,8 @@ def _fresh_db() -> Path:
 
 class TestIngestQianjiTransactions:
     @pytest.fixture()
-    def db_path(self, tmp_path: Path) -> Path:
-        p = tmp_path / "test.db"
-        init_db(p)
-        return p
+    def db_path(self, empty_db: Path) -> Path:
+        return empty_db
 
     def test_ingest_records(self, db_path: Path) -> None:
         records = [

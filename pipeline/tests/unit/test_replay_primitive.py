@@ -9,6 +9,7 @@ import pytest
 
 from etl.replay import PositionState, ReplayConfig, ReplayResult, replay_transactions  # noqa: F401
 from etl.sources import ActionKind
+from tests.unit._replay_fixtures import insert_fidelity_txn
 
 # ── Robinhood-shaped table (no account, tx_date column) ─────────────────────
 
@@ -109,7 +110,12 @@ def fidelity_like_db(tmp_path: Path) -> Path:
     """Create a Fidelity-shaped transactions table with the vocabulary that
     exercises ``replay_transactions``' widened behaviour (REDEMPTION /
     DISTRIBUTION / EXCHANGE / TRANSFER plus cash tracking with ``Type=Shares``
-    exclusion)."""
+    exclusion).
+
+    Schema mirrors production's ``fidelity_transactions`` (including
+    ``action_type`` + ``price`` columns) so :func:`insert_fidelity_txn`
+    from ``_replay_fixtures`` can target it directly without branching.
+    """
     db = tmp_path / "fid.db"
     conn = sqlite3.connect(str(db))
     conn.executescript(
@@ -119,10 +125,12 @@ def fidelity_like_db(tmp_path: Path) -> Path:
             run_date        TEXT NOT NULL,
             account_number  TEXT NOT NULL,
             action          TEXT NOT NULL,
+            action_type     TEXT NOT NULL DEFAULT '',
             action_kind     TEXT NOT NULL,
             symbol          TEXT NOT NULL,
             lot_type        TEXT NOT NULL,
             quantity        REAL NOT NULL,
+            price           REAL NOT NULL DEFAULT 0,
             amount          REAL NOT NULL
         );
         """
@@ -133,11 +141,18 @@ def fidelity_like_db(tmp_path: Path) -> Path:
 def _insert(conn: sqlite3.Connection, run_date: str, acct: str, kind: ActionKind,
             symbol: str, lot_type: str, qty: float, amt: float,
             action: str = "") -> None:
-    conn.execute(
-        "INSERT INTO fidelity_transactions "
-        "(run_date, account_number, action, action_kind, symbol, lot_type, quantity, amount) "
-        "VALUES (?,?,?,?,?,?,?,?)",
-        (run_date, acct, action or kind.value, kind.value, symbol, lot_type, qty, amt),
+    """Thin wrapper forwarding to :func:`insert_fidelity_txn` — positional
+    convenience for the many ``ActionKind``-driven call sites below."""
+    insert_fidelity_txn(
+        conn,
+        run_date=run_date,
+        account_number=acct,
+        action=action or kind.value,
+        action_kind=kind.value,
+        symbol=symbol,
+        lot_type=lot_type,
+        quantity=qty,
+        amount=amt,
     )
 
 

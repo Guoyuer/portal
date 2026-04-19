@@ -14,10 +14,8 @@ from etl.db import (
 
 
 @pytest.fixture()
-def db(tmp_path):
-    p = tmp_path / "test.db"
-    init_db(p)
-    return p
+def db(empty_db):
+    return empty_db
 
 
 def _insert_daily(db_path, rows):

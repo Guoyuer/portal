@@ -23,6 +23,7 @@ from hypothesis import strategies as st
 
 from etl.replay import ReplayConfig, replay_transactions
 from etl.sources import ActionKind
+from tests.unit._replay_fixtures import insert_prop_rows
 
 # A small ticker pool keeps the state space tight — we want invariants to
 # exercise the aggregation logic across shared keys, not explode into a
@@ -58,18 +59,6 @@ def _make_db(tmp_path: Path) -> Path:
     conn.commit()
     conn.close()
     return db
-
-
-def _insert_rows(db_path: Path, rows: list[tuple[str, str, str, float, float]]) -> None:
-    """Insert ``(txn_date, action_kind, ticker, quantity, amount_usd)`` rows."""
-    conn = sqlite3.connect(str(db_path))
-    conn.executemany(
-        "INSERT INTO prop_transactions "
-        "(txn_date, action_kind, ticker, quantity, amount_usd) VALUES (?,?,?,?,?)",
-        rows,
-    )
-    conn.commit()
-    conn.close()
 
 
 # ── Strategies ──────────────────────────────────────────────────────────────
@@ -152,7 +141,7 @@ def test_replay_cost_basis_is_non_negative(tmp_path: Path, rows: list[tuple[str,
     state-machine arithmetic.
     """
     db = _make_db(tmp_path)
-    _insert_rows(db, rows)
+    insert_prop_rows(db, rows)
     result = replay_transactions(db, _PROPERTY_REPLAY, date(2099, 12, 31))
 
     for key, state in result.positions.items():
@@ -205,7 +194,7 @@ def test_replay_buy_only_conserves_quantity_and_cost(
         expected_qty[ticker] = expected_qty.get(ticker, 0.0) + qty
         expected_cost[ticker] = expected_cost.get(ticker, 0.0) + amount
 
-    _insert_rows(db, rows)
+    insert_prop_rows(db, rows)
     result = replay_transactions(db, _PROPERTY_REPLAY, date(2099, 12, 31))
 
     for ticker, exp_qty in expected_qty.items():
@@ -257,7 +246,7 @@ def test_replay_split_plus_reinvestment_conserves_state(
         # Day 3: dividend REINVESTMENT adds `reinvest_shares` at `reinvest_amount`.
         ("2024-07-01", ActionKind.REINVESTMENT.value, ticker, reinvest_shares, -reinvest_amount),
     ]
-    _insert_rows(db, rows)
+    insert_prop_rows(db, rows)
     result = replay_transactions(db, _PROPERTY_REPLAY, date(2024, 12, 31))
 
     state = result.positions[("", ticker)]
