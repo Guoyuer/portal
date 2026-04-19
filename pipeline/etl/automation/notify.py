@@ -34,6 +34,8 @@ from etl.changelog import (
 )
 from etl.email_report import EmailConfig, send
 
+from ._constants import _STATUS_LABELS
+
 # ── Healthchecks.io ping ─────────────────────────────────────────────────────
 
 def ping_healthcheck(suffix: str = "") -> None:
@@ -52,18 +54,6 @@ def ping_healthcheck(suffix: str = "") -> None:
 
 
 # ── Email reporting ──────────────────────────────────────────────────────────
-
-# Exit codes are re-imported locally to avoid a circular dependency on
-# ``runner``; the mapping stays in sync with ``runner.EXIT_*`` via constants
-# defined there. Keep both tables aligned whenever either side changes.
-_STATUS_LABELS = {
-    0: "OK",
-    1: "BUILD FAILED",
-    2: "PARITY GATE FAILED",
-    3: "SYNC FAILED",
-    4: "POSITIONS GATE FAILED",
-}
-
 
 def _parse_warnings_from_lines(lines: list[str]) -> list[str]:
     """Extract ``validate_build`` WARNING messages from an iterable of log lines.
