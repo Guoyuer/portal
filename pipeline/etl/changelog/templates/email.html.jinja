@@ -1,0 +1,8 @@
+{#-
+  HTML email body: simple table-less layout, wraps the plain-text render
+  in a <pre> so spacing stays predictable in Gmail. Header color keys on
+  exit_code (green on OK, red on failure).
+
+  ``text_body`` is the already-rendered plain-text body (escaped here).
+-#}
+<html><body style="font-family: -apple-system, Segoe UI, sans-serif; color: #222;"><h2 style="color: {{ header_color }}; margin-bottom: 8px;">Portal Sync — {{ status_label }}</h2><pre style="font-family: Consolas, Menlo, monospace; font-size: 13px; background: #f6f8fa; padding: 14px 16px; border-radius: 6px; white-space: pre-wrap; line-height: 1.45;">{{ text_body }}</pre></body></html>

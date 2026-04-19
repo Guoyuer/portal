@@ -10,3 +10,6 @@ anthropic>=0.40.0
 
 # .env auto-loader (dev convenience; existing env vars still win)
 python-dotenv>=1.2.0,<2
+
+# Email body templating for changelog (etl/changelog/render.py)
+jinja2>=3,<4
