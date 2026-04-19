@@ -22,6 +22,7 @@ import pandas as pd
 
 from etl.db import get_connection
 from etl.sources import PositionRow, PriceContext
+from etl.sources._types import resolve_downloads_dir
 from etl.types import RawConfig
 
 # ── CUSIP → config ticker → proxy ticker mapping ───────────────────────────
@@ -150,10 +151,9 @@ def _proxy_prices_from_df(prices: pd.DataFrame, proxy: str) -> dict[date, float]
 
 
 def _downloads_dir(config: RawConfig) -> Path:
-    raw = config.get("empower_downloads")
-    if isinstance(raw, (str, Path)):
-        return Path(raw)
-    return Path("__missing_empower_downloads__")
+    return resolve_downloads_dir(
+        config, "empower_downloads", default=Path("__missing_empower_downloads__"),
+    )
 
 
 def _cusip_map(config: RawConfig) -> dict[str, str]:

@@ -109,3 +109,30 @@ class InvestmentSource(Protocol):
         self, db_path: Path, as_of: date, prices: PriceContext, config: RawConfig
     ) -> list[PositionRow]: ...
     def produces_positions(self, config: RawConfig) -> bool: ...
+
+
+# ── Shared config helpers ──────────────────────────────────────────────────
+
+
+def resolve_downloads_dir(
+    config: RawConfig,
+    primary_key: str,
+    *,
+    fallback_keys: tuple[str, ...] = (),
+    default: Path | None = None,
+) -> Path:
+    """Resolve a per-source downloads path from :class:`RawConfig`.
+
+    Tries ``primary_key`` first, then each of ``fallback_keys`` in order, then
+    ``default`` (or ``~/Downloads`` when ``default`` is ``None``). Every
+    lookup accepts either a ``str`` or a ``Path`` value — values of other
+    types are ignored, matching the pre-refactor per-source helpers.
+
+    Callers gate on :meth:`Path.exists` downstream, so a missing or sentinel
+    path surfaces as a silent no-op rather than an exception.
+    """
+    for key in (primary_key, *fallback_keys):
+        raw = config.get(key)
+        if isinstance(raw, (str, Path)):
+            return Path(raw)
+    return default if default is not None else Path.home() / "Downloads"

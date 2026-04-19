@@ -20,6 +20,8 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import TypedDict
 
+from ._category_totals import accumulate_category_totals
+
 
 class ProjectedTickerRow(TypedDict):
     """Per-ticker output shape — same keys as _build_allocation_row produces."""
@@ -107,11 +109,7 @@ def project_one_day(
     today: date,
 ) -> ProjectedDay:
     """Value the portfolio on ``today`` assuming only prices changed since prev."""
-    category_totals: dict[str, float] = {}
-    total = 0.0
-    liabilities = 0.0
     out_tickers: list[ProjectedTickerRow] = []
-
     for r in prev:
         ratio = _price_ratio(r.ticker, prices_today, prices_prev)
         new_val = r.value if ratio is None else r.value * ratio
@@ -133,20 +131,17 @@ def project_one_day(
             "gain_loss": gl,
             "gain_loss_pct": gl_pct,
         })
-        if new_val < 0:
-            liabilities += new_val
-        else:
-            category_totals[r.category] = category_totals.get(r.category, 0) + new_val
-            total += new_val
-
+    # Fold the per-ticker (value, category) pairs into the 4 canonical buckets.
+    # See :mod:`etl._category_totals` — shared with :func:`etl.allocation._build_allocation_row`.
+    totals = accumulate_category_totals((t["value"], t["category"]) for t in out_tickers)
     return ProjectedDay(
         date=today,
-        total=round(total, 2),
-        us_equity=round(category_totals.get("US Equity", 0), 2),
-        non_us_equity=round(category_totals.get("Non-US Equity", 0), 2),
-        crypto=round(category_totals.get("Crypto", 0), 2),
-        safe_net=round(category_totals.get("Safe Net", 0), 2),
-        liabilities=round(liabilities, 2),
+        total=totals.total,
+        us_equity=totals.us_equity,
+        non_us_equity=totals.non_us_equity,
+        crypto=totals.crypto,
+        safe_net=totals.safe_net,
+        liabilities=totals.liabilities,
         tickers=out_tickers,
     )
 

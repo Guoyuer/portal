@@ -19,7 +19,7 @@ from datetime import date
 from pathlib import Path
 
 from etl.replay import ReplayConfig, replay_transactions
-from etl.sources._types import PositionRow, PriceContext
+from etl.sources._types import PositionRow, PriceContext, resolve_downloads_dir
 from etl.types import RawConfig
 
 from . import cash, parse, pricing
@@ -56,10 +56,7 @@ __all__ = [
 
 
 def _downloads_dir(config: RawConfig) -> Path:
-    raw = config.get("fidelity_downloads")
-    if isinstance(raw, (str, Path)):
-        return Path(raw)
-    return Path.home() / "Downloads"
+    return resolve_downloads_dir(config, "fidelity_downloads")
 
 
 # ── Public API (module protocol) ───────────────────────────────────────────

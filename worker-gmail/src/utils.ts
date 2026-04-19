@@ -1,7 +1,12 @@
 // ── Worker-gmail response helpers ────────────────────────────────────────
-// Kept intentionally minimal (three endpoints, no caching layer) but still
-// unified so every route returns the same shape / headers.
+// Kept intentionally minimal (three endpoints, no caching layer). Function
+// signatures mirror ``worker/src/utils.ts`` so call sites read the same in
+// either Worker; the two tsconfigs don't cross-reference, so the bodies are
+// hand-maintained clones rather than a shared import.
 
+/** Signature mirrors ``worker/src/utils.ts::jsonResponse`` — optional
+ *  ``init`` lets routes layer on per-response headers (``/api/mail/list``
+ *  sets ``Cache-Control: no-store`` to force a re-fetch after trash). */
 export function jsonResponse(payload: unknown, init?: ResponseInit): Response {
   return Response.json(payload, init);
 }

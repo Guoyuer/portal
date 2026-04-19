@@ -25,6 +25,7 @@ from typing import cast
 
 import pandas as pd
 
+from ._category_totals import accumulate_category_totals
 from .db import get_readonly_connection
 from .prices import load_cny_rates, load_prices
 from .qianji import qianji_balances_at
@@ -236,30 +237,28 @@ def _build_allocation_row(
     cost_basis_by_ticker: dict[str, float],
 ) -> AllocationRow:
     """Categorize each non-zero ticker and produce the per-day allocation dict."""
-    category_totals: dict[str, float] = {}
-    total = 0.0
-    liabilities = 0.0
     ticker_detail: list[TickerDetail] = []
-
+    # Use the raw (unrounded) value for the sign/bucket decision — matches
+    # the pre-refactor behaviour exactly, so rows with |value| < 0.005 round
+    # to 0 in TickerDetail but still accumulate at full precision.
+    fold_pairs: list[tuple[float, str]] = []
     for ticker, value in ticker_values.items():
         if value == 0:
             continue
         row = _categorize_ticker(ticker, value, assets, cost_basis_by_ticker)
         ticker_detail.append(row)
-        if value < 0:
-            liabilities += value
-        else:
-            category_totals[row["category"]] = category_totals.get(row["category"], 0) + value
-            total += value
-
+        fold_pairs.append((value, row["category"]))
+    # Fold the per-ticker (value, category) pairs into the 4 canonical buckets.
+    # See :mod:`etl._category_totals` — shared with :func:`etl.projection.project_one_day`.
+    totals = accumulate_category_totals(fold_pairs)
     return AllocationRow(
         date=current.isoformat(),
-        total=round(total, 2),
-        us_equity=round(category_totals.get("US Equity", 0), 2),
-        non_us_equity=round(category_totals.get("Non-US Equity", 0), 2),
-        crypto=round(category_totals.get("Crypto", 0), 2),
-        safe_net=round(category_totals.get("Safe Net", 0), 2),
-        liabilities=round(liabilities, 2),
+        total=totals.total,
+        us_equity=totals.us_equity,
+        non_us_equity=totals.non_us_equity,
+        crypto=totals.crypto,
+        safe_net=totals.safe_net,
+        liabilities=totals.liabilities,
         tickers=ticker_detail,
     )
 

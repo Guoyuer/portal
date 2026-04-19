@@ -42,13 +42,24 @@ QJ_REPAYMENT = "repayment"
 # and grouping comma, keep the sign.
 CURRENCY_RE = re.compile(r"[^0-9.-]")
 
+# Robinhood encodes negatives as parentheses — e.g. "($50.00)" means -50.00.
+# Fidelity uses explicit minus signs, so this branch only fires on Robinhood
+# rows. Detecting parens BEFORE the digit-strip preserves the sign that
+# ``CURRENCY_RE`` would otherwise discard along with the paren glyphs.
+_PARENS_NEG_RE = re.compile(r"^\s*\(\s*[^)]*\)\s*$")
+
 
 def parse_currency(val: str) -> float:
-    """Parse a currency string like '$1,234.56' or '+$100.00' to float."""
+    """Parse a currency string like '$1,234.56', '+$100.00', or '($50.00)' to float.
+
+    Recognizes parentheses-wrapped values as negatives (Robinhood convention).
+    """
     val = val.strip()
     if not val or val == "--":
         return 0.0
-    return float(CURRENCY_RE.sub("", val))
+    negate = bool(_PARENS_NEG_RE.match(val))
+    n = float(CURRENCY_RE.sub("", val))
+    return -n if negate else n
 
 
 # ── Config / Portfolio types ────────────────────────────────────────────────

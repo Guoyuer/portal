@@ -21,15 +21,15 @@ from __future__ import annotations
 
 import logging
 import re
-import sqlite3
 from datetime import date, datetime
 from pathlib import Path
 
+from etl.db import get_connection
 from etl.parsing import read_csv_rows
 from etl.replay import ReplayConfig, replay_transactions
 from etl.sources._ingest import range_replace_insert
-from etl.sources._types import ActionKind, PositionRow, PriceContext
-from etl.types import RawConfig
+from etl.sources._types import ActionKind, PositionRow, PriceContext, resolve_downloads_dir
+from etl.types import RawConfig, parse_currency
 
 log = logging.getLogger(__name__)
 
@@ -39,24 +39,6 @@ TABLE = "robinhood_transactions"
 # Robinhood's table already uses the primitive's default column names
 # (``txn_date`` / ``ticker`` / ``amount_usd``) and has no account grouping.
 ROBINHOOD_REPLAY = ReplayConfig(table=TABLE)
-
-
-# ── Amount parsing ─────────────────────────────────────────────────────────
-
-
-_PARENS_AMOUNT = re.compile(r"^\(([\d.,]+)\)$")
-
-
-def _parse_amount(raw: str) -> float:
-    """Parse a Robinhood ``Amount`` column: ``$1,234.56`` or ``($1,234.56)`` (negative)."""
-    s = (raw or "").strip()
-    if not s:
-        return 0.0
-    cleaned = s.replace("$", "").replace(",", "")
-    m = _PARENS_AMOUNT.match(cleaned)
-    if m:
-        return -float(m.group(1))
-    return float(cleaned)
 
 
 # ── Action classification ──────────────────────────────────────────────────
@@ -85,17 +67,6 @@ def classify_robinhood_action(trans_code: str) -> ActionKind:
     return _ACTION_MAP.get(trans_code.strip(), ActionKind.OTHER)
 
 
-def _parse_float(raw: str) -> float:
-    """Parse Robinhood's ``Quantity``/``Price`` column — strips ``$`` and ``,``."""
-    s = (raw or "").strip().replace("$", "").replace(",", "")
-    if not s:
-        return 0.0
-    try:
-        return float(s)
-    except ValueError:
-        return 0.0
-
-
 # ── Config helpers ─────────────────────────────────────────────────────────
 
 
@@ -107,13 +78,9 @@ def _downloads_dir(config: RawConfig) -> Path:
     folder. Every fallback goes through :meth:`Path.exists` in the callers,
     so a missing config / directory surfaces as a silent no-op.
     """
-    raw_rh = config.get("robinhood_downloads")
-    if isinstance(raw_rh, (str, Path)):
-        return Path(raw_rh)
-    raw_fid = config.get("fidelity_downloads")
-    if isinstance(raw_fid, (str, Path)):
-        return Path(raw_fid)
-    return Path.home() / "Downloads"
+    return resolve_downloads_dir(
+        config, "robinhood_downloads", fallback_keys=("fidelity_downloads",),
+    )
 
 
 def _csv_paths(config: RawConfig) -> list[Path]:
@@ -171,13 +138,13 @@ def _ingest_one_csv(db_path: Path, csv_path: Path) -> None:
         action_raw = (row.get("Trans Code") or "").strip()
         kind = classify_robinhood_action(action_raw)
         ticker = (row.get("Instrument") or "").strip()
-        quantity = _parse_float(row.get("Quantity", ""))
+        quantity = parse_currency(row.get("Quantity", ""))
         # Canonical sign convention (shared with Fidelity + consumed by
         # :func:`etl.replay.replay_transactions`): BUY qty > 0, SELL qty < 0.
         # Robinhood's CSV stores SELL qty as positive, so normalize at ingest.
         if kind == ActionKind.SELL:
             quantity = -abs(quantity)
-        amount = _parse_amount(row.get("Amount", ""))
+        amount = parse_currency(row.get("Amount", ""))
         description = (row.get("Description") or "").strip()
         rows.append((
             d.isoformat(),
@@ -189,7 +156,7 @@ def _ingest_one_csv(db_path: Path, csv_path: Path) -> None:
             description,
         ))
 
-    conn = sqlite3.connect(str(db_path))
+    conn = get_connection(db_path)
     try:
         # Range-replace: wipe any existing rows in the CSV's window, then
         # insert the fresh set. Protects against partial CSVs (e.g. a 3-
