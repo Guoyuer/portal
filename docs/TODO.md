@@ -53,17 +53,16 @@ Tiering rule: 🟢 = do if touching this area, 🟡 = do if you expect to keep i
 
 - [x] Done
 
-### T4. Bundle analyzer + Lighthouse CI baseline
+### T4. Lighthouse CI baseline
 
-**Where:** `package.json` + new `.github/workflows/frontend-perf.yml` (or integrate into `ci.yml`)
+**Where:** `.github/workflows/ci.yml`
 
-**Rationale:** Frontend is currently ~385 KB gzipped — tight. Purpose is **establish a baseline** so future feature work visibly shows when a new dep inflates it. Same for Lighthouse score.
+**Rationale:** Frontend is currently ~385 KB gzipped — tight. Purpose is **establish a baseline** so future work visibly shows when a change degrades Lighthouse score.
 
 **Fix sketch:**
-- `npm install @next/bundle-analyzer --save-dev`
-- `next.config.ts`: wrap with `withBundleAnalyzer({ enabled: process.env.ANALYZE === 'true' })`
-- CI step on PRs: `ANALYZE=true npx next build`, save the stats JSON as artifact, optionally comment bundle-diff on PR
-- Lighthouse CI via `treosh/lighthouse-ci-action@v12`
+- CI step on PRs: `npx next build --webpack` (Turbopack doesn't produce a static `out/`), then `treosh/lighthouse-ci-action@v12` with `staticDistDir` pointed at `out/`.
+
+**Note:** `@next/bundle-analyzer` was trialled alongside Lighthouse but dropped — the HTML reports weren't useful enough per-PR to justify the extra build-time and dep weight.
 
 **Effort:** 1 hr. **Skip if:** you don't plan to add more frontend features.
 
