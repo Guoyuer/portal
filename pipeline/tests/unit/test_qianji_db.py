@@ -12,12 +12,11 @@ import pytest
 
 from etl.db import init_db
 from etl.qianji import (
-    _load_balances,
-    _load_records,
     ingest_qianji_transactions,
     parse_qj_amount,
     parse_qj_target_amount,
 )
+from etl.qianji.ingest import _load_balances, _load_records
 
 # ── parse_qj_amount ───────────────────────────────────────────────────────────
 

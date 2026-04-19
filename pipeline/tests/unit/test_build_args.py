@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-from scripts.build_timemachine_db import BuildPaths, _parse_args, _resolve_paths
+from etl.build import BuildPaths, _parse_args, _resolve_paths
 
 
 class TestParseArgs:
