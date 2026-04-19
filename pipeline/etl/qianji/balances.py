@@ -48,8 +48,8 @@ def qianji_balances_at(db_path: Path, as_of: date | None = None) -> QianjiSnapsh
     Bill-type dispatch table
     ------------------------
     Qianji encodes four bill kinds in ``user_bill.type`` (see
-    :data:`_TYPE_MAP` for the internal-name mapping). For each, this
-    function applies the **inverse** of the forward effect:
+    :data:`.config._TYPE_MAP` for the internal-name mapping). For each,
+    this function applies the **inverse** of the forward effect:
 
     =====  =========  ============================  ============================
     type   name       forward effect (on record)    reverse effect (here)
