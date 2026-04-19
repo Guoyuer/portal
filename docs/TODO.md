@@ -21,7 +21,7 @@ Tiering rule: 🟢 = do if touching this area, 🟡 = do if you expect to keep i
 
 **Effort:** ~30 min. **Blast radius:** validator only (read-only, zero DB impact).
 
-- [ ] Done
+- [x] Done
 
 ### T2. Consolidate `_STATUS_LABELS` / `EXIT_*` constants
 
@@ -33,7 +33,7 @@ Tiering rule: 🟢 = do if touching this area, 🟡 = do if you expect to keep i
 
 **Effort:** ~30 min. **Blast radius:** `etl/automation/` internal only.
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -51,7 +51,7 @@ Tiering rule: 🟢 = do if touching this area, 🟡 = do if you expect to keep i
 
 **Effort:** 1-2 hr. **ROI:** bug-catch proportional to how much you change replay logic in the future.
 
-- [ ] Done
+- [x] Done
 
 ### T4. Bundle analyzer + Lighthouse CI baseline
 
