@@ -9,9 +9,9 @@ One-time steps to register `run_portal_sync.ps1` with Windows Task Scheduler and
 
 ---
 
-## 1. Healthchecks.io check (required)
+## 1. Healthchecks.io check (optional but recommended)
 
-Gives you a heartbeat monitor — alerts if the task didn't run or failed. Free tier is enough. `run_automation.py` refuses to start without the URL set (see RUNBOOK §8 for rationale).
+Gives you a heartbeat monitor — alerts if the task didn't run or failed. Free tier is enough. `run_automation.py`'s `ping_healthcheck()` is a silent no-op when `PORTAL_HEALTHCHECK_URL` is unset (the earlier fail-fast enforcement was reverted; see `docs/TODO.md` decision log 2026-04-18 for context). Skip this section entirely if you only want email-on-failure notifications via §7.
 
 1. Sign up at https://healthchecks.io/accounts/signup/
 2. Create a new check:
@@ -51,7 +51,19 @@ If `[3]` exits `2` (parity gate fail) or `[3b]` exits `4` (positions gate fail),
 
 ## 4. Register Task Scheduler
 
-From an **elevated** PowerShell (Run as Administrator):
+**Recommended: AtLogOn + 2-minute delay (non-elevated).** The laptop is asleep at fixed daily times, so a daily clock trigger misses runs. `Register-ScheduledTask` also avoids needing admin for `/delay`-style grace periods that `schtasks.exe` requires elevation for.
+
+From a **non-elevated** PowerShell:
+
+```powershell
+$action = New-ScheduledTaskAction -Execute 'powershell.exe' `
+  -Argument '-NoProfile -ExecutionPolicy Bypass -File C:\Users\guoyu\Projects\portal\pipeline\scripts\run_portal_sync.ps1'
+$trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+$trigger.Delay = 'PT2M'      # 2-minute grace so network is up
+Register-ScheduledTask -TaskName 'PortalSync' -Action $action -Trigger $trigger
+```
+
+**Alternative: daily clock trigger (only works if the laptop is awake at that time).** From an **elevated** PowerShell:
 
 ```powershell
 schtasks /create `
@@ -61,10 +73,7 @@ schtasks /create `
   /rl HIGHEST
 ```
 
-Flags:
-- `/rl HIGHEST` — run with highest privileges (needed if the task needs to read protected paths)
-- `/sc daily /st 06:00` — every day at 6 AM local time
-- If you want a different cadence: `/sc weekly /d MON /st 08:00`, etc.
+Flags: `/rl HIGHEST` runs with highest privileges (needed if the task needs to read protected paths); `/sc daily /st 06:00` = every day at 6 AM local time; for a different cadence use e.g. `/sc weekly /d MON /st 08:00`.
 
 ## 5. Trigger a test run (real sync, not dry-run)
 
@@ -177,7 +186,7 @@ Exit code from `run_automation.py` (propagated by PS1 shim to Task Scheduler):
 
 The email notification is sent **after** the exit code is determined but before the script returns, so a failing run both emails you and exits non-zero for Task Scheduler / healthchecks to pick up.
 
-Healthchecks.io pings:
+Healthchecks.io pings (only if `PORTAL_HEALTHCHECK_URL` is set; otherwise `ping_healthcheck()` is a no-op):
 - `/start` at each run begin
 - base URL on success (including no-change)
 - `/fail` on any non-zero exit

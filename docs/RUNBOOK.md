@@ -50,13 +50,13 @@ Then re-run `python scripts/sync_to_d1.py` — alignment pass will see no gap an
 
 ## 4. Worker 503 on `/timeline`
 
-Live tail:
+Live tail (the deployed Worker is named `portal-api` — see `worker/wrangler.toml`):
 
 ```bash
-cd worker && npx wrangler tail portal-worker --format=pretty
+cd worker && npx wrangler tail portal-api --format=pretty
 ```
 
-Dashboard alternative: cloudflare.com → Workers & Pages → portal-worker → Logs (Real-time).
+Dashboard alternative: cloudflare.com → Workers & Pages → portal-api → Logs (Real-time).
 
 Most likely causes, in order:
 - **View missing a column** — a local ingest added a field, sync ALTER-ed the base table, but the `v_*` view still projects the old list. Re-run `python pipeline/scripts/gen_schema_sql.py` and redeploy the worker. Schema drift history is in `sync_log` (see §3).
@@ -67,10 +67,11 @@ Most likely causes, in order:
 
 Verify worker first: `curl https://portal.guoyuer.com/api/timeline | head -c 200`. If JSON, the problem is in the Pages bundle.
 
-Check CI:
+Check CI (the Pages deploy is one job inside `ci.yml` — there is no separate deploy workflow):
 
 ```bash
-gh run list --workflow=deploy.yml --limit 5
+gh run list --workflow=ci.yml --limit 5
+gh run view <run-id> --log-failed     # if the run is red
 ```
 
 Manual deploy:
@@ -112,8 +113,17 @@ cd pipeline && python -m venv .venv && .venv/Scripts/pip install -r requirements
 
 For frontend: `cd .. && npm install && npm run build`. Pages deploy inherits the existing project via `wrangler pages deploy out --project-name=portal`.
 
-## 8. `PORTAL_HEALTHCHECK_URL` is recommended
+## 8. `PORTAL_HEALTHCHECK_URL` (optional dead-man's switch)
 
-`run_automation.py` logs a loud WARNING at startup when `PORTAL_HEALTHCHECK_URL` is unset but continues. Automation failures then only surface via email — no external dead-man's switch.
+`ping_healthcheck()` in `run_automation.py` is a silent no-op when `PORTAL_HEALTHCHECK_URL` is unset — no startup message either way (the earlier warning/fail-fast enforcement was reverted; see `docs/TODO.md` decision log 2026-04-18). Automation failures without the var set will surface only via email.
 
-Fix: set the var in `pipeline/.env` (or at user level via `setx`). Value format: `https://hc-ping.com/<your-uuid>`. Create the check at https://healthchecks.io/ → new check → copy the ping URL. See `docs/automation-setup.md` §1-§2 for the full walkthrough.
+To opt in: create a check at https://healthchecks.io/ → copy the ping URL (format `https://hc-ping.com/<your-uuid>`) → set `PORTAL_HEALTHCHECK_URL` in `pipeline/.env` (or at user level via `setx`). Tune the check's "grace period" to the run's p95 duration plus a small margin; anything longer than that without a success ping will page you. See `docs/automation-setup.md` §1–§2 for the full walkthrough.
+
+## 9. Debugging Pages/Worker visually via MCP
+
+Two MCP servers are declared in `.mcp.json` and picked up automatically in Claude Code sessions in this repo:
+
+- `chrome-devtools` — drives a live Chromium, lets the session take screenshots, read console messages, evaluate scripts on the page. Use this for interactive "is the dashboard actually rendering" checks.
+- `playwright` — scripted automation for the same kinds of checks but reproducible.
+
+The Windows invocation uses `cmd /c npx`; on Mac/Linux replace `cmd /c` with a direct `npx` call in `.mcp.json` locally.

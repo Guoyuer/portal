@@ -8,43 +8,68 @@ Personal one-stop dashboard. Finance reports with live data from Fidelity broker
 
 ```mermaid
 graph TB
-    subgraph Local["Local machine"]
-        TASK["Windows Task Scheduler<br/>run_portal_sync.ps1 (AtLogOn + 2m)"]
+    subgraph Local["Local machine (Windows)"]
+        TASK["Task Scheduler<br/>AtLogOn + PT2M delay<br/>(run_portal_sync.ps1 shim)"]
         AUTO["run_automation.py<br/>detect → build → verify → sync"]
+        subgraph Sources["Investment sources — etl/sources/"]
+            FID["fidelity/ (directory)<br/>CSV + cash + pricing"]
+            RH["robinhood.py<br/>CSV"]
+            EMP["empower.py<br/>QFX + contributions"]
+        end
+        QJ["etl/qianji.py<br/>SQLite reverse replay<br/>(outside InvestmentSource Protocol)"]
+        REPLAY["etl/replay.py<br/>source-agnostic forward replay"]
         BUILD["build_timemachine_db.py<br/>ingest → replay → precompute"]
         DB[(timemachine.db)]
-        SYNC["sync_to_d1.py<br/>diff (default) or --full"]
+        SYNC["sync_to_d1.py<br/>diff (default) · --full · --local"]
     end
 
-    subgraph Cloud["Cloudflare — portal.guoyuer.com (single-origin behind CF Access)"]
-        ACCESS["CF Access<br/>Google SSO cookie"]
+    subgraph Cloud["Cloudflare — portal.guoyuer.com (single origin behind CF Access)"]
+        ACCESS["CF Access app<br/>Google-SSO cookie<br/>allow-list = guoyuer1@gmail.com"]
         PAGES["/* Pages<br/>static shell + Service Worker"]
-        WAPI["/api/* portal-api Worker<br/>GET /timeline · /econ · /prices/:sym<br/>edge cache 60s / 600s / 300s"]
-        D1[(D1 portal-db)]
+        WAPI["/api/* portal-api Worker<br/>GET /timeline 60s · /econ 600s · /prices/:sym 300s<br/>edge-cached · fail-open per section"]
+        subgraph D1Layer["D1 portal-db"]
+            TABLES[(15 tables<br/>13 from etl/db.py + sync_meta + sync_log)]
+            VIEWS[("12 camelCase views<br/>v_daily · v_econ_snapshot · …<br/>(shape layer — Worker does zero row mutation)")]
+            TABLES --> VIEWS
+        end
     end
 
-    subgraph Browser
+    subgraph Browser["Browser"]
         SW["Service Worker<br/>cache-first static · SWR API"]
+        BUNDLE["use-bundle.ts<br/>Zod safeParse<br/>= single drift checkpoint"]
+        COMPUTE["compute.ts<br/>allocation · cashflow (with savings) ·<br/>activity · groupedActivity · crossCheck"]
+        GROUPS[/"equivalent-groups.ts<br/>sp500 · nasdaq_100<br/>(members + representative)"/]
         UI["React 19 + React Compiler<br/>(auto-memoization)"]
-        COMPUTE["src/lib/compute/compute.ts<br/>allocation · cashflow · activity"]
     end
 
     subgraph CI["GitHub Actions"]
-        CI_TEST["pytest + vitest + Playwright (mock API)"]
-        CI_DEPLOY["Pages deploy<br/>(Workers deploy is manual — token<br/>lacks Zone → Workers Routes → Edit)"]
+        CI_TEST["pytest 665 · vitest 282 · Playwright 9 (mock API)"]
+        CI_DEPLOY["ci.yml → Pages deploy<br/>(Worker deploy is manual — CI token lacks<br/>Zone → Workers Routes → Edit)"]
     end
 
-    TASK --> AUTO --> BUILD --> DB --> SYNC --> D1
+    FID & RH & EMP --> REPLAY
+    REPLAY --> BUILD
+    QJ --> BUILD
+    TASK --> AUTO --> BUILD --> DB --> SYNC --> TABLES
+
     ACCESS -.gates.-> PAGES & WAPI
-    PAGES -->|initial load| SW --> UI --> COMPUTE
-    UI -->|"fetch /api/timeline · /econ · /prices/:sym"| WAPI --> D1
+    PAGES -->|initial load| SW --> UI
+    UI --> BUNDLE
+    BUNDLE --> COMPUTE --> UI
+    GROUPS --> COMPUTE
+    BUNDLE -->|"GET /api/timeline · /econ · /prices/:sym"| WAPI
+    WAPI --> VIEWS
+
     CI_TEST --> CI_DEPLOY --> PAGES
 
     style BUILD fill:#10b981,color:#fff
     style WAPI fill:#2563eb,color:#fff
     style PAGES fill:#f59e0b,color:#000
     style ACCESS fill:#f97316,color:#fff
-    style D1 fill:#2563eb,color:#fff
+    style TABLES fill:#2563eb,color:#fff
+    style VIEWS fill:#2563eb,color:#fff
+    style COMPUTE fill:#7c3aed,color:#fff
+    style GROUPS fill:#7c3aed,color:#fff
 ```
 
 **Key design:** Portal is a static shell deployed to Cloudflare Pages. A Worker is mounted as a zone route on the same origin (`portal.guoyuer.com/api/*` → `portal-api`) so every `/api/*` call shares the same CF Access session cookie — no CORS, no cross-subdomain handshake. The frontend fetches once on load via `GET /api/timeline`, then computes allocation, cashflow, activity, and reconciliation locally in `src/lib/compute/compute.ts` via `src/lib/hooks/use-bundle.ts`. Brush drag is zero-latency (no network round-trips). Ticker dialogs fetch `GET /api/prices/:symbol` on demand.
@@ -100,16 +125,23 @@ portal/
 │   │   │   └── back-to-top.tsx        # Floating scroll-to-top
 │   │   ├── finance/
 │   │   │   ├── section.tsx            # SectionHeader + SectionBody layout primitives
-│   │   │   ├── ticker-table.tsx       # TickerTable + DeviationCell
-│   │   │   ├── charts.tsx             # Recharts (donut, bar+line, area)
+│   │   │   ├── ticker-table.tsx       # Activity table — accepts groupable rows + opens per-ticker or group dialog
+│   │   │   ├── charts.tsx             # Donut + stacked income/expenses bar
 │   │   │   ├── timemachine.tsx        # Brush/traveller date-range selector
 │   │   │   ├── metric-cards.tsx       # Portfolio, Net Worth, Savings Rate, Goal
-│   │   │   ├── category-summary.tsx   # Allocation table + donut
-│   │   │   ├── cash-flow.tsx          # Income/expenses + summary
-│   │   │   ├── ticker-chart.tsx       # Per-ticker price chart with buy/sell markers
-│   │   │   ├── ticker-chart-base.tsx  # Shared price-chart primitive (AreaChart + markers)
-│   │   │   ├── ticker-markers.tsx     # Buy/sell/dividend markers on ticker charts
-│   │   │   ├── ticker-dialog.tsx      # Modal: per-ticker price chart + transaction table
+│   │   │   ├── category-summary.tsx   # Allocation table + donut (groupTickers sorts upstream)
+│   │   │   ├── cash-flow.tsx          # Income/expenses tables (CashFlowRow shared subcomponent)
+│   │   │   ├── chart-dialog.tsx       # Shared near-fullscreen modal shell for ticker + group dialogs
+│   │   │   ├── ticker-chart-base.tsx  # Inline per-ticker chart (AvgCostReferenceLine, cluster markers)
+│   │   │   ├── ticker-dialog.tsx      # Per-ticker modal: price chart + transaction table
+│   │   │   ├── ticker-markers.tsx     # BuyClusterMarker / SellClusterMarker / ReinvestMarker (SVG)
+│   │   │   ├── group-chart.tsx        # Proxy-price chart for equivalence groups (S&P 500, NASDAQ 100)
+│   │   │   ├── group-dialog.tsx       # Group modal: proxy chart + per-member transactions
+│   │   │   ├── marker-chart.tsx       # Shared Recharts layout used by inline + dialog charts
+│   │   │   ├── marker-hover-panel.tsx # Fixed-position hover tooltip (ticker + group variants)
+│   │   │   ├── source-badge.tsx       # FID / RH / 401k coloured badge (paired with text, protanomaly-safe)
+│   │   │   ├── transaction-table.tsx  # Shared table: Date / Type / Qty / Price / Amount
+│   │   │   ├── unmatched-panel.tsx    # "Unmatched deposits" breakdown under the cross-check button
 │   │   │   └── market-context.tsx     # Index returns + macro indicators
 │   │   ├── charts/
 │   │   │   └── tooltip-card.tsx       # Shared Recharts tooltip card primitive
@@ -123,17 +155,21 @@ portal/
 │       ├── config.ts                  # WORKER_BASE, TIMELINE_URL, ECON_URL, GOAL
 │       ├── utils.ts                   # General utilities (cn, etc.)
 │       ├── compute/
-│       │   ├── compute.ts             # Pure computation (allocation, cashflow, activity)
-│       │   └── computed-types.ts      # Client-computed TS types (not Zod-derived)
+│       │   ├── compute.ts             # Pure computation (allocation, cashflow incl. savings, activity, grouped activity, cross-check)
+│       │   └── computed-types.ts      # Client-computed TS types (MonthlyFlowPoint.savings, SourceKind, …)
+│       ├── config/
+│       │   └── equivalent-groups.ts   # S&P 500 / NASDAQ 100 member map + representative ticker
 │       ├── format/
 │       │   ├── format.ts              # Currency/percent/date formatters
 │       │   ├── econ-formatters.ts     # Macro-indicator value formatters
-│       │   ├── chart-styles.ts        # Recharts theming
-│       │   ├── chart-colors.ts        # Okabe-Ito palette + category color map
+│       │   ├── chart-styles.ts        # Recharts theming (frozen light/dark style consts)
+│       │   ├── chart-colors.ts        # Okabe-Ito palette + category color map + market gain/loss
 │       │   ├── thresholds.ts          # Business thresholds + value coloring
-│       │   └── ticker-data.ts         # Price/transaction merge helper for ticker charts
+│       │   ├── ticker-data.ts         # Price/transaction merge helper for ticker charts
+│       │   └── group-aggregation.ts   # classifyTxn + groupNetByDate + buildGroupValueSeries (equivalence groups)
 │       ├── hooks/
 │       │   ├── use-bundle.ts          # Core data hook: fetch /timeline → local compute
+│       │   ├── use-hover-state.ts     # Marker hover state reused across ticker + group dialogs
 │       │   └── hooks.ts               # Shared React hooks (useIsDark, useIsMobile, ...)
 │       └── schemas/                   # Zod API schemas (timeline, econ, ticker)
 │           └── _generated.ts          # Auto-generated from pipeline/etl/types.py
@@ -164,8 +200,10 @@ portal/
 │   │   ├── email_report.py            # SMTP digest sender
 │   │   ├── dotenv_loader.py           # .env loader used by entry scripts
 │   │   ├── sources/                   # Investment sources (InvestmentSource Protocol)
-│   │   │   ├── __init__.py            # SOURCES list + Protocol + PositionRow + ActionKind
-│   │   │   ├── fidelity/              # CSV ingest + classify + cash + pricing
+│   │   │   ├── __init__.py            # SOURCES list (lazy _sources loader), re-exports
+│   │   │   ├── _types.py              # ActionKind StrEnum + PriceContext + PositionRow + InvestmentSource Protocol
+│   │   │   ├── _ingest.py             # Shared range-replace idempotency helper
+│   │   │   ├── fidelity/              # CSV ingest + classify + cash + pricing (directory module)
 │   │   │   ├── robinhood.py           # CSV ingest + ReplayConfig
 │   │   │   └── empower.py             # QFX ingest + contribution fallback
 │   │   ├── prices/                    # Price + CNY-rate fetching (Yahoo Finance)
@@ -202,15 +240,18 @@ portal/
 │   ├── requirements.txt               # yfinance, fredapi, httpx
 │   └── config.example.json            # Template config
 │
-├── e2e/                               # Playwright e2e tests
+├── e2e/                               # Playwright e2e tests (main config; manual/ excluded)
 │   ├── mock-api.ts                    # Mock /timeline + /econ + /prices (port 4444)
 │   ├── finance.spec.ts                # Finance dashboard tests
 │   ├── econ.spec.ts                   # Economy dashboard tests
 │   ├── ticker-dialog.spec.ts          # Per-ticker modal interaction
+│   ├── group-toggle.spec.ts           # Equivalence-group row folding + group dialog
 │   ├── fail-open.spec.ts              # Partial-failure fallbacks render error cards
 │   ├── perf-brush.spec.ts             # Brush performance tests
-│   ├── real-worker.spec.ts            # Optional: run against a live Worker
-│   └── manual/                        # Ad-hoc exploratory specs
+│   ├── real-worker.spec.ts            # Opt-in: run against live Worker (see playwright.config.real.ts)
+│   └── manual/                        # Exploratory specs run via playwright.manual.config.ts
+│       ├── interactive-check.spec.ts
+│       └── ticker-cluster-count-matches.spec.ts
 │
 ├── .github/workflows/
 │   ├── ci.yml                         # Python + Node CI → Pages deploy
@@ -219,6 +260,7 @@ portal/
 │   ├── e2e-real-worker.yml            # Optional Playwright run against live Worker
 │   └── regression-baseline-refresh.yml # `baseline-refresh` PR label → refresh L1 hashes
 │
+├── .mcp.json                          # MCP servers Claude Code uses in this repo: chrome-devtools + playwright (Windows `cmd /c npx` invocation — swap to `npx` on Mac/Linux)
 └── package.json
 ```
 
@@ -233,7 +275,7 @@ graph LR
     DB -->|"sync_to_d1.py"| D1["D1 portal-db<br/>+ camelCase views"]
     D1 -->|"Worker SELECT → JSON"| JSON["GET /api/timeline"]
     GEN -->|"extend() / omit()"| TS["src/lib/schemas/timeline.ts"]
-    JSON -->|"safeParse at boundary"| TS
+    JSON -->|"safeParse in use-bundle.ts (client-side — Worker is thin)"| TS
 
     style PY fill:#3776ab,color:#fff
     style DB fill:#10b981,color:#fff
@@ -263,7 +305,7 @@ graph LR
 | Auth | Cloudflare Access | Zero-trust, Google login |
 | Pipeline | Python 3.14 | Fidelity/Qianji/Robinhood/401k ingest, Yahoo Finance, FRED API |
 | CI/CD | GitHub Actions | Python lint/test + vitest + Playwright E2E + deploy |
-| Tests | vitest (23 files) + Playwright (5 specs, mock API) + pytest (42 files) | Coverage thresholds, branch protection |
+| Tests | vitest (27 files) + Playwright (7 specs + 2 manual, mock API) + pytest (42 files / 665 tests) | Coverage thresholds, branch protection |
 | Errors | Sentry | Client-side error tracking in production |
 
 ## Development
@@ -313,7 +355,7 @@ cd pipeline && .venv/Scripts/python.exe scripts/run_automation.py
 1. **Cloudflare D1**: `cd worker && npx wrangler d1 create portal-db`, apply schema: `npx wrangler d1 execute portal-db --remote --file=schema.sql`
 2. **Environment**: Set `NEXT_PUBLIC_TIMELINE_URL` (Worker URL) in `.env.local` and as GitHub secret
 3. **Custom domain** (optional): Add `portal.yourdomain.com` to Pages project
-4. **Cloudflare Access** (optional): Zero Trust → Add Google IdP → Access Application
+4. **Cloudflare Access** (required for this deployment — the Worker and Pages both sit behind a single CF Access app on `portal.guoyuer.com/*` with a Google-IdP allow-list): Zero Trust → Add Google IdP → Access Application covering `portal.guoyuer.com/*`
 5. **GitHub Secrets**: `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `NEXT_PUBLIC_TIMELINE_URL`, `FRED_API_KEY`
 6. **Config**: Copy `config.example.json` → `config.json`, fill in your accounts
 7. **First build**: `cd pipeline && python3 scripts/build_timemachine_db.py && python3 scripts/sync_to_d1.py`
@@ -328,10 +370,29 @@ e2e/{module}.spec.ts             ← tests
 pipeline/...                     ← data generation (if needed)
 ```
 
+## Equivalent-groups (S&P 500, NASDAQ 100)
+
+`src/lib/config/equivalent-groups.ts` declares hand-maintained groups of economically-equivalent tickers — e.g. `{ VOO, IVV, SPY, FXAIX, "401k sp500" }` all collapse into "S&P 500" in the activity table. Each group has a `representative` ticker whose `/prices` series anchors the group chart's Y-axis, so rebalancing between members (selling VOO → buying FXAIX) shows up as net-zero exposure change rather than a spurious buy-sell pair.
+
+Module-load invariants: tickers are disjoint across groups, and `representative` must be a member of `tickers`. Violations throw at import time so a bad edit breaks the build rather than silently misclassifying.
+
+Consumers: `computeGroupedActivity` (folded activity rows), `group-aggregation.ts::groupNetByDate` (clusters Fidelity REAL transactions within a T+2 window; drops <$50 noise swaps), `group-chart.tsx` (proxy-price chart + net-exposure markers).
+
+## Dev tooling (MCP servers)
+
+`.mcp.json` declares two MCP servers picked up by Claude Code sessions in this workspace:
+
+- `chrome-devtools` — drives a live Chromium (visual QA, console inspection, evaluate scripts on the page).
+- `playwright` — scripted browser automation for the same kinds of checks but reproducible.
+
+Both use Windows-specific `cmd /c npx` invocation; on Mac/Linux edit `.mcp.json` locally to replace with a direct `npx` call.
+
 ## Roadmap
 
 - [ ] News aggregation — RSS feeds
 - [ ] AI-generated macro narrative — LLM summarizing economic conditions and cycle position
+- [ ] Portfolio performance vs benchmark (TWR / IRR per ticker + SPY overlay)
+- [ ] Retirement-trajectory projection (extends existing "Goal $2M" display)
 
 ## License
 

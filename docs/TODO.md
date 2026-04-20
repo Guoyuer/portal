@@ -1,6 +1,6 @@
 # Portal TODO
 
-**Captured:** 2026-04-18
+**Captured:** 2026-04-18 (last refreshed 2026-04-20 after PR #260 cleanup pass — see decision log at bottom)
 **Context:** Code quality assessed at ~8.6/10 after the day's 18-PR refactor run. Further polish hits diminishing returns; remaining work is either small real bugs, optional infrastructure upgrades, or product features (a different dimension).
 
 Tiering rule: 🟢 = do if touching this area, 🟡 = do if you expect to keep investing in code quality, 🔵 = defer until a concrete signal, 🔴 = product direction (not refactor).
@@ -166,3 +166,5 @@ These are **new features**, not code quality. Each requires its own design/impl 
 | 2026-04-18 | Reverted `PORTAL_HEALTHCHECK_URL` B3 enforcement entirely after #227 merge | First attempt hard-failed when unset (broke automation); softened to warn; user rolled further back to pure opt-in (silent if unset). Current state: `ping_healthcheck` no-ops when unset, no startup message either way. |
 | 2026-04-18 | Kept `etl/sources/__init__.py` re-exports of types from `_types.py` | Not backcompat — legit public API; underscore on `_types.py` is to avoid circular import only. |
 | 2026-04-18 | Kept `ACT_*` constants in `etl/types.py` | DB stores them in `action_type` column; wider vocabulary than `ActionKind`. Not dead. |
+| 2026-04-20 | PR #260 cleanup pass landed | Frontend + Worker + Pipeline simplification + dedupe. Frontend: chart-style hoists, `groupNetByDate` split, `ClusterMarker`/`MarkerHoverPanel` decomposed, `AvgCostReferenceLine`/`CashFlowRow` extracted, `HoldingsList`/`IncomeExpensesChart` transforms upstream (+ new `MonthlyFlowPoint.savings` field). Worker: `jsonResponse` slimmed, `Object.entries().flatMap()`, tighter `handleEcon`. Pipeline: `_full_build` delegates to `upsert_daily_rows` (kills lone jscpd clone), `_compute_spread_2s10s` lifted out of `fetch_fred_data`. All gates green. |
+| 2026-04-20 | Doc refresh vs PR #260 state | CLAUDE.md: D1 count fixed (15 tables / 12 views), Zod list completed, `_types.py` location corrected, equivalent-groups + MCP sections added. README.md: vitest 27 / Playwright 9 counts fixed, components/lib listings updated, equivalent-groups concept surfaced, Setup §4 clarified CF Access is required. ARCHITECTURE.md: D1 table matrix expanded, Worker Zod claim corrected to "no Zod — client-side is single drift checkpoint", equivalent-groups section added. RUNBOOK.md: Worker name fixed to `portal-api`, `deploy.yml` → `ci.yml`, §8 PORTAL_HEALTHCHECK_URL updated to "silent no-op opt-in". automation-setup.md: §1 made optional, §4 added AtLogOn+2m alternative. |
