@@ -124,6 +124,10 @@ export function cashflowState(cashflow: CashflowResponse | null): CashflowState 
 // boundary) so string comparison and `new Date(...)` both just work.
 
 const MATCH_WINDOW_MS = 7 * 86_400_000; // Qianji can lag Fidelity by up to 7 days
+// Sub-dollar Fidelity "deposits" are cash-sweep dust / residual interest,
+// not funded transfers the user would ever log in Qianji. Exclude them so
+// the ✗ count reflects deposits the user actually made.
+const DUST_THRESHOLD = 1;
 
 export interface CrossCheck {
   fidelityTotal: number;
@@ -160,6 +164,7 @@ export function computeCrossCheck(
   let fidelityTotal = 0;
   for (const t of fidelityTxns) {
     if (t.actionType !== "deposit") continue;
+    if (Math.abs(t.amount) < DUST_THRESHOLD) continue;
     if (t.runDate >= effectiveStart && t.runDate <= end) {
       deposits.push({ amt: Math.round(Math.abs(t.amount) * 100), ms: new Date(t.runDate).getTime() });
       fidelityTotal += t.amount;

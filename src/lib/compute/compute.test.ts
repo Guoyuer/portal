@@ -369,6 +369,22 @@ describe("computeCrossCheck", () => {
     expect(cc.ok).toBe(false);
   });
 
+  it("excludes sub-dollar dust deposits (cash sweep / residual interest)", () => {
+    const fTxns: FidelityTxn[] = [
+      mkFidelityTxn({ runDate: "2026-01-15", actionType: "deposit", symbol: "", amount: 0.03 }),
+      mkFidelityTxn({ runDate: "2026-01-15", actionType: "deposit", symbol: "", amount: 0.33 }),
+      mkFidelityTxn({ runDate: "2026-01-15", actionType: "deposit", symbol: "", amount: 1000 }),
+    ];
+    const qTxns: QianjiTxn[] = [
+      mkQianjiTxn({ date: "2025-12-01", type: "expense", amount: 50 }), // anchor Qianji floor
+      mkQianjiTxn({ date: "2026-01-15", type: "transfer", amount: 1000 }),
+    ];
+    const cc = computeCrossCheck(fTxns, qTxns, "2026-01-01", "2026-01-31");
+    expect(cc.totalCount).toBe(1);
+    expect(cc.matchedCount).toBe(1);
+    expect(cc.ok).toBe(true);
+  });
+
   it("excludes deposits predating the earliest Qianji txn", () => {
     const fTxns: FidelityTxn[] = [
       mkFidelityTxn({ runDate: "2023-06-01", actionType: "deposit", symbol: "", amount: 2000 }), // pre-Qianji
