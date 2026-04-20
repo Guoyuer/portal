@@ -39,10 +39,12 @@ export type GroupChartPoint = GroupValuePoint & {
   sellClusterPrice?: number;
 };
 
-// Match ticker-data.ts sizeClusters — sqrt-normalized radius so magnitude is
-// immediately perceptible (a $5000 net dwarfs a $500 one).
-const MIN_R = 9;
-const MAX_R = 22;
+// Sqrt-normalized radius — magnitude is immediately perceptible. Smaller
+// cap than ticker-chart (22) because group charts often show more markers
+// clustered together (every rebalance/DCA) and the value line must remain
+// visible between them.
+const MIN_R = 7;
+const MAX_R = 14;
 
 /** Combine the daily value series with the group-net markers into chart points. */
 export function buildGroupChartData(
@@ -153,7 +155,7 @@ export function GroupChart({ data }: { data: GroupChartPoint[] }) {
           type="monotone"
           dataKey="value"
           stroke={isDark ? "#60a5fa" : "#2563eb"}
-          strokeWidth={1.5}
+          strokeWidth={2}
           dot={false}
           isAnimationActive={false}
         />

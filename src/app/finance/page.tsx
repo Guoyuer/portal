@@ -8,6 +8,7 @@ import type { MonthlyFlowPoint } from "@/lib/compute/computed-types";
 import { fmtDateMedium } from "@/lib/format/format";
 import { SectionHeader, SectionBody, SectionMessage } from "@/components/finance/section";
 import { TickerTable } from "@/components/finance/ticker-table";
+import { EQUIVALENT_GROUPS } from "@/lib/config/equivalent-groups";
 import { IncomeExpensesChart } from "@/components/finance/charts";
 import { MetricCards } from "@/components/finance/metric-cards";
 import { CashFlow } from "@/components/finance/cash-flow";
@@ -85,7 +86,12 @@ function ActivityContent({
   return (
     <SectionBody>
       <div className="flex justify-end mb-2">
-        <label className="inline-flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
+        <label
+          className="inline-flex items-center gap-2 text-sm text-muted-foreground cursor-pointer"
+          title={Object.values(EQUIVALENT_GROUPS)
+            .map((g) => `${g.display}: ${g.tickers.join(", ")}`)
+            .join("\n")}
+        >
           <input type="checkbox" checked={grouped} onChange={(e) => setGrouped(e.target.checked)} />
           Group equivalent tickers
         </label>

@@ -18,6 +18,7 @@ export function GroupChartDialog({
   startDate,
   endDate,
   onClose,
+  onSelectTicker,
 }: {
   groupKey: string;
   dailyTickers: DailyTicker[];
@@ -25,6 +26,7 @@ export function GroupChartDialog({
   startDate?: string;
   endDate?: string;
   onClose: () => void;
+  onSelectTicker?: (symbol: string) => void;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const isDark = useIsDark();
@@ -80,12 +82,27 @@ export function GroupChartDialog({
               );
             })()}
             {latest && latest.value > 0 ? (
-              <span className="text-xs text-muted-foreground truncate">
+              <span className="text-xs text-muted-foreground truncate flex gap-2">
                 {latest.constituents
                   .slice()
                   .sort((a, b) => b.value - a.value)
-                  .map((c) => `${c.ticker} ${fmtPct((c.value / latest.value) * 100, false)}`)
-                  .join(" · ")}
+                  .map((c, i, arr) => (
+                    <span key={c.ticker} className="inline-flex items-center gap-1">
+                      {onSelectTicker ? (
+                        <button
+                          type="button"
+                          className="underline decoration-dotted underline-offset-2 hover:text-foreground transition-colors cursor-pointer"
+                          onClick={() => onSelectTicker(c.ticker)}
+                        >
+                          {c.ticker}
+                        </button>
+                      ) : (
+                        <span>{c.ticker}</span>
+                      )}
+                      <span>{fmtPct((c.value / latest.value) * 100, false)}</span>
+                      {i < arr.length - 1 && <span aria-hidden>·</span>}
+                    </span>
+                  ))}
               </span>
             ) : (
               <span className="text-xs text-muted-foreground truncate">{group.tickers.join(" · ")}</span>

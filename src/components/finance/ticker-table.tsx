@@ -11,7 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { TickerChart } from "./ticker-chart";
+import { TickerChart, TickerDialogOnly } from "./ticker-chart";
 import { GroupChartDialog } from "./group-dialog";
 import type { DailyTicker, FidelityTxn } from "@/lib/schemas";
 
@@ -133,6 +133,7 @@ export function TickerTable({
 }) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [dialogGroupKey, setDialogGroupKey] = useState<string | null>(null);
+  const [dialogTicker, setDialogTicker] = useState<string | null>(null);
   const top = data.slice(0, ACTIVITY_TOP_SYMBOLS);
   const rest = data.slice(ACTIVITY_TOP_SYMBOLS);
   const restTotal = rest.reduce((s, t) => s + t.total, 0);
@@ -190,7 +191,11 @@ export function TickerTable({
           startDate={startDate}
           endDate={endDate}
           onClose={() => setDialogGroupKey(null)}
+          onSelectTicker={(sym) => setDialogTicker(sym)}
         />
+      )}
+      {dialogTicker && (
+        <TickerDialogOnly symbol={dialogTicker} onClose={() => setDialogTicker(null)} />
       )}
     </div>
   );
