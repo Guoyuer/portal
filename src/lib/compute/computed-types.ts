@@ -5,6 +5,8 @@
 
 import type { DailyTicker } from "@/lib/schemas";
 
+export type SourceKind = "fidelity" | "robinhood" | "401k";
+
 export type MonthlyFlowPoint = { month: string; income: number; expenses: number; savingsRate: number };
 export type CategoryData = {
   name: string;
@@ -18,7 +20,7 @@ export type CategoryData = {
   holdings: { ticker: string; value: number }[];
 };
 export type ApiTicker = Omit<DailyTicker, "date"> & {
-  sources?: Array<"fidelity" | "robinhood" | "401k">;
+  sources?: Array<SourceKind>;
 };
 export type ApiCategory = { name: string; value: number; pct: number; target: number; deviation: number };
 export type AllocationResponse = { total: number; netWorth: number; liabilities: number; categories: ApiCategory[]; tickers: ApiTicker[] };
@@ -36,7 +38,7 @@ export type ActivityTicker = {
   total: number;
   isGroup?: boolean;
   groupKey?: string;
-  sources?: Array<"fidelity" | "robinhood" | "401k">;
+  sources?: Array<SourceKind>;
 };
 
 export type ActivityResponse = {

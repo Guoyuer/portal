@@ -17,6 +17,7 @@ import type {
   ApiTicker,
   ApiCategory,
   MonthlyFlowPoint,
+  SourceKind,
 } from "@/lib/compute/computed-types";
 export type { ActivityTicker };
 
@@ -127,7 +128,7 @@ export function cashflowState(cashflow: CashflowResponse | null): CashflowState 
 /** Unified shape used by computeActivity + computeCrossCheck. Internal to
  *  the compute layer; does NOT cross the D1/Worker/Zod boundary. */
 export interface InvestmentTxn {
-  source: "fidelity" | "robinhood" | "401k";
+  source: SourceKind;
   date: string;
   ticker: string;
   actionType: "buy" | "sell" | "dividend" | "reinvestment" | "deposit" | "contribution";
@@ -183,7 +184,7 @@ const MATCH_WINDOW_MS = 7 * 86_400_000; // Qianji can lag a deposit by up to 7 d
 const DUST_THRESHOLD = 1;
 
 export interface UnmatchedItem {
-  source: "fidelity" | "robinhood";
+  source: Exclude<SourceKind, "401k">;
   date: string;
   amount: number;
 }
@@ -318,10 +319,10 @@ function matchAndRecord(
 
 // ── Activity ──────────────────────────────────────────────────────────────
 
-type ActivityBucket = { count: number; total: number; sources: Set<"fidelity" | "robinhood" | "401k"> };
+type ActivityBucket = { count: number; total: number; sources: Set<SourceKind> };
 
-function accumWithSrc(m: Map<string, ActivityBucket>, key: string, amount: number, src: "fidelity" | "robinhood" | "401k") {
-  const e = m.get(key) ?? { count: 0, total: 0, sources: new Set<"fidelity" | "robinhood" | "401k">() };
+function accumWithSrc(m: Map<string, ActivityBucket>, key: string, amount: number, src: SourceKind) {
+  const e = m.get(key) ?? { count: 0, total: 0, sources: new Set<SourceKind>() };
   e.count += 1;
   e.total += amount;
   e.sources.add(src);
@@ -394,8 +395,6 @@ export type GroupedActivityResponse = {
   sellsBySymbol: ActivityTicker[];
   dividendsBySymbol: ActivityTicker[];
 };
-
-type SourceKind = "fidelity" | "robinhood" | "401k";
 
 type GroupAccum = { count: number; total: number; sources: Set<SourceKind>; isGroup: boolean; groupKey?: string };
 
