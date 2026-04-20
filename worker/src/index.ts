@@ -53,11 +53,13 @@ async function handleTimeline(env: Env): Promise<Response> {
   // D1's `.all<T>()` generic is a compile-time shape hint (not runtime-checked),
   // so we still lean on the frontend Zod parse for actual validation. But the
   // generic replaces later `as` casts and catches refactor typos.
-  const [tickers, fidelity, qianji, indices, holdings, syncMetaResult] =
+  const [tickers, fidelity, qianji, robinhood, empower, indices, holdings, syncMetaResult] =
     await Promise.all([
       settled(env.DB.prepare("SELECT * FROM v_daily_tickers").all()),
       settled(env.DB.prepare("SELECT * FROM v_fidelity_txns").all()),
       settled(env.DB.prepare("SELECT * FROM v_qianji_txns").all()),
+      settled(env.DB.prepare("SELECT * FROM v_robinhood_txns").all()),
+      settled(env.DB.prepare("SELECT * FROM v_empower_contributions").all()),
       settled(env.DB.prepare("SELECT * FROM v_market_indices").all()),
       settled(env.DB.prepare("SELECT * FROM v_holdings_detail").all()),
       settled(querySyncMeta(env.DB)),
@@ -69,6 +71,8 @@ async function handleTimeline(env: Env): Promise<Response> {
   const txnErrors: string[] = [];
   if (!fidelity.ok) txnErrors.push(`fidelity: ${fidelity.error}`);
   if (!qianji.ok) txnErrors.push(`qianji: ${qianji.error}`);
+  if (!robinhood.ok) txnErrors.push(`robinhood: ${robinhood.error}`);
+  if (!empower.ok) txnErrors.push(`empower: ${empower.error}`);
   if (!tickers.ok) txnErrors.push(`tickers: ${tickers.error}`);
   if (txnErrors.length) errors.txns = txnErrors.join("; ");
 
@@ -89,6 +93,8 @@ async function handleTimeline(env: Env): Promise<Response> {
     dailyTickers: tickers.ok ? tickers.value.results : [],
     fidelityTxns: fidelity.ok ? fidelity.value.results : [],
     qianjiTxns: qianji.ok ? qianji.value.results : [],
+    robinhoodTxns: robinhood.ok ? robinhood.value.results : [],
+    empowerContributions: empower.ok ? empower.value.results : [],
     categories: categories.results,
     market,
     holdingsDetail: holdings.ok ? holdings.value.results : null,
