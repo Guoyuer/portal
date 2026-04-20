@@ -74,7 +74,9 @@ export async function cachedJson(
   // Cache key: normalize to GET on the full URL so method/header variance
   // doesn't shard the key. Mutations (POST, etc.) never reach this path
   // — they route past /timeline, /econ, /prices in the handler.
-  const cache = cacheOverride ?? (caches as unknown as { default: CacheLike }).default;
+  // `caches.default` is the Cloudflare-provided global cache — typed as
+  // `Cache` by @cloudflare/workers-types, which is a superset of `CacheLike`.
+  const cache: CacheLike = cacheOverride ?? caches.default;
   const key = new Request(new URL(request.url).toString(), { method: "GET" });
 
   const hit = await cache.match(key);

@@ -67,13 +67,12 @@ async function handleTimeline(env: Env): Promise<Response> {
 
   const errors: TimelineErrors = {};
 
-  // Transactions: if either side fails, surface a single error message.
+  // Transactions: if any source fails, surface a joined error message.
+  const txnSources = { fidelity, qianji, robinhood, empower, tickers };
   const txnErrors: string[] = [];
-  if (!fidelity.ok) txnErrors.push(`fidelity: ${fidelity.error}`);
-  if (!qianji.ok) txnErrors.push(`qianji: ${qianji.error}`);
-  if (!robinhood.ok) txnErrors.push(`robinhood: ${robinhood.error}`);
-  if (!empower.ok) txnErrors.push(`empower: ${empower.error}`);
-  if (!tickers.ok) txnErrors.push(`tickers: ${tickers.error}`);
+  for (const [name, r] of Object.entries(txnSources)) {
+    if (!r.ok) txnErrors.push(`${name}: ${r.error}`);
+  }
   if (txnErrors.length) errors.txns = txnErrors.join("; ");
 
   // Market: indices section is null on failure; macro lives on /econ now.

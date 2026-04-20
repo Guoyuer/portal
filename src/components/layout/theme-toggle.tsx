@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useSyncExternalStore } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 
 function subscribeTheme(callback: () => void) {
   window.addEventListener("theme-change", callback);
@@ -23,13 +23,13 @@ export function ThemeToggle() {
     document.documentElement.classList.toggle("dark", dark);
   }, [dark]);
 
-  const toggle = useCallback(() => {
+  const toggle = () => {
     const next = !document.documentElement.classList.contains("dark");
     document.documentElement.classList.toggle("dark", next);
     localStorage.setItem("theme", next ? "dark" : "light");
     // Force re-render by triggering a storage event (useSyncExternalStore picks it up)
     window.dispatchEvent(new Event("theme-change"));
-  }, []);
+  };
 
   return (
     <button
