@@ -114,6 +114,50 @@ def _column_add_ddl(local_conn: sqlite3.Connection, table: str, col: str) -> str
     raise RuntimeError(msg)
 
 
+def _fetch_d1_table_columns(
+    tables: list[str], *, local: bool,
+) -> dict[str, set[str]]:
+    """Return ``{table: {col_name, ...}}`` for each requested table in D1.
+
+    One wrangler call instead of N sequential ``PRAGMA table_info(T)``
+    spawns (each paying a ~1s Node cold-start tax). Tables absent from D1
+    map to an empty set — the caller treats that as "apply init schema
+    first".
+
+    D1 supports ``PRAGMA table_info`` but not in table-valued form combined
+    with ``UNION ALL`` or cross-joins (wrangler crashes with a stack-buffer
+    overrun inside libuv when parsing such queries), so we route through
+    ``sqlite_schema`` and let SQLite itself parse each ``CREATE TABLE`` in
+    an in-memory DB — zero hand-rolled DDL parsing.
+    """
+    if not tables:
+        return {}
+    names_sql = ", ".join(sql_escape(t) for t in tables)
+    rows = run_wrangler_query(
+        "SELECT name, sql FROM sqlite_schema "
+        f"WHERE type='table' AND name IN ({names_sql})",
+        local=local,
+    )
+    result: dict[str, set[str]] = {t: set() for t in tables}
+    for row in rows:
+        tbl = str(row["name"])
+        ddl = row.get("sql")
+        if not ddl:
+            continue
+        probe = sqlite3.connect(":memory:")
+        try:
+            probe.execute(str(ddl))
+            result[tbl] = {
+                str(name)
+                for _cid, name, *_ in probe.execute(
+                    f"PRAGMA table_info({tbl})"  # noqa: S608 — trusted constant
+                )
+            }
+        finally:
+            probe.close()
+    return result
+
+
 def _ensure_d1_schema_aligned(
     local_conn: sqlite3.Connection, *, local: bool, dry_run: bool,
 ) -> None:
@@ -124,7 +168,12 @@ def _ensure_d1_schema_aligned(
     won't blow up on a "no such column" at runtime. No-op when schemas
     already agree. Skips tables missing from D1 entirely — too big a jump
     to auto-create; user should apply the init schema first.
+
+    D1 columns are fetched in a single wrangler call via
+    :func:`_fetch_d1_table_columns` — the previous per-table PRAGMA loop cost
+    ~8 seconds of Node cold-start overhead on every sync.
     """
+    d1_columns = _fetch_d1_table_columns(TABLES_TO_SYNC, local=local)
     for table in TABLES_TO_SYNC:
         local_cols = [r[1] for r in local_conn.execute(
             f"PRAGMA table_info({table})"  # noqa: S608 — trusted constant
@@ -133,11 +182,7 @@ def _ensure_d1_schema_aligned(
             # Local table missing (fresh DB with incomplete init?) — let the
             # sync's later SELECT surface the real error instead of masking.
             continue
-        d1_info = run_wrangler_query(
-            f"PRAGMA table_info({table})",  # noqa: S608 — trusted constant
-            local=local,
-        )
-        d1_cols = {str(row["name"]) for row in d1_info}
+        d1_cols = d1_columns.get(table, set())
         if not d1_cols:
             print(
                 f"  ! Table {table} not found in D1 — apply init schema before re-running sync"
@@ -221,6 +266,24 @@ def _sync_log_insert_sql(
     )
 
 
+def _sync_meta_insert_sql(*, last_sync: str, last_date: str) -> str:
+    """Generate two ``INSERT OR REPLACE INTO sync_meta`` statements.
+
+    ``sync_meta`` is a ``(key, value)`` key-value table with ``key`` as PK, so
+    ``INSERT OR REPLACE`` is idempotent. Previous versions used
+    ``DELETE FROM sync_meta`` followed by two ``INSERT`` rows, which opened a
+    brief empty-table window between the wipe and the inserts. Values flow
+    through :func:`sql_escape` so any future non-ASCII or quoted input is safe
+    by construction, matching the rest of the generated SQL.
+    """
+    return (
+        "INSERT OR REPLACE INTO sync_meta (key, value) VALUES "
+        f"({sql_escape('last_sync')}, {sql_escape(last_sync)});\n"
+        "INSERT OR REPLACE INTO sync_meta (key, value) VALUES "
+        f"({sql_escape('last_date')}, {sql_escape(last_date)});"
+    )
+
+
 def _append_sync_log_row(
     *,
     op: str,
@@ -245,7 +308,15 @@ def _append_sync_log_row(
     )
 
 
-# Tables that use INSERT OR IGNORE in diff mode (append-only, have date PK)
+# Tables that use INSERT OR IGNORE in diff mode (append-only, have date PK).
+#
+# KNOWN GAP: ``daily_close`` locally runs ``INSERT OR REPLACE`` within the
+# ``REFRESH_WINDOW_DAYS`` (7) tail to absorb yfinance's end-of-day corrections
+# to T-1 etc. The ``INSERT OR IGNORE`` path here preserves the immutability of
+# rows outside that window (correct) but also skips updates D1 already has
+# inside it, leaving D1 a few cents off on the last ~7 days of prices until
+# ``--full``. Run it manually if a chart starts showing visible drift near the
+# right edge; otherwise the error is well below what Charts renders.
 _DIFF_TABLES: set[str] = {"daily_close"}
 
 # Tables that use range-replace in diff mode (delete after cutoff, reinsert).
@@ -409,15 +480,12 @@ def main() -> None:
         all_sql.append(sql)
         total_rows += count
 
-    # Sync metadata — last_sync timestamp and data coverage
+    # Sync metadata — last_sync timestamp and data coverage. See
+    # :func:`_sync_meta_insert_sql` for the idempotency rationale.
     now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     last_date_row = conn.execute("SELECT MAX(date) FROM computed_daily").fetchone()
     last_date = last_date_row[0] if last_date_row and last_date_row[0] else ""
-    all_sql.append(
-        "DELETE FROM sync_meta;\n"
-        f"INSERT INTO sync_meta (key, value) VALUES ('last_sync', '{now}');\n"
-        f"INSERT INTO sync_meta (key, value) VALUES ('last_date', '{last_date}');"
-    )
+    all_sql.append(_sync_meta_insert_sql(last_sync=now, last_date=last_date))
 
     # Audit trail — one row per run, appended atomically with the data write.
     # ``--since`` is captured in the description so forensics can reconstruct

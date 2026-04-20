@@ -13,11 +13,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from etl.db import get_connection
 from scripts._wrangler import sql_escape
 from scripts.sync_to_d1 import (
+    TABLES_TO_SYNC,
     _column_add_ddl,
     _dump_table,
     _ensure_d1_schema_aligned,
+    _fetch_d1_table_columns,
     _invocation_context,
     _sync_log_insert_sql,
+    _sync_meta_insert_sql,
 )
 
 
@@ -186,42 +189,79 @@ class TestColumnAddDdl:
 class TestEnsureD1SchemaAligned:
     """End-to-end behaviour of the auto-ALTER path, wrangler calls mocked.
 
-    The function iterates every table in ``TABLES_TO_SYNC`` and ALTERs D1 up
-    to the local shape, so the fake ``run_wrangler_query`` reports D1's
-    state relative to local's PRAGMA — matching local = no ALTER, missing
-    local column = one ALTER per gap.
+    The function fetches every table's D1 shape in one ``sqlite_schema``
+    SELECT (not per-table PRAGMA), so the fake ``run_wrangler_query`` returns
+    ``{name, sql}`` rows reflecting D1's state relative to local's PRAGMA —
+    matching local = no ALTER, missing local column = one ALTER per gap.
     """
 
     @staticmethod
     def _local_cols(conn: sqlite3.Connection, table: str) -> list[str]:
         return [r[1] for r in conn.execute(f"PRAGMA table_info({table})")]  # noqa: S608
 
-    @staticmethod
-    def _table_from_pragma_sql(sql: str) -> str:
-        """Extract ``<table>`` from ``PRAGMA table_info(<table>)``."""
-        return sql.partition("(")[2].rstrip(")")
-
-    def _make_pragma_fake(
+    def _make_sqlite_schema_fake(
         self, db, drop_col: tuple[str, str] | None = None, empty_table: str | None = None,
     ):
-        """Build a fake ``run_wrangler_query`` that reports D1's PRAGMA shape.
+        """Fake ``run_wrangler_query`` returning D1's ``sqlite_schema`` shape.
 
-        ``drop_col=(table, col)`` pretends D1 is missing one column; ``empty_table``
-        pretends D1 has no such table at all.
+        Each row is ``{"name": <table>, "sql": <minimal CREATE TABLE DDL>}``.
+        ``drop_col=(table, col)`` removes that column from that table's DDL;
+        ``empty_table`` omits that table entirely (simulates "not in D1").
+
+        The DDL is minimal on purpose — type/default/PK details aren't read
+        by the production helper (only column names are), so the fake stays
+        simple and doesn't have to reconstruct full CREATE TABLE syntax.
         """
+        call_count = {"n": 0}
+
         def fake_query(sql: str, *, local: bool = False, db_name: str = "portal-db") -> list[dict]:
-            table = self._table_from_pragma_sql(sql)
-            if empty_table is not None and table == empty_table:
-                return []
+            call_count["n"] += 1
+            assert "sqlite_schema" in sql, f"unexpected query: {sql}"
+            # Real D1 honors `WHERE name IN (...)` — mirror that by only
+            # returning rows for tables the production code actually
+            # requested. Without this, the fake would ship
+            # ``sqlite_sequence`` (autoinc bookkeeping table that SQLite
+            # refuses to re-CREATE in the probe DB).
             conn = sqlite3.connect(str(db))
+            rows: list[dict] = []
             try:
-                cols = self._local_cols(conn, table)
+                for name in TABLES_TO_SYNC:
+                    if empty_table is not None and name == empty_table:
+                        continue
+                    cols = self._local_cols(conn, name)
+                    if not cols:
+                        continue  # table missing from local DB fixture
+                    if drop_col is not None and name == drop_col[0]:
+                        cols = [c for c in cols if c != drop_col[1]]
+                    ddl = (
+                        f"CREATE TABLE {name} ("
+                        + ", ".join(f"{c} TEXT" for c in cols)
+                        + ")"
+                    )
+                    rows.append({"name": name, "sql": ddl})
             finally:
                 conn.close()
-            if drop_col is not None and table == drop_col[0]:
-                cols = [c for c in cols if c != drop_col[1]]
-            return [{"name": c} for c in cols]
+            return rows
+
+        fake_query.call_count = call_count  # type: ignore[attr-defined]
         return fake_query
+
+    def test_single_wrangler_roundtrip(self, db, monkeypatch):
+        """Schema align must issue exactly ONE read to D1, not one per table."""
+        from scripts import sync_to_d1
+
+        fake = self._make_sqlite_schema_fake(db)
+        monkeypatch.setattr(sync_to_d1, "run_wrangler_query", fake)
+        monkeypatch.setattr(
+            sync_to_d1, "run_wrangler_command",
+            lambda sql, *, local=False, db_name="portal-db": None,
+        )
+
+        conn = sqlite3.connect(str(db))
+        _ensure_d1_schema_aligned(conn, local=False, dry_run=False)
+        conn.close()
+
+        assert fake.call_count["n"] == 1  # type: ignore[attr-defined]
 
     def test_no_alter_when_d1_mirrors_local(self, db, monkeypatch):
         from scripts import sync_to_d1
@@ -231,7 +271,7 @@ class TestEnsureD1SchemaAligned:
         def fake_exec(sql: str, *, local: bool = False, db_name: str = "portal-db") -> None:
             calls.append(sql)
 
-        monkeypatch.setattr(sync_to_d1, "run_wrangler_query", self._make_pragma_fake(db))
+        monkeypatch.setattr(sync_to_d1, "run_wrangler_query", self._make_sqlite_schema_fake(db))
         monkeypatch.setattr(sync_to_d1, "run_wrangler_command", fake_exec)
 
         conn = sqlite3.connect(str(db))
@@ -252,7 +292,7 @@ class TestEnsureD1SchemaAligned:
         # (category is TEXT NOT NULL DEFAULT '' locally — a valid ALTER target.)
         monkeypatch.setattr(
             sync_to_d1, "run_wrangler_query",
-            self._make_pragma_fake(db, drop_col=("qianji_transactions", "category")),
+            self._make_sqlite_schema_fake(db, drop_col=("qianji_transactions", "category")),
         )
         monkeypatch.setattr(sync_to_d1, "run_wrangler_command", fake_exec)
 
@@ -278,7 +318,7 @@ class TestEnsureD1SchemaAligned:
         # Pretend daily_close is missing "close" (REAL NOT NULL, no default).
         monkeypatch.setattr(
             sync_to_d1, "run_wrangler_query",
-            self._make_pragma_fake(db, drop_col=("daily_close", "close")),
+            self._make_sqlite_schema_fake(db, drop_col=("daily_close", "close")),
         )
 
         conn = sqlite3.connect(str(db))
@@ -296,7 +336,7 @@ class TestEnsureD1SchemaAligned:
 
         monkeypatch.setattr(
             sync_to_d1, "run_wrangler_query",
-            self._make_pragma_fake(db, drop_col=("qianji_transactions", "category")),
+            self._make_sqlite_schema_fake(db, drop_col=("qianji_transactions", "category")),
         )
         monkeypatch.setattr(sync_to_d1, "run_wrangler_command", fake_exec)
 
@@ -321,7 +361,7 @@ class TestEnsureD1SchemaAligned:
 
         monkeypatch.setattr(
             sync_to_d1, "run_wrangler_query",
-            self._make_pragma_fake(db, empty_table="daily_close"),
+            self._make_sqlite_schema_fake(db, empty_table="daily_close"),
         )
         monkeypatch.setattr(sync_to_d1, "run_wrangler_command", fake_exec)
 
@@ -332,6 +372,108 @@ class TestEnsureD1SchemaAligned:
         assert exec_calls == []
         captured = capsys.readouterr()
         assert "daily_close not found in D1" in captured.out
+
+
+class TestFetchD1TableColumns:
+    """Single-roundtrip helper for schema-align: parses D1's CREATE TABLE DDL
+    via in-memory SQLite and returns {table: set[col_names]}."""
+
+    def test_empty_list_returns_empty_dict(self, monkeypatch):
+        from scripts import sync_to_d1
+
+        called = {"n": 0}
+
+        def fake_query(sql: str, *, local: bool = False, db_name: str = "portal-db") -> list[dict]:
+            called["n"] += 1
+            return []
+
+        monkeypatch.setattr(sync_to_d1, "run_wrangler_query", fake_query)
+        assert _fetch_d1_table_columns([], local=False) == {}
+        assert called["n"] == 0  # no network call for empty input
+
+    def test_parses_create_table_via_inmemory_sqlite(self, monkeypatch):
+        """A realistic CREATE TABLE (NOT NULL, DEFAULT, composite PK) must be
+        parsed correctly — we delegate to SQLite itself, not a regex."""
+        from scripts import sync_to_d1
+
+        def fake_query(sql: str, *, local: bool = False, db_name: str = "portal-db") -> list[dict]:
+            assert "sqlite_schema" in sql
+            return [
+                {
+                    "name": "daily_close",
+                    "sql": (
+                        "CREATE TABLE daily_close ("
+                        "symbol TEXT NOT NULL, "
+                        "date   TEXT NOT NULL, "
+                        "close  REAL NOT NULL, "
+                        "PRIMARY KEY (symbol, date))"
+                    ),
+                },
+                {
+                    "name": "categories",
+                    "sql": (
+                        "CREATE TABLE categories ("
+                        "name TEXT PRIMARY KEY, "
+                        "kind TEXT NOT NULL DEFAULT 'expense')"
+                    ),
+                },
+            ]
+
+        monkeypatch.setattr(sync_to_d1, "run_wrangler_query", fake_query)
+
+        result = _fetch_d1_table_columns(["daily_close", "categories"], local=False)
+        assert result == {
+            "daily_close": {"symbol", "date", "close"},
+            "categories": {"name", "kind"},
+        }
+
+    def test_missing_table_maps_to_empty_set(self, monkeypatch):
+        """Tables D1 didn't return land as empty sets so callers can detect
+        them uniformly (vs crashing on KeyError)."""
+        from scripts import sync_to_d1
+
+        def fake_query(sql: str, *, local: bool = False, db_name: str = "portal-db") -> list[dict]:
+            return [{"name": "categories", "sql": "CREATE TABLE categories (name TEXT)"}]
+
+        monkeypatch.setattr(sync_to_d1, "run_wrangler_query", fake_query)
+        result = _fetch_d1_table_columns(["categories", "absent_table"], local=False)
+        assert result["categories"] == {"name"}
+        assert result["absent_table"] == set()
+
+    def test_single_wrangler_call(self, monkeypatch):
+        """All requested tables come back in ONE query — explicit regression
+        guard against the old per-table PRAGMA loop."""
+        from scripts import sync_to_d1
+
+        called: list[str] = []
+
+        def fake_query(sql: str, *, local: bool = False, db_name: str = "portal-db") -> list[dict]:
+            called.append(sql)
+            return []
+
+        monkeypatch.setattr(sync_to_d1, "run_wrangler_query", fake_query)
+        _fetch_d1_table_columns(["a", "b", "c"], local=False)
+        assert len(called) == 1
+        # The query must filter by the requested table names (so D1 doesn't
+        # ship every table's DDL on every sync).
+        assert "'a'" in called[0] and "'b'" in called[0] and "'c'" in called[0]
+
+    def test_row_with_null_sql_is_skipped(self, monkeypatch):
+        """Defensive: if D1 returns a row with NULL/empty sql (shouldn't
+        happen for real tables, but views or malformed schemas can), don't
+        crash — just leave that table's column set empty."""
+        from scripts import sync_to_d1
+
+        def fake_query(sql: str, *, local: bool = False, db_name: str = "portal-db") -> list[dict]:
+            return [
+                {"name": "weird", "sql": None},
+                {"name": "ok", "sql": "CREATE TABLE ok (x TEXT)"},
+            ]
+
+        monkeypatch.setattr(sync_to_d1, "run_wrangler_query", fake_query)
+        result = _fetch_d1_table_columns(["weird", "ok"], local=False)
+        assert result["weird"] == set()
+        assert result["ok"] == {"x"}
 
 
 
@@ -384,3 +526,58 @@ class TestSyncLogInsert:
         monkeypatch.setenv("PATH", "")
         ctx = _invocation_context()
         assert "unknown@unknown" in ctx
+
+
+class TestSyncMetaInsert:
+    """``sync_meta`` write path — last_sync + last_date key-value rows."""
+
+    def test_uses_insert_or_replace_not_delete(self):
+        """The emitted SQL must not wipe the table first; INSERT OR REPLACE is
+        idempotent against the (key) PK and avoids a brief empty-table window."""
+        sql = _sync_meta_insert_sql(last_sync="2026-04-19T12:00:00Z", last_date="2026-04-17")
+        assert "DELETE" not in sql.upper()
+        assert sql.count("INSERT OR REPLACE INTO sync_meta") == 2
+
+    def test_emits_both_last_sync_and_last_date(self):
+        sql = _sync_meta_insert_sql(last_sync="2026-04-19T12:00:00Z", last_date="2026-04-17")
+        assert "'last_sync'" in sql
+        assert "'2026-04-19T12:00:00Z'" in sql
+        assert "'last_date'" in sql
+        assert "'2026-04-17'" in sql
+
+    def test_values_routed_through_sql_escape(self):
+        """A quote in the value (hypothetical, but future-proofing) must be
+        doubled, not left to break the SQL parser."""
+        sql = _sync_meta_insert_sql(last_sync="a'b", last_date="c'd")
+        # Doubled single-quotes is SQLite's escape
+        assert "'a''b'" in sql
+        assert "'c''d'" in sql
+
+    def test_applied_sql_writes_both_rows(self, db):
+        """Apply the generated SQL to an in-memory DB and verify both rows land."""
+        import sqlite3 as _sqlite3
+
+        target = _sqlite3.connect(":memory:")
+        target.executescript(
+            "CREATE TABLE sync_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);"
+        )
+        sql = _sync_meta_insert_sql(last_sync="2026-04-19T12:00:00Z", last_date="2026-04-17")
+        target.executescript(sql)
+        rows = dict(target.execute("SELECT key, value FROM sync_meta").fetchall())
+        target.close()
+        assert rows == {"last_sync": "2026-04-19T12:00:00Z", "last_date": "2026-04-17"}
+
+    def test_applied_sql_is_idempotent(self):
+        """Running the same sync twice must leave exactly one row per key."""
+        import sqlite3 as _sqlite3
+
+        target = _sqlite3.connect(":memory:")
+        target.executescript(
+            "CREATE TABLE sync_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);"
+        )
+        sql = _sync_meta_insert_sql(last_sync="2026-04-19T12:00:00Z", last_date="2026-04-17")
+        target.executescript(sql)
+        target.executescript(sql)
+        count = target.execute("SELECT COUNT(*) FROM sync_meta").fetchone()[0]
+        target.close()
+        assert count == 2  # exactly last_sync + last_date, no duplicates
