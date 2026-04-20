@@ -140,11 +140,27 @@ export function computeCrossCheck(
   start: string,
   end: string,
 ): CrossCheck {
+  // Qianji data has a historical floor — the user started using it partway
+  // through the Fidelity history. Deposits before that floor are structurally
+  // unmatchable (no Qianji ledger exists to cross-reference). Give the floor
+  // one match window of grace so that a deposit whose matching transfer is
+  // itself the earliest Qianji entry still counts.
+  let earliestQianji: string | null = null;
+  for (const t of qianjiTxns) {
+    if (earliestQianji === null || t.date < earliestQianji) earliestQianji = t.date;
+  }
+  let effectiveStart = start;
+  if (earliestQianji) {
+    const floorMs = new Date(earliestQianji).getTime() - MATCH_WINDOW_MS;
+    const floor = new Date(floorMs).toISOString().slice(0, 10);
+    if (floor > effectiveStart) effectiveStart = floor;
+  }
+
   const deposits: { amt: number; ms: number }[] = [];
   let fidelityTotal = 0;
   for (const t of fidelityTxns) {
     if (t.actionType !== "deposit") continue;
-    if (t.runDate >= start && t.runDate <= end) {
+    if (t.runDate >= effectiveStart && t.runDate <= end) {
       deposits.push({ amt: Math.round(Math.abs(t.amount) * 100), ms: new Date(t.runDate).getTime() });
       fidelityTotal += t.amount;
     }
