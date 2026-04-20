@@ -111,6 +111,7 @@ _SPECS: tuple[ViewSpec, ...] = (
             "type": None,
             "category": None,
             "amount": None,
+            "account_to": None,
         },
         # `is_retirement` is added during D1 ingestion. D1 returns it as
         # INTEGER 0/1 (SQLite has no native BOOLEAN), hence coerce_bool.

@@ -86,6 +86,7 @@ export function mkQianjiTxn(overrides: Partial<QianjiTxn> = {}): QianjiTxn {
     category: "Salary",
     amount: 5000,
     isRetirement: false,
+    accountTo: "",
     ...overrides,
   };
 }

@@ -172,7 +172,18 @@ export function computeCrossCheck(
   }
   fidelityTotal = round(fidelityTotal);
 
-  const transfers = qianjiTxns.filter((t) => t.type === "transfer");
+  // Candidate Qianji rows to match against:
+  // - transfers (user moves money into Fidelity from another account), and
+  // - income booked directly into a Fidelity account (payroll direct deposit,
+  //   rebate rewards). Qianji logs those as ``type=income`` with
+  //   ``accountTo="Fidelity …"`` rather than as a transfer. Matching on the
+  //   accountTo prefix (case-insensitive) covers "Fidelity taxable",
+  //   "Fidelity Roth IRA", etc. without having to enumerate every account.
+  const candidates = qianjiTxns.filter(
+    (t) =>
+      t.type === "transfer" ||
+      (t.type === "income" && t.accountTo.toLowerCase().startsWith("fidelity")),
+  );
   const used = new Set<number>();
   let matchedCount = 0;
   let matchedTotal = 0;
@@ -180,10 +191,10 @@ export function computeCrossCheck(
   for (const dep of deposits) {
     let bestIdx = -1;
     let bestDist = Infinity;
-    for (let i = 0; i < transfers.length; i++) {
+    for (let i = 0; i < candidates.length; i++) {
       if (used.has(i)) continue;
-      if (Math.round(transfers[i].amount * 100) !== dep.amt) continue;
-      const dist = Math.abs(dep.ms - new Date(transfers[i].date).getTime());
+      if (Math.round(candidates[i].amount * 100) !== dep.amt) continue;
+      const dist = Math.abs(dep.ms - new Date(candidates[i].date).getTime());
       if (dist <= MATCH_WINDOW_MS && dist < bestDist) {
         bestIdx = i;
         bestDist = dist;

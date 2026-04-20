@@ -88,14 +88,18 @@ CREATE TABLE IF NOT EXISTS empower_funds (
 -- Qianji transaction rows (from Qianji app DB)
 -- ``note`` is read by changelog.py for the low-count-category row expansion
 -- in the daily sync email; ``is_retirement`` lets the frontend split income
--- into retirement vs take-home without substring sniffing.
+-- into retirement vs take-home without substring sniffing. ``account_to``
+-- exposes Qianji's ``targetact`` so the cross-check can match Fidelity
+-- deposits against income entries booked directly into a Fidelity account
+-- (payroll direct deposits, rebate rewards) — not just transfers.
 CREATE TABLE IF NOT EXISTS qianji_transactions (
     date           TEXT NOT NULL,
     type           TEXT NOT NULL,
     category       TEXT NOT NULL DEFAULT '',
     amount         REAL NOT NULL,
     note           TEXT NOT NULL DEFAULT '',
-    is_retirement  INTEGER NOT NULL DEFAULT 0
+    is_retirement  INTEGER NOT NULL DEFAULT 0,
+    account_to     TEXT NOT NULL DEFAULT ''
 );
 
 -- Pre-computed daily point-in-time values
@@ -209,7 +213,8 @@ _VIEWS: dict[str, str] = {
     "v_qianji_txns": (
         "CREATE VIEW IF NOT EXISTS v_qianji_txns AS\n"
         "SELECT date, type, category, amount,\n"
-        "  is_retirement AS isRetirement\n"
+        "  is_retirement AS isRetirement,\n"
+        "  account_to AS accountTo\n"
         "FROM qianji_transactions ORDER BY date;"
     ),
     "v_market_indices": (

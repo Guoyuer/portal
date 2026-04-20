@@ -175,8 +175,8 @@ def ingest_qianji_transactions(
         if records:
             conn.executemany(
                 "INSERT INTO qianji_transactions"
-                " (date, type, category, amount, note, is_retirement)"
-                " VALUES (?, ?, ?, ?, ?, ?)",
+                " (date, type, category, amount, note, is_retirement, account_to)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
                 [
                     (
                         r["date"][:10],  # truncate datetime to date
@@ -185,6 +185,20 @@ def ingest_qianji_transactions(
                         r["amount"],
                         r.get("note", ""),
                         1 if (r["type"] == "income" and r.get("category", "") in retirement_set) else 0,
+                        # `account_to` on the D1 row is the *destination* account
+                        # — the one that received money — semantic, not raw
+                        # Qianji column. For transfers that's `targetact`
+                        # (our QianjiRecord.account_to). For income, Qianji
+                        # stores the receiving account in `fromact` (see
+                        # :mod:`etl.qianji.balances`'s forward-effect table:
+                        # type=1 does ``balances[fromact] += money``), so we
+                        # surface that as the destination too. This lets the
+                        # frontend cross-check match Fidelity deposits against
+                        # payroll / rebate income booked straight into a
+                        # Fidelity account, without the frontend having to
+                        # know Qianji's per-type direction quirk.
+                        (r.get("account_from", "") if r["type"] == "income"
+                         else r.get("account_to", "")),
                     )
                     for r in records
                 ],

@@ -536,3 +536,84 @@ class TestVQianjiTxnsExposesIsRetirement:
             assert row == ("2026-01-01", "income", "401K", 500.0, 1)
         finally:
             db.unlink(missing_ok=True)
+
+
+class TestAccountToNormalization:
+    """The ingest layer stores a *semantic* destination account in the
+    ``account_to`` column: the account that received money. For transfers
+    that's ``targetact`` (QianjiRecord.account_to). For income, Qianji
+    stores the receiving account in ``fromact`` (see etl/qianji/balances:
+    type=1 does ``balances[fromact] += money``), so we normalize to surface
+    that as the destination too — the frontend's Fidelity cross-check shouldn't
+    have to know Qianji's per-type direction quirk.
+    """
+
+    def test_transfer_uses_account_to(self) -> None:
+        db = _fresh_db()
+        try:
+            records = [
+                {"date": "2026-01-01", "type": "transfer", "category": "", "amount": 1000,
+                 "account_from": "Chase Debit", "account_to": "Fidelity taxable", "note": ""},
+            ]
+            ingest_qianji_transactions(db, records)
+            conn = sqlite3.connect(db)
+            row = conn.execute(
+                "SELECT type, account_to FROM qianji_transactions"
+            ).fetchone()
+            conn.close()
+            assert row == ("transfer", "Fidelity taxable")
+        finally:
+            db.unlink(missing_ok=True)
+
+    def test_income_uses_account_from_as_destination(self) -> None:
+        """Qianji stores direct-deposit income's receiving account in fromact."""
+        db = _fresh_db()
+        try:
+            records = [
+                {"date": "2026-01-01", "type": "income", "category": "Salary", "amount": 3000,
+                 "account_from": "Fidelity taxable", "account_to": "", "note": ""},
+            ]
+            ingest_qianji_transactions(db, records)
+            conn = sqlite3.connect(db)
+            row = conn.execute(
+                "SELECT type, account_to FROM qianji_transactions"
+            ).fetchone()
+            conn.close()
+            assert row == ("income", "Fidelity taxable")
+        finally:
+            db.unlink(missing_ok=True)
+
+    def test_expense_account_to_defaults_to_empty(self) -> None:
+        """Expenses have no destination — column stays empty."""
+        db = _fresh_db()
+        try:
+            records = [
+                {"date": "2026-01-01", "type": "expense", "category": "Rent", "amount": 2000,
+                 "account_from": "Chase Debit", "account_to": "", "note": ""},
+            ]
+            ingest_qianji_transactions(db, records)
+            conn = sqlite3.connect(db)
+            row = conn.execute(
+                "SELECT type, account_to FROM qianji_transactions"
+            ).fetchone()
+            conn.close()
+            assert row == ("expense", "")
+        finally:
+            db.unlink(missing_ok=True)
+
+    def test_view_exposes_account_to_as_camel_case(self) -> None:
+        db = _fresh_db()
+        try:
+            records = [
+                {"date": "2026-01-01", "type": "income", "category": "Rewards", "amount": 50,
+                 "account_from": "Fidelity taxable", "account_to": "", "note": ""},
+            ]
+            ingest_qianji_transactions(db, records)
+            conn = sqlite3.connect(db)
+            row = conn.execute(
+                "SELECT accountTo FROM v_qianji_txns"
+            ).fetchone()
+            conn.close()
+            assert row == ("Fidelity taxable",)
+        finally:
+            db.unlink(missing_ok=True)
