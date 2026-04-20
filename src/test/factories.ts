@@ -146,6 +146,8 @@ export function mkTimelinePayload(overrides: Record<string, unknown> = {}) {
     dailyTickers: [],
     fidelityTxns: [],
     qianjiTxns: [],
+    robinhoodTxns: [],
+    empowerContributions: [],
     categories: CATEGORIES,
     market: null,
     holdingsDetail: null,

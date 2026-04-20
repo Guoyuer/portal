@@ -8,6 +8,8 @@ export {
   type DailyTicker,
   type FidelityTxn,
   type QianjiTxn,
+  type RobinhoodTxn,
+  type EmpowerContribution,
   type TimelineData,
   type TimelineErrors,
   type IndexReturn,
