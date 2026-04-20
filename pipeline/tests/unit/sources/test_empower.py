@@ -269,3 +269,140 @@ def test_ingest_missing_dir_is_noop(tmp_path: Path) -> None:
     finally:
         conn.close()
     assert n_snaps == 0
+
+
+class TestIngestContributionsReconcile:
+    """QFX vs Qianji fallback reconciliation in ``ingest_contributions``.
+
+    Qianji fallback rows (cusip='') fill dates without QFX coverage. When a
+    QFX ingest finally covers one of those dates, ``ingest_contributions``
+    cross-checks the per-date totals before dropping the now-redundant
+    fallback rows. A mismatch means the two sources disagree on what
+    happened — abort the build (fail-loud) rather than silently
+    double-count or silently prefer one side.
+    """
+
+    @staticmethod
+    def _seed_fallback(db_path: Path, rows: list[tuple[str, float, str]]) -> None:
+        """Insert Qianji fallback rows (cusip='') directly."""
+        conn = sqlite3.connect(str(db_path))
+        try:
+            conn.executemany(
+                "INSERT INTO empower_contributions (date, amount, ticker, cusip) "
+                "VALUES (?, ?, ?, '')",
+                rows,
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _all_contribs(db_path: Path) -> list[tuple]:
+        conn = sqlite3.connect(str(db_path))
+        try:
+            return conn.execute(
+                "SELECT date, amount, ticker, cusip FROM empower_contributions ORDER BY date, ticker, cusip"
+            ).fetchall()
+        finally:
+            conn.close()
+
+    def test_qfx_only_date_inserts_cleanly(self, tmp_path: Path) -> None:
+        """No pre-existing fallback → straight insert, no reconcile."""
+        db = tmp_path / "tm.db"
+        init_db(db)
+        contribs = [
+            empower_src.Contribution(date(2026, 4, 15), 820.31, "401k ex-us", "85744W531"),
+            empower_src.Contribution(date(2026, 4, 15), 820.32, "401k sp500", "856917729"),
+        ]
+        empower_src.ingest_contributions(db, contribs)
+        rows = self._all_contribs(db)
+        assert rows == [
+            ("2026-04-15", 820.31, "401k ex-us", "85744W531"),
+            ("2026-04-15", 820.32, "401k sp500", "856917729"),
+        ]
+
+    def test_matching_totals_delete_fallback_then_insert(self, tmp_path: Path) -> None:
+        """QFX total == Qianji fallback total → fallback rows dropped, QFX wins."""
+        db = tmp_path / "tm.db"
+        init_db(db)
+        # Pre-existing Qianji fallback: 820.315 × 2 tickers = $1640.63
+        self._seed_fallback(db, [
+            ("2026-04-15", 820.315, "401k sp500"),
+            ("2026-04-15", 820.315, "401k ex-us"),
+        ])
+        # QFX arrives with matching $1640.63 total (820.31 + 820.32)
+        contribs = [
+            empower_src.Contribution(date(2026, 4, 15), 820.31, "401k ex-us", "85744W531"),
+            empower_src.Contribution(date(2026, 4, 15), 820.32, "401k sp500", "856917729"),
+        ]
+        empower_src.ingest_contributions(db, contribs)
+        rows = self._all_contribs(db)
+        # Only the QFX rows survive — fallback got cleaned up.
+        assert rows == [
+            ("2026-04-15", 820.31, "401k ex-us", "85744W531"),
+            ("2026-04-15", 820.32, "401k sp500", "856917729"),
+        ]
+
+    def test_mismatched_totals_raise(self, tmp_path: Path) -> None:
+        """QFX total differs from fallback total by > tolerance → abort build."""
+        db = tmp_path / "tm.db"
+        init_db(db)
+        # Fallback says $1000 total; QFX says $1640.63 — drift of ~$640, way over $1 tolerance.
+        self._seed_fallback(db, [
+            ("2026-04-15", 500.00, "401k sp500"),
+            ("2026-04-15", 500.00, "401k ex-us"),
+        ])
+        contribs = [
+            empower_src.Contribution(date(2026, 4, 15), 820.31, "401k ex-us", "85744W531"),
+            empower_src.Contribution(date(2026, 4, 15), 820.32, "401k sp500", "856917729"),
+        ]
+        with pytest.raises(empower_src.ContributionReconcileError, match=r"QFX total=\$1640\.63.*Qianji fallback=\$1000\.00"):
+            empower_src.ingest_contributions(db, contribs)
+        # On failure nothing should be persisted or deleted — leave DB as-is for forensics.
+        rows = self._all_contribs(db)
+        assert rows == [
+            ("2026-04-15", 500.0, "401k ex-us", ""),
+            ("2026-04-15", 500.0, "401k sp500", ""),
+        ]
+
+    def test_sub_dollar_drift_within_tolerance_passes(self, tmp_path: Path) -> None:
+        """Qianji's 50/50 split can drift a cent or two from the real QFX
+        allocation; that's the exact kind of noise the $1 tolerance exists
+        to absorb."""
+        db = tmp_path / "tm.db"
+        init_db(db)
+        # Fallback 820.315 × 2 = $1640.63; QFX 820.80 + 819.90 = $1640.70 (diff $0.07)
+        self._seed_fallback(db, [
+            ("2026-04-15", 820.315, "401k sp500"),
+            ("2026-04-15", 820.315, "401k ex-us"),
+        ])
+        contribs = [
+            empower_src.Contribution(date(2026, 4, 15), 820.80, "401k sp500", "856917729"),
+            empower_src.Contribution(date(2026, 4, 15), 819.90, "401k ex-us", "85744W531"),
+        ]
+        empower_src.ingest_contributions(db, contribs)
+        rows = self._all_contribs(db)
+        # Fallback gone, QFX lands.
+        assert [r[3] for r in rows] == ["85744W531", "856917729"]
+        assert sum(r[1] for r in rows) == pytest.approx(1640.70, rel=1e-6)
+
+    def test_qianji_only_write_does_not_trigger_reconcile(self, tmp_path: Path) -> None:
+        """Ingesting Qianji fallback alone (all rows cusip='') must not
+        reconcile against itself or delete anything — the reconcile is only
+        triggered by the QFX-side ingest."""
+        db = tmp_path / "tm.db"
+        init_db(db)
+        self._seed_fallback(db, [
+            ("2026-01-15", 1287.5, "401k sp500"),
+            ("2026-01-15", 1287.5, "401k ex-us"),
+        ])
+        # Now ingest a second Qianji fallback batch (e.g., next build cycle)
+        contribs = [
+            empower_src.Contribution(date(2026, 2, 13), 1287.5, "401k sp500", ""),
+            empower_src.Contribution(date(2026, 2, 13), 1287.5, "401k ex-us", ""),
+        ]
+        empower_src.ingest_contributions(db, contribs)
+        rows = self._all_contribs(db)
+        # Jan rows untouched; Feb rows added.
+        assert len(rows) == 4
+        assert all(r[3] == "" for r in rows)

@@ -79,6 +79,26 @@ class Contribution:
     cusip: str = ""
 
 
+# Tolerance for QFX-vs-Qianji-fallback reconciliation in :func:`ingest_contributions`.
+# Qianji records only the total per payroll event and this pipeline splits it
+# 50/50 across sp500/ex-us, so per-ticker drift up to ~$0.01 is expected when
+# the real QFX allocation isn't exactly 50/50. $1 is comfortably above that
+# noise floor and well below any realistic amount difference that would
+# indicate a data mistake.
+_RECONCILE_TOLERANCE_USD = 1.0
+
+
+class ContributionReconcileError(RuntimeError):
+    """Raised when QFX and Qianji disagree on a day's 401k contribution total.
+
+    Mirrors the fail-loud pattern in ``etl/prices/validate.py``: if the two
+    sources for a given date's contributions differ by more than
+    :data:`_RECONCILE_TOLERANCE_USD`, the build aborts rather than silently
+    double-counting or silently picking one side. The build operator sees every
+    mismatched date in one run so they can check Qianji or the QFX file.
+    """
+
+
 # ── QFX parsing ────────────────────────────────────────────────────────────
 
 
@@ -248,11 +268,63 @@ def ingest_contributions(db_path: Path, contribs: list[Contribution]) -> None:
     (for periods without a QFX file) through the same table that
     :func:`positions_at` reads. Deduplicates on the primary key
     ``(date, amount, ticker, cusip)``.
+
+    When QFX contributions (``cusip != ''``) arrive for a date that already
+    has Qianji fallback rows (``cusip == ''``), the two sources are
+    reconciled:
+
+    - Per-date totals must agree within :data:`_RECONCILE_TOLERANCE_USD` — a
+    mismatch raises :class:`ContributionReconcileError` and aborts the
+    build (fail-loud, same pattern as split validation in
+    ``etl/prices/validate.py``).
+    - On a successful reconcile, the fallback rows for that date are
+    deleted before the authoritative QFX rows land. Without this step, the
+    fallback would double-count the paycheck because the PK
+    ``(date, amount, ticker, cusip)`` treats empty- and real-CUSIP rows
+    as distinct (and per-ticker amounts differ slightly due to Qianji's
+    50/50 split assumption).
+
+    Qianji-only dates (no QFX coverage) and QFX-only dates (no prior
+    fallback) both short-circuit this check — there's nothing to reconcile.
     """
     if not contribs:
         return
     conn = get_connection(db_path)
     try:
+        qfx_totals: dict[str, float] = {}
+        for c in contribs:
+            if c.cusip:
+                qfx_totals[c.date.isoformat()] = qfx_totals.get(c.date.isoformat(), 0.0) + c.amount
+
+        mismatches: list[str] = []
+        for d, qfx_total in qfx_totals.items():
+            row = conn.execute(
+                "SELECT SUM(amount) FROM empower_contributions WHERE date = ? AND cusip = ''",
+                (d,),
+            ).fetchone()
+            fallback_total = float(row[0]) if row and row[0] is not None else 0.0
+            if fallback_total == 0.0:
+                continue  # nothing to reconcile — QFX is first source for this date
+            if abs(qfx_total - fallback_total) > _RECONCILE_TOLERANCE_USD:
+                mismatches.append(
+                    f"{d}: QFX total=${qfx_total:.2f} vs Qianji fallback=${fallback_total:.2f} "
+                    f"(diff ${abs(qfx_total - fallback_total):.2f} > ${_RECONCILE_TOLERANCE_USD:.2f})"
+                )
+        if mismatches:
+            msg = (
+                "Empower contribution reconcile failed — QFX and Qianji disagree:\n  "
+                + "\n  ".join(mismatches)
+            )
+            raise ContributionReconcileError(msg)
+
+        # Reconcile passed for every QFX-covered date → drop the shadowed
+        # fallback rows before the authoritative QFX rows land.
+        if qfx_totals:
+            conn.executemany(
+                "DELETE FROM empower_contributions WHERE date = ? AND cusip = ''",
+                [(d,) for d in qfx_totals],
+            )
+
         conn.executemany(
             "INSERT OR REPLACE INTO empower_contributions (date, amount, ticker, cusip) "
             "VALUES (?, ?, ?, ?)",
