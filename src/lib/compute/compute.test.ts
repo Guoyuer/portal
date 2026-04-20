@@ -448,6 +448,27 @@ describe("computeCrossCheck", () => {
     const cc = computeCrossCheck(fTxns, qTxns, "2026-01-01", "2026-01-31");
     expect(cc.matchedCount).toBe(0);
   });
+
+  // Earliest-in-window matching is optimal on interval bipartite graphs.
+  // Nearest-available greedy would let the middle deposit steal the only
+  // candidate the first deposit could reach, orphaning it — verify all three
+  // now pair up cleanly.
+  it("finds optimal matching where nearest-greedy would orphan", () => {
+    const fTxns: FidelityTxn[] = [
+      mkFidelityTxn({ runDate: "2026-01-05", actionType: "deposit", symbol: "", amount: 500 }),
+      mkFidelityTxn({ runDate: "2026-01-10", actionType: "deposit", symbol: "", amount: 500 }),
+      mkFidelityTxn({ runDate: "2026-01-11", actionType: "deposit", symbol: "", amount: 500 }),
+    ];
+    const qTxns: QianjiTxn[] = [
+      mkQianjiTxn({ date: "2026-01-03", type: "transfer", amount: 500 }),
+      mkQianjiTxn({ date: "2026-01-06", type: "transfer", amount: 500 }),
+      mkQianjiTxn({ date: "2026-01-09", type: "transfer", amount: 500 }),
+    ];
+    const cc = computeCrossCheck(fTxns, qTxns, "2026-01-01", "2026-01-31");
+    expect(cc.matchedCount).toBe(3);
+    expect(cc.totalCount).toBe(3);
+    expect(cc.ok).toBe(true);
+  });
 });
 
 // ── computeGroupedActivity ──────────────────────────────────────────────
