@@ -37,6 +37,7 @@ function accum(map: Map<string, { count: number; total: number }>, key: string, 
 
 // ── Category colour palette ──────────────────────────────────────────────
 import { CAT_COLOR_BY_KEY } from "@/lib/format/chart-colors";
+import { parseLocalDate } from "@/lib/format/format";
 
 /** Build a display-name → color map from the bundle's categories. */
 export function catColorByName(categories: CategoryMeta[]): Record<string, string> {
@@ -293,6 +294,8 @@ function matchAndRecord(
   out: SourceCrossCheck,
   sourceLabel: UnmatchedItem["source"],
 ): void {
+  // Pre-compute candidate timestamps once (O(n+m) instead of O(n*m))
+  const candidateMs = candidates.map((q) => parseLocalDate(q.date).getTime());
   const used = new Set<number>();
   const sorted = [...deposits].sort((a, b) => a.ms - b.ms);
   for (const dep of sorted) {
@@ -302,7 +305,7 @@ function matchAndRecord(
     for (let i = 0; i < candidates.length; i++) {
       if (used.has(i)) continue;
       if (Math.round(candidates[i].amount * 100) !== depCents) continue;
-      const candMs = new Date(candidates[i].date).getTime();
+      const candMs = candidateMs[i];
       if (Math.abs(dep.ms - candMs) <= MATCH_WINDOW_MS && candMs < bestMs) {
         bestIdx = i;
         bestMs = candMs;
