@@ -692,12 +692,12 @@ describe("computeMonthlyFlows", () => {
     expect(flows.map(f => f.month)).toEqual(["2026-01", "2026-02", "2026-03"]);
   });
 
-  it("returns 0 savings rate when income is 0", () => {
+  it("drops months with no income (cannot compute savings rate)", () => {
     const txns: QianjiTxn[] = [
       mkQianjiTxn({ date: "2026-01-15", type: "expense", category: "Food", amount: 100 }),
     ];
     const flows = computeMonthlyFlows(txns, "2026-01-01", "2026-01-31");
-    expect(flows[0].savingsRate).toBe(0);
+    expect(flows).toHaveLength(0);
   });
 
   it("ignores non-income/expense types", () => {

@@ -3,7 +3,7 @@ import type { SourceKind } from "@/lib/compute/computed-types";
 
 // Short source labels pair the color-coded background with readable text
 // so the badge is distinguishable without color alone (protanomaly-safe).
-export const SOURCE_SHORT_LABEL: Record<SourceKind, string> = {
+const SOURCE_SHORT_LABEL: Record<SourceKind, string> = {
   fidelity: "FID",
   robinhood: "RH",
   "401k": "401k",

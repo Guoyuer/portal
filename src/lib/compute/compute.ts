@@ -478,10 +478,12 @@ export function computeMonthlyFlows(qianjiTxns: QianjiTxn[], start: string | nul
 
   return Array.from(months.entries())
     .sort(([a], [b]) => a.localeCompare(b))
+    .filter(([, { income }]) => income > 0)
     .map(([month, { income, expenses }]) => ({
       month,
       income: round(income),
       expenses: round(expenses),
-      savingsRate: income > 0 ? round(((income - expenses) / income) * 100) : 0,
+      savings: round(Math.max(0, income - expenses)),
+      savingsRate: round(((income - expenses) / income) * 100),
     }));
 }

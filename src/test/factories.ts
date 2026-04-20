@@ -7,7 +7,6 @@
 import type {
   CategoryMeta,
   DailyPoint,
-  DailyTicker,
   FidelityTxn,
   QianjiTxn,
   RobinhoodTxn,
@@ -54,20 +53,6 @@ export function mkDailyN(n: number, start = "2026-01-01"): DailyPoint[] {
   return Array.from({ length: n }, (_, i) =>
     mkDaily({ date: `${y}-${String(m).padStart(2, "0")}-${String(i + 1).padStart(2, "0")}` }),
   );
-}
-
-export function mkDailyTicker(overrides: Partial<DailyTicker> = {}): DailyTicker {
-  return {
-    date: "2026-01-15",
-    ticker: "VTI",
-    value: 1000,
-    category: "US Equity",
-    subtype: "Broad",
-    costBasis: 900,
-    gainLoss: 100,
-    gainLossPct: 11.1,
-    ...overrides,
-  };
 }
 
 export function mkFidelityTxn(overrides: Partial<FidelityTxn> = {}): FidelityTxn {

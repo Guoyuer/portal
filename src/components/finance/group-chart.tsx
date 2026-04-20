@@ -7,7 +7,8 @@ import type { CSSProperties } from "react";
 import type { TooltipContentProps } from "recharts/types/component/Tooltip";
 import { useIsDark } from "@/lib/hooks/hooks";
 import { fmtCurrency, fmtCurrencyShort, fmtDateMedium, parseLocalDate } from "@/lib/format/format";
-import { BuyClusterMarker, SellClusterMarker, type ClusterMarkerProps, type HoverState, type Selection } from "./ticker-markers";
+import { BuyClusterMarker, SellClusterMarker, type ClusterMarkerProps, type Selection } from "./ticker-markers";
+import type { HoverState } from "@/lib/hooks/use-hover-state";
 import { MarkerChart } from "./marker-chart";
 import type { GroupNetEntry } from "@/lib/format/group-aggregation";
 import type { Cluster } from "@/lib/format/ticker-data";
@@ -17,7 +18,7 @@ import { BUY_COLOR, SELL_COLOR } from "@/lib/format/chart-colors";
 
 // ── Chart point shape ────────────────────────────────────────────────────
 
-export type GroupChartPoint = {
+type GroupChartPoint = {
   date: string;
   ts: number;
   price: number;             // proxy ticker's close price that day
@@ -114,7 +115,7 @@ function GroupTooltip({ active, payload, representative }: TooltipContentProps &
 
 // ── Chart component ───────────────────────────────────────────────────────
 
-export type GroupChartInteractiveProps = {
+type GroupChartInteractiveProps = {
   onEnter?: (h: HoverState) => void;
   onMove?: (x: number, y: number) => void;
   onLeave?: () => void;

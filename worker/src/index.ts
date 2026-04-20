@@ -68,11 +68,8 @@ async function handleTimeline(env: Env): Promise<Response> {
   const errors: TimelineErrors = {};
 
   // Transactions: if any source fails, surface a joined error message.
-  const txnSources = { fidelity, qianji, robinhood, empower, tickers };
-  const txnErrors: string[] = [];
-  for (const [name, r] of Object.entries(txnSources)) {
-    if (!r.ok) txnErrors.push(`${name}: ${r.error}`);
-  }
+  const txnErrors = Object.entries({ fidelity, qianji, robinhood, empower, tickers })
+    .flatMap(([name, r]) => (r.ok ? [] : [`${name}: ${r.error}`]));
   if (txnErrors.length) errors.txns = txnErrors.join("; ");
 
   // Market: indices section is null on failure; macro lives on /econ now.
@@ -83,9 +80,8 @@ async function handleTimeline(env: Env): Promise<Response> {
   if (!holdings.ok) errors.holdings = holdings.error;
 
   // syncMeta is informational — failure is silent (not included in errors).
-  const syncMeta = syncMetaResult.ok && Object.keys(syncMetaResult.value).length > 0
-    ? syncMetaResult.value
-    : null;
+  const meta = syncMetaResult.ok ? syncMetaResult.value : {};
+  const syncMeta = Object.keys(meta).length > 0 ? meta : null;
 
   const payload = {
     daily: daily.results,
@@ -107,31 +103,21 @@ async function handleTimeline(env: Env): Promise<Response> {
 // ── /econ ────────────────────────────────────────────────────────────────
 
 async function handleEcon(env: Env): Promise<Response> {
-  type SeriesRow = { key: string; points: string };
-  type NumKVRow = { key: string; value: number };
   try {
     const [seriesRows, snapshotRows, syncMeta] = await Promise.all([
-      env.DB.prepare("SELECT key, points FROM v_econ_series_grouped").all<SeriesRow>(),
-      env.DB.prepare("SELECT key, value FROM v_econ_snapshot").all<NumKVRow>(),
+      env.DB.prepare("SELECT key, points FROM v_econ_series_grouped")
+        .all<{ key: string; points: string }>(),
+      env.DB.prepare("SELECT key, value FROM v_econ_snapshot")
+        .all<{ key: string; value: number }>(),
       querySyncMeta(env.DB),
     ]);
 
     // Each row's `points` is a JSON string (json_group_array output); the
     // client unpacks it via EconDataSchema's EconPointsSchema transform.
-    const series: Record<string, string> = {};
-    for (const r of seriesRows.results) {
-      series[r.key] = r.points;
-    }
-
-    const snapshot: Record<string, number> = {};
-    for (const r of snapshotRows.results) {
-      snapshot[r.key] = r.value;
-    }
-
     const payload = {
       generatedAt: syncMeta.last_sync ?? new Date().toISOString(),
-      snapshot,
-      series,
+      snapshot: Object.fromEntries(snapshotRows.results.map((r) => [r.key, r.value])),
+      series: Object.fromEntries(seriesRows.results.map((r) => [r.key, r.points])),
     };
     return jsonResponse(payload);
   } catch (e) {

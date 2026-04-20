@@ -14,15 +14,9 @@ const RESPONSE_HEADERS: HeadersInit = {
 /** Success JSON response. No runtime schema validation — the frontend's
  *  Zod parse in ``use-bundle.ts`` is the single source of truth for drift
  *  detection; validating twice on the same shared schema was pure CPU tax
- *  (~200ms per ``/timeline`` call on the 4.6 MB payload).
- *
- *  Optional ``init`` layers on top of the default CORS + no-cache headers so
- *  per-route overrides (e.g. ``Cache-Control: no-store`` for mutations) don't
- *  need a second helper. */
-export function jsonResponse(payload: unknown, init?: ResponseInit): Response {
-  const headers = new Headers(RESPONSE_HEADERS);
-  if (init?.headers) new Headers(init.headers).forEach((v, k) => headers.set(k, v));
-  return Response.json(payload, { ...init, headers });
+ *  (~200ms per ``/timeline`` call on the 4.6 MB payload). */
+export function jsonResponse(payload: unknown): Response {
+  return Response.json(payload, { headers: RESPONSE_HEADERS });
 }
 
 export function dbError(e: unknown): Response {

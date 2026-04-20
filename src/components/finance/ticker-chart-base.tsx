@@ -17,6 +17,33 @@ import { TooltipCard } from "@/components/charts/tooltip-card";
 import { BuyClusterMarker, SellClusterMarker, ReinvestMarker } from "./ticker-markers";
 import { MarkerChart } from "./marker-chart";
 
+export function AvgCostReferenceLine({
+  avgCost,
+  labelText,
+  labelPosition,
+}: {
+  avgCost: number | null;
+  labelText: string;
+  labelPosition: "right" | "insideTopRight";
+}) {
+  const isDark = useIsDark();
+  if (avgCost == null) return null;
+  const fillOpacity = labelPosition === "insideTopRight" ? (isDark ? 0.55 : 0.45) : (isDark ? 0.5 : 0.4);
+  return (
+    <ReferenceLine
+      y={avgCost}
+      stroke={isDark ? "rgba(255,255,255,0.25)" : "rgba(0,0,0,0.2)"}
+      strokeDasharray="4 4"
+      label={{
+        value: `${labelText} ${fmtCurrency(avgCost)}`,
+        position: labelPosition,
+        fill: isDark ? `rgba(255,255,255,${fillOpacity})` : `rgba(0,0,0,${fillOpacity})`,
+        fontSize: 10,
+      }}
+    />
+  );
+}
+
 /** Shared price-tooltip for per-ticker charts (inline + dialog). */
 export function PriceTooltip({ active, payload }: TooltipContentProps) {
   const d = payload?.[0]?.payload as ClusteredPoint | undefined;
@@ -62,19 +89,7 @@ export function TickerChartBase({
       <Scatter dataKey="reinvestDot" shape={ReinvestMarker} legendType="none" isAnimationActive={false} />
       <Scatter dataKey="sellClusterPrice" shape={SellClusterMarker} legendType="none" isAnimationActive={false} />
       <Scatter dataKey="buyClusterPrice" shape={BuyClusterMarker} legendType="none" isAnimationActive={false} />
-      {avgCost != null && (
-        <ReferenceLine
-          y={avgCost}
-          stroke={isDark ? "rgba(255,255,255,0.25)" : "rgba(0,0,0,0.2)"}
-          strokeDasharray="4 4"
-          label={{
-            value: `Avg ${fmtCurrency(avgCost)}`,
-            position: "right",
-            fill: isDark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.4)",
-            fontSize: 10,
-          }}
-        />
-      )}
+      <AvgCostReferenceLine avgCost={avgCost} labelText="Avg" labelPosition="right" />
     </MarkerChart>
   );
 }

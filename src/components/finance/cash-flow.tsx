@@ -12,6 +12,16 @@ import {
 } from "@/components/ui/table";
 
 
+function CashFlowRow({ item }: { item: { category: string; count: number; amount: number } }) {
+  return (
+    <TableRow className="even:bg-muted/50">
+      <TableCell>{item.category}</TableCell>
+      <TableCell className="text-right">{item.count}</TableCell>
+      <TableCell className="text-right">{fmtCurrency(item.amount)}</TableCell>
+    </TableRow>
+  );
+}
+
 /** Merge income items below SMALL_INCOME_THRESHOLD into "Other" */
 function consolidateSmallItems(items: CashflowResponse["incomeItems"]) {
   const big = items.filter((i) => i.amount >= SMALL_INCOME_THRESHOLD);
@@ -52,18 +62,7 @@ export function CashFlow({ data }: { data: CashflowResponse }) {
             </TableHeader>
             <TableBody>
               {incomeItems.map((item) => (
-                <TableRow
-                  key={item.category}
-                  className="even:bg-muted/50"
-                >
-                  <TableCell>{item.category}</TableCell>
-                  <TableCell className="text-right">
-                    {item.count}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {fmtCurrency(item.amount)}
-                  </TableCell>
-                </TableRow>
+                <CashFlowRow key={item.category} item={item} />
               ))}
               <TableRow className={TOTAL_ROW_CLASS}>
                 <TableCell>Total</TableCell>
@@ -89,18 +88,7 @@ export function CashFlow({ data }: { data: CashflowResponse }) {
             </TableHeader>
             <TableBody>
               {major.map((item) => (
-                <TableRow
-                  key={item.category}
-                  className="even:bg-muted/50"
-                >
-                  <TableCell>{item.category}</TableCell>
-                  <TableCell className="text-right">
-                    {item.count}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {fmtCurrency(item.amount)}
-                  </TableCell>
-                </TableRow>
+                <CashFlowRow key={item.category} item={item} />
               ))}
               {minor.length > 0 && (
                 <TableRow>

@@ -4,11 +4,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useHoverState } from "@/lib/hooks/use-hover-state";
-import { Line, Scatter, ReferenceLine } from "recharts";
+import { Line, Scatter } from "recharts";
 import { ChartDialog } from "./chart-dialog";
 import { MarkerChart } from "./marker-chart";
-import { PriceTooltip } from "./ticker-chart-base";
-import { fmtCurrency } from "@/lib/format/format";
+import { AvgCostReferenceLine, PriceTooltip } from "./ticker-chart-base";
 import { useIsDark } from "@/lib/hooks/hooks";
 import type { TickerTransaction } from "@/lib/schemas";
 import { buildClusteredData, type TickerChartPoint } from "@/lib/format/ticker-data";
@@ -61,19 +60,7 @@ function TickerDialogChart({
           {/* Sell first, Buy second — Buy paints on top so click hit-testing prefers the larger/more-frequent buy cluster when a same-date sell overlaps */}
           <Scatter dataKey="sellClusterPrice" shape={renderSell} legendType="none" isAnimationActive={false} />
           <Scatter dataKey="buyClusterPrice" shape={renderBuy} legendType="none" isAnimationActive={false} />
-          {avgCost != null && (
-            <ReferenceLine
-              y={avgCost}
-              stroke={isDark ? "rgba(255,255,255,0.25)" : "rgba(0,0,0,0.2)"}
-              strokeDasharray="4 4"
-              label={{
-                value: `Cost ${fmtCurrency(avgCost)}`,
-                position: "insideTopRight",
-                fill: isDark ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.45)",
-                fontSize: 10,
-              }}
-            />
-          )}
+          <AvgCostReferenceLine avgCost={avgCost} labelText="Cost" labelPosition="insideTopRight" />
         </MarkerChart>
       </div>
       {hover && <MarkerHoverPanel hover={hover} isDark={isDark} />}
