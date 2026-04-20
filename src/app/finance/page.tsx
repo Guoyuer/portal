@@ -17,6 +17,7 @@ import { BackToTop } from "@/components/layout/back-to-top";
 import { TimemachineSection, StickyBrush } from "@/components/finance/timemachine";
 import { FinanceSkeleton } from "@/components/loading-skeleton";
 import { ErrorBoundary, SectionError } from "@/components/error-boundary";
+import { UnmatchedPanel } from "@/components/finance/unmatched-panel";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -109,6 +110,7 @@ function ActivityContent({
 
 export default function FinancePage() {
   const [allocOpen, setAllocOpen] = useState(false);
+  const [unmatchedExpanded, setUnmatchedExpanded] = useState(false);
   const tl = useBundle();
 
   const snapshotDate = tl.snapshot?.date ?? null;
@@ -184,22 +186,29 @@ export default function FinancePage() {
       </ErrorBoundary>
 
       {/* ── 3. Portfolio Activity ───────────────────────────────────────── */}
-      <ErrorBoundary fallback={<SectionError label="Fidelity Activity" />}>
-        <section id="fidelity-activity" className="scroll-mt-20 md:scroll-mt-8">
+      <ErrorBoundary fallback={<SectionError label="Investment Activity" />}>
+        <section id="investment-activity" className="scroll-mt-20 md:scroll-mt-8">
           <SectionHeader>
-            Fidelity Activity
+            Investment Activity
             {crossCheck && (
-              <span
-                className={`ml-2 inline-flex items-center gap-1 text-xs font-normal ${crossCheck.ok ? "text-green-500" : "text-red-400"}`}
-                title={crossCheck.ok
-                  ? "All Fidelity deposits matched with Qianji transfers"
-                  : `${crossCheck.totalCount - crossCheck.matchedCount} of ${crossCheck.totalCount} deposits not found in Qianji`}
+              <button
+                type="button"
+                onClick={() => { if (!crossCheck.ok) setUnmatchedExpanded(v => !v); }}
+                disabled={crossCheck.ok}
+                className={`ml-2 inline-flex items-center gap-1 text-xs font-normal ${crossCheck.ok ? "text-green-500 cursor-default" : "text-red-400 cursor-pointer hover:text-red-300"}`}
+                title={[
+                  `Fidelity:   ${crossCheck.perSource.fidelity.matched}/${crossCheck.perSource.fidelity.total}`,
+                  `Robinhood:  ${crossCheck.perSource.robinhood.matched}/${crossCheck.perSource.robinhood.total}`,
+                ].join("\n")}
               >
                 {crossCheck.ok ? "\u2713" : "\u2717"}{" "}
                 {crossCheck.matchedCount}/{crossCheck.totalCount} deposits reconciled
-              </span>
+              </button>
             )}
           </SectionHeader>
+          {crossCheck && !crossCheck.ok && unmatchedExpanded && (
+            <UnmatchedPanel items={crossCheck.allUnmatched} />
+          )}
           <ActivityContent activity={activity} groupedActivity={groupedActivity} startDate={startDate} snapshotDate={snapshotDate} dailyTickers={dailyTickers} fidelityTxns={fidelityTxns} />
         </section>
       </ErrorBoundary>

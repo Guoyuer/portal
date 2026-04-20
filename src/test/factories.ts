@@ -10,8 +10,11 @@ import type {
   DailyTicker,
   FidelityTxn,
   QianjiTxn,
+  RobinhoodTxn,
+  EmpowerContribution,
   MarketData,
 } from "@/lib/schemas";
+import type { InvestmentTxn } from "@/lib/compute/compute";
 import type {
   ApiCategory,
   ApiTicker,
@@ -91,6 +94,40 @@ export function mkQianjiTxn(overrides: Partial<QianjiTxn> = {}): QianjiTxn {
   };
 }
 
+export function mkRobinhoodTxn(overrides: Partial<RobinhoodTxn> = {}): RobinhoodTxn {
+  return {
+    txnDate: "2026-01-15",
+    action: "Buy",
+    actionKind: "buy",
+    ticker: "AAPL",
+    quantity: 1,
+    amountUsd: -200,
+    rawDescription: "",
+    ...overrides,
+  };
+}
+
+export function mkEmpowerContribution(overrides: Partial<EmpowerContribution> = {}): EmpowerContribution {
+  return {
+    date: "2026-01-15",
+    amount: 450,
+    ticker: "401k sp500",
+    cusip: "09259A791",
+    ...overrides,
+  };
+}
+
+export function mkInvestmentTxn(overrides: Partial<InvestmentTxn> = {}): InvestmentTxn {
+  return {
+    source: "fidelity",
+    date: "2026-01-15",
+    ticker: "VTI",
+    actionType: "buy",
+    amount: -500,
+    ...overrides,
+  };
+}
+
 export function mkApiTicker(overrides: Partial<ApiTicker> = {}): ApiTicker {
   return {
     ticker: "X",
@@ -122,9 +159,9 @@ export const CASHFLOW: CashflowResponse = {
 };
 
 export const ACTIVITY: ActivityResponse = {
-  buysBySymbol: [{ symbol: "VTI", count: 2, total: 1000 }],
+  buysBySymbol: [{ ticker: "VTI", count: 2, total: 1000, isGroup: false, sources: ["fidelity"] }],
   sellsBySymbol: [],
-  dividendsBySymbol: [{ symbol: "SCHD", count: 1, total: 50 }],
+  dividendsBySymbol: [{ ticker: "SCHD", count: 1, total: 50, isGroup: false, sources: ["fidelity"] }],
 };
 
 export const MARKET: MarketData = {
@@ -146,6 +183,8 @@ export function mkTimelinePayload(overrides: Record<string, unknown> = {}) {
     dailyTickers: [],
     fidelityTxns: [],
     qianjiTxns: [],
+    robinhoodTxns: [],
+    empowerContributions: [],
     categories: CATEGORIES,
     market: null,
     holdingsDetail: null,

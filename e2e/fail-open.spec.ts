@@ -28,9 +28,9 @@ test.describe("Timeline fail-open", () => {
     await expect(marketError).toContainText(/market data failed to load/i);
     await expect(marketError).toContainText(/db timeout/i);
 
-    // Other panels are unaffected — cashflow and fidelity-activity still attached.
+    // Other panels are unaffected — cashflow and investment-activity still attached.
     await expect(page.locator("#cashflow")).toBeAttached();
-    await expect(page.locator("#fidelity-activity")).toBeAttached();
+    await expect(page.locator("#investment-activity")).toBeAttached();
   });
 
   test("renders normally when errors is empty (happy path)", async ({ page }) => {

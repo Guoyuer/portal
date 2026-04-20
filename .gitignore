@@ -75,3 +75,6 @@ pipeline/data/timemachine.db
 pipeline/data/prices.db
 pipeline/timemachine.db
 .claude/
+
+# Brainstorming visual companion artifacts
+.superpowers/

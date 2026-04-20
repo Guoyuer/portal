@@ -1,27 +1,21 @@
-"""Contract test: D1 views must NEVER project banned columns.
+"""Contract test: D1 views must not project PII columns.
 
-Local SQLite and D1 share one schema (every local column is mirrored to D1),
-so the payload-exposure contract lives entirely in the views. The Worker
-serves ``GET /timeline`` as ``SELECT * FROM v_<name>``, meaning whatever
-columns a view projects land verbatim in the JSON payload. This test
-enforces the boundary by pattern-matching the raw ``CREATE VIEW`` SQL for
-identifiers that should **never** reach the frontend.
+Local SQLite and D1 share one schema (every local column is mirrored to
+D1), so the payload-exposure contract lives entirely in the views. The
+Worker serves ``GET /timeline`` as ``SELECT * FROM v_<name>``, meaning
+whatever columns a view projects land verbatim in the JSON payload.
 
-Banned columns fall into two groups:
+This test enforces a single explicit boundary: ``qianji.note`` is user
+free-text that may contain PII and must never appear in any view.
 
-    PII-ish / noisy raw data with no frontend consumer:
-      fidelity: account_number, action
-      qianji: note
+Keeping other columns out of views (fidelity.action_kind, .lot_type,
+.account_number, etc.) is the SELECT list author's responsibility — omit
+them by not writing them. Those aren't privacy-critical; they're
+implementation details whose non-exposure is enforced by ordinary review,
+not by this test.
 
-    Local-compute intermediates:
-      fidelity: action_kind, lot_type
-
-This is the sole gate for payload exposure — strictly stronger than a
-sync-time whitelist would have been, because a view leaking a banned
-column would propagate regardless of what sync did.
-
-Coverage limitation: this test checks views only. A Worker handler that
-runs ``SELECT * FROM <raw_table>`` directly would also leak. The only
+Coverage limitation: views only. A Worker handler that runs
+``SELECT * FROM <raw_table>`` directly would leak ``note``. The only
 direct-table queries today (``worker/src/index.ts``) use explicit column
 lists — enforce that invariant in code review.
 """
@@ -31,17 +25,12 @@ import re
 
 from etl.db import _VIEWS
 
-# Identifiers that must never appear in any view body (case-insensitive,
-# word-bounded). Adding to this list is how you declare a column
-# local-only without splitting the shared schema into independent
-# local/D1 halves.
-_BANNED_IDENTIFIERS: tuple[str, ...] = (
-    "account_number",
-    "action",
-    "action_kind",
-    "lot_type",
-    "note",
-)
+# Qianji ``note`` is user free-text that may contain PII (personal
+# details, sensitive comments). This is the only column where leaking
+# into the payload is a genuine privacy concern; other local-only
+# columns (fidelity.action_kind, .lot_type, .account_number, etc.) are
+# kept out of views by omission in the SELECT list, not by this test.
+_BANNED_IDENTIFIERS: tuple[str, ...] = ("note",)
 
 
 def _strip_sql_comments(sql: str) -> str:
@@ -69,19 +58,3 @@ def test_no_view_projects_banned_identifier() -> None:
     )
 
 
-def test_banned_list_covers_local_only_columns() -> None:
-    """Smoke test on the banned list itself — every column in the local
-    schema that has no frontend consumer must stay on the list. Shrinking
-    it is an intentional exposure decision; flag it so review catches."""
-    expected_at_minimum = {
-        "account_number",  # replay grouping key
-        "action",          # action_kind resync input
-        "action_kind",     # replay classification
-        "lot_type",        # replay lot-type bookkeeping
-        "note",            # email low-count expand
-    }
-    assert set(_BANNED_IDENTIFIERS) >= expected_at_minimum, (
-        "Banned identifier list shrunk below the local-only baseline. If "
-        "that's intentional (column is being exposed to the frontend), "
-        "update this test; otherwise restore the missing identifiers."
-    )

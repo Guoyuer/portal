@@ -12,6 +12,8 @@ import {
   type DailyTicker,
   type QianjiTxn,
   type FidelityTxn,
+  type RobinhoodTxn,
+  type EmpowerContribution,
   type TimelineData,
 } from "@/lib/schemas";
 import type {
@@ -27,10 +29,12 @@ import {
   computeGroupedActivity,
   computeCrossCheck,
   computeMonthlyFlows,
+  normalizeInvestmentTxns,
   buildDateIndex,
   buildTickerIndex,
   type CrossCheck,
   type GroupedActivityResponse,
+  type InvestmentTxn,
 } from "@/lib/compute/compute";
 
 // ── Hook ────────────────────────────────────────────────────────────────
@@ -40,6 +44,9 @@ export interface BundleState {
   dailyTickers: DailyTicker[];
   qianjiTxns: QianjiTxn[];
   fidelityTxns: FidelityTxn[];
+  robinhoodTxns: RobinhoodTxn[];
+  empowerContributions: EmpowerContribution[];
+  investmentTxns: InvestmentTxn[];
   categories: CategoryMeta[];
   defaultStartIndex: number;
   defaultEndIndex: number;
@@ -119,11 +126,14 @@ export function useBundle(): BundleState {
 
   // ── Computed data (pure, instant) ───────────────────────────────────
   const categories = data?.categories ?? [];
+  const investmentTxns = data
+    ? normalizeInvestmentTxns(data.fidelityTxns, data.robinhoodTxns, data.empowerContributions)
+    : [];
   const allocation = (data && snapshotDate) ? computeAllocation(data.daily, tickerIndex, dateIndex, snapshotDate, categories) : null;
   const cashflow = (data && startDate && snapshotDate) ? computeCashflow(data.qianjiTxns, startDate, snapshotDate) : null;
-  const activity = (data && startDate && snapshotDate) ? computeActivity(data.fidelityTxns, startDate, snapshotDate) : null;
-  const groupedActivity = (data && startDate && snapshotDate) ? computeGroupedActivity(data.fidelityTxns, startDate, snapshotDate) : null;
-  const crossCheck = (data && startDate && snapshotDate) ? computeCrossCheck(data.fidelityTxns, data.qianjiTxns, startDate, snapshotDate) : null;
+  const activity = (data && startDate && snapshotDate) ? computeActivity(investmentTxns, startDate, snapshotDate) : null;
+  const groupedActivity = (data && startDate && snapshotDate) ? computeGroupedActivity(investmentTxns, startDate, snapshotDate) : null;
+  const crossCheck = (data && startDate && snapshotDate) ? computeCrossCheck(investmentTxns, data.qianjiTxns, startDate, snapshotDate) : null;
   const monthlyFlows = computeMonthlyFlows(data?.qianjiTxns ?? [], startDate, snapshotDate);
 
   return {
@@ -131,6 +141,9 @@ export function useBundle(): BundleState {
     dailyTickers: data?.dailyTickers ?? [],
     qianjiTxns: data?.qianjiTxns ?? [],
     fidelityTxns: data?.fidelityTxns ?? [],
+    robinhoodTxns: data?.robinhoodTxns ?? [],
+    empowerContributions: data?.empowerContributions ?? [],
+    investmentTxns,
     categories,
     defaultStartIndex,
     defaultEndIndex,

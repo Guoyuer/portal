@@ -6,15 +6,19 @@ import type {
   DailyTicker,
   FidelityTxn,
   QianjiTxn,
+  RobinhoodTxn,
+  EmpowerContribution,
 } from "@/lib/schemas";
 import type {
   AllocationResponse,
   CashflowResponse,
   ActivityResponse,
+  ActivityTicker,
   ApiTicker,
   ApiCategory,
   MonthlyFlowPoint,
 } from "@/lib/compute/computed-types";
+export type { ActivityTicker };
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -118,34 +122,97 @@ export function cashflowState(cashflow: CashflowResponse | null): CashflowState 
   return { kind: "data", data: cashflow };
 }
 
-// ── Cross-check (Fidelity deposits vs Qianji transfers) ─────────────────
+// ── Investment txn unification ────────────────────────────────────────────
 
-// Fidelity runDate is ISO YYYY-MM-DD (normalized at the pipeline ingestion
+/** Unified shape used by computeActivity + computeCrossCheck. Internal to
+ *  the compute layer; does NOT cross the D1/Worker/Zod boundary. */
+export interface InvestmentTxn {
+  source: "fidelity" | "robinhood" | "401k";
+  date: string;
+  ticker: string;
+  actionType: "buy" | "sell" | "dividend" | "reinvestment" | "deposit" | "contribution";
+  amount: number;
+}
+
+export function normalizeInvestmentTxns(
+  fidelity: FidelityTxn[],
+  robinhood: RobinhoodTxn[],
+  empower: EmpowerContribution[],
+): InvestmentTxn[] {
+  const out: InvestmentTxn[] = [];
+  for (const f of fidelity) {
+    out.push({
+      source: "fidelity",
+      date: f.runDate,
+      ticker: f.symbol,
+      actionType: f.actionType as InvestmentTxn["actionType"],
+      amount: f.amount,
+    });
+  }
+  for (const r of robinhood) {
+    if (r.actionKind === "other") continue;
+    out.push({
+      source: "robinhood",
+      date: r.txnDate,
+      ticker: r.ticker,
+      actionType: r.actionKind as InvestmentTxn["actionType"],
+      amount: r.amountUsd,
+    });
+  }
+  for (const e of empower) {
+    out.push({
+      source: "401k",
+      date: e.date,
+      ticker: e.ticker,
+      actionType: "contribution",
+      amount: e.amount,
+    });
+  }
+  return out;
+}
+
+// ── Cross-check (Fidelity + Robinhood deposits vs Qianji transfers) ─────
+
+// Deposit dates are ISO YYYY-MM-DD (normalized at the pipeline ingestion
 // boundary) so string comparison and `new Date(...)` both just work.
 
-const MATCH_WINDOW_MS = 7 * 86_400_000; // Qianji can lag Fidelity by up to 7 days
-// Sub-dollar Fidelity "deposits" are cash-sweep dust / residual interest,
+const MATCH_WINDOW_MS = 7 * 86_400_000; // Qianji can lag a deposit by up to 7 days
+// Sub-dollar deposits are cash-sweep dust / residual interest,
 // not funded transfers the user would ever log in Qianji. Exclude them so
 // the ✗ count reflects deposits the user actually made.
 const DUST_THRESHOLD = 1;
 
+export interface UnmatchedItem {
+  source: "fidelity" | "robinhood";
+  date: string;
+  amount: number;
+}
+
+export interface SourceCrossCheck {
+  matched: number;
+  total: number;
+  unmatched: UnmatchedItem[];
+}
+
 export interface CrossCheck {
-  fidelityTotal: number;
-  matchedTotal: number;
-  unmatchedTotal: number;
   matchedCount: number;
   totalCount: number;
   ok: boolean;
+  perSource: {
+    fidelity:  SourceCrossCheck;
+    robinhood: SourceCrossCheck;
+  };
+  allUnmatched: UnmatchedItem[];
 }
 
 export function computeCrossCheck(
-  fidelityTxns: FidelityTxn[],
+  investmentTxns: InvestmentTxn[],
   qianjiTxns: QianjiTxn[],
   start: string,
   end: string,
 ): CrossCheck {
   // Qianji data has a historical floor — the user started using it partway
-  // through the Fidelity history. Deposits before that floor are structurally
+  // through the investment history. Deposits before that floor are structurally
   // unmatchable (no Qianji ledger exists to cross-reference). Give the floor
   // one match window of grace so that a deposit whose matching transfer is
   // itself the earliest Qianji entry still counts.
@@ -160,46 +227,80 @@ export function computeCrossCheck(
     if (floor > effectiveStart) effectiveStart = floor;
   }
 
-  const deposits: { amt: number; ms: number }[] = [];
-  let fidelityTotal = 0;
-  for (const t of fidelityTxns) {
-    if (t.actionType !== "deposit") continue;
-    if (Math.abs(t.amount) < DUST_THRESHOLD) continue;
-    if (t.runDate >= effectiveStart && t.runDate <= end) {
-      deposits.push({ amt: Math.round(Math.abs(t.amount) * 100), ms: new Date(t.runDate).getTime() });
-      fidelityTotal += t.amount;
-    }
+  const fidelitySrc:  SourceCrossCheck = { matched: 0, total: 0, unmatched: [] };
+  const robinhoodSrc: SourceCrossCheck = { matched: 0, total: 0, unmatched: [] };
+
+  // ── Fidelity ──
+  // Candidates: transfers (user moves money into Fidelity from another account),
+  // or income booked directly into a Fidelity account (payroll direct deposit,
+  // rebate rewards). Qianji logs those as type=income with accountTo="Fidelity …"
+  // rather than as a transfer. Matching on the accountTo prefix (case-insensitive)
+  // covers "Fidelity taxable", "Fidelity Roth IRA", etc.
+  {
+    const deposits = investmentTxns
+      .filter((t) => t.source === "fidelity" && t.actionType === "deposit"
+        && Math.abs(t.amount) >= DUST_THRESHOLD
+        && t.date >= effectiveStart && t.date <= end)
+      .map((t) => ({ amount: Math.abs(t.amount), ms: new Date(t.date).getTime(), date: t.date }));
+    const candidates = qianjiTxns.filter((q) =>
+      q.type === "transfer" ||
+      (q.type === "income" && q.accountTo.toLowerCase().startsWith("fidelity")),
+    );
+    matchAndRecord(deposits, candidates, fidelitySrc, "fidelity");
   }
-  fidelityTotal = round(fidelityTotal);
 
-  // Candidate Qianji rows to match against:
-  // - transfers (user moves money into Fidelity from another account), and
-  // - income booked directly into a Fidelity account (payroll direct deposit,
-  //   rebate rewards). Qianji logs those as ``type=income`` with
-  //   ``accountTo="Fidelity …"`` rather than as a transfer. Matching on the
-  //   accountTo prefix (case-insensitive) covers "Fidelity taxable",
-  //   "Fidelity Roth IRA", etc. without having to enumerate every account.
-  const candidates = qianjiTxns.filter(
-    (t) =>
-      t.type === "transfer" ||
-      (t.type === "income" && t.accountTo.toLowerCase().startsWith("fidelity")),
-  );
+  // ── Robinhood ──
+  // Candidates: transfers, or income booked directly into a Robinhood account.
+  {
+    const deposits = investmentTxns
+      .filter((t) => t.source === "robinhood" && t.actionType === "deposit"
+        && Math.abs(t.amount) >= DUST_THRESHOLD
+        && t.date >= effectiveStart && t.date <= end)
+      .map((t) => ({ amount: Math.abs(t.amount), ms: new Date(t.date).getTime(), date: t.date }));
+    const candidates = qianjiTxns.filter((q) =>
+      q.type === "transfer" ||
+      (q.type === "income" && q.accountTo.toLowerCase().startsWith("robinhood")),
+    );
+    matchAndRecord(deposits, candidates, robinhoodSrc, "robinhood");
+  }
+
+  // 401k contributions are excluded — the pipeline reconciles QFX vs Qianji
+  // at ingest time (ContributionReconcileError on per-date $1 mismatch);
+  // a UI cross-check layer would be ~100% tautological.
+
+  const matchedCount = fidelitySrc.matched + robinhoodSrc.matched;
+  const totalCount   = fidelitySrc.total   + robinhoodSrc.total;
+  const allUnmatched = [...fidelitySrc.unmatched, ...robinhoodSrc.unmatched];
+
+  return {
+    matchedCount,
+    totalCount,
+    ok: totalCount > 0 && matchedCount === totalCount,
+    perSource: { fidelity: fidelitySrc, robinhood: robinhoodSrc },
+    allUnmatched,
+  };
+}
+
+// Helper: earliest-in-window matching (bipartite matching on an interval graph).
+// Processing deposits chronologically and picking the earliest in-window
+// candidate each time is provably maximum-matching for this class of graph,
+// unlike "nearest unused" greedy which can orphan deposits when an earlier
+// deposit steals the only candidate a later one also needs.
+function matchAndRecord(
+  deposits: Array<{ amount: number; ms: number; date: string }>,
+  candidates: QianjiTxn[],
+  out: SourceCrossCheck,
+  sourceLabel: UnmatchedItem["source"],
+): void {
   const used = new Set<number>();
-  let matchedCount = 0;
-  let matchedTotal = 0;
-
-  // Bipartite matching on an interval graph (edge iff |dep − cand| ≤ window).
-  // Processing deposits chronologically and picking the earliest in-window
-  // candidate each time is provably maximum-matching for this class of graph,
-  // unlike "nearest unused" greedy which can orphan deposits when an earlier
-  // deposit steals the only candidate a later one also needs.
-  const sortedDeposits = [...deposits].sort((a, b) => a.ms - b.ms);
-  for (const dep of sortedDeposits) {
-    let bestIdx = -1;
-    let bestMs = Infinity;
+  const sorted = [...deposits].sort((a, b) => a.ms - b.ms);
+  for (const dep of sorted) {
+    out.total += 1;
+    let bestIdx = -1, bestMs = Infinity;
+    const depCents = Math.round(dep.amount * 100);
     for (let i = 0; i < candidates.length; i++) {
       if (used.has(i)) continue;
-      if (Math.round(candidates[i].amount * 100) !== dep.amt) continue;
+      if (Math.round(candidates[i].amount * 100) !== depCents) continue;
       const candMs = new Date(candidates[i].date).getTime();
       if (Math.abs(dep.ms - candMs) <= MATCH_WINDOW_MS && candMs < bestMs) {
         bestIdx = i;
@@ -208,50 +309,56 @@ export function computeCrossCheck(
     }
     if (bestIdx >= 0) {
       used.add(bestIdx);
-      matchedCount++;
-      matchedTotal += dep.amt / 100;
+      out.matched += 1;
+    } else {
+      out.unmatched.push({ source: sourceLabel, date: dep.date, amount: dep.amount });
     }
   }
-
-  matchedTotal = round(matchedTotal);
-  const unmatchedTotal = round(fidelityTotal - matchedTotal);
-
-  return {
-    fidelityTotal,
-    matchedTotal,
-    unmatchedTotal,
-    matchedCount,
-    totalCount: deposits.length,
-    ok: deposits.length > 0 && matchedCount === deposits.length,
-  };
 }
 
 // ── Activity ──────────────────────────────────────────────────────────────
 
-export function computeActivity(fidelityTxns: FidelityTxn[], start: string, end: string): ActivityResponse {
-  const buys = new Map<string, { count: number; total: number }>();
-  const sells = new Map<string, { count: number; total: number }>();
-  const dividends = new Map<string, { count: number; total: number }>();
+type ActivityBucket = { count: number; total: number; sources: Set<"fidelity" | "robinhood" | "401k"> };
 
-  for (const t of fidelityTxns) {
-    if (t.runDate < start || t.runDate > end) continue;
-    if (!t.symbol) continue;
+function accumWithSrc(m: Map<string, ActivityBucket>, key: string, amount: number, src: "fidelity" | "robinhood" | "401k") {
+  const e = m.get(key) ?? { count: 0, total: 0, sources: new Set<"fidelity" | "robinhood" | "401k">() };
+  e.count += 1;
+  e.total += amount;
+  e.sources.add(src);
+  m.set(key, e);
+}
+
+export function computeActivity(investmentTxns: InvestmentTxn[], start: string, end: string): ActivityResponse {
+  const buys = new Map<string, ActivityBucket>();
+  const sells = new Map<string, ActivityBucket>();
+  const dividends = new Map<string, ActivityBucket>();
+
+  for (const t of investmentTxns) {
+    if (t.date < start || t.date > end) continue;
+    if (!t.ticker) continue;
     const abs = Math.abs(t.amount);
-    if (t.actionType === "buy") {
-      accum(buys, t.symbol, abs);
+    if (t.actionType === "buy" || t.actionType === "contribution") {
+      accumWithSrc(buys, t.ticker, abs, t.source);
     } else if (t.actionType === "sell") {
-      accum(sells, t.symbol, abs);
+      accumWithSrc(sells, t.ticker, abs, t.source);
     } else if (t.actionType === "dividend") {
-      accum(dividends, t.symbol, t.amount);
+      accumWithSrc(dividends, t.ticker, t.amount, t.source);
     } else if (t.actionType === "reinvestment") {
-      accum(dividends, t.symbol, abs);
-      accum(buys, t.symbol, abs);
+      accumWithSrc(dividends, t.ticker, abs, t.source);
+      accumWithSrc(buys, t.ticker, abs, t.source);
     }
+    // "deposit" is cross-check territory, not activity
   }
 
-  const toList = (m: Map<string, { count: number; total: number }>) =>
+  const toList = (m: Map<string, ActivityBucket>): ActivityTicker[] =>
     [...m.entries()]
-      .map(([symbol, v]) => ({ symbol, count: v.count, total: round(v.total) }))
+      .map(([ticker, v]) => ({
+        ticker,
+        count: v.count,
+        total: round(v.total),
+        isGroup: false,
+        sources: [...v.sources],
+      }))
       .sort((a, b) => b.total - a.total);
 
   return { buysBySymbol: toList(buys), sellsBySymbol: toList(sells), dividendsBySymbol: toList(dividends) };
@@ -277,67 +384,64 @@ export function buildTickerIndex(tickers: DailyTicker[]): Map<string, ApiTicker[
 
 // ── Group-aware activity ──────────────────────────────────────────────────
 
-import { groupNetByDate } from "@/lib/format/group-aggregation";
 import { EQUIVALENT_GROUPS, groupOfTicker } from "@/lib/config/equivalent-groups";
 
-export type ActivityRow = {
-  symbol: string;
-  count: number;
-  total: number;
-  isGroup?: boolean;
-  groupKey?: string;
-};
+/** ActivityRow is an alias for ActivityTicker — use ActivityTicker for new code. */
+export type ActivityRow = ActivityTicker;
 
 export type GroupedActivityResponse = {
-  buysBySymbol: ActivityRow[];
-  sellsBySymbol: ActivityRow[];
-  dividendsBySymbol: ActivityRow[];
+  buysBySymbol: ActivityTicker[];
+  sellsBySymbol: ActivityTicker[];
+  dividendsBySymbol: ActivityTicker[];
 };
 
+type SourceKind = "fidelity" | "robinhood" | "401k";
+
+type GroupAccum = { count: number; total: number; sources: Set<SourceKind>; isGroup: boolean; groupKey?: string };
+
+function foldIntoGroups(rows: ActivityTicker[]): ActivityTicker[] {
+  const grouped = new Map<string, GroupAccum>();
+  for (const row of rows) {
+    const gKey = groupOfTicker(row.ticker);
+    const display = gKey ? EQUIVALENT_GROUPS[gKey].display : row.ticker;
+    const existing = grouped.get(display);
+    if (existing) {
+      existing.count += row.count;
+      existing.total += row.total;
+      for (const s of row.sources ?? []) existing.sources.add(s);
+    } else {
+      grouped.set(display, {
+        count: row.count,
+        total: row.total,
+        sources: new Set(row.sources ?? []),
+        isGroup: gKey !== null,
+        groupKey: gKey ?? undefined,
+      });
+    }
+  }
+  return [...grouped.entries()]
+    .map(([ticker, v]) => ({
+      ticker,
+      count: v.count,
+      total: round(v.total),
+      isGroup: v.isGroup,
+      groupKey: v.groupKey,
+      sources: [...v.sources] as SourceKind[],
+    }))
+    .sort((a, b) => b.total - a.total);
+}
+
 export function computeGroupedActivity(
-  fidelityTxns: FidelityTxn[],
+  investmentTxns: InvestmentTxn[],
   start: string,
   end: string,
 ): GroupedActivityResponse {
-  // Window the txns first
-  const windowed = fidelityTxns.filter((t) => t.runDate >= start && t.runDate <= end && t.symbol);
-
-  // Group markers via the shared algorithm
-  const groupMarkers = groupNetByDate(windowed);
-  const groupBuys: ActivityRow[] = [];
-  const groupSells: ActivityRow[] = [];
-  for (const [groupKey, byDate] of groupMarkers) {
-    const display = EQUIVALENT_GROUPS[groupKey].display;
-    let buyTotal = 0, buyCount = 0, sellTotal = 0, sellCount = 0;
-    for (const entry of byDate.values()) {
-      if (entry.side === "buy") { buyTotal += entry.net; buyCount += 1; }
-      else                      { sellTotal += entry.net; sellCount += 1; }
-    }
-    if (buyCount > 0)  groupBuys.push({ symbol: display, count: buyCount, total: round(buyTotal), isGroup: true, groupKey });
-    if (sellCount > 0) groupSells.push({ symbol: display, count: sellCount, total: round(sellTotal), isGroup: true, groupKey });
-  }
-
-  // Solo tickers (not in any group) — reuse computeActivity for the B/S rows
-  const solo = windowed.filter((t) => !groupOfTicker(t.symbol));
-  const soloActivity = computeActivity(solo, start, end);
-
-  // Dividends stay per-ticker across all tickers (grouping out of scope).
-  // Compute inline over `windowed` to avoid a second computeActivity pass
-  // that would rebuild the full buys/sells Maps just to be discarded.
-  const dividends = new Map<string, { count: number; total: number }>();
-  for (const t of windowed) {
-    const abs = Math.abs(t.amount);
-    if (t.actionType === "dividend") accum(dividends, t.symbol, t.amount);
-    else if (t.actionType === "reinvestment") accum(dividends, t.symbol, abs);
-  }
-
-  const sortDesc = (a: ActivityRow, b: ActivityRow) => b.total - a.total;
+  const raw = computeActivity(investmentTxns, start, end);
   return {
-    buysBySymbol:  [...groupBuys,  ...soloActivity.buysBySymbol.map(r => ({ ...r, isGroup: false as const }))].sort(sortDesc),
-    sellsBySymbol: [...groupSells, ...soloActivity.sellsBySymbol.map(r => ({ ...r, isGroup: false as const }))].sort(sortDesc),
-    dividendsBySymbol: [...dividends.entries()]
-      .map(([symbol, v]) => ({ symbol, count: v.count, total: round(v.total), isGroup: false as const }))
-      .sort(sortDesc),
+    buysBySymbol: foldIntoGroups(raw.buysBySymbol),
+    sellsBySymbol: foldIntoGroups(raw.sellsBySymbol),
+    // Dividends stay per-ticker (grouping out of scope).
+    dividendsBySymbol: raw.dividendsBySymbol,
   };
 }
 

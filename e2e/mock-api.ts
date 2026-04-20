@@ -220,6 +220,8 @@ const TIMELINE = {
   dailyTickers,
   fidelityTxns,
   qianjiTxns,
+  robinhoodTxns: [],
+  empowerContributions: [],
   categories,
   market,
   holdingsDetail,
@@ -230,8 +232,16 @@ const TIMELINE = {
 // Failure-mode variant: market section degraded (fail-open behaviour). Used by
 // the error-card Playwright spec — request via ?fail=market.
 const TIMELINE_MARKET_FAILED = {
-  ...TIMELINE,
+  daily,
+  dailyTickers,
+  fidelityTxns,
+  qianjiTxns,
+  robinhoodTxns: [],
+  empowerContributions: [],
+  categories,
   market: null,
+  holdingsDetail,
+  syncMeta: { last_sync: new Date().toISOString(), last_date: lastDate },
   errors: { market: "indices: db timeout" },
 };
 

@@ -14,7 +14,7 @@ afterEach(cleanup);
 
 describe("TickerTable", () => {
   const mk = (n: number) =>
-    Array.from({ length: n }, (_, i) => ({ symbol: `SYM${i + 1}`, count: i + 1, total: (i + 1) * 100 }));
+    Array.from({ length: n }, (_, i) => ({ ticker: `SYM${i + 1}`, count: i + 1, total: (i + 1) * 100 }));
 
   it("renders all rows when there are 5 or fewer symbols", () => {
     const { container } = render(<TickerTable title="Buys" data={mk(4)} />);
@@ -60,11 +60,20 @@ describe("TickerTable", () => {
 
   it("renders a group row with display name", () => {
     render(<TickerTable title="Test" data={[
-      { symbol: "NASDAQ 100", count: 2, total: 3000, isGroup: true, groupKey: "nasdaq_100" },
-      { symbol: "NVDA", count: 1, total: 500 },
+      { ticker: "NASDAQ 100", count: 2, total: 3000, isGroup: true, groupKey: "nasdaq_100" },
+      { ticker: "NVDA", count: 1, total: 500 },
     ]} />);
     expect(screen.getByText("NASDAQ 100")).toBeTruthy();
     expect(screen.getByText("NVDA")).toBeTruthy();
+  });
+
+  it("renders SourceBadge for each source on a row", () => {
+    const data: import("@/lib/compute/compute").ActivityRow[] = [
+      { ticker: "S&P 500", count: 3, total: 1050, isGroup: true, sources: ["fidelity", "401k"], groupKey: "sp500" },
+    ];
+    render(<TickerTable title="Buys by Symbol" data={data} />);
+    expect(screen.getByText("FID")).toBeTruthy();
+    expect(screen.getByText("401k")).toBeTruthy();
   });
 });
 

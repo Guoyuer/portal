@@ -17,7 +17,9 @@ export type CategoryData = {
   subtypes: { name: string; holdings: { ticker: string; value: number }[]; value: number; lots: number; pct: number }[];
   holdings: { ticker: string; value: number }[];
 };
-export type ApiTicker = Omit<DailyTicker, "date">;
+export type ApiTicker = Omit<DailyTicker, "date"> & {
+  sources?: Array<"fidelity" | "robinhood" | "401k">;
+};
 export type ApiCategory = { name: string; value: number; pct: number; target: number; deviation: number };
 export type AllocationResponse = { total: number; netWorth: number; liabilities: number; categories: ApiCategory[]; tickers: ApiTicker[] };
 export type CashflowResponse = {
@@ -26,8 +28,19 @@ export type CashflowResponse = {
   totalIncome: number; totalExpenses: number; netCashflow: number;
   ccPayments: number; savingsRate: number; takehomeSavingsRate: number;
 };
+
+/** Row type for both ActivityResponse and GroupedActivityResponse lists. */
+export type ActivityTicker = {
+  ticker: string;
+  count: number;
+  total: number;
+  isGroup?: boolean;
+  groupKey?: string;
+  sources?: Array<"fidelity" | "robinhood" | "401k">;
+};
+
 export type ActivityResponse = {
-  buysBySymbol: { symbol: string; count: number; total: number }[];
-  sellsBySymbol: { symbol: string; count: number; total: number }[];
-  dividendsBySymbol: { symbol: string; count: number; total: number }[];
+  buysBySymbol: ActivityTicker[];
+  sellsBySymbol: ActivityTicker[];
+  dividendsBySymbol: ActivityTicker[];
 };

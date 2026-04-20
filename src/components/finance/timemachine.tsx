@@ -307,19 +307,17 @@ export function TimemachineSummary({
               </span>
             </p>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-y-1.5 gap-x-2 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-1.5 gap-x-2 text-xs">
             <div className="flex sm:block justify-between">
-              <p className="text-muted-foreground">Fidelity Total</p>
-              <p className="font-semibold tabular-nums sm:mt-0.5">{fmtCurrencyShort(cc.fidelityTotal)}</p>
+              <p className="text-muted-foreground">Fidelity</p>
+              <p className="font-semibold tabular-nums sm:mt-0.5">
+                {cc.perSource.fidelity.matched}/{cc.perSource.fidelity.total}
+              </p>
             </div>
             <div className="flex sm:block justify-between">
-              <p className="text-muted-foreground">Matched</p>
-              <p className="font-semibold tabular-nums sm:mt-0.5 text-green-500">{fmtCurrencyShort(cc.matchedTotal)}</p>
-            </div>
-            <div className="flex sm:block justify-between">
-              <p className="text-muted-foreground">Unmatched</p>
-              <p className={`font-semibold tabular-nums sm:mt-0.5 ${cc.unmatchedTotal > 0 ? "text-red-400" : ""}`}>
-                {fmtCurrencyShort(cc.unmatchedTotal)}
+              <p className="text-muted-foreground">Robinhood</p>
+              <p className="font-semibold tabular-nums sm:mt-0.5">
+                {cc.perSource.robinhood.matched}/{cc.perSource.robinhood.total}
               </p>
             </div>
           </div>

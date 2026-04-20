@@ -7,8 +7,10 @@ import { z } from "zod";
 
 import {
   AllocationRowSchema,
+  EmpowerContributionSchema as GeneratedEmpowerContributionSchema,
   FidelityTxnSchema as GeneratedFidelityTxnSchema,
   QianjiTxnSchema as GeneratedQianjiTxnSchema,
+  RobinhoodTxnSchema as GeneratedRobinhoodTxnSchema,
   TickerDetailSchema,
 } from "./_generated";
 
@@ -80,6 +82,12 @@ const FidelityTxnSchema = GeneratedFidelityTxnSchema;
 // Boolean(). Keeps the Worker a thin SELECT→JSON adapter.
 const QianjiTxnSchema = GeneratedQianjiTxnSchema;
 
+// RobinhoodTxn — direct 1:1 projection from the generated schema.
+const RobinhoodTxnSchema = GeneratedRobinhoodTxnSchema;
+
+// EmpowerContribution — direct 1:1 projection from the generated schema.
+const EmpowerContributionSchema = GeneratedEmpowerContributionSchema;
+
 // ── Category metadata (target weights + display order from pipeline) ────
 
 const CategoryMetaSchema = z.object({
@@ -106,6 +114,8 @@ export const TimelineDataSchema = z.object({
   dailyTickers: z.array(DailyTickerSchema).default([]),
   fidelityTxns: z.array(FidelityTxnSchema).default([]),
   qianjiTxns: z.array(QianjiTxnSchema).default([]),
+  robinhoodTxns: z.array(RobinhoodTxnSchema),
+  empowerContributions: z.array(EmpowerContributionSchema),
   categories: z.array(CategoryMetaSchema),
   market: MarketDataSchema.nullable().default(null),
   holdingsDetail: z.array(StockDetailSchema).nullable().default(null),
@@ -119,6 +129,8 @@ export type DailyPoint = z.infer<typeof DailyPointSchema>;
 export type DailyTicker = z.infer<typeof DailyTickerSchema>;
 export type FidelityTxn = z.infer<typeof FidelityTxnSchema>;
 export type QianjiTxn = z.infer<typeof QianjiTxnSchema>;
+export type RobinhoodTxn = z.infer<typeof RobinhoodTxnSchema>;
+export type EmpowerContribution = z.infer<typeof EmpowerContributionSchema>;
 export type TimelineData = z.infer<typeof TimelineDataSchema>;
 export type TimelineErrors = z.infer<typeof TimelineErrorsSchema>;
 export type IndexReturn = z.infer<typeof IndexReturnSchema>;

@@ -217,6 +217,18 @@ _VIEWS: dict[str, str] = {
         "  account_to AS accountTo\n"
         "FROM qianji_transactions ORDER BY date;"
     ),
+    "v_robinhood_txns": (
+        "CREATE VIEW IF NOT EXISTS v_robinhood_txns AS\n"
+        "SELECT txn_date AS txnDate, action, action_kind AS actionKind,\n"
+        "  ticker, quantity, amount_usd AS amountUsd,\n"
+        "  raw_description AS rawDescription\n"
+        "FROM robinhood_transactions ORDER BY txn_date;"
+    ),
+    "v_empower_contributions": (
+        "CREATE VIEW IF NOT EXISTS v_empower_contributions AS\n"
+        "SELECT date, amount, ticker, cusip\n"
+        "FROM empower_contributions ORDER BY date;"
+    ),
     "v_market_indices": (
         "CREATE VIEW IF NOT EXISTS v_market_indices AS\n"
         "SELECT ticker, name, current, month_return AS monthReturn,\n"

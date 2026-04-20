@@ -3,8 +3,8 @@ import { test, expect } from "@playwright/test";
 test("group toggle swaps ticker rows to group rows", async ({ page }) => {
   await page.goto("/finance");
 
-  // Wait for the Fidelity Activity section to attach (id confirmed in page.tsx)
-  const activity = page.locator("#fidelity-activity");
+  // Wait for the Investment Activity section to attach (id confirmed in page.tsx)
+  const activity = page.locator("#investment-activity");
   await expect(activity).toBeAttached();
 
   // Wait for activity table to load (transactions present in mock fixture)
