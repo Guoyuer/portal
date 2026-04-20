@@ -7,6 +7,8 @@ export type EquivalentGroup = {
   key: string;
   display: string;
   tickers: string[];
+  /** Ticker whose /prices series is plotted in the group chart. Must be an element of `tickers`. */
+  representative: string;
 };
 
 export const EQUIVALENT_GROUPS: Record<string, EquivalentGroup> = {
@@ -14,17 +16,24 @@ export const EQUIVALENT_GROUPS: Record<string, EquivalentGroup> = {
     key: "nasdaq_100",
     display: "NASDAQ 100",
     tickers: ["QQQ", "QQQM", "401k tech"],
+    representative: "QQQ",
   },
   sp500: {
     key: "sp500",
     display: "S&P 500",
     tickers: ["VOO", "IVV", "SPY", "FXAIX", "401k sp500"],
+    representative: "VOO",
   },
 };
 
 function buildIndex(): Map<string, string> {
   const m = new Map<string, string>();
   for (const [key, group] of Object.entries(EQUIVALENT_GROUPS)) {
+    if (!group.tickers.includes(group.representative)) {
+      throw new Error(
+        `Group "${key}" representative "${group.representative}" is not in its tickers list`,
+      );
+    }
     for (const t of group.tickers) {
       const existing = m.get(t);
       if (existing) {
