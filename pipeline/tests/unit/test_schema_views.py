@@ -50,6 +50,8 @@ def test_required_views_present() -> None:
         "v_daily_tickers",
         "v_fidelity_txns",
         "v_qianji_txns",
+        "v_robinhood_txns",
+        "v_empower_contributions",
         "v_market_indices",
         "v_holdings_detail",
         "v_econ_series",

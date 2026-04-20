@@ -154,6 +154,17 @@ SELECT date, type, category, amount,
   account_to AS accountTo
 FROM qianji_transactions ORDER BY date;
 
+DROP VIEW IF EXISTS v_robinhood_txns;
+CREATE VIEW IF NOT EXISTS v_robinhood_txns AS
+SELECT txn_date AS txnDate, ticker, quantity, amount_usd AS amountUsd,
+  raw_description AS rawDescription
+FROM robinhood_transactions ORDER BY txn_date;
+
+DROP VIEW IF EXISTS v_empower_contributions;
+CREATE VIEW IF NOT EXISTS v_empower_contributions AS
+SELECT date, amount, ticker, cusip
+FROM empower_contributions ORDER BY date;
+
 DROP VIEW IF EXISTS v_market_indices;
 CREATE VIEW IF NOT EXISTS v_market_indices AS
 SELECT ticker, name, current, month_return AS monthReturn,
