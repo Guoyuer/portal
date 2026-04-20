@@ -171,34 +171,48 @@ export function normalizeInvestmentTxns(
   return out;
 }
 
-// ── Cross-check (Fidelity deposits vs Qianji transfers) ─────────────────
+// ── Cross-check (Fidelity + Robinhood deposits vs Qianji transfers) ─────
 
-// Fidelity runDate is ISO YYYY-MM-DD (normalized at the pipeline ingestion
+// Deposit dates are ISO YYYY-MM-DD (normalized at the pipeline ingestion
 // boundary) so string comparison and `new Date(...)` both just work.
 
-const MATCH_WINDOW_MS = 7 * 86_400_000; // Qianji can lag Fidelity by up to 7 days
-// Sub-dollar Fidelity "deposits" are cash-sweep dust / residual interest,
+const MATCH_WINDOW_MS = 7 * 86_400_000; // Qianji can lag a deposit by up to 7 days
+// Sub-dollar deposits are cash-sweep dust / residual interest,
 // not funded transfers the user would ever log in Qianji. Exclude them so
 // the ✗ count reflects deposits the user actually made.
 const DUST_THRESHOLD = 1;
 
+export interface UnmatchedItem {
+  source: "fidelity" | "robinhood";
+  date: string;
+  amount: number;
+}
+
+export interface SourceCrossCheck {
+  matched: number;
+  total: number;
+  unmatched: UnmatchedItem[];
+}
+
 export interface CrossCheck {
-  fidelityTotal: number;
-  matchedTotal: number;
-  unmatchedTotal: number;
   matchedCount: number;
   totalCount: number;
   ok: boolean;
+  perSource: {
+    fidelity:  SourceCrossCheck;
+    robinhood: SourceCrossCheck;
+  };
+  allUnmatched: UnmatchedItem[];
 }
 
 export function computeCrossCheck(
-  fidelityTxns: FidelityTxn[],
+  investmentTxns: InvestmentTxn[],
   qianjiTxns: QianjiTxn[],
   start: string,
   end: string,
 ): CrossCheck {
   // Qianji data has a historical floor — the user started using it partway
-  // through the Fidelity history. Deposits before that floor are structurally
+  // through the investment history. Deposits before that floor are structurally
   // unmatchable (no Qianji ledger exists to cross-reference). Give the floor
   // one match window of grace so that a deposit whose matching transfer is
   // itself the earliest Qianji entry still counts.
@@ -213,46 +227,80 @@ export function computeCrossCheck(
     if (floor > effectiveStart) effectiveStart = floor;
   }
 
-  const deposits: { amt: number; ms: number }[] = [];
-  let fidelityTotal = 0;
-  for (const t of fidelityTxns) {
-    if (t.actionType !== "deposit") continue;
-    if (Math.abs(t.amount) < DUST_THRESHOLD) continue;
-    if (t.runDate >= effectiveStart && t.runDate <= end) {
-      deposits.push({ amt: Math.round(Math.abs(t.amount) * 100), ms: new Date(t.runDate).getTime() });
-      fidelityTotal += t.amount;
-    }
+  const fidelitySrc:  SourceCrossCheck = { matched: 0, total: 0, unmatched: [] };
+  const robinhoodSrc: SourceCrossCheck = { matched: 0, total: 0, unmatched: [] };
+
+  // ── Fidelity ──
+  // Candidates: transfers (user moves money into Fidelity from another account),
+  // or income booked directly into a Fidelity account (payroll direct deposit,
+  // rebate rewards). Qianji logs those as type=income with accountTo="Fidelity …"
+  // rather than as a transfer. Matching on the accountTo prefix (case-insensitive)
+  // covers "Fidelity taxable", "Fidelity Roth IRA", etc.
+  {
+    const deposits = investmentTxns
+      .filter((t) => t.source === "fidelity" && t.actionType === "deposit"
+        && Math.abs(t.amount) >= DUST_THRESHOLD
+        && t.date >= effectiveStart && t.date <= end)
+      .map((t) => ({ amount: Math.abs(t.amount), ms: new Date(t.date).getTime(), date: t.date }));
+    const candidates = qianjiTxns.filter((q) =>
+      q.type === "transfer" ||
+      (q.type === "income" && q.accountTo.toLowerCase().startsWith("fidelity")),
+    );
+    matchAndRecord(deposits, candidates, fidelitySrc, "fidelity");
   }
-  fidelityTotal = round(fidelityTotal);
 
-  // Candidate Qianji rows to match against:
-  // - transfers (user moves money into Fidelity from another account), and
-  // - income booked directly into a Fidelity account (payroll direct deposit,
-  //   rebate rewards). Qianji logs those as ``type=income`` with
-  //   ``accountTo="Fidelity …"`` rather than as a transfer. Matching on the
-  //   accountTo prefix (case-insensitive) covers "Fidelity taxable",
-  //   "Fidelity Roth IRA", etc. without having to enumerate every account.
-  const candidates = qianjiTxns.filter(
-    (t) =>
-      t.type === "transfer" ||
-      (t.type === "income" && t.accountTo.toLowerCase().startsWith("fidelity")),
-  );
+  // ── Robinhood ──
+  // Candidates: transfers, or income booked directly into a Robinhood account.
+  {
+    const deposits = investmentTxns
+      .filter((t) => t.source === "robinhood" && t.actionType === "deposit"
+        && Math.abs(t.amount) >= DUST_THRESHOLD
+        && t.date >= effectiveStart && t.date <= end)
+      .map((t) => ({ amount: Math.abs(t.amount), ms: new Date(t.date).getTime(), date: t.date }));
+    const candidates = qianjiTxns.filter((q) =>
+      q.type === "transfer" ||
+      (q.type === "income" && q.accountTo.toLowerCase().startsWith("robinhood")),
+    );
+    matchAndRecord(deposits, candidates, robinhoodSrc, "robinhood");
+  }
+
+  // 401k contributions are excluded — the pipeline reconciles QFX vs Qianji
+  // at ingest time (ContributionReconcileError on per-date $1 mismatch);
+  // a UI cross-check layer would be ~100% tautological.
+
+  const matchedCount = fidelitySrc.matched + robinhoodSrc.matched;
+  const totalCount   = fidelitySrc.total   + robinhoodSrc.total;
+  const allUnmatched = [...fidelitySrc.unmatched, ...robinhoodSrc.unmatched];
+
+  return {
+    matchedCount,
+    totalCount,
+    ok: totalCount > 0 && matchedCount === totalCount,
+    perSource: { fidelity: fidelitySrc, robinhood: robinhoodSrc },
+    allUnmatched,
+  };
+}
+
+// Helper: earliest-in-window matching (bipartite matching on an interval graph).
+// Processing deposits chronologically and picking the earliest in-window
+// candidate each time is provably maximum-matching for this class of graph,
+// unlike "nearest unused" greedy which can orphan deposits when an earlier
+// deposit steals the only candidate a later one also needs.
+function matchAndRecord(
+  deposits: Array<{ amount: number; ms: number; date: string }>,
+  candidates: QianjiTxn[],
+  out: SourceCrossCheck,
+  sourceLabel: UnmatchedItem["source"],
+): void {
   const used = new Set<number>();
-  let matchedCount = 0;
-  let matchedTotal = 0;
-
-  // Bipartite matching on an interval graph (edge iff |dep − cand| ≤ window).
-  // Processing deposits chronologically and picking the earliest in-window
-  // candidate each time is provably maximum-matching for this class of graph,
-  // unlike "nearest unused" greedy which can orphan deposits when an earlier
-  // deposit steals the only candidate a later one also needs.
-  const sortedDeposits = [...deposits].sort((a, b) => a.ms - b.ms);
-  for (const dep of sortedDeposits) {
-    let bestIdx = -1;
-    let bestMs = Infinity;
+  const sorted = [...deposits].sort((a, b) => a.ms - b.ms);
+  for (const dep of sorted) {
+    out.total += 1;
+    let bestIdx = -1, bestMs = Infinity;
+    const depCents = Math.round(dep.amount * 100);
     for (let i = 0; i < candidates.length; i++) {
       if (used.has(i)) continue;
-      if (Math.round(candidates[i].amount * 100) !== dep.amt) continue;
+      if (Math.round(candidates[i].amount * 100) !== depCents) continue;
       const candMs = new Date(candidates[i].date).getTime();
       if (Math.abs(dep.ms - candMs) <= MATCH_WINDOW_MS && candMs < bestMs) {
         bestIdx = i;
@@ -261,22 +309,11 @@ export function computeCrossCheck(
     }
     if (bestIdx >= 0) {
       used.add(bestIdx);
-      matchedCount++;
-      matchedTotal += dep.amt / 100;
+      out.matched += 1;
+    } else {
+      out.unmatched.push({ source: sourceLabel, date: dep.date, amount: dep.amount });
     }
   }
-
-  matchedTotal = round(matchedTotal);
-  const unmatchedTotal = round(fidelityTotal - matchedTotal);
-
-  return {
-    fidelityTotal,
-    matchedTotal,
-    unmatchedTotal,
-    matchedCount,
-    totalCount: deposits.length,
-    ok: deposits.length > 0 && matchedCount === deposits.length,
-  };
 }
 
 // ── Activity ──────────────────────────────────────────────────────────────

@@ -58,12 +58,14 @@ describe("TimemachineSummary", () => {
 
   it("shows cross-check section when data is present", () => {
     const cc: CrossCheck = {
-      fidelityTotal: 5000,
-      matchedTotal: 5000,
-      unmatchedTotal: 0,
       matchedCount: 3,
       totalCount: 3,
       ok: true,
+      perSource: {
+        fidelity:  { matched: 2, total: 2, unmatched: [] },
+        robinhood: { matched: 1, total: 1, unmatched: [] },
+      },
+      allUnmatched: [],
     };
     render(<TimemachineSummary snapshot={SNAPSHOT} categories={CATEGORIES} crossCheck={cc} />);
     expect(screen.getByText("Deposit Cross-check")).toBeTruthy();

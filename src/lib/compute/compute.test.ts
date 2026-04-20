@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { CategoryMeta, DailyTicker, FidelityTxn, QianjiTxn } from "@/lib/schemas";
+import type { CategoryMeta, DailyTicker, QianjiTxn } from "@/lib/schemas";
 import {
   computeAllocation,
   computeCashflow,
@@ -366,42 +366,41 @@ describe("computeActivity", () => {
 
 describe("computeCrossCheck", () => {
   it("matches deposit to transfer within 7-day window", () => {
-    const fTxns: FidelityTxn[] = [
-      mkFidelityTxn({ runDate: "2026-01-15", actionType: "deposit", symbol: "", amount: 1000 }),
+    const txns: InvestmentTxn[] = [
+      mkInvestmentTxn({ source: "fidelity", actionType: "deposit", ticker: "", date: "2026-01-15", amount: 1000 }),
     ];
     const qTxns: QianjiTxn[] = [
       mkQianjiTxn({ date: "2026-01-16", type: "transfer", amount: 1000 }),
     ];
-    const cc = computeCrossCheck(fTxns, qTxns, "2026-01-01", "2026-01-31");
+    const cc = computeCrossCheck(txns, qTxns, "2026-01-01", "2026-01-31");
     expect(cc.ok).toBe(true);
     expect(cc.matchedCount).toBe(1);
     expect(cc.totalCount).toBe(1);
-    expect(cc.fidelityTotal).toBe(1000);
-    expect(cc.unmatchedTotal).toBe(0);
+    expect(cc.perSource.fidelity.matched).toBe(1);
   });
 
   it("fails match when transfer is outside 7-day window", () => {
-    const fTxns: FidelityTxn[] = [
-      mkFidelityTxn({ runDate: "2026-01-01", actionType: "deposit", symbol: "", amount: 1000 }),
+    const txns: InvestmentTxn[] = [
+      mkInvestmentTxn({ source: "fidelity", actionType: "deposit", ticker: "", date: "2026-01-01", amount: 1000 }),
     ];
     const qTxns: QianjiTxn[] = [
       mkQianjiTxn({ date: "2025-12-01", type: "expense", amount: 50 }), // anchor Qianji floor before deposit
       mkQianjiTxn({ date: "2026-01-15", type: "transfer", amount: 1000 }), // 14 days after deposit
     ];
-    const cc = computeCrossCheck(fTxns, qTxns, "2026-01-01", "2026-01-31");
+    const cc = computeCrossCheck(txns, qTxns, "2026-01-01", "2026-01-31");
     expect(cc.ok).toBe(false);
     expect(cc.matchedCount).toBe(0);
-    expect(cc.unmatchedTotal).toBe(1000);
+    expect(cc.allUnmatched).toHaveLength(1);
   });
 
   it("fails match when amounts differ", () => {
-    const fTxns: FidelityTxn[] = [
-      mkFidelityTxn({ runDate: "2026-01-15", actionType: "deposit", symbol: "", amount: 1000 }),
+    const txns: InvestmentTxn[] = [
+      mkInvestmentTxn({ source: "fidelity", actionType: "deposit", ticker: "", date: "2026-01-15", amount: 1000 }),
     ];
     const qTxns: QianjiTxn[] = [
       mkQianjiTxn({ date: "2026-01-15", type: "transfer", amount: 999.99 }),
     ];
-    const cc = computeCrossCheck(fTxns, qTxns, "2026-01-01", "2026-01-31");
+    const cc = computeCrossCheck(txns, qTxns, "2026-01-01", "2026-01-31");
     expect(cc.ok).toBe(false);
     expect(cc.matchedCount).toBe(0);
   });
@@ -413,45 +412,45 @@ describe("computeCrossCheck", () => {
   });
 
   it("does not reuse a transfer for two deposits", () => {
-    const fTxns: FidelityTxn[] = [
-      mkFidelityTxn({ runDate: "2026-01-10", actionType: "deposit", symbol: "", amount: 500 }),
-      mkFidelityTxn({ runDate: "2026-01-11", actionType: "deposit", symbol: "", amount: 500 }),
+    const txns: InvestmentTxn[] = [
+      mkInvestmentTxn({ source: "fidelity", actionType: "deposit", ticker: "", date: "2026-01-10", amount: 500 }),
+      mkInvestmentTxn({ source: "fidelity", actionType: "deposit", ticker: "", date: "2026-01-11", amount: 500 }),
     ];
     const qTxns: QianjiTxn[] = [
       mkQianjiTxn({ date: "2026-01-10", type: "transfer", amount: 500 }),
     ];
-    const cc = computeCrossCheck(fTxns, qTxns, "2026-01-01", "2026-01-31");
+    const cc = computeCrossCheck(txns, qTxns, "2026-01-01", "2026-01-31");
     expect(cc.matchedCount).toBe(1);
     expect(cc.totalCount).toBe(2);
     expect(cc.ok).toBe(false);
   });
 
   it("excludes sub-dollar dust deposits (cash sweep / residual interest)", () => {
-    const fTxns: FidelityTxn[] = [
-      mkFidelityTxn({ runDate: "2026-01-15", actionType: "deposit", symbol: "", amount: 0.03 }),
-      mkFidelityTxn({ runDate: "2026-01-15", actionType: "deposit", symbol: "", amount: 0.33 }),
-      mkFidelityTxn({ runDate: "2026-01-15", actionType: "deposit", symbol: "", amount: 1000 }),
+    const txns: InvestmentTxn[] = [
+      mkInvestmentTxn({ source: "fidelity", actionType: "deposit", ticker: "", date: "2026-01-15", amount: 0.03 }),
+      mkInvestmentTxn({ source: "fidelity", actionType: "deposit", ticker: "", date: "2026-01-15", amount: 0.33 }),
+      mkInvestmentTxn({ source: "fidelity", actionType: "deposit", ticker: "", date: "2026-01-15", amount: 1000 }),
     ];
     const qTxns: QianjiTxn[] = [
       mkQianjiTxn({ date: "2025-12-01", type: "expense", amount: 50 }), // anchor Qianji floor
       mkQianjiTxn({ date: "2026-01-15", type: "transfer", amount: 1000 }),
     ];
-    const cc = computeCrossCheck(fTxns, qTxns, "2026-01-01", "2026-01-31");
+    const cc = computeCrossCheck(txns, qTxns, "2026-01-01", "2026-01-31");
     expect(cc.totalCount).toBe(1);
     expect(cc.matchedCount).toBe(1);
     expect(cc.ok).toBe(true);
   });
 
   it("excludes deposits predating the earliest Qianji txn", () => {
-    const fTxns: FidelityTxn[] = [
-      mkFidelityTxn({ runDate: "2023-06-01", actionType: "deposit", symbol: "", amount: 2000 }), // pre-Qianji
-      mkFidelityTxn({ runDate: "2026-01-15", actionType: "deposit", symbol: "", amount: 1000 }),
+    const txns: InvestmentTxn[] = [
+      mkInvestmentTxn({ source: "fidelity", actionType: "deposit", ticker: "", date: "2023-06-01", amount: 2000 }), // pre-Qianji
+      mkInvestmentTxn({ source: "fidelity", actionType: "deposit", ticker: "", date: "2026-01-15", amount: 1000 }),
     ];
     const qTxns: QianjiTxn[] = [
       mkQianjiTxn({ date: "2024-05-12", type: "expense", amount: 50 }), // establishes floor
       mkQianjiTxn({ date: "2026-01-16", type: "transfer", amount: 1000 }),
     ];
-    const cc = computeCrossCheck(fTxns, qTxns, "2023-01-01", "2026-01-31");
+    const cc = computeCrossCheck(txns, qTxns, "2023-01-01", "2026-01-31");
     expect(cc.totalCount).toBe(1);
     expect(cc.matchedCount).toBe(1);
     expect(cc.ok).toBe(true);
@@ -460,49 +459,49 @@ describe("computeCrossCheck", () => {
   // Direct-to-Fidelity income (payroll direct deposit, rebate rewards) is
   // logged as type=income with accountTo="Fidelity …" — not a transfer.
   it("matches deposit to income record booked directly to Fidelity", () => {
-    const fTxns: FidelityTxn[] = [
-      mkFidelityTxn({ runDate: "2026-01-15", actionType: "deposit", symbol: "", amount: 3346.27 }),
+    const txns: InvestmentTxn[] = [
+      mkInvestmentTxn({ source: "fidelity", actionType: "deposit", ticker: "", date: "2026-01-15", amount: 3346.27 }),
     ];
     const qTxns: QianjiTxn[] = [
       mkQianjiTxn({ date: "2026-01-15", type: "income", category: "Salary", amount: 3346.27, accountTo: "Fidelity taxable" }),
     ];
-    const cc = computeCrossCheck(fTxns, qTxns, "2026-01-01", "2026-01-31");
+    const cc = computeCrossCheck(txns, qTxns, "2026-01-01", "2026-01-31");
     expect(cc.ok).toBe(true);
     expect(cc.matchedCount).toBe(1);
   });
 
   it("accountTo prefix match is case-insensitive", () => {
-    const fTxns: FidelityTxn[] = [
-      mkFidelityTxn({ runDate: "2026-01-15", actionType: "deposit", symbol: "", amount: 500 }),
+    const txns: InvestmentTxn[] = [
+      mkInvestmentTxn({ source: "fidelity", actionType: "deposit", ticker: "", date: "2026-01-15", amount: 500 }),
     ];
     const qTxns: QianjiTxn[] = [
       mkQianjiTxn({ date: "2026-01-15", type: "income", category: "Rewards", amount: 500, accountTo: "fidelity Roth IRA" }),
     ];
-    const cc = computeCrossCheck(fTxns, qTxns, "2026-01-01", "2026-01-31");
+    const cc = computeCrossCheck(txns, qTxns, "2026-01-01", "2026-01-31");
     expect(cc.matchedCount).toBe(1);
   });
 
   it("does not match income where accountTo is not Fidelity", () => {
-    const fTxns: FidelityTxn[] = [
-      mkFidelityTxn({ runDate: "2026-01-15", actionType: "deposit", symbol: "", amount: 1000 }),
+    const txns: InvestmentTxn[] = [
+      mkInvestmentTxn({ source: "fidelity", actionType: "deposit", ticker: "", date: "2026-01-15", amount: 1000 }),
     ];
     const qTxns: QianjiTxn[] = [
       mkQianjiTxn({ date: "2025-12-01", type: "expense", amount: 50 }), // anchor Qianji floor
       mkQianjiTxn({ date: "2026-01-15", type: "income", category: "Salary", amount: 1000, accountTo: "Chase Debit" }),
     ];
-    const cc = computeCrossCheck(fTxns, qTxns, "2026-01-01", "2026-01-31");
+    const cc = computeCrossCheck(txns, qTxns, "2026-01-01", "2026-01-31");
     expect(cc.matchedCount).toBe(0);
-    expect(cc.unmatchedTotal).toBe(1000);
+    expect(cc.perSource.fidelity.unmatched).toHaveLength(1);
   });
 
   it("does not match income to Fidelity when amounts differ", () => {
-    const fTxns: FidelityTxn[] = [
-      mkFidelityTxn({ runDate: "2026-01-15", actionType: "deposit", symbol: "", amount: 1000 }),
+    const txns: InvestmentTxn[] = [
+      mkInvestmentTxn({ source: "fidelity", actionType: "deposit", ticker: "", date: "2026-01-15", amount: 1000 }),
     ];
     const qTxns: QianjiTxn[] = [
       mkQianjiTxn({ date: "2026-01-15", type: "income", category: "Salary", amount: 999.99, accountTo: "Fidelity taxable" }),
     ];
-    const cc = computeCrossCheck(fTxns, qTxns, "2026-01-01", "2026-01-31");
+    const cc = computeCrossCheck(txns, qTxns, "2026-01-01", "2026-01-31");
     expect(cc.matchedCount).toBe(0);
   });
 
@@ -511,20 +510,89 @@ describe("computeCrossCheck", () => {
   // candidate the first deposit could reach, orphaning it — verify all three
   // now pair up cleanly.
   it("finds optimal matching where nearest-greedy would orphan", () => {
-    const fTxns: FidelityTxn[] = [
-      mkFidelityTxn({ runDate: "2026-01-05", actionType: "deposit", symbol: "", amount: 500 }),
-      mkFidelityTxn({ runDate: "2026-01-10", actionType: "deposit", symbol: "", amount: 500 }),
-      mkFidelityTxn({ runDate: "2026-01-11", actionType: "deposit", symbol: "", amount: 500 }),
+    const txns: InvestmentTxn[] = [
+      mkInvestmentTxn({ source: "fidelity", actionType: "deposit", ticker: "", date: "2026-01-05", amount: 500 }),
+      mkInvestmentTxn({ source: "fidelity", actionType: "deposit", ticker: "", date: "2026-01-10", amount: 500 }),
+      mkInvestmentTxn({ source: "fidelity", actionType: "deposit", ticker: "", date: "2026-01-11", amount: 500 }),
     ];
     const qTxns: QianjiTxn[] = [
       mkQianjiTxn({ date: "2026-01-03", type: "transfer", amount: 500 }),
       mkQianjiTxn({ date: "2026-01-06", type: "transfer", amount: 500 }),
       mkQianjiTxn({ date: "2026-01-09", type: "transfer", amount: 500 }),
     ];
-    const cc = computeCrossCheck(fTxns, qTxns, "2026-01-01", "2026-01-31");
+    const cc = computeCrossCheck(txns, qTxns, "2026-01-01", "2026-01-31");
     expect(cc.matchedCount).toBe(3);
     expect(cc.totalCount).toBe(3);
     expect(cc.ok).toBe(true);
+  });
+});
+
+// ── computeCrossCheck per-source ────────────────────────────────────────
+
+describe("computeCrossCheck per-source", () => {
+  it("invariant: matchedCount === perSource.fidelity.matched + perSource.robinhood.matched", () => {
+    const txns: InvestmentTxn[] = [
+      mkInvestmentTxn({ source: "fidelity",  actionType: "deposit", ticker: "", date: "2026-01-10", amount: 500 }),
+      mkInvestmentTxn({ source: "robinhood", actionType: "deposit", ticker: "", date: "2026-01-12", amount: 200 }),
+    ];
+    const q: QianjiTxn[] = [
+      mkQianjiTxn({ date: "2025-12-01", type: "expense", amount: 1 }),  // anchor Qianji floor
+      mkQianjiTxn({ date: "2026-01-10", type: "transfer", amount: 500, accountTo: "Fidelity taxable" }),
+      mkQianjiTxn({ date: "2026-01-12", type: "transfer", amount: 200, accountTo: "Robinhood" }),
+    ];
+    const cc = computeCrossCheck(txns, q, "2026-01-01", "2026-01-31");
+    expect(cc.matchedCount).toBe(cc.perSource.fidelity.matched + cc.perSource.robinhood.matched);
+    expect(cc.totalCount).toBe(cc.perSource.fidelity.total + cc.perSource.robinhood.total);
+    expect(cc.ok).toBe(true);
+  });
+
+  it("ignores 401k contributions entirely (not part of UI cross-check)", () => {
+    const txns: InvestmentTxn[] = [
+      mkInvestmentTxn({ source: "fidelity", actionType: "deposit", ticker: "", date: "2026-01-10", amount: 500 }),
+      // 401k contributions present but should NOT affect cross-check — pipeline handles QFX/Qianji reconcile at ingest
+      mkInvestmentTxn({ source: "401k", actionType: "contribution", ticker: "401k sp500", date: "2026-01-15", amount: 450 }),
+      mkInvestmentTxn({ source: "401k", actionType: "contribution", ticker: "401k tech",  date: "2026-01-15", amount: 90 }),
+    ];
+    const q: QianjiTxn[] = [
+      mkQianjiTxn({ date: "2025-12-01", type: "expense", amount: 1 }),
+      mkQianjiTxn({ date: "2026-01-10", type: "transfer", amount: 500, accountTo: "Fidelity taxable" }),
+    ];
+    const cc = computeCrossCheck(txns, q, "2026-01-01", "2026-01-31");
+    expect(cc.totalCount).toBe(1);                          // only the Fidelity deposit
+    expect(cc.matchedCount).toBe(1);
+    expect(cc.perSource).not.toHaveProperty("contribution");
+    expect("401k" in cc.perSource).toBe(false);
+  });
+
+  it("Robinhood deposit matches only against Qianji with accountTo starting 'robinhood'", () => {
+    const txns: InvestmentTxn[] = [
+      mkInvestmentTxn({ source: "robinhood", actionType: "deposit", ticker: "", date: "2026-01-15", amount: 500 }),
+    ];
+    const q: QianjiTxn[] = [
+      mkQianjiTxn({ date: "2025-12-01", type: "expense", amount: 1 }),
+      mkQianjiTxn({ date: "2026-01-15", type: "income", amount: 500, accountTo: "Fidelity taxable" }),  // wrong account
+    ];
+    const cc = computeCrossCheck(txns, q, "2026-01-01", "2026-01-31");
+    expect(cc.perSource.robinhood.matched).toBe(0);
+    expect(cc.perSource.robinhood.unmatched).toHaveLength(1);
+    expect(cc.allUnmatched).toHaveLength(1);
+    expect(cc.allUnmatched[0].source).toBe("robinhood");
+  });
+
+  it("surfaces unmatched items on allUnmatched (flat list for drawer)", () => {
+    const txns: InvestmentTxn[] = [
+      mkInvestmentTxn({ source: "fidelity",  actionType: "deposit", ticker: "", date: "2026-01-10", amount: 999 }),
+      mkInvestmentTxn({ source: "robinhood", actionType: "deposit", ticker: "", date: "2026-01-12", amount: 200 }),
+    ];
+    const q: QianjiTxn[] = [
+      mkQianjiTxn({ date: "2025-12-01", type: "expense", amount: 1 }),
+      // no matches
+    ];
+    const cc = computeCrossCheck(txns, q, "2026-01-01", "2026-01-31");
+    expect(cc.matchedCount).toBe(0);
+    expect(cc.totalCount).toBe(2);
+    expect(cc.allUnmatched).toHaveLength(2);
+    expect(cc.allUnmatched.map(u => u.source).sort()).toEqual(["fidelity", "robinhood"]);
   });
 });
 
