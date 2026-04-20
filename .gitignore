@@ -78,3 +78,7 @@ pipeline/timemachine.db
 
 # Brainstorming visual companion artifacts
 .superpowers/
+
+# Ad-hoc QA artifacts (PR diffs, screenshot scratch dirs)
+_pr*.diff
+_screenshots/
