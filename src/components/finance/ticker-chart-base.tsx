@@ -10,17 +10,18 @@ import { Line, Scatter, ReferenceLine } from "recharts";
 import type { TooltipContentProps } from "recharts/types/component/Tooltip";
 import { fmtCurrency, fmtDateMedium, fmtQty } from "@/lib/format/format";
 import { useIsDark } from "@/lib/hooks/hooks";
-import { buildClusteredData, tsToIsoLocal, type ClusteredPoint } from "@/lib/format/ticker-data";
+import { buildClusteredData, tsToIsoLocal, type Cluster, type ClusteredPoint } from "@/lib/format/ticker-data";
 import type { TickerChartPoint } from "@/lib/format/ticker-data";
 import { BUY_COLOR, SELL_COLOR } from "@/lib/format/chart-colors";
 import { TooltipCard } from "@/components/charts/tooltip-card";
 import { BuyClusterMarker, SellClusterMarker, ReinvestMarker } from "./ticker-markers";
 import { MarkerChart } from "./marker-chart";
 
-function PriceTooltip({ active, payload }: TooltipContentProps) {
+/** Shared price-tooltip for per-ticker charts (inline + dialog). */
+export function PriceTooltip({ active, payload }: TooltipContentProps) {
   const d = payload?.[0]?.payload as ClusteredPoint | undefined;
   if (!d) return null;
-  const clusterLine = (c: NonNullable<ClusteredPoint["buyCluster"]>, label: string, color: string) => {
+  const clusterLine = (c: Cluster, label: string, color: string) => {
     const tag = c.count > 1 ? ` ×${c.count}` : "";
     return (
       <p style={{ color, margin: 0 }}>
