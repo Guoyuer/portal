@@ -156,7 +156,8 @@ FROM qianji_transactions ORDER BY date;
 
 DROP VIEW IF EXISTS v_robinhood_txns;
 CREATE VIEW IF NOT EXISTS v_robinhood_txns AS
-SELECT txn_date AS txnDate, ticker, quantity, amount_usd AS amountUsd,
+SELECT txn_date AS txnDate, action, action_kind AS actionKind,
+  ticker, quantity, amount_usd AS amountUsd,
   raw_description AS rawDescription
 FROM robinhood_transactions ORDER BY txn_date;
 

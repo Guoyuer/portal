@@ -219,7 +219,8 @@ _VIEWS: dict[str, str] = {
     ),
     "v_robinhood_txns": (
         "CREATE VIEW IF NOT EXISTS v_robinhood_txns AS\n"
-        "SELECT txn_date AS txnDate, ticker, quantity, amount_usd AS amountUsd,\n"
+        "SELECT txn_date AS txnDate, action, action_kind AS actionKind,\n"
+        "  ticker, quantity, amount_usd AS amountUsd,\n"
         "  raw_description AS rawDescription\n"
         "FROM robinhood_transactions ORDER BY txn_date;"
     ),
