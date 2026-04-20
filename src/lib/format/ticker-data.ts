@@ -142,6 +142,40 @@ export function scaleR(amount: number, maxAmount: number, minR: number, maxR: nu
   return minR + (maxR - minR) * Math.sqrt(amount / Math.max(maxAmount, 1));
 }
 
+/**
+ * Average cost basis ($/share) via avg-cost replay. Matches the pipeline's
+ * `etl/replay.py` semantics so the ticker chart's reference line agrees
+ * with what the group chart / D1 reports as cost basis.
+ *
+ * Why not just sum(buys.amount) / sum(buys.quantity): that formula ignores
+ * sells, so a buy→sell→buy cycle reports the wrong average. AVG-cost
+ * accounting reduces remaining cost proportionally when shares leave.
+ *
+ * Stock splits are encoded by Fidelity as `distribution` with `price=0`
+ * and a signed share delta (`quantity`) — we adjust qty but not cost.
+ */
+export function computeAvgCost(txns: TickerTransaction[]): number | null {
+  let totalCost = 0;
+  let totalQty = 0;
+  const sorted = [...txns].sort((a, b) => a.runDate.localeCompare(b.runDate));
+  for (const t of sorted) {
+    if (t.actionType === "buy" || t.actionType === "reinvestment") {
+      totalCost += Math.abs(t.amount);
+      totalQty += Math.abs(t.quantity);
+    } else if (t.actionType === "sell") {
+      if (totalQty <= 0) continue;
+      const avg = totalCost / totalQty;
+      const sellQty = Math.min(Math.abs(t.quantity), totalQty);
+      totalCost = Math.max(0, totalCost - sellQty * avg);
+      totalQty -= sellQty;
+    } else if (t.actionType === "distribution" && t.price === 0) {
+      // Stock split — use signed quantity (positive for splits, negative for reverse)
+      totalQty += t.quantity;
+    }
+  }
+  return totalQty > 0 ? totalCost / totalQty : null;
+}
+
 export function sizeClusters(buys: Cluster[], sells: Cluster[]): { buys: Cluster[]; sells: Cluster[] } {
   const maxAmount = Math.max(1, ...buys.map((c) => c.amount), ...sells.map((c) => c.amount));
   const withR = (c: Cluster): Cluster => ({ ...c, r: scaleR(c.amount, maxAmount, 9, 22) });

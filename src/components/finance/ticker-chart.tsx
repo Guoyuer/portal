@@ -14,7 +14,7 @@ import { useEffect, useState } from "react";
 import { TickerPriceResponseSchema, type TickerTransaction } from "@/lib/schemas";
 import { WORKER_BASE } from "@/lib/config";
 import { fetchWithSchema } from "@/lib/schemas/fetch-schema";
-import { mergeTickerData, type TickerChartPoint } from "@/lib/format/ticker-data";
+import { mergeTickerData, computeAvgCost, type TickerChartPoint } from "@/lib/format/ticker-data";
 import { TickerChartBase } from "./ticker-chart-base";
 import { TickerChartDialog } from "./ticker-dialog";
 
@@ -32,10 +32,7 @@ function useTickerData(symbol: string): TickerData {
     fetchWithSchema(`${WORKER_BASE}/prices/${encodeURIComponent(symbol)}`, TickerPriceResponseSchema)
       .then(({ prices, transactions: txns }) => {
         if (cancelled) return;
-        const buys = txns.filter((t) => t.actionType === "buy" || t.actionType === "reinvestment");
-        const totalCost = buys.reduce((s, t) => s + Math.abs(t.amount), 0);
-        const totalQty = buys.reduce((s, t) => s + Math.abs(t.quantity), 0);
-        setState({ data: mergeTickerData(prices, txns), transactions: txns, avgCost: totalQty > 0 ? totalCost / totalQty : null, error: null });
+        setState({ data: mergeTickerData(prices, txns), transactions: txns, avgCost: computeAvgCost(txns), error: null });
       })
       .catch((e) => { if (!cancelled) setState((s) => ({ ...s, error: e instanceof Error ? e.message : "Failed to load" })); });
     return () => { cancelled = true; };
