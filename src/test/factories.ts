@@ -10,6 +10,8 @@ import type {
   DailyTicker,
   FidelityTxn,
   QianjiTxn,
+  RobinhoodTxn,
+  EmpowerContribution,
   MarketData,
 } from "@/lib/schemas";
 import type {
@@ -87,6 +89,29 @@ export function mkQianjiTxn(overrides: Partial<QianjiTxn> = {}): QianjiTxn {
     amount: 5000,
     isRetirement: false,
     accountTo: "",
+    ...overrides,
+  };
+}
+
+export function mkRobinhoodTxn(overrides: Partial<RobinhoodTxn> = {}): RobinhoodTxn {
+  return {
+    txnDate: "2026-01-15",
+    action: "Buy",
+    actionKind: "buy",
+    ticker: "AAPL",
+    quantity: 1,
+    amountUsd: -200,
+    rawDescription: "",
+    ...overrides,
+  };
+}
+
+export function mkEmpowerContribution(overrides: Partial<EmpowerContribution> = {}): EmpowerContribution {
+  return {
+    date: "2026-01-15",
+    amount: 450,
+    ticker: "401k sp500",
+    cusip: "09259A791",
     ...overrides,
   };
 }
