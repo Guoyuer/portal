@@ -137,6 +137,29 @@ class QianjiRecord(TypedDict):
     note: str
 
 
+class RobinhoodTransaction(TypedDict):
+    """Robinhood transaction row matching the ``robinhood_transactions``
+    table. Source of truth for the D1 view ``v_robinhood_txns``.
+    """
+    txn_date: str              # ISO YYYY-MM-DD
+    action: str                # raw Trans Code from CSV (Buy/Sell/CDIV/ACH/...)
+    action_kind: str           # normalized ActionKind enum (buy/sell/dividend/deposit/other)
+    ticker: str
+    quantity: float
+    amount_usd: float
+    raw_description: str
+
+
+class EmpowerContribution(TypedDict):
+    """One 401k contribution row matching the ``empower_contributions``
+    table. Source of truth for the D1 view ``v_empower_contributions``.
+    """
+    date: str
+    amount: float
+    ticker: str                # "401k sp500" | "401k tech" | "401k ex-us"
+    cusip: str
+
+
 class TickerDetail(TypedDict):
     """One ticker's contribution on a given day (child of AllocationRow)."""
     ticker: str
