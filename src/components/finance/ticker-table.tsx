@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/table";
 import { TickerChart, TickerDialogOnly } from "./ticker-chart";
 import { GroupChartDialog } from "./group-dialog";
+import { SourceBadge, type SourceKind } from "./source-badge";
 import type { ActivityRow } from "@/lib/compute/compute";
 import type { DailyTicker, FidelityTxn } from "@/lib/schemas";
 
@@ -34,6 +35,7 @@ interface TickerRowProps {
   total: number;
   isGroup?: boolean;
   groupKey?: string;
+  sources?: SourceKind[];
   expanded: boolean;
   onToggle: () => void;
   startDate?: string;
@@ -58,13 +60,18 @@ function ExpanderIndicator({ expanded, isGroup }: { expanded: boolean; isGroup?:
 }
 
 /** Primary table row: uses shadcn TableRow/TableCell. */
-function TickerRow({ ticker, count, total, isGroup, expanded, onToggle, startDate, endDate }: TickerRowProps) {
+function TickerRow({ ticker, count, total, isGroup, sources, expanded, onToggle, startDate, endDate }: TickerRowProps) {
   return (
     <>
       <TableRow className="even:bg-muted/50 cursor-pointer hover:bg-muted/80 group" onClick={onToggle}>
         <TableCell className="font-mono">
           <ExpanderIndicator expanded={expanded} isGroup={isGroup} />
           {ticker}
+          {sources && sources.map((s) => (
+            <span key={s} className="ml-1">
+              <SourceBadge source={s} />
+            </span>
+          ))}
         </TableCell>
         <TableCell className="text-right">{count}</TableCell>
         <TableCell className="text-right">{fmtCurrency(total)}</TableCell>
@@ -81,7 +88,7 @@ function TickerRow({ ticker, count, total, isGroup, expanded, onToggle, startDat
 }
 
 /** Overflow row rendered inside a nested <details> <table>; raw tr/td + muted palette. */
-function TickerRowOverflow({ ticker, count, total, isGroup, expanded, onToggle, startDate, endDate }: TickerRowProps) {
+function TickerRowOverflow({ ticker, count, total, isGroup, sources, expanded, onToggle, startDate, endDate }: TickerRowProps) {
   const numCell = "px-2 py-1.5 text-right text-muted-foreground";
   return (
     <>
@@ -92,6 +99,11 @@ function TickerRowOverflow({ ticker, count, total, isGroup, expanded, onToggle, 
         <td className="px-2 py-1.5 font-mono text-muted-foreground">
           <ExpanderIndicator expanded={expanded} isGroup={isGroup} />
           {ticker}
+          {sources && sources.map((s) => (
+            <span key={s} className="ml-1">
+              <SourceBadge source={s} />
+            </span>
+          ))}
         </td>
         <td className={numCell}>{count}</td>
         <td className={numCell}>{fmtCurrency(total)}</td>
@@ -139,6 +151,7 @@ export function TickerTable({
     total: item.total,
     isGroup: item.isGroup,
     groupKey: item.groupKey,
+    sources: item.sources as SourceKind[] | undefined,
     expanded: expanded === item.ticker,
     onToggle: item.isGroup && item.groupKey
       ? () => setDialog({ kind: "group", key: item.groupKey! })

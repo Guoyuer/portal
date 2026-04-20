@@ -66,6 +66,15 @@ describe("TickerTable", () => {
     expect(screen.getByText("NASDAQ 100")).toBeTruthy();
     expect(screen.getByText("NVDA")).toBeTruthy();
   });
+
+  it("renders SourceBadge for each source on a row", () => {
+    const data: import("@/lib/compute/compute").ActivityRow[] = [
+      { ticker: "S&P 500", count: 3, total: 1050, isGroup: true, sources: ["fidelity", "401k"], groupKey: "sp500" },
+    ];
+    render(<TickerTable title="Buys by Symbol" data={data} />);
+    expect(screen.getByText("FID")).toBeTruthy();
+    expect(screen.getByText("401k")).toBeTruthy();
+  });
 });
 
 describe("DeviationCell", () => {
