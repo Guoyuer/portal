@@ -3,7 +3,7 @@
 // ── Group chart dialog: mirrors TickerChartDialog for equivalent-ticker groups ──
 
 import { useEffect, useRef, useState } from "react";
-import { GroupChart, buildGroupChartData } from "./group-chart";
+import { GroupChart, buildGroupChartData, priceMapFromSeries } from "./group-chart";
 import { ChartDialog } from "./chart-dialog";
 import { buildGroupValueSeries, groupNetByDate } from "@/lib/format/group-aggregation";
 import { EQUIVALENT_GROUPS } from "@/lib/config/equivalent-groups";
@@ -14,6 +14,7 @@ import { TransactionTable } from "./transaction-table";
 import { MarkerHoverPanel } from "./marker-hover-panel";
 import { useIsDark } from "@/lib/hooks/hooks";
 import type { HoverState, Selection } from "./ticker-markers";
+import { useTickerData } from "./ticker-chart";
 
 // ── Adapter: FidelityTxn rows → TickerTransaction (shapes are identical) ──
 function fidelityTxnsToTickerTransactions(txns: FidelityTxn[], tickers: string[]): TickerTransaction[] {
@@ -62,11 +63,15 @@ export function GroupChartDialog({
     cell?.scrollIntoView({ block: "center", behavior: "smooth" });
   }, [selected]);
 
-  const series = buildGroupValueSeries(dailyTickers, group.tickers)
+  // Fetch proxy ticker price series (transactions field ignored — group markers
+  // come from fidelityTxns aggregated across all group members)
+  const { data: proxyData, error: proxyError } = useTickerData(group.representative);
+
+  const valueSeries = buildGroupValueSeries(dailyTickers, group.tickers)
     .filter((p) => (!startDate || p.date >= startDate) && (!endDate || p.date <= endDate));
+  const latestValue = valueSeries[valueSeries.length - 1];
+
   const markers = groupNetByDate(fidelityTxns).get(groupKey) ?? new Map();
-  const data = buildGroupChartData(series, markers);
-  const latest = series[series.length - 1];
 
   const sorted = fidelityTxnsToTickerTransactions(fidelityTxns, group.tickers)
     .sort((a, b) => b.runDate.localeCompare(a.runDate));
@@ -78,12 +83,12 @@ export function GroupChartDialog({
   const header = (
     <div className="flex items-baseline gap-3 min-w-0 flex-wrap">
       <span className="font-semibold text-lg truncate">{group.display}</span>
-      {latest && (
-        <span className="text-sm text-muted-foreground">value {fmtCurrency(latest.value)}</span>
+      {latestValue && (
+        <span className="text-sm text-muted-foreground">Holdings {fmtCurrency(latestValue.value)}</span>
       )}
-      {latest && latest.value > 0 ? (
+      {latestValue && latestValue.value > 0 ? (
         <span className="text-xs text-muted-foreground truncate flex gap-2">
-          {latest.constituents
+          {latestValue.constituents
             .slice()
             .sort((a, b) => b.value - a.value)
             .map((c, i, arr) => (
@@ -99,7 +104,7 @@ export function GroupChartDialog({
                 ) : (
                   <span>{c.ticker}</span>
                 )}
-                <span>{fmtPct((c.value / latest.value) * 100, false)}</span>
+                <span>{fmtPct((c.value / latestValue.value) * 100, false)}</span>
                 {i < arr.length - 1 && <span aria-hidden>·</span>}
               </span>
             ))}
@@ -110,19 +115,57 @@ export function GroupChartDialog({
     </div>
   );
 
+  // Build chart data once proxy prices are available
+  const chartContent = (() => {
+    if (proxyError) {
+      return (
+        <p className="text-sm text-red-400 py-4 px-4">
+          Failed to load proxy price chart: {proxyError}
+        </p>
+      );
+    }
+    if (!proxyData) {
+      return (
+        <p className="text-sm text-muted-foreground py-4 px-4 animate-pulse">
+          Loading {group.representative} price...
+        </p>
+      );
+    }
+    // Filter price series to brush range
+    const filteredPrices = (startDate || endDate)
+      ? proxyData.filter((p) => (!startDate || p.date >= startDate) && (!endDate || p.date <= endDate))
+      : proxyData;
+
+    if (filteredPrices.length === 0) {
+      return (
+        <p className="text-sm text-muted-foreground py-4 px-4">
+          No price data for {group.representative}
+        </p>
+      );
+    }
+
+    const priceMap = priceMapFromSeries(filteredPrices);
+    const chartData = buildGroupChartData(priceMap, markers);
+
+    return (
+      <GroupChart
+        data={chartData}
+        representative={group.representative}
+        onEnter={handleEnter}
+        onMove={handleMove}
+        onLeave={handleLeave}
+        onSelect={setSelected}
+        selectedKey={selected?.key ?? null}
+        tooltipWrapperStyle={hover ? { visibility: "hidden" } : undefined}
+      />
+    );
+  })();
+
   return (
     <ChartDialog header={header} onClose={onClose}>
       <div className="flex-1 min-h-0 px-4 pt-4 pb-2">
-        <GroupChart
-          data={data}
-          onEnter={handleEnter}
-          onMove={handleMove}
-          onLeave={handleLeave}
-          onSelect={setSelected}
-          selectedKey={selected?.key ?? null}
-          tooltipWrapperStyle={hover ? { visibility: "hidden" } : undefined}
-        />
-        {hover && <MarkerHoverPanel hover={hover} isDark={isDark} valueLabel="Value" />}
+        {chartContent}
+        {hover && <MarkerHoverPanel hover={hover} isDark={isDark} valueLabel={group.representative} />}
       </div>
       <TransactionTable
         transactions={sorted}

@@ -18,4 +18,21 @@ describe("equivalent groups", () => {
     expect(groupOfTicker("QQQ")).toBe("nasdaq_100");
     expect(groupOfTicker("QQQM")).toBe("nasdaq_100");
   });
+
+  it("representative is an element of tickers (invariant)", () => {
+    for (const [key, group] of Object.entries(EQUIVALENT_GROUPS)) {
+      expect(
+        group.tickers.includes(group.representative),
+        `Group "${key}": representative "${group.representative}" must be in tickers`,
+      ).toBe(true);
+    }
+  });
+
+  it("nasdaq_100 representative is QQQ", () => {
+    expect(EQUIVALENT_GROUPS.nasdaq_100.representative).toBe("QQQ");
+  });
+
+  it("sp500 representative is VOO", () => {
+    expect(EQUIVALENT_GROUPS.sp500.representative).toBe("VOO");
+  });
 });
