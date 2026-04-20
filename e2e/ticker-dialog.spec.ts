@@ -9,6 +9,8 @@ import { test, expect, Page, Locator } from "@playwright/test";
 async function openTickerDialog(page: Page, symbol?: string): Promise<Locator> {
   await page.goto("/finance");
   await page.getByTestId("page-title").waitFor();
+  // Turn off group view so `.first()` lands on a real ticker row (inline chart path)
+  await page.locator("#fidelity-activity").getByRole("checkbox", { name: /Group equivalent tickers/i }).uncheck();
 
   const row = symbol
     ? page.locator("tr.cursor-pointer", { hasText: symbol }).first()
