@@ -111,7 +111,7 @@ Qianji (cash + spending) stays outside the `InvestmentSource` Protocol because o
 
 ### Frontend data flow
 
-Frontend fetches all data in a single `GET /timeline` call (~4.6 MB JSON, ~385 KB gzipped by Cloudflare edge), then computes allocation, cashflow, activity, reconciliation, and grouped activity locally in `src/lib/compute/compute.ts` via `src/lib/hooks/use-bundle.ts`. All daily data points are rendered directly (no downsampling). Brush drag is zero-latency (no network). Ticker charts fetch on-demand via `GET /prices/:symbol`.
+Frontend fetches all data in a single `GET /timeline` call (~4.6 MB JSON, ~385 KB gzipped by Cloudflare edge), then computes allocation, cashflow, activity, reconciliation, and grouped activity locally in `src/lib/compute/compute.ts` (entered through `compute-bundle.ts`) via `src/lib/hooks/use-bundle.ts`. All daily data points are rendered directly (no downsampling). Brush drag is zero-latency (no network). Ticker charts fetch on-demand via `GET /prices/:symbol`.
 
 Key compute outputs (all pure functions of the parsed `/timeline` bundle):
 
@@ -120,7 +120,7 @@ Key compute outputs (all pure functions of the parsed `/timeline` bundle):
 - `computeActivity` / `computeGroupedActivity` — buys/sells/dividends per ticker or equivalence group.
 - `computeCrossCheck` — Fidelity + Robinhood deposit reconciliation (bipartite matching vs Qianji transfers, earliest-in-window).
 
-Hooks: `use-bundle.ts` owns the fetch + compute pipeline; `use-hover-state.ts` owns the marker-hover state reused across ticker + group dialogs.
+Hooks layering — `use-bundle.ts` is a thin orchestrator that composes three focused units: `use-timeline-data.ts` (fetch + Zod safeParse — the single drift checkpoint), `use-brush-range.ts` (brush window state + 1-year default + reset-on-data effect), and the pure `compute-bundle.ts` builder. `use-hover-state.ts` owns the marker-hover state reused across ticker + group dialogs.
 
 ### Equivalent-groups (S&P 500, NASDAQ 100)
 
@@ -152,7 +152,7 @@ Base tables:
 
 Serves 3 endpoints: `GET /timeline`, `GET /econ`, `GET /prices/:symbol`, each wrapped in a CF edge cache (`utils.cachedJson`, 60s/600s/300s TTL). Routes strip an optional `/api` prefix so the same code serves both `workers.dev` and the production zone route on `portal.guoyuer.com/api/*`.
 
-Worker is a thin adapter: `SELECT` → JSON — no runtime Zod validation (the frontend's `use-bundle.ts` parse is the single drift checkpoint; doubling it on the shared schema cost ~200ms CPU per `/timeline` call). All shape work lives in the views; the only TypeScript transform is `JSON.parse(sparkline)`, applied by the client-side Zod.
+Worker is a thin adapter: `SELECT` → JSON — no runtime Zod validation (the frontend's `use-timeline-data.ts` Zod `safeParse` — composed by `use-bundle.ts` — is the single drift checkpoint; doubling it on the shared schema cost ~200ms CPU per `/timeline` call). All shape work lives in the views; the only TypeScript transform is `JSON.parse(sparkline)`, applied by the client-side Zod.
 
 `/timeline` is fail-open: the critical `v_daily` query returns 503 on failure, but optional sections (market, holdings, txns) degrade to `null` + a `errors: { market?, holdings?, txns? }` entry. Panels render explicit error cards — missing data never hides silently.
 

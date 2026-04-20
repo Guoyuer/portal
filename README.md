@@ -36,8 +36,8 @@ graph TB
 
     subgraph Browser["Browser"]
         SW["Service Worker<br/>cache-first static · SWR API"]
-        BUNDLE["use-bundle.ts<br/>Zod safeParse<br/>= single drift checkpoint"]
-        COMPUTE["compute.ts<br/>allocation · cashflow (with savings) ·<br/>activity · groupedActivity · crossCheck"]
+        BUNDLE["use-bundle.ts (orchestrator)<br/>↳ use-timeline-data.ts — fetch + Zod safeParse<br/>↳ use-brush-range.ts — brush state<br/>= single drift checkpoint"]
+        COMPUTE["compute-bundle.ts + compute.ts<br/>allocation · cashflow (with savings) ·<br/>activity · groupedActivity · crossCheck"]
         GROUPS[/"equivalent-groups.ts<br/>sp500 · nasdaq_100<br/>(members + representative)"/]
         UI["React 19 + React Compiler<br/>(auto-memoization)"]
     end
@@ -156,6 +156,7 @@ portal/
 │       ├── utils.ts                   # General utilities (cn, etc.)
 │       ├── compute/
 │       │   ├── compute.ts             # Pure computation (allocation, cashflow incl. savings, activity, grouped activity, cross-check)
+│       │   ├── compute-bundle.ts      # Orchestrates compute.ts into a ComputedBundle from (parsed /timeline, brush window)
 │       │   └── computed-types.ts      # Client-computed TS types (MonthlyFlowPoint.savings, SourceKind, …)
 │       ├── config/
 │       │   └── equivalent-groups.ts   # S&P 500 / NASDAQ 100 member map + representative ticker
@@ -168,7 +169,9 @@ portal/
 │       │   ├── ticker-data.ts         # Price/transaction merge helper for ticker charts
 │       │   └── group-aggregation.ts   # classifyTxn + groupNetByDate + buildGroupValueSeries (equivalence groups)
 │       ├── hooks/
-│       │   ├── use-bundle.ts          # Core data hook: fetch /timeline → local compute
+│       │   ├── use-bundle.ts          # Thin orchestrator — composes the three hooks below
+│       │   ├── use-timeline-data.ts   # Fetch /timeline once + Zod safeParse (single drift checkpoint)
+│       │   ├── use-brush-range.ts     # Brush window state + 1-year default + reset-on-data effect
 │       │   ├── use-hover-state.ts     # Marker hover state reused across ticker + group dialogs
 │       │   └── hooks.ts               # Shared React hooks (useIsDark, useIsMobile, ...)
 │       └── schemas/                   # Zod API schemas (timeline, econ, ticker)
@@ -275,7 +278,7 @@ graph LR
     DB -->|"sync_to_d1.py"| D1["D1 portal-db<br/>+ camelCase views"]
     D1 -->|"Worker SELECT → JSON"| JSON["GET /api/timeline"]
     GEN -->|"extend() / omit()"| TS["src/lib/schemas/timeline.ts"]
-    JSON -->|"safeParse in use-bundle.ts (client-side — Worker is thin)"| TS
+    JSON -->|"safeParse in use-timeline-data.ts (client-side — Worker is thin)"| TS
 
     style PY fill:#3776ab,color:#fff
     style DB fill:#10b981,color:#fff
@@ -287,7 +290,7 @@ graph LR
 - Python `snake_case` → D1 views `camelCase` aliases → TypeScript `camelCase`
 - Schemas auto-generated from `etl/types.py` via `tools/gen_zod.py` (pytest parity check)
 - Frontend validates at the boundary with Zod (`src/lib/schemas/`); Worker ships raw D1 rows (no runtime Zod — the frontend parse is the single drift checkpoint)
-- Raw transaction lists are shipped in `/timeline` for local computation in `src/lib/hooks/use-bundle.ts`
+- Raw transaction lists are shipped in `/timeline` for local computation in `src/lib/hooks/use-bundle.ts` (which orchestrates `use-timeline-data.ts` + `use-brush-range.ts` + the pure `compute-bundle.ts` builder)
 - No manual field mapping, no divergent schemas
 
 ## Tech Stack
