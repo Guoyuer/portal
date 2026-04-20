@@ -110,7 +110,9 @@ export function useBundle(): BundleState {
     if (data && chartDaily.length > 0) {
       setFullRange({ start: defaultStartIndex, end: defaultEndIndex });
     }
-  }, [data, chartDaily.length, defaultStartIndex, defaultEndIndex]);
+  // defaultStartIndex and defaultEndIndex derive purely from data/chartDaily.length
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
 
   const onBrushChange = (state: { startIndex?: number; endIndex?: number }) => {
     setFullRange((prev) => ({

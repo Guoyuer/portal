@@ -3,6 +3,7 @@
 // ── Near-fullscreen ticker dialog (price chart + transaction table) ─────
 
 import { useEffect, useRef, useState } from "react";
+import { useHoverState } from "@/lib/hooks/use-hover-state";
 import { Line, Scatter, ReferenceLine } from "recharts";
 import { ChartDialog } from "./chart-dialog";
 import { MarkerChart } from "./marker-chart";
@@ -18,7 +19,6 @@ import {
   SellClusterMarker,
   ReinvestMarker,
   type ClusterMarkerProps,
-  type HoverState,
   type Selection,
 } from "./ticker-markers";
 
@@ -35,18 +35,14 @@ function TickerDialogChart({
 }) {
   const isDark = useIsDark();
   const clusteredData = buildClusteredData(data);
-  const [hover, setHover] = useState<HoverState | null>(null);
-
-  const handleEnter = (h: HoverState) => setHover(h);
-  const handleMove = (x: number, y: number) => setHover((prev) => (prev ? { ...prev, x, y } : null));
-  const handleLeave = () => setHover(null);
+  const { hover, onEnter, onMove, onLeave } = useHoverState();
 
   const selectedKey = selected?.key ?? null;
   const renderBuy = (props: ClusterMarkerProps) => (
-    <BuyClusterMarker {...props} onEnter={handleEnter} onMove={handleMove} onLeave={handleLeave} onSelect={onSelect} selectedKey={selectedKey} />
+    <BuyClusterMarker {...props} onEnter={onEnter} onMove={onMove} onLeave={onLeave} onSelect={onSelect} selectedKey={selectedKey} />
   );
   const renderSell = (props: ClusterMarkerProps) => (
-    <SellClusterMarker {...props} onEnter={handleEnter} onMove={handleMove} onLeave={handleLeave} onSelect={onSelect} selectedKey={selectedKey} />
+    <SellClusterMarker {...props} onEnter={onEnter} onMove={onMove} onLeave={onLeave} onSelect={onSelect} selectedKey={selectedKey} />
   );
 
   return (
@@ -101,7 +97,6 @@ export function TickerChartDialog({
   onClose: () => void;
 }) {
   const tableScrollRef = useRef<HTMLDivElement>(null);
-  const isDark = useIsDark();
   const [selected, setSelected] = useState<Selection | null>(null);
 
   useEffect(() => {
@@ -125,7 +120,6 @@ export function TickerChartDialog({
         transactions={sorted}
         selected={selected}
         tableScrollRef={tableScrollRef}
-        isDark={isDark}
       />
     </ChartDialog>
   );

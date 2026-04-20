@@ -130,7 +130,7 @@ describe("TransactionTable", () => {
   ];
 
   it("renders rows sorted as provided (caller's responsibility)", () => {
-    render(<TransactionTable transactions={txns} selected={null} tableScrollRef={mkRef()} isDark={false} />);
+    render(<TransactionTable transactions={txns} selected={null} tableScrollRef={mkRef()}  />);
     const dates = screen.getAllByText(/Mar \d+, 2025/);
     expect(dates.length).toBeGreaterThanOrEqual(3);
   });
@@ -138,7 +138,7 @@ describe("TransactionTable", () => {
   it("highlights buy rows when selection side=buy matches the date", () => {
     const selected: Selection = { key: "buy-123-1", dates: ["2025-03-01"], side: "buy" };
     const { container } = render(
-      <TransactionTable transactions={txns} selected={selected} tableScrollRef={mkRef()} isDark={false} />,
+      <TransactionTable transactions={txns} selected={selected} tableScrollRef={mkRef()}  />,
     );
     const highlightedCell = container.querySelector('td[data-date="2025-03-01"][data-side="buy"]');
     expect(highlightedCell).toBeTruthy();
@@ -149,7 +149,7 @@ describe("TransactionTable", () => {
   it("highlights sell rows when selection side=sell matches the date", () => {
     const selected: Selection = { key: "sell-456-1", dates: ["2025-03-02"], side: "sell" };
     const { container } = render(
-      <TransactionTable transactions={txns} selected={selected} tableScrollRef={mkRef()} isDark={false} />,
+      <TransactionTable transactions={txns} selected={selected} tableScrollRef={mkRef()}  />,
     );
     const highlightedCell = container.querySelector('td[data-date="2025-03-02"][data-side="sell"]');
     expect(highlightedCell).toBeTruthy();
@@ -158,14 +158,14 @@ describe("TransactionTable", () => {
 
   it("returns null when transactions is empty", () => {
     const { container } = render(
-      <TransactionTable transactions={[]} selected={null} tableScrollRef={mkRef()} isDark={false} />,
+      <TransactionTable transactions={[]} selected={null} tableScrollRef={mkRef()}  />,
     );
     expect(container.firstChild).toBeNull();
   });
 
   it("stamps data-side='buy' on reinvestment rows", () => {
     const { container } = render(
-      <TransactionTable transactions={txns} selected={null} tableScrollRef={mkRef()} isDark={false} />,
+      <TransactionTable transactions={txns} selected={null} tableScrollRef={mkRef()}  />,
     );
     const reinvestCell = container.querySelector('td[data-date="2025-03-03"]');
     expect(reinvestCell?.getAttribute("data-side")).toBe("buy");

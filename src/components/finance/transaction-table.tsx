@@ -5,7 +5,7 @@
 // height) once the dialog is wide enough to give each column headroom.
 
 import { fmtCurrency, fmtDateMedium, fmtQty } from "@/lib/format/format";
-import { useIsMobile } from "@/lib/hooks/hooks";
+import { useIsDark, useIsMobile } from "@/lib/hooks/hooks";
 import type { TickerTransaction } from "@/lib/schemas";
 import type { Selection } from "./ticker-markers";
 
@@ -13,13 +13,12 @@ export function TransactionTable({
   transactions,
   selected,
   tableScrollRef,
-  isDark,
 }: {
   transactions: TickerTransaction[];
   selected: Selection | null;
   tableScrollRef: React.RefObject<HTMLDivElement | null>;
-  isDark: boolean;
 }) {
+  const isDark = useIsDark();
   const isMobile = useIsMobile();
   if (transactions.length === 0) return null;
 
