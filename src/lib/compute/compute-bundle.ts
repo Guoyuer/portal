@@ -148,11 +148,13 @@ export function computeBundle(
     allocation,
     ...computeWindow(data, investmentTxns, startDate, snapshotDate),
     monthlyFlows: computeMonthlyFlows(data.qianjiTxns, startDate, snapshotDate),
-    market: data.market ?? null,
-    holdingsDetail: data.holdingsDetail ?? null,
-    syncMeta: data.syncMeta ?? null,
-    marketError: data.errors?.market ?? null,
-    holdingsError: data.errors?.holdings ?? null,
-    txnsError: data.errors?.txns ?? null,
+    // schema-nullable fields come through as T | null already; no need to coalesce
+    market: data.market,
+    holdingsDetail: data.holdingsDetail,
+    syncMeta: data.syncMeta,
+    // errors is .default({}) + optional members — convert undefined → null for the interface
+    marketError: data.errors.market ?? null,
+    holdingsError: data.errors.holdings ?? null,
+    txnsError: data.errors.txns ?? null,
   };
 }
