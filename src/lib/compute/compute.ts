@@ -6,6 +6,8 @@ import type {
   DailyTicker,
   FidelityTxn,
   QianjiTxn,
+  RobinhoodTxn,
+  EmpowerContribution,
 } from "@/lib/schemas";
 import type {
   AllocationResponse,
@@ -116,6 +118,55 @@ export function cashflowState(cashflow: CashflowResponse | null): CashflowState 
   if (!cashflow) return { kind: "unavailable" };
   if (cashflow.totalIncome === 0 && cashflow.totalExpenses === 0) return { kind: "empty" };
   return { kind: "data", data: cashflow };
+}
+
+// ── Investment txn unification ────────────────────────────────────────────
+
+/** Unified shape used by computeActivity + computeCrossCheck. Internal to
+ *  the compute layer; does NOT cross the D1/Worker/Zod boundary. */
+export interface InvestmentTxn {
+  source: "fidelity" | "robinhood" | "401k";
+  date: string;
+  ticker: string;
+  actionType: "buy" | "sell" | "dividend" | "reinvestment" | "deposit" | "contribution";
+  amount: number;
+}
+
+export function normalizeInvestmentTxns(
+  fidelity: FidelityTxn[],
+  robinhood: RobinhoodTxn[],
+  empower: EmpowerContribution[],
+): InvestmentTxn[] {
+  const out: InvestmentTxn[] = [];
+  for (const f of fidelity) {
+    out.push({
+      source: "fidelity",
+      date: f.runDate,
+      ticker: f.symbol,
+      actionType: f.actionType as InvestmentTxn["actionType"],
+      amount: f.amount,
+    });
+  }
+  for (const r of robinhood) {
+    if (r.actionKind === "other") continue;
+    out.push({
+      source: "robinhood",
+      date: r.txnDate,
+      ticker: r.ticker,
+      actionType: r.actionKind as InvestmentTxn["actionType"],
+      amount: r.amountUsd,
+    });
+  }
+  for (const e of empower) {
+    out.push({
+      source: "401k",
+      date: e.date,
+      ticker: e.ticker,
+      actionType: "contribution",
+      amount: e.amount,
+    });
+  }
+  return out;
 }
 
 // ── Cross-check (Fidelity deposits vs Qianji transfers) ─────────────────

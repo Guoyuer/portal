@@ -10,9 +10,11 @@ import {
   buildTickerIndex,
   catColorByName,
   cashflowState,
+  normalizeInvestmentTxns,
+  type InvestmentTxn,
 } from "@/lib/compute/compute";
 import { CAT_COLOR_BY_KEY } from "@/lib/format/chart-colors";
-import { CATEGORIES, mkDaily, mkDailyN, mkFidelityTxn, mkQianjiTxn } from "@/test/factories";
+import { CATEGORIES, mkDaily, mkDailyN, mkFidelityTxn, mkQianjiTxn, mkRobinhoodTxn, mkEmpowerContribution, mkInvestmentTxn } from "@/test/factories";
 
 // ── buildDateIndex ──────────────────────────────────────────────────────
 
@@ -246,6 +248,46 @@ describe("cashflowState", () => {
     const state = cashflowState(cf);
     expect(state.kind).toBe("data");
     if (state.kind === "data") expect(state.data).toBe(cf);
+  });
+});
+
+// ── normalizeInvestmentTxns ──────────────────────────────────────────────
+
+describe("normalizeInvestmentTxns", () => {
+  it("maps Fidelity txns 1:1 preserving actionType", () => {
+    const f = [
+      mkFidelityTxn({ runDate: "2026-01-10", actionType: "buy",  symbol: "VTI", amount: -500 }),
+      mkFidelityTxn({ runDate: "2026-01-11", actionType: "sell", symbol: "GS",  amount:  600 }),
+    ];
+    const out = normalizeInvestmentTxns(f, [], []);
+    expect(out).toEqual([
+      { source: "fidelity", date: "2026-01-10", ticker: "VTI", actionType: "buy",  amount: -500 },
+      { source: "fidelity", date: "2026-01-11", ticker: "GS",  actionType: "sell", amount:  600 },
+    ]);
+  });
+
+  it("filters Robinhood actionKind='other' and keeps the rest", () => {
+    const r = [
+      mkRobinhoodTxn({ actionKind: "buy",     ticker: "AAPL", amountUsd: -200 }),
+      mkRobinhoodTxn({ actionKind: "other",   ticker: "",     amountUsd: -1.5, action: "AFEE" }),
+      mkRobinhoodTxn({ actionKind: "deposit", ticker: "",     amountUsd:  500, action: "RTP" }),
+    ];
+    const out = normalizeInvestmentTxns([], r, []);
+    expect(out).toHaveLength(2);
+    expect(out.every((t) => t.source === "robinhood")).toBe(true);
+    expect(out.map((t) => t.actionType)).toEqual(["buy", "deposit"]);
+  });
+
+  it("maps all Empower contributions to actionType='contribution'", () => {
+    const e = [
+      mkEmpowerContribution({ date: "2026-01-15", amount: 450, ticker: "401k sp500" }),
+      mkEmpowerContribution({ date: "2026-01-15", amount: 90,  ticker: "401k tech"  }),
+    ];
+    const out = normalizeInvestmentTxns([], [], e);
+    expect(out).toEqual([
+      { source: "401k", date: "2026-01-15", ticker: "401k sp500", actionType: "contribution", amount: 450 },
+      { source: "401k", date: "2026-01-15", ticker: "401k tech",  actionType: "contribution", amount: 90  },
+    ]);
   });
 });
 

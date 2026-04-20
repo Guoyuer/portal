@@ -14,6 +14,7 @@ import type {
   EmpowerContribution,
   MarketData,
 } from "@/lib/schemas";
+import type { InvestmentTxn } from "@/lib/compute/compute";
 import type {
   ApiCategory,
   ApiTicker,
@@ -112,6 +113,17 @@ export function mkEmpowerContribution(overrides: Partial<EmpowerContribution> = 
     amount: 450,
     ticker: "401k sp500",
     cusip: "09259A791",
+    ...overrides,
+  };
+}
+
+export function mkInvestmentTxn(overrides: Partial<InvestmentTxn> = {}): InvestmentTxn {
+  return {
+    source: "fidelity",
+    date: "2026-01-15",
+    ticker: "VTI",
+    actionType: "buy",
+    amount: -500,
     ...overrides,
   };
 }
