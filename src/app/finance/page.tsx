@@ -184,10 +184,10 @@ export default function FinancePage() {
       </ErrorBoundary>
 
       {/* ── 3. Portfolio Activity ───────────────────────────────────────── */}
-      <ErrorBoundary fallback={<SectionError label="Fidelity Activity" />}>
-        <section id="fidelity-activity" className="scroll-mt-20 md:scroll-mt-8">
+      <ErrorBoundary fallback={<SectionError label="Investment Activity" />}>
+        <section id="investment-activity" className="scroll-mt-20 md:scroll-mt-8">
           <SectionHeader>
-            Fidelity Activity
+            Investment Activity
             {crossCheck && (
               <span
                 className={`ml-2 inline-flex items-center gap-1 text-xs font-normal ${crossCheck.ok ? "text-green-500" : "text-red-400"}`}

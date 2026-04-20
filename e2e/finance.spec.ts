@@ -106,12 +106,12 @@ test.describe("Finance Report", () => {
   });
 
   test("shows investment activity section", async ({ page }) => {
-    const section = page.locator("#fidelity-activity");
+    const section = page.locator("#investment-activity");
     await expect(section).toBeAttached();
   });
 
   test("shows buys and dividends by symbol", async ({ page }) => {
-    const section = page.locator("#fidelity-activity");
+    const section = page.locator("#investment-activity");
     await expect(section).toBeAttached();
     // Wait for activity data to load
     const activityTable = section.locator("table").first();
@@ -135,7 +135,7 @@ test.describe("Finance Report", () => {
   });
 
   test("clicking ticker row expands inline price chart", async ({ page }) => {
-    const section = page.locator("#fidelity-activity");
+    const section = page.locator("#investment-activity");
     const activityTable = section.locator("table").first();
     try {
       await activityTable.waitFor({ timeout: 5000 });
@@ -155,7 +155,7 @@ test.describe("Finance Report", () => {
   });
 
   test("ticker chart shows buy markers and avg cost line", async ({ page }) => {
-    const section = page.locator("#fidelity-activity");
+    const section = page.locator("#investment-activity");
     const activityTable = section.locator("table").first();
     try {
       await activityTable.waitFor({ timeout: 5000 });
@@ -178,7 +178,7 @@ test.describe("Finance Report", () => {
   });
 
   test("ticker with no prices shows fallback message", async ({ page }) => {
-    const section = page.locator("#fidelity-activity");
+    const section = page.locator("#investment-activity");
     const activityTable = section.locator("table").first();
     try {
       await activityTable.waitFor({ timeout: 5000 });
@@ -223,7 +223,7 @@ test.describe("Finance Report", () => {
 
   test("page renders all major sections in order", async ({ page }) => {
     await expect(page.locator("#cashflow")).toBeAttached();
-    await expect(page.locator("#fidelity-activity")).toBeAttached();
+    await expect(page.locator("#investment-activity")).toBeAttached();
   });
 
   // ── Charts ─────────────────────────────────────────────────────────────

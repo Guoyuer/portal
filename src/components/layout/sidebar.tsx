@@ -7,7 +7,7 @@ import { ThemeToggle } from "@/components/layout/theme-toggle";
 
 const financeSections = [
   { label: "Overview", hash: "#timemachine" },
-  { label: "Fidelity", hash: "#fidelity-activity" },
+  { label: "Investment", hash: "#investment-activity" },
   { label: "Cash Flow", hash: "#cashflow" },
   { label: "Market", hash: "#market" },
 ];

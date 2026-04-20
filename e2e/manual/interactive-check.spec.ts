@@ -72,7 +72,7 @@ test.describe("Interactive Visual Check", () => {
 
   test("activity section", async ({ page }) => {
     await loadFinance(page);
-    const actSection = page.locator("#fidelity-activity");
+    const actSection = page.locator("#investment-activity");
     await expect(actSection).toBeVisible();
     await actSection.screenshot({ path: `${SCREENSHOT_DIR}/06-activity.png` });
     // Should show buys/dividends
