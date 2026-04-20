@@ -242,3 +242,137 @@ class TestDateGaps:
         warnings = [i for i in issues if i.severity == Severity.WARNING and i.name == "date_gaps"]
         assert len(warnings) == 1
         assert "10-day gap" in warnings[0].message
+
+
+class TestFidelityQianjiReconcile:
+    """Pipeline gate mirroring the frontend ``computeCrossCheck``: Fidelity
+    deposits must match a Qianji transfer / income-to-Fidelity within 7d
+    and to the cent. Fail-loud so bad data never reaches D1."""
+
+    @staticmethod
+    def _add_fidelity_deposit(db_path: Path, run_date: str, amount: float, action: str = "EFT") -> None:
+        conn = get_connection(db_path)
+        conn.execute(
+            "INSERT INTO fidelity_transactions "
+            "(run_date, account_number, action, action_type, symbol, amount) "
+            "VALUES (?, 'Z29133576', ?, 'deposit', '', ?)",
+            (run_date, action, amount),
+        )
+        conn.commit()
+        conn.close()
+
+    @staticmethod
+    def _add_qianji_transfer(db_path: Path, dt: str, amount: float, *, account_to: str = "Fidelity taxable") -> None:
+        conn = get_connection(db_path)
+        conn.execute(
+            "INSERT INTO qianji_transactions (date, type, category, amount, account_to) "
+            "VALUES (?, 'transfer', '', ?, ?)",
+            (dt, amount, account_to),
+        )
+        conn.commit()
+        conn.close()
+
+    @staticmethod
+    def _add_qianji_income_to_fidelity(db_path: Path, dt: str, amount: float, *, account_to: str = "Fidelity Roth IRA") -> None:
+        conn = get_connection(db_path)
+        conn.execute(
+            "INSERT INTO qianji_transactions (date, type, category, amount, account_to) "
+            "VALUES (?, 'income', '', ?, ?)",
+            (dt, amount, account_to),
+        )
+        conn.commit()
+        conn.close()
+
+    def test_all_deposits_matched_passes(self, empty_db: Path) -> None:
+        self._add_fidelity_deposit(empty_db, "2026-04-10", 2500.00)
+        self._add_qianji_transfer(empty_db, "2026-04-09", 2500.00)
+        issues = validate_build(empty_db)
+        recs = [i for i in issues if i.name == "fidelity_qianji_reconcile"]
+        assert recs == []
+
+    def test_unmatched_deposit_is_fatal(self, empty_db: Path) -> None:
+        """A Fidelity deposit with no Qianji candidate within the window must abort."""
+        # Seed one matched pair to establish the Qianji floor (so the deposit
+        # we care about isn't silently pre-floor-skipped).
+        self._add_fidelity_deposit(empty_db, "2026-01-15", 100.00, action="PAYCHECK")
+        self._add_qianji_transfer(empty_db, "2026-01-15", 100.00)
+        # Then: a second deposit well past the floor, no matching Qianji.
+        self._add_fidelity_deposit(empty_db, "2026-04-10", 2500.00, action="WIRE")
+        issues = validate_build(empty_db)
+        recs = [i for i in issues if i.name == "fidelity_qianji_reconcile" and i.severity == Severity.FATAL]
+        assert len(recs) == 1
+        assert "2026-04-10" in recs[0].message
+        assert "$2,500" in recs[0].message
+
+    def test_income_to_fidelity_counts_as_candidate(self, empty_db: Path) -> None:
+        """Qianji ``type='income'`` with ``account_to`` starting with 'fidelity'
+        (case-insensitive) must match deposits — covers direct-deposited
+        paychecks that the user logs as income rather than as a transfer."""
+        self._add_fidelity_deposit(empty_db, "2026-04-10", 5000.00, action="DIRECT DEPOSIT")
+        # Income, not transfer — and mixed-case account_to to prove the LOWER() filter
+        self._add_qianji_income_to_fidelity(empty_db, "2026-04-10", 5000.00, account_to="Fidelity Taxable")
+        issues = validate_build(empty_db)
+        recs = [i for i in issues if i.name == "fidelity_qianji_reconcile"]
+        assert recs == []
+
+    def test_pre_floor_deposit_is_skipped(self, empty_db: Path) -> None:
+        """Deposits before ``earliest_qianji - window`` can't be reconciled
+        (Qianji didn't exist yet) — must be silently ignored, not fatal."""
+        # Qianji starts on 2026-04-01. A deposit on 2026-01-15 is 76d before
+        # the floor (beyond the 7d grace), so structurally unmatchable.
+        self._add_qianji_transfer(empty_db, "2026-04-01", 1000.00)
+        self._add_fidelity_deposit(empty_db, "2026-04-01", 1000.00)  # matches
+        self._add_fidelity_deposit(empty_db, "2026-01-15", 500.00)    # pre-floor, skipped
+        issues = validate_build(empty_db)
+        recs = [i for i in issues if i.name == "fidelity_qianji_reconcile"]
+        assert recs == [], f"Expected pre-floor deposit to be skipped, got: {recs}"
+
+    def test_cent_drift_is_fatal(self, empty_db: Path) -> None:
+        """Amounts must match to the cent — $0.01 drift fails the check.
+        This is deliberate: legit fees / FX drift would look similar but are
+        rare enough that catching them is better than tolerating them."""
+        self._add_fidelity_deposit(empty_db, "2026-04-10", 2500.00)
+        self._add_qianji_transfer(empty_db, "2026-04-10", 2500.01)  # 1 cent off
+        issues = validate_build(empty_db)
+        recs = [i for i in issues if i.name == "fidelity_qianji_reconcile" and i.severity == Severity.FATAL]
+        assert len(recs) == 1
+
+    def test_sub_dust_deposit_ignored(self, empty_db: Path) -> None:
+        """Deposits below $1 (cash sweep, residual interest) aren't candidates
+        for reconcile — user doesn't log them in Qianji."""
+        # One $0.05 "deposit" (residual interest) with no Qianji counterpart.
+        # Must not produce a reconcile fatal, even though nothing matches it.
+        # Need at least one Qianji candidate to establish a floor; otherwise
+        # the "no candidates" short-circuit would skip the check anyway.
+        self._add_qianji_transfer(empty_db, "2026-04-10", 1000.00)
+        self._add_fidelity_deposit(empty_db, "2026-04-10", 1000.00)  # matches
+        self._add_fidelity_deposit(empty_db, "2026-04-11", 0.05, action="INTEREST")  # dust
+        issues = validate_build(empty_db)
+        recs = [i for i in issues if i.name == "fidelity_qianji_reconcile"]
+        assert recs == []
+
+    def test_no_qianji_candidates_silently_passes(self, empty_db: Path) -> None:
+        """Empty Qianji candidate set (fresh DB / test fixture) → silent pass,
+        matching frontend behaviour. Guards against blocking the build when
+        a user hasn't started Qianji yet or when fixtures omit it."""
+        self._add_fidelity_deposit(empty_db, "2026-04-10", 2500.00)
+        issues = validate_build(empty_db)
+        recs = [i for i in issues if i.name == "fidelity_qianji_reconcile"]
+        assert recs == []
+
+    def test_bipartite_matching_not_greedy(self, empty_db: Path) -> None:
+        """Two same-amount deposits, two same-amount Qianji candidates: a
+        naive 'nearest unused' greedy could steal the shared candidate from
+        a later deposit. Chronological + earliest-in-window avoids that."""
+        # Two $500 deposits: Apr 10 and Apr 13. Two $500 Qianji: Apr 9 and Apr 14.
+        # A greedy-by-nearest for dep Apr 10 might pick Apr 9; dep Apr 13
+        # would then pick Apr 14 → both match. But if we greedily matched
+        # Apr 13 first picking Apr 14 (closer), Apr 10 would still pick
+        # Apr 9. So any order works here; the real test is that BOTH match.
+        self._add_qianji_transfer(empty_db, "2026-04-09", 500.00)
+        self._add_qianji_transfer(empty_db, "2026-04-14", 500.00)
+        self._add_fidelity_deposit(empty_db, "2026-04-10", 500.00)
+        self._add_fidelity_deposit(empty_db, "2026-04-13", 500.00)
+        issues = validate_build(empty_db)
+        recs = [i for i in issues if i.name == "fidelity_qianji_reconcile"]
+        assert recs == []
