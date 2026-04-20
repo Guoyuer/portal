@@ -188,16 +188,22 @@ export function computeCrossCheck(
   let matchedCount = 0;
   let matchedTotal = 0;
 
-  for (const dep of deposits) {
+  // Bipartite matching on an interval graph (edge iff |dep − cand| ≤ window).
+  // Processing deposits chronologically and picking the earliest in-window
+  // candidate each time is provably maximum-matching for this class of graph,
+  // unlike "nearest unused" greedy which can orphan deposits when an earlier
+  // deposit steals the only candidate a later one also needs.
+  const sortedDeposits = [...deposits].sort((a, b) => a.ms - b.ms);
+  for (const dep of sortedDeposits) {
     let bestIdx = -1;
-    let bestDist = Infinity;
+    let bestMs = Infinity;
     for (let i = 0; i < candidates.length; i++) {
       if (used.has(i)) continue;
       if (Math.round(candidates[i].amount * 100) !== dep.amt) continue;
-      const dist = Math.abs(dep.ms - new Date(candidates[i].date).getTime());
-      if (dist <= MATCH_WINDOW_MS && dist < bestDist) {
+      const candMs = new Date(candidates[i].date).getTime();
+      if (Math.abs(dep.ms - candMs) <= MATCH_WINDOW_MS && candMs < bestMs) {
         bestIdx = i;
-        bestDist = dist;
+        bestMs = candMs;
       }
     }
     if (bestIdx >= 0) {
