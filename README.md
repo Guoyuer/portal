@@ -8,43 +8,68 @@ Personal one-stop dashboard. Finance reports with live data from Fidelity broker
 
 ```mermaid
 graph TB
-    subgraph Local["Local machine"]
-        TASK["Windows Task Scheduler<br/>run_portal_sync.ps1 (AtLogOn + 2m)"]
+    subgraph Local["Local machine (Windows)"]
+        TASK["Task Scheduler<br/>AtLogOn + PT2M delay<br/>(run_portal_sync.ps1 shim)"]
         AUTO["run_automation.py<br/>detect → build → verify → sync"]
+        subgraph Sources["Investment sources — etl/sources/"]
+            FID["fidelity/ (directory)<br/>CSV + cash + pricing"]
+            RH["robinhood.py<br/>CSV"]
+            EMP["empower.py<br/>QFX + contributions"]
+        end
+        QJ["etl/qianji.py<br/>SQLite reverse replay<br/>(outside InvestmentSource Protocol)"]
+        REPLAY["etl/replay.py<br/>source-agnostic forward replay"]
         BUILD["build_timemachine_db.py<br/>ingest → replay → precompute"]
         DB[(timemachine.db)]
-        SYNC["sync_to_d1.py<br/>diff (default) or --full"]
+        SYNC["sync_to_d1.py<br/>diff (default) · --full · --local"]
     end
 
-    subgraph Cloud["Cloudflare — portal.guoyuer.com (single-origin behind CF Access)"]
-        ACCESS["CF Access<br/>Google SSO cookie"]
+    subgraph Cloud["Cloudflare — portal.guoyuer.com (single origin behind CF Access)"]
+        ACCESS["CF Access app<br/>Google-SSO cookie<br/>allow-list = guoyuer1@gmail.com"]
         PAGES["/* Pages<br/>static shell + Service Worker"]
-        WAPI["/api/* portal-api Worker<br/>GET /timeline · /econ · /prices/:sym<br/>edge cache 60s / 600s / 300s"]
-        D1[(D1 portal-db)]
+        WAPI["/api/* portal-api Worker<br/>GET /timeline 60s · /econ 600s · /prices/:sym 300s<br/>edge-cached · fail-open per section"]
+        subgraph D1Layer["D1 portal-db"]
+            TABLES[(15 tables<br/>13 from etl/db.py + sync_meta + sync_log)]
+            VIEWS[("12 camelCase views<br/>v_daily · v_econ_snapshot · …<br/>(shape layer — Worker does zero row mutation)")]
+            TABLES --> VIEWS
+        end
     end
 
-    subgraph Browser
+    subgraph Browser["Browser"]
         SW["Service Worker<br/>cache-first static · SWR API"]
+        BUNDLE["use-bundle.ts<br/>Zod safeParse<br/>= single drift checkpoint"]
+        COMPUTE["compute.ts<br/>allocation · cashflow (with savings) ·<br/>activity · groupedActivity · crossCheck"]
+        GROUPS[/"equivalent-groups.ts<br/>sp500 · nasdaq_100<br/>(members + representative)"/]
         UI["React 19 + React Compiler<br/>(auto-memoization)"]
-        COMPUTE["src/lib/compute/compute.ts<br/>allocation · cashflow · activity"]
     end
 
     subgraph CI["GitHub Actions"]
-        CI_TEST["pytest + vitest + Playwright (mock API)"]
-        CI_DEPLOY["Pages deploy<br/>(Workers deploy is manual — token<br/>lacks Zone → Workers Routes → Edit)"]
+        CI_TEST["pytest 665 · vitest 282 · Playwright 9 (mock API)"]
+        CI_DEPLOY["ci.yml → Pages deploy<br/>(Worker deploy is manual — CI token lacks<br/>Zone → Workers Routes → Edit)"]
     end
 
-    TASK --> AUTO --> BUILD --> DB --> SYNC --> D1
+    FID & RH & EMP --> REPLAY
+    REPLAY --> BUILD
+    QJ --> BUILD
+    TASK --> AUTO --> BUILD --> DB --> SYNC --> TABLES
+
     ACCESS -.gates.-> PAGES & WAPI
-    PAGES -->|initial load| SW --> UI --> COMPUTE
-    UI -->|"fetch /api/timeline · /econ · /prices/:sym"| WAPI --> D1
+    PAGES -->|initial load| SW --> UI
+    UI --> BUNDLE
+    BUNDLE --> COMPUTE --> UI
+    GROUPS --> COMPUTE
+    BUNDLE -->|"GET /api/timeline · /econ · /prices/:sym"| WAPI
+    WAPI --> VIEWS
+
     CI_TEST --> CI_DEPLOY --> PAGES
 
     style BUILD fill:#10b981,color:#fff
     style WAPI fill:#2563eb,color:#fff
     style PAGES fill:#f59e0b,color:#000
     style ACCESS fill:#f97316,color:#fff
-    style D1 fill:#2563eb,color:#fff
+    style TABLES fill:#2563eb,color:#fff
+    style VIEWS fill:#2563eb,color:#fff
+    style COMPUTE fill:#7c3aed,color:#fff
+    style GROUPS fill:#7c3aed,color:#fff
 ```
 
 **Key design:** Portal is a static shell deployed to Cloudflare Pages. A Worker is mounted as a zone route on the same origin (`portal.guoyuer.com/api/*` → `portal-api`) so every `/api/*` call shares the same CF Access session cookie — no CORS, no cross-subdomain handshake. The frontend fetches once on load via `GET /api/timeline`, then computes allocation, cashflow, activity, and reconciliation locally in `src/lib/compute/compute.ts` via `src/lib/hooks/use-bundle.ts`. Brush drag is zero-latency (no network round-trips). Ticker dialogs fetch `GET /api/prices/:symbol` on demand.

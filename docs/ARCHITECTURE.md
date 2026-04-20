@@ -6,47 +6,73 @@ Personal finance dashboard: Next.js 16 static shell + Cloudflare Worker/D1.
 
 ```mermaid
 graph TB
-    subgraph Local["Local machine"]
-        DETECT["run_automation.py — detect changes (Task Scheduler via run_portal_sync.ps1 shim)"]
-        BUILD["build_timemachine_db.py --incremental"]
-        VALIDATE["validate_build() — gate"]
-        DIFF["sync_to_d1.py (diff default)"]
+    subgraph SourceFiles["Raw source files"]
+        QJ[(Qianji SQLite<br/>%APPDATA%)]
+        FID["Fidelity CSVs<br/>Accounts_History_*.csv<br/>Portfolio_Positions_*.csv"]
+        QFX["Empower QFX<br/>Bloomberg.Download_*.qfx"]
+        RHC["Robinhood<br/>Robinhood_history.csv"]
     end
 
-    subgraph Sources["Data sources"]
-        QJ[(Qianji DB)]
-        FID[Fidelity CSV]
-        QFX[Empower QFX]
-        RH[Robinhood CSV]
+    subgraph Local["Local machine"]
+        DETECT["run_automation.py<br/>detect → build → verify → sync"]
+        subgraph SourceModules["etl/sources/ — InvestmentSource Protocol"]
+            S_FID["fidelity/<br/>(directory module)"]
+            S_RH["robinhood.py"]
+            S_EMP["empower.py"]
+        end
+        S_QJ["etl/qianji.py<br/>(outside Protocol:<br/>categorical flows, not positions)"]
+        REPLAY["etl/replay.py::replay_transactions<br/>(source-agnostic forward replay)"]
+        PRECOMP["etl/precompute.py<br/>computed_daily · computed_daily_tickers ·<br/>market_indices · holdings_detail"]
+        VALIDATE["validate_build()<br/>FATAL / WARNING gates"]
+        POSGATE["verify_positions.py<br/>replay shares vs Portfolio_Positions"]
+        PARITY["verify_vs_prod.py<br/>local row counts vs prod D1"]
+        DB[(timemachine.db)]
+        DIFF["sync_to_d1.py<br/>diff (default) · --full · --local"]
     end
 
     subgraph Cloud["Cloudflare — portal.guoyuer.com (behind CF Access / Google SSO)"]
-        D1[(D1 portal-db)]
-        PAGES["/* — Pages static shell"]
-        WORKER_API["/api/* — portal-api Worker"]
+        ACCESS["CF Access — SSO cookie on portal.guoyuer.com/*"]
+        subgraph D1Layer["D1 portal-db"]
+            TABLES[(15 tables)]
+            VIEWS[("12 camelCase views<br/>shape layer — all transforms live here")]
+            TABLES --> VIEWS
+        end
+        PAGES["/* — Pages static shell<br/>(static export, output: 'export')"]
+        WORKER_API["/api/* — portal-api Worker<br/>SELECT → JSON (no Zod) ·<br/>edge cache 60/600/300s"]
     end
 
     subgraph Frontend["Browser"]
-        ACCESS["CF Access — SSO cookie on portal.guoyuer.com"]
-        FETCH["same-origin fetch /api/timeline + /api/econ + /api/prices/:sym"]
-        COMPUTE["compute.ts — allocation · cashflow · activity"]
-        UI["React components"]
+        FETCH["use-bundle.ts<br/>same-origin GET /api/timeline · /econ · /prices/:sym<br/>Zod safeParse = single drift checkpoint"]
+        COMPUTE["compute.ts<br/>allocation · cashflow (savings) ·<br/>activity · groupedActivity · crossCheck"]
+        GROUPS[/"equivalent-groups.ts<br/>sp500 · nasdaq_100"/]
+        UI["React components<br/>(ticker + group dialogs share<br/>marker-hover-panel + use-hover-state)"]
     end
 
     subgraph CI["GitHub Actions"]
-        TEST["pytest + vitest + Playwright"]
-        DEPLOY["Deploy Pages (Workers deployed manually)"]
+        TEST["pytest 665 · vitest 282 · Playwright mock-API"]
+        DEPLOY["ci.yml → Pages deploy<br/>(Worker deploy is manual)"]
     end
 
-    QJ & FID & QFX & RH --> BUILD
-    DETECT --> BUILD --> VALIDATE
-    VALIDATE -->|PASS| DIFF --> D1
-    D1 --> WORKER_API --> FETCH
-    ACCESS --> FETCH --> COMPUTE --> UI
+    QJ --> S_QJ --> PRECOMP
+    FID --> S_FID
+    RHC --> S_RH
+    QFX --> S_EMP
+    S_FID & S_RH & S_EMP --> REPLAY --> PRECOMP
+    DETECT --> REPLAY
+    PRECOMP --> DB --> VALIDATE
+    FID --> POSGATE
+    DB --> POSGATE
+    VALIDATE -->|PASS| PARITY
+    POSGATE -->|PASS| PARITY
+    PARITY -->|PASS| DIFF --> TABLES
+    VIEWS --> WORKER_API
+    ACCESS -.gates.-> PAGES & WORKER_API
+    WORKER_API --> FETCH --> COMPUTE --> UI
+    GROUPS --> COMPUTE
     TEST --> DEPLOY --> PAGES
 ```
 
-**Principles:** D1 is persistent store, local DB is disposable cache. Diff sync pushes only new rows. Workers are thin adapters (shape work in D1 views, Zod validation at boundary). Frontend computes everything locally after one fetch.
+**Principles:** D1 is the persistent store; the local SQLite is a disposable cache. Diff sync (the default) pushes only new rows within an auto-derived date window; `--full` wipes and restores; `--local` implies `--full`. Worker is a thin SELECT → JSON adapter — all shape work lives in the D1 views, and the frontend's `use-bundle.ts` Zod `safeParse` is the single drift checkpoint (doubling it on the Worker cost ~200ms CPU per `/timeline` call with no added safety). The frontend computes allocation, cashflow (with upstream savings filter), activity, grouped activity, and cross-check locally after one fetch.
 
 **Routing (2026-04-13 migration):** The Worker mounts as a **zone route on `portal.guoyuer.com`** — same origin as Pages. `portal.guoyuer.com/api/*` → portal-api. One CF Access app on `portal.guoyuer.com` authenticates the page load and every subsequent API call with the same session cookie — no CORS preflight, no cross-subdomain cookie handshake.
 
