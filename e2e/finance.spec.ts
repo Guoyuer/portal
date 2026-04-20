@@ -142,6 +142,8 @@ test.describe("Finance Report", () => {
     } catch {
       return; // No data
     }
+    // Turn off group view so the first row is a real ticker (inline-expand path)
+    await section.getByRole("checkbox", { name: /Group equivalent tickers/i }).uncheck();
     const firstTicker = activityTable.locator("td.font-mono").first();
     if (!(await firstTicker.isVisible())) return;
     await firstTicker.click();
@@ -160,6 +162,8 @@ test.describe("Finance Report", () => {
     } catch {
       return;
     }
+    // Turn off group view so the first row is a real ticker
+    await section.getByRole("checkbox", { name: /Group equivalent tickers/i }).uncheck();
     // Click the first ticker with trades
     const firstTicker = activityTable.locator("td.font-mono").first();
     if (!(await firstTicker.isVisible())) return;
@@ -181,6 +185,8 @@ test.describe("Finance Report", () => {
     } catch {
       return;
     }
+    // Turn off group view so clicking SPAXX reaches the inline chart path
+    await section.getByRole("checkbox", { name: /Group equivalent tickers/i }).uncheck();
     // Find SPAXX (money market fund, no daily close prices) — may be in top rows or "more" section
     const allTickers = section.locator("td.font-mono");
     let found = false;

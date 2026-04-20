@@ -43,13 +43,16 @@ describe("mergeTickerData", () => {
     expect(oct3.sellQty).toBe(3);
   });
 
-  it("treats reinvestment as buy", () => {
+  it("places reinvestment in its own reinvestAmount bucket (not buy)", () => {
     const txns = [
       { runDate: "2025-10-01", actionType: "reinvestment", quantity: 1, price: 99, amount: -99 },
     ];
     const points = mergeTickerData(prices, txns);
     const oct1 = points.find(p => p.date === "2025-10-01")!;
-    expect(oct1.buyPrice).toBe(99);
+    // Reinvestment is now a separate muted-dot marker, not folded into the buy cluster
+    expect(oct1.buyPrice).toBeUndefined();
+    expect(oct1.reinvestAmount).toBe(99);
+    expect(oct1.reinvestTxnCount).toBe(1);
   });
 
   it("ignores non-buy/sell/reinvestment actions", () => {

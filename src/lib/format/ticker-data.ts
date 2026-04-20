@@ -12,11 +12,13 @@ export type TickerChartPoint = {
   buyPrice?: number;      // VWAP across all buy txns on this date
   buyQty?: number;
   buyAmount?: number;
-  buyTxnCount?: number;   // number of underlying buy/reinvestment transactions
+  buyTxnCount?: number;   // number of underlying buy transactions
   sellPrice?: number;
   sellQty?: number;
   sellAmount?: number;
   sellTxnCount?: number;
+  reinvestAmount?: number;     // summed abs($) of reinvestment txns on this date
+  reinvestTxnCount?: number;
 };
 
 export type Cluster = {
@@ -27,6 +29,10 @@ export type Cluster = {
   count: number;           // total number of underlying transactions merged
   r: number;               // render radius (px) — filled in after normalization
   memberDates: string[];   // ISO dates of merged days (used to highlight table rows)
+  // Optional per-constituent contribution — populated by group-aggregation
+  // for the group chart's tooltip. Kept here so BuyClusterMarker/SellClusterMarker
+  // accept both cluster kinds with one payload type.
+  breakdown?: { symbol: string; signed: number }[];
 };
 
 export type ClusteredPoint = TickerChartPoint & {
@@ -34,6 +40,7 @@ export type ClusteredPoint = TickerChartPoint & {
   buyCluster?: Cluster;
   sellClusterPrice?: number;
   sellCluster?: Cluster;
+  reinvestDot?: number;
 };
 
 // ── Merge prices + transactions into per-date chart points ──────────────
@@ -45,29 +52,24 @@ export function mergeTickerData(
   // Index transactions by ISO date (qty/amount summed; price becomes VWAP below)
   const buyMap = new Map<string, { qty: number; amount: number; count: number }>();
   const sellMap = new Map<string, { qty: number; amount: number; count: number }>();
+  const reinvestMap = new Map<string, { amount: number; count: number }>();
 
   for (const t of transactions) {
     const iso = t.runDate;
     const qty = Math.abs(t.quantity);
     const amount = Math.abs(t.amount);
-    if (t.actionType === "buy" || t.actionType === "reinvestment") {
-      const existing = buyMap.get(iso);
-      if (existing) {
-        existing.qty += qty;
-        existing.amount += amount;
-        existing.count += 1;
-      } else {
-        buyMap.set(iso, { qty, amount, count: 1 });
-      }
+    if (t.actionType === "buy") {
+      const e = buyMap.get(iso);
+      if (e) { e.qty += qty; e.amount += amount; e.count += 1; }
+      else buyMap.set(iso, { qty, amount, count: 1 });
     } else if (t.actionType === "sell") {
-      const existing = sellMap.get(iso);
-      if (existing) {
-        existing.qty += qty;
-        existing.amount += amount;
-        existing.count += 1;
-      } else {
-        sellMap.set(iso, { qty, amount, count: 1 });
-      }
+      const e = sellMap.get(iso);
+      if (e) { e.qty += qty; e.amount += amount; e.count += 1; }
+      else sellMap.set(iso, { qty, amount, count: 1 });
+    } else if (t.actionType === "reinvestment") {
+      const e = reinvestMap.get(iso);
+      if (e) { e.amount += amount; e.count += 1; }
+      else reinvestMap.set(iso, { amount, count: 1 });
     }
   }
 
@@ -76,19 +78,11 @@ export function mergeTickerData(
     const ts = new Date(+y, +m - 1, +d).getTime();
     const point: TickerChartPoint = { date: p.date, ts, close: p.close };
     const buy = buyMap.get(p.date);
-    if (buy) {
-      point.buyPrice = buy.qty > 0 ? buy.amount / buy.qty : 0;
-      point.buyQty = buy.qty;
-      point.buyAmount = buy.amount;
-      point.buyTxnCount = buy.count;
-    }
+    if (buy) { point.buyPrice = buy.qty > 0 ? buy.amount / buy.qty : 0; point.buyQty = buy.qty; point.buyAmount = buy.amount; point.buyTxnCount = buy.count; }
     const sell = sellMap.get(p.date);
-    if (sell) {
-      point.sellPrice = sell.qty > 0 ? sell.amount / sell.qty : 0;
-      point.sellQty = sell.qty;
-      point.sellAmount = sell.amount;
-      point.sellTxnCount = sell.count;
-    }
+    if (sell) { point.sellPrice = sell.qty > 0 ? sell.amount / sell.qty : 0; point.sellQty = sell.qty; point.sellAmount = sell.amount; point.sellTxnCount = sell.count; }
+    const reinvest = reinvestMap.get(p.date);
+    if (reinvest) { point.reinvestAmount = reinvest.amount; point.reinvestTxnCount = reinvest.count; }
     return point;
   });
 }
@@ -143,14 +137,48 @@ export function clusterByTime(
   return clusters;
 }
 
+/** Sqrt-normalize an amount into a pixel radius. Shared by ticker + group charts. */
+export function scaleR(amount: number, maxAmount: number, minR: number, maxR: number): number {
+  return minR + (maxR - minR) * Math.sqrt(amount / Math.max(maxAmount, 1));
+}
+
+/**
+ * Average cost basis ($/share) via avg-cost replay. Matches the pipeline's
+ * `etl/replay.py` semantics so the ticker chart's reference line agrees
+ * with what the group chart / D1 reports as cost basis.
+ *
+ * Why not just sum(buys.amount) / sum(buys.quantity): that formula ignores
+ * sells, so a buy→sell→buy cycle reports the wrong average. AVG-cost
+ * accounting reduces remaining cost proportionally when shares leave.
+ *
+ * Stock splits are encoded by Fidelity as `distribution` with `price=0`
+ * and a signed share delta (`quantity`) — we adjust qty but not cost.
+ */
+export function computeAvgCost(txns: TickerTransaction[]): number | null {
+  let totalCost = 0;
+  let totalQty = 0;
+  const sorted = [...txns].sort((a, b) => a.runDate.localeCompare(b.runDate));
+  for (const t of sorted) {
+    if (t.actionType === "buy" || t.actionType === "reinvestment") {
+      totalCost += Math.abs(t.amount);
+      totalQty += Math.abs(t.quantity);
+    } else if (t.actionType === "sell") {
+      if (totalQty <= 0) continue;
+      const avg = totalCost / totalQty;
+      const sellQty = Math.min(Math.abs(t.quantity), totalQty);
+      totalCost = Math.max(0, totalCost - sellQty * avg);
+      totalQty -= sellQty;
+    } else if (t.actionType === "distribution" && t.price === 0) {
+      // Stock split — use signed quantity (positive for splits, negative for reverse)
+      totalQty += t.quantity;
+    }
+  }
+  return totalQty > 0 ? totalCost / totalQty : null;
+}
+
 export function sizeClusters(buys: Cluster[], sells: Cluster[]): { buys: Cluster[]; sells: Cluster[] } {
   const maxAmount = Math.max(1, ...buys.map((c) => c.amount), ...sells.map((c) => c.amount));
-  const MIN_R = 9;
-  const MAX_R = 22;
-  const withR = (c: Cluster): Cluster => ({
-    ...c,
-    r: MIN_R + (MAX_R - MIN_R) * Math.sqrt(c.amount / maxAmount),
-  });
+  const withR = (c: Cluster): Cluster => ({ ...c, r: scaleR(c.amount, maxAmount, 9, 22) });
   return { buys: buys.map(withR), sells: sells.map(withR) };
 }
 
@@ -194,6 +222,12 @@ export function buildClusteredData(data: TickerChartPoint[]): ClusteredPoint[] {
   for (const c of sized.sells) {
     const i = nearestIdx(c.ts);
     out[i] = { ...out[i], sellClusterPrice: c.price, sellCluster: c };
+  }
+  for (let i = 0; i < out.length; i++) {
+    const d = out[i];
+    if (d.reinvestAmount != null) {
+      out[i] = { ...d, reinvestDot: d.close };
+    }
   }
   return out;
 }

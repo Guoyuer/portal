@@ -58,64 +58,53 @@ function ClusterCountBadge({ cx, cy, r, count, color }: { cx: number; cy: number
   );
 }
 
-export function BuyClusterMarker({ cx, cy, payload, onEnter, onMove, onLeave, onSelect, selectedKey }: ClusterMarkerProps) {
-  const c = payload?.buyCluster;
+const diamondPath = (cx: number, cy: number, r: number) =>
+  `M ${cx} ${cy - r} L ${cx + r} ${cy} L ${cx} ${cy + r} L ${cx - r} ${cy} Z`;
+
+function ClusterMarker({ side, cx, cy, payload, onEnter, onMove, onLeave, onSelect, selectedKey }: ClusterMarkerProps & { side: "buy" | "sell" }) {
+  const c = side === "buy" ? payload?.buyCluster : payload?.sellCluster;
   if (cx == null || cy == null || !c) return null;
   const { r, count } = c;
-  const fontSize = Math.max(9, Math.min(r * 1.1, 13));
-  const key = clusterKey("buy", c);
+  const color = side === "buy" ? BUY_COLOR : SELL_COLOR;
+  const letter = side === "buy" ? "B" : "S";
+  const key = clusterKey(side, c);
   const isSelected = selectedKey === key;
   const interactive = Boolean(onSelect || onEnter);
+  const fontSize = Math.max(9, Math.min(r * 1.1, 13));
   return (
     <g
-      onMouseEnter={(e) => onEnter?.({ cluster: c, side: "buy", dayIso: payload?.date ?? "", close: payload?.close ?? 0, x: e.clientX, y: e.clientY })}
+      onMouseEnter={(e) => onEnter?.({ cluster: c, side, dayIso: payload?.date ?? "", close: payload?.close ?? 0, x: e.clientX, y: e.clientY })}
       onMouseMove={(e) => onMove?.(e.clientX, e.clientY)}
       onMouseLeave={onLeave}
       onClick={onSelect ? (e) => {
         e.stopPropagation();
-        onSelect(isSelected ? null : { key, dates: c.memberDates, side: "buy" });
+        onSelect(isSelected ? null : { key, dates: c.memberDates, side });
       } : undefined}
       style={interactive ? { cursor: "pointer" } : undefined}
     >
-      {isSelected && <circle cx={cx} cy={cy} r={r + 4} fill="none" stroke={BUY_COLOR} strokeWidth={2} />}
-      <circle cx={cx} cy={cy} r={r} fill={BUY_COLOR} />
-      <text x={cx} y={cy} textAnchor="middle" dominantBaseline="central" fill="white" fontSize={fontSize} fontWeight={700} pointerEvents="none">B</text>
-      <ClusterCountBadge cx={cx} cy={cy} r={r} count={count} color={BUY_COLOR} />
+      {side === "buy" ? (
+        <>
+          {isSelected && <circle cx={cx} cy={cy} r={r + 4} fill="none" stroke={color} strokeWidth={2} />}
+          <circle cx={cx} cy={cy} r={r} fill={color} />
+        </>
+      ) : (
+        <>
+          {isSelected && <path d={diamondPath(cx, cy, r + 4)} fill="none" stroke={color} strokeWidth={2} />}
+          <path d={diamondPath(cx, cy, r)} fill={color} />
+        </>
+      )}
+      <text x={cx} y={cy} textAnchor="middle" dominantBaseline="central" fill="white" fontSize={fontSize} fontWeight={700} pointerEvents="none">{letter}</text>
+      <ClusterCountBadge cx={cx} cy={cy} r={r} count={count} color={color} />
     </g>
   );
 }
 
-export function SellClusterMarker({ cx, cy, payload, onEnter, onMove, onLeave, onSelect, selectedKey }: ClusterMarkerProps) {
-  const c = payload?.sellCluster;
-  if (cx == null || cy == null || !c) return null;
-  const { r, count } = c;
-  const fontSize = Math.max(9, Math.min(r * 1.1, 13));
-  const key = clusterKey("sell", c);
-  const isSelected = selectedKey === key;
-  const interactive = Boolean(onSelect || onEnter);
-  return (
-    <g
-      onMouseEnter={(e) => onEnter?.({ cluster: c, side: "sell", dayIso: payload?.date ?? "", close: payload?.close ?? 0, x: e.clientX, y: e.clientY })}
-      onMouseMove={(e) => onMove?.(e.clientX, e.clientY)}
-      onMouseLeave={onLeave}
-      onClick={onSelect ? (e) => {
-        e.stopPropagation();
-        onSelect(isSelected ? null : { key, dates: c.memberDates, side: "sell" });
-      } : undefined}
-      style={interactive ? { cursor: "pointer" } : undefined}
-    >
-      {isSelected && (
-        <path
-          d={`M ${cx} ${cy - r - 4} L ${cx + r + 4} ${cy} L ${cx} ${cy + r + 4} L ${cx - r - 4} ${cy} Z`}
-          fill="none"
-          stroke={SELL_COLOR}
-          strokeWidth={2}
-        />
-      )}
-      <path d={`M ${cx} ${cy - r} L ${cx + r} ${cy} L ${cx} ${cy + r} L ${cx - r} ${cy} Z`} fill={SELL_COLOR} />
-      <text x={cx} y={cy} textAnchor="middle" dominantBaseline="central" fill="white" fontSize={fontSize} fontWeight={700} pointerEvents="none">S</text>
-      <ClusterCountBadge cx={cx} cy={cy} r={r} count={count} color={SELL_COLOR} />
-    </g>
-  );
+export const BuyClusterMarker = (props: ClusterMarkerProps) => <ClusterMarker {...props} side="buy" />;
+export const SellClusterMarker = (props: ClusterMarkerProps) => <ClusterMarker {...props} side="sell" />;
+
+// ── REINVEST marker: tiny muted dot, non-interactive ──────────────────
+export function ReinvestMarker({ cx, cy }: MarkerProps) {
+  if (cx == null || cy == null) return null;
+  return <circle cx={cx} cy={cy} r={2.5} fill={BUY_COLOR} fillOpacity={0.4} />;
 }
 

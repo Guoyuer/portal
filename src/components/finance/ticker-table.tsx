@@ -11,7 +11,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { TickerChart } from "./ticker-chart";
+import { TickerChart, TickerDialogOnly } from "./ticker-chart";
+import { GroupChartDialog } from "./group-dialog";
+import type { ActivityRow } from "@/lib/compute/compute";
+import type { DailyTicker, FidelityTxn } from "@/lib/schemas";
 
 const ACTIVITY_TOP_SYMBOLS = 5;
 
@@ -29,13 +32,24 @@ interface TickerRowProps {
   symbol: string;
   count: number;
   total: number;
+  isGroup?: boolean;
+  groupKey?: string;
   expanded: boolean;
   onToggle: () => void;
   startDate?: string;
   endDate?: string;
 }
 
-function ExpanderIndicator({ expanded }: { expanded: boolean }) {
+function ExpanderIndicator({ expanded, isGroup }: { expanded: boolean; isGroup?: boolean }) {
+  if (isGroup) {
+    // Groups open a full-screen dialog — use a pop-out icon so users can
+    // predict the interaction instead of seeing the same chevron as solo rows.
+    return (
+      <span className="inline-block w-3 text-[10px] text-muted-foreground" aria-label="Opens full view">
+        &#x2197;
+      </span>
+    );
+  }
   return (
     <span className={`inline-block w-3 text-[10px] text-muted-foreground transition-transform ${expanded ? "rotate-90" : ""}`}>
       &#9654;
@@ -44,18 +58,18 @@ function ExpanderIndicator({ expanded }: { expanded: boolean }) {
 }
 
 /** Primary table row: uses shadcn TableRow/TableCell. */
-function TickerRow({ symbol, count, total, expanded, onToggle, startDate, endDate }: TickerRowProps) {
+function TickerRow({ symbol, count, total, isGroup, expanded, onToggle, startDate, endDate }: TickerRowProps) {
   return (
     <>
       <TableRow className="even:bg-muted/50 cursor-pointer hover:bg-muted/80 group" onClick={onToggle}>
         <TableCell className="font-mono">
-          <ExpanderIndicator expanded={expanded} />
+          <ExpanderIndicator expanded={expanded} isGroup={isGroup} />
           {symbol}
         </TableCell>
         <TableCell className="text-right">{count}</TableCell>
         <TableCell className="text-right">{fmtCurrency(total)}</TableCell>
       </TableRow>
-      {expanded && (
+      {expanded && !isGroup && (
         <TableRow>
           <TableCell colSpan={3} className="p-2">
             <TickerChart symbol={symbol} startDate={startDate} endDate={endDate} />
@@ -67,7 +81,7 @@ function TickerRow({ symbol, count, total, expanded, onToggle, startDate, endDat
 }
 
 /** Overflow row rendered inside a nested <details> <table>; raw tr/td + muted palette. */
-function TickerRowOverflow({ symbol, count, total, expanded, onToggle, startDate, endDate }: TickerRowProps) {
+function TickerRowOverflow({ symbol, count, total, isGroup, expanded, onToggle, startDate, endDate }: TickerRowProps) {
   const numCell = "px-2 py-1.5 text-right text-muted-foreground";
   return (
     <>
@@ -76,13 +90,13 @@ function TickerRowOverflow({ symbol, count, total, expanded, onToggle, startDate
         onClick={onToggle}
       >
         <td className="px-2 py-1.5 font-mono text-muted-foreground">
-          <ExpanderIndicator expanded={expanded} />
+          <ExpanderIndicator expanded={expanded} isGroup={isGroup} />
           {symbol}
         </td>
         <td className={numCell}>{count}</td>
         <td className={numCell}>{fmtCurrency(total)}</td>
       </tr>
-      {expanded && (
+      {expanded && !isGroup && (
         <tr>
           <td colSpan={3} className="px-2 py-2">
             <TickerChart symbol={symbol} startDate={startDate} endDate={endDate} />
@@ -99,24 +113,36 @@ export function TickerTable({
   startDate,
   endDate,
   countLabel = "Trades",
+  dailyTickers,
+  fidelityTxns,
 }: {
   title: string;
-  data: { symbol: string; count: number; total: number }[];
+  data: ActivityRow[];
   startDate?: string;
   endDate?: string;
   countLabel?: string;
+  dailyTickers?: DailyTicker[];
+  fidelityTxns?: FidelityTxn[];
 }) {
   const [expanded, setExpanded] = useState<string | null>(null);
+  // A group dialog and a ticker dialog are mutually exclusive — modeling
+  // them as a single discriminated union makes that structural, not incidental.
+  type OpenDialog = { kind: "group"; key: string } | { kind: "ticker"; symbol: string };
+  const [dialog, setDialog] = useState<OpenDialog | null>(null);
   const top = data.slice(0, ACTIVITY_TOP_SYMBOLS);
   const rest = data.slice(ACTIVITY_TOP_SYMBOLS);
   const restTotal = rest.reduce((s, t) => s + t.total, 0);
 
-  const rowProps = (item: { symbol: string; count: number; total: number }): TickerRowProps => ({
+  const rowProps = (item: ActivityRow): TickerRowProps => ({
     symbol: item.symbol,
     count: item.count,
     total: item.total,
+    isGroup: item.isGroup,
+    groupKey: item.groupKey,
     expanded: expanded === item.symbol,
-    onToggle: () => setExpanded((prev) => (prev === item.symbol ? null : item.symbol)),
+    onToggle: item.isGroup && item.groupKey
+      ? () => setDialog({ kind: "group", key: item.groupKey! })
+      : () => setExpanded((prev) => (prev === item.symbol ? null : item.symbol)),
     startDate,
     endDate,
   });
@@ -152,6 +178,20 @@ export function TickerTable({
           )}
         </TableBody>
       </Table>
+      {dialog?.kind === "group" && dailyTickers && fidelityTxns && (
+        <GroupChartDialog
+          groupKey={dialog.key}
+          dailyTickers={dailyTickers}
+          fidelityTxns={fidelityTxns}
+          startDate={startDate}
+          endDate={endDate}
+          onClose={() => setDialog(null)}
+          onSelectTicker={(sym) => setDialog({ kind: "ticker", symbol: sym })}
+        />
+      )}
+      {dialog?.kind === "ticker" && (
+        <TickerDialogOnly symbol={dialog.symbol} onClose={() => setDialog(null)} />
+      )}
     </div>
   );
 }

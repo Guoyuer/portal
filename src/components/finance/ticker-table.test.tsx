@@ -57,6 +57,15 @@ describe("TickerTable", () => {
     expect(screen.queryByText(/and \d+ more/)).toBeNull();
     expect(screen.getByText("Buys")).toBeTruthy();
   });
+
+  it("renders a group row with display name", () => {
+    render(<TickerTable title="Test" data={[
+      { symbol: "NASDAQ 100", count: 2, total: 3000, isGroup: true, groupKey: "nasdaq_100" },
+      { symbol: "NVDA", count: 1, total: 500 },
+    ]} />);
+    expect(screen.getByText("NASDAQ 100")).toBeTruthy();
+    expect(screen.getByText("NVDA")).toBeTruthy();
+  });
 });
 
 describe("DeviationCell", () => {
