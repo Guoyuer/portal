@@ -7,13 +7,38 @@
 import { tooltipStyle } from "@/lib/format/chart-styles";
 import { fmtCurrency, fmtDateMedium, fmtQty } from "@/lib/format/format";
 import { BUY_COLOR, SELL_COLOR } from "@/lib/format/chart-colors";
+import type { Cluster } from "@/lib/format/ticker-data";
 import { tsToIsoLocal } from "@/lib/format/ticker-data";
 import type { HoverState } from "@/lib/hooks/use-hover-state";
+
+function TickerAmountLine({ cluster }: { cluster: Cluster }) {
+  return (
+    <>
+      : {fmtQty(cluster.qty)} @ {fmtCurrency(cluster.price)} = {fmtCurrency(cluster.amount)}
+      {cluster.count > 1 && (
+        <> <span style={{ opacity: 0.7 }}>(around {fmtDateMedium(tsToIsoLocal(cluster.ts))})</span></>
+      )}
+    </>
+  );
+}
+
+function GroupBreakdown({ breakdown }: { breakdown: NonNullable<Cluster["breakdown"]> }) {
+  return (
+    <>
+      {breakdown.map((b) => (
+        <p key={b.symbol} style={{ margin: 0, fontSize: 12, fontFamily: "monospace" }}>
+          {b.symbol}{"  "}{b.signed >= 0 ? "−" : "+"}{fmtCurrency(Math.abs(b.signed))}
+        </p>
+      ))}
+    </>
+  );
+}
 
 export function MarkerHoverPanel({ hover, isDark, valueLabel }: { hover: HoverState; isDark: boolean; valueLabel?: string }) {
   const color = hover.side === "buy" ? BUY_COLOR : SELL_COLOR;
   // Group clusters have qty=0 and price=0; show breakdown instead.
   const isGroupCluster = hover.cluster.qty === 0 && hover.cluster.price === 0;
+  const showBreakdown = isGroupCluster && hover.cluster.breakdown && hover.cluster.breakdown.length > 1;
 
   return (
     <div
@@ -35,16 +60,9 @@ export function MarkerHoverPanel({ hover, isDark, valueLabel }: { hover: HoverSt
         {hover.cluster.count > 1 ? ` ×${hover.cluster.count}` : ""}
         {isGroupCluster
           ? `: ${fmtCurrency(hover.cluster.amount)}`
-          : `: ${fmtQty(hover.cluster.qty)} @ ${fmtCurrency(hover.cluster.price)} = ${fmtCurrency(hover.cluster.amount)}`}
-        {!isGroupCluster && hover.cluster.count > 1 && (
-          <> <span style={{ opacity: 0.7 }}>(around {fmtDateMedium(tsToIsoLocal(hover.cluster.ts))})</span></>
-        )}
+          : <TickerAmountLine cluster={hover.cluster} />}
       </p>
-      {isGroupCluster && hover.cluster.breakdown && hover.cluster.breakdown.length > 1 && hover.cluster.breakdown.map((b) => (
-        <p key={b.symbol} style={{ margin: 0, fontSize: 12, fontFamily: "monospace" }}>
-          {b.symbol}{"  "}{b.signed >= 0 ? "−" : "+"}{fmtCurrency(Math.abs(b.signed))}
-        </p>
-      ))}
+      {showBreakdown && <GroupBreakdown breakdown={hover.cluster.breakdown!} />}
     </div>
   );
 }

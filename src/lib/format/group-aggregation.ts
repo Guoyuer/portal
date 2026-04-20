@@ -38,9 +38,7 @@ export type GroupNetEntry = {
 
 type Real = { date: string; ts: number; symbol: string; side: "buy" | "sell"; amount: number };
 
-export function groupNetByDate(
-  txns: FidelityTxn[],
-): Map<string, Map<string, GroupNetEntry>> {
+function extractGroupTxns(txns: FidelityTxn[]): Map<string, Real[]> {
   const byGroup = new Map<string, Real[]>();
   for (const t of txns) {
     if (classifyTxn(t) !== "REAL") continue;
@@ -58,41 +56,53 @@ export function groupNetByDate(
     if (arr) arr.push(entry);
     else byGroup.set(groupKey, [entry]);
   }
+  return byGroup;
+}
 
+function clusterByWindow(groupTxns: Real[]): Real[][] {
+  const sorted = [...groupTxns].sort((a, b) => a.ts - b.ts);
+  const clusters: Real[][] = [];
+  for (const t of sorted) {
+    const last = clusters[clusters.length - 1];
+    if (last && (t.ts - last[last.length - 1].ts) <= WINDOW_DAYS * MS_PER_DAY) {
+      last.push(t);
+    } else {
+      clusters.push([t]);
+    }
+  }
+  return clusters;
+}
+
+function aggregateCluster(cluster: Real[]): GroupNetEntry | null {
+  let net = 0;
+  const breakdown: { symbol: string; signed: number }[] = [];
+  for (const t of cluster) {
+    const signed = t.side === "sell" ? t.amount : -t.amount;
+    net += signed;
+    breakdown.push({ symbol: t.symbol, signed });
+  }
+  if (Math.abs(net) < THRESHOLD_USD) return null;
+  return {
+    date: cluster[0].date,
+    side: net > 0 ? "sell" : "buy",
+    net: Math.abs(net),
+    breakdown,
+  };
+}
+
+export function groupNetByDate(
+  txns: FidelityTxn[],
+): Map<string, Map<string, GroupNetEntry>> {
+  const byGroup = extractGroupTxns(txns);
   const result = new Map<string, Map<string, GroupNetEntry>>();
 
   for (const [groupKey, groupTxns] of byGroup) {
-    groupTxns.sort((a, b) => a.ts - b.ts);
-
-    const clusters: Real[][] = [];
-    for (const t of groupTxns) {
-      const last = clusters[clusters.length - 1];
-      if (last && (t.ts - last[last.length - 1].ts) <= WINDOW_DAYS * MS_PER_DAY) {
-        last.push(t);
-      } else {
-        clusters.push([t]);
-      }
-    }
-
+    const clusters = clusterByWindow(groupTxns);
     const byDate = new Map<string, GroupNetEntry>();
     for (const cluster of clusters) {
-      let net = 0;
-      const breakdown: { symbol: string; signed: number }[] = [];
-      for (const t of cluster) {
-        const signed = t.side === "sell" ? t.amount : -t.amount;
-        net += signed;
-        breakdown.push({ symbol: t.symbol, signed });
-      }
-      if (Math.abs(net) < THRESHOLD_USD) continue;
-      const entry: GroupNetEntry = {
-        date: cluster[0].date,
-        side: net > 0 ? "sell" : "buy",
-        net: Math.abs(net),
-        breakdown,
-      };
-      byDate.set(entry.date, entry);
+      const entry = aggregateCluster(cluster);
+      if (entry) byDate.set(entry.date, entry);
     }
-
     if (byDate.size > 0) result.set(groupKey, byDate);
   }
 

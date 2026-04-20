@@ -53,6 +53,23 @@ function ClusterCountBadge({ cx, cy, r, count, color }: { cx: number; cy: number
 const diamondPath = (cx: number, cy: number, r: number) =>
   `M ${cx} ${cy - r} L ${cx + r} ${cy} L ${cx} ${cy + r} L ${cx - r} ${cy} Z`;
 
+function ClusterShape({ side, cx, cy, r, color, selected }: { side: "buy" | "sell"; cx: number; cy: number; r: number; color: string; selected: boolean }) {
+  if (side === "buy") {
+    return (
+      <>
+        {selected && <circle cx={cx} cy={cy} r={r + 4} fill="none" stroke={color} strokeWidth={2} />}
+        <circle cx={cx} cy={cy} r={r} fill={color} />
+      </>
+    );
+  }
+  return (
+    <>
+      {selected && <path d={diamondPath(cx, cy, r + 4)} fill="none" stroke={color} strokeWidth={2} />}
+      <path d={diamondPath(cx, cy, r)} fill={color} />
+    </>
+  );
+}
+
 function ClusterMarker({ side, cx, cy, payload, onEnter, onMove, onLeave, onSelect, selectedKey }: ClusterMarkerProps & { side: "buy" | "sell" }) {
   const c = side === "buy" ? payload?.buyCluster : payload?.sellCluster;
   if (cx == null || cy == null || !c) return null;
@@ -74,17 +91,7 @@ function ClusterMarker({ side, cx, cy, payload, onEnter, onMove, onLeave, onSele
       } : undefined}
       style={interactive ? { cursor: "pointer" } : undefined}
     >
-      {side === "buy" ? (
-        <>
-          {isSelected && <circle cx={cx} cy={cy} r={r + 4} fill="none" stroke={color} strokeWidth={2} />}
-          <circle cx={cx} cy={cy} r={r} fill={color} />
-        </>
-      ) : (
-        <>
-          {isSelected && <path d={diamondPath(cx, cy, r + 4)} fill="none" stroke={color} strokeWidth={2} />}
-          <path d={diamondPath(cx, cy, r)} fill={color} />
-        </>
-      )}
+      <ClusterShape side={side} cx={cx} cy={cy} r={r} color={color} selected={isSelected} />
       <text x={cx} y={cy} textAnchor="middle" dominantBaseline="central" fill="white" fontSize={fontSize} fontWeight={700} pointerEvents="none">{letter}</text>
       <ClusterCountBadge cx={cx} cy={cy} r={r} count={count} color={color} />
     </g>

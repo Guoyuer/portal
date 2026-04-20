@@ -54,10 +54,11 @@ export function groupTickers(categories: ApiCategory[], tickers: ApiTicker[], to
   return categories.map((cat) => {
     const subs = tickersByCategory[cat.name] ?? {};
     const subtypes = Object.entries(subs).map(([name, ts]) => {
-      const subValue = ts.reduce((s, t) => s + t.value, 0);
+      const sortedTickers = [...ts].sort((a, b) => b.value - a.value);
+      const subValue = sortedTickers.reduce((s, t) => s + t.value, 0);
       return {
         name,
-        tickers: ts,
+        tickers: sortedTickers,
         value: subValue,
         pct: total > 0 ? (subValue / total) * 100 : 0,
       };
@@ -77,14 +78,12 @@ export function groupTickers(categories: ApiCategory[], tickers: ApiTicker[], to
 function HoldingsList({ holdings }: { holdings: ApiTicker[] }) {
   return (
     <div className="grid grid-cols-[auto_auto] gap-x-3 gap-y-0">
-      {holdings
-        .sort((a, b) => b.value - a.value)
-        .map((h) => (
-          <Fragment key={h.ticker}>
-            <span className="font-mono">{h.ticker}</span>
-            <span className="text-right text-muted-foreground">{fmtCurrencyShort(h.value)}</span>
-          </Fragment>
-        ))}
+      {holdings.map((h) => (
+        <Fragment key={h.ticker}>
+          <span className="font-mono">{h.ticker}</span>
+          <span className="text-right text-muted-foreground">{fmtCurrencyShort(h.value)}</span>
+        </Fragment>
+      ))}
     </div>
   );
 }

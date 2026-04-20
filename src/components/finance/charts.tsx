@@ -104,7 +104,7 @@ function SavingsLabel(props: LabelProps) {
 // ── Custom tooltip: Income vs Expenses with savings rate ─────────────────
 
 function FlowTooltip({ active, payload, label }: TooltipContentProps) {
-  const row = payload?.[0]?.payload as (MonthlyFlowPoint & { savings?: number }) | undefined;
+  const row = payload?.[0]?.payload as MonthlyFlowPoint | undefined;
   const fmt = (v: number) => `$${v.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
   return (
     <TooltipCard active={active} payload={payload} title={fmtDateMonthYear(String(label) + "-01")}>
@@ -138,18 +138,14 @@ export function IncomeExpensesChart({
 }) {
   const isMobile = useIsMobile();
   const isDark = useIsDark();
-  const stacked = data
-    .filter((d) => d.income > 0)
-    .map((d) => ({ ...d, savings: Math.max(0, d.income - d.expenses) }));
-
-  const activeIdx = activeMonth ? stacked.findIndex((d) => d.month === activeMonth) : -1;
+  const activeIdx = activeMonth ? data.findIndex((d) => d.month === activeMonth) : -1;
   const expenseColor = isDark ? "#fb7185" : "#e94560";
   const savingsColor = isDark ? "#22d3ee" : "#0891b2";
 
   return (
     <ResponsiveContainer width="100%" height={isMobile ? 280 : 360}>
       <BarChart
-        data={stacked}
+        data={data}
         barCategoryGap="20%"
         margin={{ top: 20, right: 10, left: isMobile ? -5 : 10, bottom: 0 }}
       >
@@ -170,19 +166,19 @@ export function IncomeExpensesChart({
         {/* Leader line from active bar to stat bar above */}
         {activeIdx >= 0 && (
           <ReferenceLine
-            x={stacked[activeIdx].month}
+            x={data[activeIdx].month}
             stroke={isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)"}
             strokeDasharray="2 3"
             strokeWidth={1}
           />
         )}
         <Bar dataKey="expenses" name="Expenses" stackId="income" fill={expenseColor} isAnimationActive={false}>
-          {stacked.map((_, i) => (
+          {data.map((_, i) => (
             <Cell key={i} fill={expenseColor} opacity={activeIdx >= 0 && i !== activeIdx ? 0.35 : 0.9} />
           ))}
         </Bar>
         <Bar dataKey="savings" name="Savings" stackId="income" fill={savingsColor} radius={[2, 2, 0, 0]} isAnimationActive={false}>
-          {stacked.map((_, i) => (
+          {data.map((_, i) => (
             <Cell key={i} fill={savingsColor} opacity={activeIdx >= 0 && i !== activeIdx ? 0.35 : 0.9} />
           ))}
           <LabelList dataKey="savingsRate" content={SavingsLabel} />

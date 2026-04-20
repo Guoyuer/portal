@@ -7,7 +7,7 @@ import type { DailyTicker } from "@/lib/schemas";
 
 export type SourceKind = "fidelity" | "robinhood" | "401k";
 
-export type MonthlyFlowPoint = { month: string; income: number; expenses: number; savingsRate: number };
+export type MonthlyFlowPoint = { month: string; income: number; expenses: number; savings: number; savingsRate: number };
 export type CategoryData = {
   name: string;
   value: number;
