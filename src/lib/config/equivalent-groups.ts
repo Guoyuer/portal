@@ -3,7 +3,7 @@
 // invariant check throws at module-load if violated, so a bad edit
 // breaks the build instead of silently mis-classifying transactions.
 
-export type EquivalentGroup = {
+type EquivalentGroup = {
   key: string;
   display: string;
   tickers: string[];

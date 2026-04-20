@@ -18,7 +18,7 @@ import { BUY_COLOR, SELL_COLOR } from "@/lib/format/chart-colors";
 
 // ── Chart point shape ────────────────────────────────────────────────────
 
-export type GroupChartPoint = {
+type GroupChartPoint = {
   date: string;
   ts: number;
   price: number;             // proxy ticker's close price that day
@@ -115,7 +115,7 @@ function GroupTooltip({ active, payload, representative }: TooltipContentProps &
 
 // ── Chart component ───────────────────────────────────────────────────────
 
-export type GroupChartInteractiveProps = {
+type GroupChartInteractiveProps = {
   onEnter?: (h: HoverState) => void;
   onMove?: (x: number, y: number) => void;
   onLeave?: () => void;

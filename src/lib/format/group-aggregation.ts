@@ -101,7 +101,7 @@ export function groupNetByDate(
 
 // ── Group value series (for the header total-holdings display) ───────────
 
-export type GroupValuePoint = {
+type GroupValuePoint = {
   date: string;
   ts: number;
   value: number;
