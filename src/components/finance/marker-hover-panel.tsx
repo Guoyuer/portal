@@ -8,7 +8,7 @@ import { tooltipStyle } from "@/lib/format/chart-styles";
 import { fmtCurrency, fmtDateMedium, fmtQty } from "@/lib/format/format";
 import { BUY_COLOR, SELL_COLOR } from "@/lib/format/chart-colors";
 import { tsToIsoLocal } from "@/lib/format/ticker-data";
-import type { HoverState } from "./ticker-markers";
+import type { HoverState } from "@/lib/hooks/use-hover-state";
 
 export function MarkerHoverPanel({ hover, isDark, valueLabel }: { hover: HoverState; isDark: boolean; valueLabel?: string }) {
   const color = hover.side === "buy" ? BUY_COLOR : SELL_COLOR;

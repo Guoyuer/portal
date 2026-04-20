@@ -6,20 +6,12 @@
 // purely visual and lets parent click handlers through.
 
 import type { Cluster } from "@/lib/format/ticker-data";
+import type { HoverState } from "@/lib/hooks/use-hover-state";
 import { BUY_COLOR, SELL_COLOR } from "@/lib/format/chart-colors";
 
 export type MarkerProps = { cx?: number; cy?: number };
 
 // ── Cluster markers (interactive when onSelect is provided) ─────────────
-
-export type HoverState = {
-  cluster: Cluster;
-  side: "buy" | "sell";
-  dayIso: string;
-  close: number;
-  x: number;
-  y: number;
-};
 
 export type Selection = { key: string; dates: string[]; side: "buy" | "sell" };
 
