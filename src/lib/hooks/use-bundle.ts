@@ -132,7 +132,7 @@ export function useBundle(): BundleState {
   const allocation = (data && snapshotDate) ? computeAllocation(data.daily, tickerIndex, dateIndex, snapshotDate, categories) : null;
   const cashflow = (data && startDate && snapshotDate) ? computeCashflow(data.qianjiTxns, startDate, snapshotDate) : null;
   const activity = (data && startDate && snapshotDate) ? computeActivity(investmentTxns, startDate, snapshotDate) : null;
-  const groupedActivity = (data && startDate && snapshotDate) ? computeGroupedActivity(data.fidelityTxns, startDate, snapshotDate) : null;
+  const groupedActivity = (data && startDate && snapshotDate) ? computeGroupedActivity(investmentTxns, startDate, snapshotDate) : null;
   const crossCheck = (data && startDate && snapshotDate) ? computeCrossCheck(data.fidelityTxns, data.qianjiTxns, startDate, snapshotDate) : null;
   const monthlyFlows = computeMonthlyFlows(data?.qianjiTxns ?? [], startDate, snapshotDate);
 

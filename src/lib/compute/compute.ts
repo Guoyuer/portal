@@ -347,7 +347,6 @@ export function buildTickerIndex(tickers: DailyTicker[]): Map<string, ApiTicker[
 
 // ── Group-aware activity ──────────────────────────────────────────────────
 
-import { groupNetByDate } from "@/lib/format/group-aggregation";
 import { EQUIVALENT_GROUPS, groupOfTicker } from "@/lib/config/equivalent-groups";
 
 /** ActivityRow is an alias for ActivityTicker — use ActivityTicker for new code. */
@@ -359,57 +358,53 @@ export type GroupedActivityResponse = {
   dividendsBySymbol: ActivityTicker[];
 };
 
+type SourceKind = "fidelity" | "robinhood" | "401k";
+
+type GroupAccum = { count: number; total: number; sources: Set<SourceKind>; isGroup: boolean; groupKey?: string };
+
+function foldIntoGroups(rows: ActivityTicker[]): ActivityTicker[] {
+  const grouped = new Map<string, GroupAccum>();
+  for (const row of rows) {
+    const gKey = groupOfTicker(row.ticker);
+    const display = gKey ? EQUIVALENT_GROUPS[gKey].display : row.ticker;
+    const existing = grouped.get(display);
+    if (existing) {
+      existing.count += row.count;
+      existing.total += row.total;
+      for (const s of row.sources ?? []) existing.sources.add(s);
+    } else {
+      grouped.set(display, {
+        count: row.count,
+        total: row.total,
+        sources: new Set(row.sources ?? []),
+        isGroup: gKey !== null,
+        groupKey: gKey ?? undefined,
+      });
+    }
+  }
+  return [...grouped.entries()]
+    .map(([ticker, v]) => ({
+      ticker,
+      count: v.count,
+      total: round(v.total),
+      isGroup: v.isGroup,
+      groupKey: v.groupKey,
+      sources: [...v.sources] as SourceKind[],
+    }))
+    .sort((a, b) => b.total - a.total);
+}
+
 export function computeGroupedActivity(
-  fidelityTxns: FidelityTxn[],
+  investmentTxns: InvestmentTxn[],
   start: string,
   end: string,
 ): GroupedActivityResponse {
-  // Window the txns first
-  const windowed = fidelityTxns.filter((t) => t.runDate >= start && t.runDate <= end && t.symbol);
-
-  // Group markers via the shared algorithm
-  const groupMarkers = groupNetByDate(windowed);
-  const groupBuys: ActivityRow[] = [];
-  const groupSells: ActivityRow[] = [];
-  for (const [groupKey, byDate] of groupMarkers) {
-    const display = EQUIVALENT_GROUPS[groupKey].display;
-    let buyTotal = 0, buyCount = 0, sellTotal = 0, sellCount = 0;
-    for (const entry of byDate.values()) {
-      if (entry.side === "buy") { buyTotal += entry.net; buyCount += 1; }
-      else                      { sellTotal += entry.net; sellCount += 1; }
-    }
-    if (buyCount > 0)  groupBuys.push({ ticker: display, count: buyCount, total: round(buyTotal), isGroup: true, groupKey });
-    if (sellCount > 0) groupSells.push({ ticker: display, count: sellCount, total: round(sellTotal), isGroup: true, groupKey });
-  }
-
-  // Solo tickers (not in any group) — reuse computeActivity for the B/S rows
-  const soloFid = windowed.filter((t) => !groupOfTicker(t.symbol));
-  const soloInvTxns: InvestmentTxn[] = soloFid.map((t) => ({
-    source: "fidelity" as const,
-    date: t.runDate,
-    ticker: t.symbol,
-    actionType: t.actionType as InvestmentTxn["actionType"],
-    amount: t.amount,
-  }));
-  const soloActivity = computeActivity(soloInvTxns, start, end);
-
-  // Dividends stay per-ticker across all tickers (grouping out of scope).
-  // Compute inline over `windowed` to avoid a second computeActivity pass
-  // that would rebuild the full buys/sells Maps just to be discarded.
-  const dividends = new Map<string, { count: number; total: number }>();
-  for (const t of windowed) {
-    const abs = Math.abs(t.amount);
-    if (t.actionType === "dividend") accum(dividends, t.symbol, t.amount);
-    else if (t.actionType === "reinvestment") accum(dividends, t.symbol, abs);
-  }
-
-  const sortDesc = (a: ActivityRow, b: ActivityRow) => b.total - a.total;
+  const raw = computeActivity(investmentTxns, start, end);
   return {
-    buysBySymbol:  [...groupBuys,  ...soloActivity.buysBySymbol.map(r => ({ ticker: r.ticker, count: r.count, total: r.total, isGroup: false as const, sources: r.sources }))].sort(sortDesc),
-    sellsBySymbol: [...groupSells, ...soloActivity.sellsBySymbol.map(r => ({ ticker: r.ticker, count: r.count, total: r.total, isGroup: false as const, sources: r.sources }))].sort(sortDesc),
-    dividendsBySymbol: [...dividends.entries()]
-      .map(([ticker, v]) => ({ ticker, count: v.count, total: round(v.total), isGroup: false as const }))
-      .sort(sortDesc),
+    buysBySymbol: foldIntoGroups(raw.buysBySymbol),
+    sellsBySymbol: foldIntoGroups(raw.sellsBySymbol),
+    // Dividends stay per-ticker (grouping out of scope).
+    dividendsBySymbol: raw.dividendsBySymbol,
   };
 }
 

@@ -533,36 +533,56 @@ describe("computeCrossCheck", () => {
 import { computeGroupedActivity } from "./compute";
 
 describe("computeGroupedActivity", () => {
-  it("aggregates group tickers into one row (net-sell cluster)", () => {
-    const txns: FidelityTxn[] = [
-      { runDate: "2026-01-02", actionType: "sell", symbol: "SPY", amount: -1000, quantity: 5, price: 200 },
-      { runDate: "2026-01-02", actionType: "buy",  symbol: "VOO", amount:  500, quantity: 1, price: 500 },
-      { runDate: "2026-01-03", actionType: "buy",  symbol: "NVDA", amount: 2000, quantity: 10, price: 200 },
+  it("folds group tickers into one row per side", () => {
+    const txns: InvestmentTxn[] = [
+      mkInvestmentTxn({ source: "fidelity", actionType: "sell", ticker: "SPY",  amount: -1000 }),
+      mkInvestmentTxn({ source: "fidelity", actionType: "buy",  ticker: "VOO",  amount:  500 }),
+      mkInvestmentTxn({ source: "fidelity", actionType: "buy",  ticker: "NVDA", amount: 2000 }),
     ];
     const act = computeGroupedActivity(txns, "2026-01-01", "2026-01-31");
-    expect(act.sellsBySymbol).toContainEqual(expect.objectContaining({ ticker: "S&P 500", count: 1, total: 500, isGroup: true, groupKey: "sp500" }));
+    // SPY (sell 1000) folds into S&P 500 sell; VOO (buy 500) folds into S&P 500 buy
+    expect(act.sellsBySymbol).toContainEqual(expect.objectContaining({ ticker: "S&P 500", count: 1, total: 1000, isGroup: true, groupKey: "sp500" }));
+    expect(act.buysBySymbol).toContainEqual(expect.objectContaining({ ticker: "S&P 500", count: 1, total: 500, isGroup: true, groupKey: "sp500" }));
     expect(act.buysBySymbol).toContainEqual(expect.objectContaining({ ticker: "NVDA", count: 1, total: 2000, isGroup: false }));
+    // Individual tickers are hidden
     expect(act.sellsBySymbol.find(r => r.ticker === "SPY")).toBeUndefined();
     expect(act.buysBySymbol.find(r => r.ticker === "VOO")).toBeUndefined();
   });
 
-  it("exact swap produces no group row", () => {
-    const txns: FidelityTxn[] = [
-      { runDate: "2026-01-02", actionType: "sell", symbol: "SPY", amount: -1000, quantity: 5, price: 200 },
-      { runDate: "2026-01-02", actionType: "buy",  symbol: "VOO", amount: 1000, quantity: 2, price: 500 },
+  it("groups S&P 500 tickers into one group row per side", () => {
+    const txns: InvestmentTxn[] = [
+      mkInvestmentTxn({ source: "fidelity", actionType: "sell", ticker: "SPY", amount: -1000 }),
+      mkInvestmentTxn({ source: "fidelity", actionType: "buy",  ticker: "VOO", amount:  1000 }),
     ];
     const act = computeGroupedActivity(txns, "2026-01-01", "2026-01-31");
-    expect(act.buysBySymbol).toEqual([]);
-    expect(act.sellsBySymbol).toEqual([]);
+    // Both SPY and VOO belong to sp500 group — individual tickers folded
+    expect(act.sellsBySymbol.find(r => r.ticker === "SPY")).toBeUndefined();
+    expect(act.buysBySymbol.find(r => r.ticker === "VOO")).toBeUndefined();
+    // Group rows appear for each side
+    expect(act.sellsBySymbol).toContainEqual(expect.objectContaining({ ticker: "S&P 500", isGroup: true, groupKey: "sp500" }));
+    expect(act.buysBySymbol).toContainEqual(expect.objectContaining({ ticker: "S&P 500", isGroup: true, groupKey: "sp500" }));
   });
 
   it("dividends remain per-ticker (not grouped)", () => {
-    const txns: FidelityTxn[] = [
-      { runDate: "2026-01-02", actionType: "dividend", symbol: "VOO", amount: 10, quantity: 0, price: 0 },
-      { runDate: "2026-01-02", actionType: "dividend", symbol: "SPY", amount: 5, quantity: 0, price: 0 },
+    const txns: InvestmentTxn[] = [
+      mkInvestmentTxn({ source: "fidelity", actionType: "dividend", ticker: "VOO", amount: 10 }),
+      mkInvestmentTxn({ source: "fidelity", actionType: "dividend", ticker: "SPY", amount: 5 }),
     ];
     const act = computeGroupedActivity(txns, "2026-01-01", "2026-01-31");
     expect(act.dividendsBySymbol.map(r => r.ticker).sort()).toEqual(["SPY", "VOO"]);
+  });
+
+  it("aggregates sources across group members (VOO + FXAIX + 401k sp500 → S&P 500)", () => {
+    const txns: InvestmentTxn[] = [
+      mkInvestmentTxn({ source: "fidelity",  actionType: "buy",          ticker: "VOO",          amount: -500 }),
+      mkInvestmentTxn({ source: "fidelity",  actionType: "buy",          ticker: "FXAIX",        amount: -100 }),
+      mkInvestmentTxn({ source: "401k",      actionType: "contribution", ticker: "401k sp500",   amount:  450 }),
+    ];
+    const g = computeGroupedActivity(txns, "2026-01-01", "2026-01-31");
+    const spRow = g.buysBySymbol.find((r) => r.ticker === "S&P 500")!;
+    expect(spRow.isGroup).toBe(true);
+    expect([...spRow.sources!].sort()).toEqual(["401k", "fidelity"]);
+    expect(spRow.total).toBe(1050);
   });
 });
 
