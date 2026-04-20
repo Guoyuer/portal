@@ -294,16 +294,16 @@ describe("normalizeInvestmentTxns", () => {
 // ── computeActivity ─────────────────────────────────────────────────────
 
 describe("computeActivity", () => {
-  it("aggregates buys, sells, dividends by symbol", () => {
-    const txns: FidelityTxn[] = [
-      mkFidelityTxn({ actionType: "buy", symbol: "VTI", amount: -1000 }),
-      mkFidelityTxn({ actionType: "buy", symbol: "VTI", amount: -500 }),
-      mkFidelityTxn({ actionType: "sell", symbol: "AAPL", amount: 2000 }),
-      mkFidelityTxn({ actionType: "dividend", symbol: "VTI", amount: 50 }),
+  it("aggregates buys, sells, dividends by ticker", () => {
+    const txns: InvestmentTxn[] = [
+      mkInvestmentTxn({ source: "fidelity", actionType: "buy",      ticker: "VTI",  amount: -1000 }),
+      mkInvestmentTxn({ source: "fidelity", actionType: "buy",      ticker: "VTI",  amount: -500  }),
+      mkInvestmentTxn({ source: "fidelity", actionType: "sell",     ticker: "AAPL", amount: 2000  }),
+      mkInvestmentTxn({ source: "fidelity", actionType: "dividend", ticker: "VTI",  amount: 50    }),
     ];
     const act = computeActivity(txns, "2026-01-01", "2026-01-31");
     expect(act.buysBySymbol).toHaveLength(1);
-    expect(act.buysBySymbol[0]).toEqual({ symbol: "VTI", count: 2, total: 1500 });
+    expect(act.buysBySymbol[0]).toEqual({ ticker: "VTI", count: 2, total: 1500, isGroup: false, sources: ["fidelity"] });
     expect(act.sellsBySymbol).toHaveLength(1);
     expect(act.sellsBySymbol[0].total).toBe(2000);
     expect(act.dividendsBySymbol).toHaveLength(1);
@@ -311,8 +311,8 @@ describe("computeActivity", () => {
   });
 
   it("counts reinvestment in both buys and dividends", () => {
-    const txns: FidelityTxn[] = [
-      mkFidelityTxn({ actionType: "reinvestment", symbol: "VTI", amount: -100 }),
+    const txns: InvestmentTxn[] = [
+      mkInvestmentTxn({ source: "fidelity", actionType: "reinvestment", ticker: "VTI", amount: -100 }),
     ];
     const act = computeActivity(txns, "2026-01-01", "2026-01-31");
     expect(act.buysBySymbol).toHaveLength(1);
@@ -321,19 +321,19 @@ describe("computeActivity", () => {
     expect(act.dividendsBySymbol[0].total).toBe(100);
   });
 
-  it("skips transactions without symbol", () => {
-    const txns: FidelityTxn[] = [
-      mkFidelityTxn({ actionType: "buy", symbol: "", amount: -500 }),
+  it("skips transactions without ticker", () => {
+    const txns: InvestmentTxn[] = [
+      mkInvestmentTxn({ source: "fidelity", actionType: "buy", ticker: "", amount: -500 }),
     ];
     const act = computeActivity(txns, "2026-01-01", "2026-01-31");
     expect(act.buysBySymbol).toHaveLength(0);
   });
 
   it("filters by date range", () => {
-    const txns: FidelityTxn[] = [
-      mkFidelityTxn({ runDate: "2025-12-31", actionType: "buy", symbol: "VTI", amount: -999 }),
-      mkFidelityTxn({ runDate: "2026-01-15", actionType: "buy", symbol: "VTI", amount: -500 }),
-      mkFidelityTxn({ runDate: "2026-02-01", actionType: "buy", symbol: "VTI", amount: -999 }),
+    const txns: InvestmentTxn[] = [
+      mkInvestmentTxn({ source: "fidelity", date: "2025-12-31", actionType: "buy", ticker: "VTI", amount: -999 }),
+      mkInvestmentTxn({ source: "fidelity", date: "2026-01-15", actionType: "buy", ticker: "VTI", amount: -500 }),
+      mkInvestmentTxn({ source: "fidelity", date: "2026-02-01", actionType: "buy", ticker: "VTI", amount: -999 }),
     ];
     const act = computeActivity(txns, "2026-01-01", "2026-01-31");
     expect(act.buysBySymbol[0].total).toBe(500);
@@ -344,6 +344,21 @@ describe("computeActivity", () => {
     expect(act.buysBySymbol).toEqual([]);
     expect(act.sellsBySymbol).toEqual([]);
     expect(act.dividendsBySymbol).toEqual([]);
+  });
+
+  it("tracks sources per row across fidelity + 401k + robinhood", () => {
+    const txns: InvestmentTxn[] = [
+      mkInvestmentTxn({ source: "fidelity",  actionType: "buy",          ticker: "VOO",        amount: -500 }),
+      mkInvestmentTxn({ source: "401k",      actionType: "contribution", ticker: "401k sp500", amount:  450 }),
+      mkInvestmentTxn({ source: "robinhood", actionType: "buy",          ticker: "AAPL",       amount: -200 }),
+    ];
+    const a = computeActivity(txns, "2026-01-01", "2026-01-31");
+    const voo = a.buysBySymbol.find((r) => r.ticker === "VOO")!;
+    expect(voo.sources).toEqual(["fidelity"]);
+    const k401 = a.buysBySymbol.find((r) => r.ticker === "401k sp500")!;
+    expect(k401.sources).toEqual(["401k"]);
+    const aapl = a.buysBySymbol.find((r) => r.ticker === "AAPL")!;
+    expect(aapl.sources).toEqual(["robinhood"]);
   });
 });
 
@@ -525,10 +540,10 @@ describe("computeGroupedActivity", () => {
       { runDate: "2026-01-03", actionType: "buy",  symbol: "NVDA", amount: 2000, quantity: 10, price: 200 },
     ];
     const act = computeGroupedActivity(txns, "2026-01-01", "2026-01-31");
-    expect(act.sellsBySymbol).toContainEqual({ symbol: "S&P 500", count: 1, total: 500, isGroup: true, groupKey: "sp500" });
-    expect(act.buysBySymbol).toContainEqual({ symbol: "NVDA", count: 1, total: 2000, isGroup: false });
-    expect(act.sellsBySymbol.find(r => r.symbol === "SPY")).toBeUndefined();
-    expect(act.buysBySymbol.find(r => r.symbol === "VOO")).toBeUndefined();
+    expect(act.sellsBySymbol).toContainEqual(expect.objectContaining({ ticker: "S&P 500", count: 1, total: 500, isGroup: true, groupKey: "sp500" }));
+    expect(act.buysBySymbol).toContainEqual(expect.objectContaining({ ticker: "NVDA", count: 1, total: 2000, isGroup: false }));
+    expect(act.sellsBySymbol.find(r => r.ticker === "SPY")).toBeUndefined();
+    expect(act.buysBySymbol.find(r => r.ticker === "VOO")).toBeUndefined();
   });
 
   it("exact swap produces no group row", () => {
@@ -547,7 +562,7 @@ describe("computeGroupedActivity", () => {
       { runDate: "2026-01-02", actionType: "dividend", symbol: "SPY", amount: 5, quantity: 0, price: 0 },
     ];
     const act = computeGroupedActivity(txns, "2026-01-01", "2026-01-31");
-    expect(act.dividendsBySymbol.map(r => r.symbol).sort()).toEqual(["SPY", "VOO"]);
+    expect(act.dividendsBySymbol.map(r => r.ticker).sort()).toEqual(["SPY", "VOO"]);
   });
 });
 

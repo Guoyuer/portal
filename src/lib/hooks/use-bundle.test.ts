@@ -115,7 +115,7 @@ describe("useBundle", () => {
     expect(result.current.cashflow!.totalExpenses).toBe(2000);
     expect(result.current.activity).not.toBeNull();
     expect(result.current.activity!.buysBySymbol).toHaveLength(1);
-    expect(result.current.activity!.buysBySymbol[0].symbol).toBe("VTI");
+    expect(result.current.activity!.buysBySymbol[0].ticker).toBe("VTI");
   });
 
   it("exposes per-section errors from the Worker payload", async () => {
