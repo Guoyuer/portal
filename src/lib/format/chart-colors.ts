@@ -20,6 +20,14 @@ const OKABE_ITO = {
 export const BUY_COLOR = OKABE_ITO.green;
 export const SELL_COLOR = OKABE_ITO.orange;
 
+// ── Return badge palette ───────────────────────────────────────────────
+//
+// Softer than Okabe-Ito buy/sell so small inline ±% badges (market
+// indices, holdings gain/loss) don't compete visually with chart markers.
+
+export const MARKET_GAIN = "#81b29a";
+export const MARKET_LOSS = "#cd6155";
+
 // ── Category colors (keyed on bundle's camelCase category key) ─────────
 
 export const CAT_COLOR_BY_KEY: Record<string, string> = {
