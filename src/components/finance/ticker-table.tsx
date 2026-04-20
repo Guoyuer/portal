@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/table";
 import { TickerChart, TickerDialogOnly } from "./ticker-chart";
 import { GroupChartDialog } from "./group-dialog";
+import type { ActivityRow } from "@/lib/compute/compute";
 import type { DailyTicker, FidelityTxn } from "@/lib/schemas";
 
 const ACTIVITY_TOP_SYMBOLS = 5;
@@ -26,14 +27,6 @@ export function DeviationCell({ value }: { value: number }) {
     </TableCell>
   );
 }
-
-export type ActivityTableRow = {
-  symbol: string;
-  count: number;
-  total: number;
-  isGroup?: boolean;
-  groupKey?: string;
-};
 
 interface TickerRowProps {
   symbol: string;
@@ -124,7 +117,7 @@ export function TickerTable({
   fidelityTxns,
 }: {
   title: string;
-  data: ActivityTableRow[];
+  data: ActivityRow[];
   startDate?: string;
   endDate?: string;
   countLabel?: string;
@@ -132,13 +125,15 @@ export function TickerTable({
   fidelityTxns?: FidelityTxn[];
 }) {
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [dialogGroupKey, setDialogGroupKey] = useState<string | null>(null);
-  const [dialogTicker, setDialogTicker] = useState<string | null>(null);
+  // A group dialog and a ticker dialog are mutually exclusive — modeling
+  // them as a single discriminated union makes that structural, not incidental.
+  type OpenDialog = { kind: "group"; key: string } | { kind: "ticker"; symbol: string };
+  const [dialog, setDialog] = useState<OpenDialog | null>(null);
   const top = data.slice(0, ACTIVITY_TOP_SYMBOLS);
   const rest = data.slice(ACTIVITY_TOP_SYMBOLS);
   const restTotal = rest.reduce((s, t) => s + t.total, 0);
 
-  const rowProps = (item: ActivityTableRow): TickerRowProps => ({
+  const rowProps = (item: ActivityRow): TickerRowProps => ({
     symbol: item.symbol,
     count: item.count,
     total: item.total,
@@ -146,7 +141,7 @@ export function TickerTable({
     groupKey: item.groupKey,
     expanded: expanded === item.symbol,
     onToggle: item.isGroup && item.groupKey
-      ? () => setDialogGroupKey(item.groupKey!)
+      ? () => setDialog({ kind: "group", key: item.groupKey! })
       : () => setExpanded((prev) => (prev === item.symbol ? null : item.symbol)),
     startDate,
     endDate,
@@ -183,19 +178,19 @@ export function TickerTable({
           )}
         </TableBody>
       </Table>
-      {dialogGroupKey && dailyTickers && fidelityTxns && (
+      {dialog?.kind === "group" && dailyTickers && fidelityTxns && (
         <GroupChartDialog
-          groupKey={dialogGroupKey}
+          groupKey={dialog.key}
           dailyTickers={dailyTickers}
           fidelityTxns={fidelityTxns}
           startDate={startDate}
           endDate={endDate}
-          onClose={() => setDialogGroupKey(null)}
-          onSelectTicker={(sym) => setDialogTicker(sym)}
+          onClose={() => setDialog(null)}
+          onSelectTicker={(sym) => setDialog({ kind: "ticker", symbol: sym })}
         />
       )}
-      {dialogTicker && (
-        <TickerDialogOnly symbol={dialogTicker} onClose={() => setDialogTicker(null)} />
+      {dialog?.kind === "ticker" && (
+        <TickerDialogOnly symbol={dialog.symbol} onClose={() => setDialog(null)} />
       )}
     </div>
   );

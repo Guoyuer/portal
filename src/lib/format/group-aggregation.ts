@@ -1,8 +1,8 @@
 // ── Transaction classifier + group aggregation (pure data layer) ────────
 // Classifies Fidelity transactions into a higher-level taxonomy so UI
-// code doesn't have to ad-hoc match action strings. Group aggregation
-// (added in a later task) uses this taxonomy to decide which txns count
-// toward the group net.
+// code doesn't have to ad-hoc match action strings. `groupNetByDate`
+// consumes the taxonomy and clusters REAL txns within an equivalence
+// group to surface net exposure change (vs. noise from ticker swaps).
 
 import type { FidelityTxn, DailyTicker } from "@/lib/schemas";
 import { groupOfTicker } from "@/lib/config/equivalent-groups";
@@ -21,7 +21,11 @@ export function classifyTxn(t: FidelityTxn): TxnType {
 // ── Group net aggregation ────────────────────────────────────────────────
 
 const MS_PER_DAY = 86_400_000;
+// T+2 settlement window: a rebalance that executes Mon may settle Wed, so
+// trades within 2 calendar days of the prior trade chain into one cluster.
 const WINDOW_DAYS = 2;
+// Below this the cluster is treated as exact-swap noise (FP dust, tiny
+// bounceback), not a real exposure change.
 const THRESHOLD_USD = 50;
 
 export type GroupNetEntry = {

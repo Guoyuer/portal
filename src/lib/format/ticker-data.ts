@@ -29,6 +29,10 @@ export type Cluster = {
   count: number;           // total number of underlying transactions merged
   r: number;               // render radius (px) — filled in after normalization
   memberDates: string[];   // ISO dates of merged days (used to highlight table rows)
+  // Optional per-constituent contribution — populated by group-aggregation
+  // for the group chart's tooltip. Kept here so BuyClusterMarker/SellClusterMarker
+  // accept both cluster kinds with one payload type.
+  breakdown?: { symbol: string; signed: number }[];
 };
 
 export type ClusteredPoint = TickerChartPoint & {
@@ -133,14 +137,14 @@ export function clusterByTime(
   return clusters;
 }
 
+/** Sqrt-normalize an amount into a pixel radius. Shared by ticker + group charts. */
+export function scaleR(amount: number, maxAmount: number, minR: number, maxR: number): number {
+  return minR + (maxR - minR) * Math.sqrt(amount / Math.max(maxAmount, 1));
+}
+
 export function sizeClusters(buys: Cluster[], sells: Cluster[]): { buys: Cluster[]; sells: Cluster[] } {
   const maxAmount = Math.max(1, ...buys.map((c) => c.amount), ...sells.map((c) => c.amount));
-  const MIN_R = 9;
-  const MAX_R = 22;
-  const withR = (c: Cluster): Cluster => ({
-    ...c,
-    r: MIN_R + (MAX_R - MIN_R) * Math.sqrt(c.amount / maxAmount),
-  });
+  const withR = (c: Cluster): Cluster => ({ ...c, r: scaleR(c.amount, maxAmount, 9, 22) });
   return { buys: buys.map(withR), sells: sells.map(withR) };
 }
 

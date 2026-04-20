@@ -279,18 +279,27 @@ export function computeGroupedActivity(
     if (sellCount > 0) groupSells.push({ symbol: display, count: sellCount, total: round(sellTotal), isGroup: true, groupKey });
   }
 
-  // Solo tickers (not in any group)
+  // Solo tickers (not in any group) — reuse computeActivity for the B/S rows
   const solo = windowed.filter((t) => !groupOfTicker(t.symbol));
   const soloActivity = computeActivity(solo, start, end);
 
-  // Dividends stay per-ticker (grouping out of scope)
-  const divs = computeActivity(windowed, start, end).dividendsBySymbol;
+  // Dividends stay per-ticker across all tickers (grouping out of scope).
+  // Compute inline over `windowed` to avoid a second computeActivity pass
+  // that would rebuild the full buys/sells Maps just to be discarded.
+  const dividends = new Map<string, { count: number; total: number }>();
+  for (const t of windowed) {
+    const abs = Math.abs(t.amount);
+    if (t.actionType === "dividend") accum(dividends, t.symbol, t.amount);
+    else if (t.actionType === "reinvestment") accum(dividends, t.symbol, abs);
+  }
 
   const sortDesc = (a: ActivityRow, b: ActivityRow) => b.total - a.total;
   return {
     buysBySymbol:  [...groupBuys,  ...soloActivity.buysBySymbol.map(r => ({ ...r, isGroup: false as const }))].sort(sortDesc),
     sellsBySymbol: [...groupSells, ...soloActivity.sellsBySymbol.map(r => ({ ...r, isGroup: false as const }))].sort(sortDesc),
-    dividendsBySymbol: divs.map(r => ({ ...r, isGroup: false as const })),
+    dividendsBySymbol: [...dividends.entries()]
+      .map(([symbol, v]) => ({ symbol, count: v.count, total: round(v.total), isGroup: false as const }))
+      .sort(sortDesc),
   };
 }
 

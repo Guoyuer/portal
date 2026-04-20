@@ -18,31 +18,21 @@ import { gridStroke, axisProps } from "@/lib/format/chart-styles";
 import { fmtCurrency, fmtCurrencyShort, fmtDateMedium, fmtTick } from "@/lib/format/format";
 import { BuyClusterMarker, SellClusterMarker } from "./ticker-markers";
 import type { GroupValuePoint, GroupNetEntry } from "@/lib/format/group-aggregation";
+import type { Cluster } from "@/lib/format/ticker-data";
+import { scaleR } from "@/lib/format/ticker-data";
 import { TooltipCard } from "@/components/charts/tooltip-card";
 import { BUY_COLOR, SELL_COLOR } from "@/lib/format/chart-colors";
 
-type GroupMarkerCluster = {
-  ts: number;
-  count: number;
-  r: number;
-  amount: number;
-  price: number;
-  qty: number;
-  memberDates: string[];
-  breakdown: { symbol: string; signed: number }[];
-};
-
 export type GroupChartPoint = GroupValuePoint & {
-  buyCluster?: GroupMarkerCluster;
-  sellCluster?: GroupMarkerCluster;
+  buyCluster?: Cluster;
+  sellCluster?: Cluster;
   buyClusterPrice?: number;
   sellClusterPrice?: number;
 };
 
-// Sqrt-normalized radius — magnitude is immediately perceptible. Smaller
-// cap than ticker-chart (22) because group charts often show more markers
-// clustered together (every rebalance/DCA) and the value line must remain
-// visible between them.
+// Smaller radius cap than ticker-chart (22) — group charts often show more
+// markers clustered together (every rebalance/DCA) and the value line must
+// remain visible between them.
 const MIN_R = 7;
 const MAX_R = 14;
 
@@ -55,10 +45,10 @@ export function buildGroupChartData(
   return series.map((p) => {
     const entry = markers.get(p.date);
     if (!entry) return p;
-    const cluster: GroupMarkerCluster = {
+    const cluster: Cluster = {
       ts: p.ts,
       count: 1,
-      r: MIN_R + (MAX_R - MIN_R) * Math.sqrt(entry.net / maxAmount),
+      r: scaleR(entry.net, maxAmount, MIN_R, MAX_R),
       amount: entry.net,
       price: 0,
       qty: 0,
@@ -91,7 +81,7 @@ function GroupTooltip({ active, payload }: TooltipContentProps) {
           </p>
           {/* Breakdown is only informative when multiple tickers contribute —
               for single-ticker groups the breakdown line would just restate the net. */}
-          {marker.breakdown.length > 1 && marker.breakdown.map((b) => (
+          {marker.breakdown && marker.breakdown.length > 1 && marker.breakdown.map((b) => (
             <p key={b.symbol} style={{ margin: 0, fontSize: 12, fontFamily: "monospace" }}>
               {b.symbol}  {signIcon(b.signed)}{fmtCurrency(Math.abs(b.signed))}
             </p>
