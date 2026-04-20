@@ -23,6 +23,17 @@ CREATE TABLE IF NOT EXISTS fidelity_transactions (
     amount          REAL NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS robinhood_transactions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    txn_date        TEXT NOT NULL,
+    action          TEXT NOT NULL DEFAULT '',  -- raw Trans Code from CSV (Buy/Sell/CDIV/...)
+    action_kind     TEXT NOT NULL,             -- normalized ActionKind enum (buy/sell/...)
+    ticker          TEXT NOT NULL DEFAULT '',
+    quantity        REAL NOT NULL DEFAULT 0,
+    amount_usd      REAL NOT NULL DEFAULT 0,
+    raw_description TEXT NOT NULL DEFAULT ''
+);
+
 CREATE TABLE IF NOT EXISTS daily_close (
     symbol TEXT NOT NULL,
     date   TEXT NOT NULL,
@@ -60,6 +71,14 @@ CREATE TABLE IF NOT EXISTS computed_daily_tickers (
     gain_loss     REAL NOT NULL DEFAULT 0,
     gain_loss_pct REAL NOT NULL DEFAULT 0,
     PRIMARY KEY (date, ticker)
+);
+
+CREATE TABLE IF NOT EXISTS empower_contributions (
+    date   TEXT NOT NULL,
+    amount REAL NOT NULL,
+    ticker TEXT NOT NULL,
+    cusip  TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (date, amount, ticker, cusip)
 );
 
 CREATE TABLE IF NOT EXISTS computed_market_indices (
@@ -101,6 +120,7 @@ CREATE TABLE IF NOT EXISTS categories (
 
 CREATE INDEX IF NOT EXISTS idx_fidelity_date     ON fidelity_transactions(run_date);
 CREATE INDEX IF NOT EXISTS idx_fidelity_acct_sym ON fidelity_transactions(account_number, symbol);
+CREATE INDEX IF NOT EXISTS idx_robinhood_date    ON robinhood_transactions(txn_date);
 CREATE INDEX IF NOT EXISTS idx_daily_close_date  ON daily_close(date);
 CREATE INDEX IF NOT EXISTS idx_daily_tickers_date ON computed_daily_tickers(date);
 CREATE INDEX IF NOT EXISTS idx_qianji_txn_date ON qianji_transactions(date);
