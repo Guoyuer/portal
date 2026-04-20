@@ -55,6 +55,24 @@ def _compute_yoy_pct(series: pd.Series) -> pd.Series:
     return yoy.dropna()
 
 
+def _compute_spread_2s10s(
+    snapshot: dict[str, float], series: dict[str, list[dict[str, Any]]],
+) -> None:
+    """Derive the 2s10s spread from already-fetched ``treasury10y`` /
+    ``treasury2y`` series, writing into ``snapshot`` / ``series`` in place.
+    No-op when either input leg is missing (leg fetch errored)."""
+    if "treasury10y" not in series or "treasury2y" not in series:
+        return
+    t10_map = {e["date"]: e["value"] for e in series["treasury10y"]}
+    t2_map = {e["date"]: e["value"] for e in series["treasury2y"]}
+    common_dates = sorted(set(t10_map) & set(t2_map))
+    series["spread2s10s"] = [
+        {"date": d, "value": round(t10_map[d] - t2_map[d], 2)} for d in common_dates
+    ]
+    if "treasury10y" in snapshot and "treasury2y" in snapshot:
+        snapshot["spread2s10s"] = round(snapshot["treasury10y"] - snapshot["treasury2y"], 2)
+
+
 # ── Main fetcher ─────────────────────────────────────────────────────────────
 
 
@@ -102,17 +120,7 @@ def fetch_fred_data(api_key: str) -> dict[str, object] | None:
         except Exception:
             log.warning("FRED %s fetch failed", fred_id, exc_info=True)
 
-    # ── Computed: 2s10s spread ───────────────────────────────────────────
-    if "treasury10y" in series and "treasury2y" in series:
-        t10_map = {e["date"]: e["value"] for e in series["treasury10y"]}
-        t2_map = {e["date"]: e["value"] for e in series["treasury2y"]}
-        common_dates = sorted(set(t10_map) & set(t2_map))
-
-        spread_records = [{"date": d, "value": round(t10_map[d] - t2_map[d], 2)} for d in common_dates]
-        series["spread2s10s"] = spread_records
-
-        if "treasury10y" in snapshot and "treasury2y" in snapshot:
-            snapshot["spread2s10s"] = round(snapshot["treasury10y"] - snapshot["treasury2y"], 2)
+    _compute_spread_2s10s(snapshot, series)
 
     # ── Monthly series (use as-is) ───────────────────────────────────────
     for fred_id, key in _MONTHLY_SERIES.items():

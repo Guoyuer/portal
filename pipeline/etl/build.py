@@ -486,28 +486,17 @@ def _full_build(
     print(f"  {len(alloc)} daily records")
 
     print("[6] Writing computed_daily...")
+    # Full rebuild: wipe both tables (``alloc`` may be shorter than the existing
+    # ``computed_daily`` if a date range shrank), then upsert via the same
+    # helper the incremental path uses. Keeps the row-level SQL in one place.
     conn = get_connection(paths.db_path)
     try:
         conn.execute("DELETE FROM computed_daily")
         conn.execute("DELETE FROM computed_daily_tickers")
-        for r in alloc:
-            conn.execute(
-                "INSERT INTO computed_daily (date, total, us_equity, non_us_equity, crypto, safe_net, liabilities)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (r["date"], r["total"], r["us_equity"], r["non_us_equity"],
-                 r["crypto"], r["safe_net"], r["liabilities"]),
-            )
-            for t in r["tickers"]:
-                conn.execute(
-                    "INSERT OR REPLACE INTO computed_daily_tickers"
-                    " (date, ticker, value, category, subtype, cost_basis, gain_loss, gain_loss_pct)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    (r["date"], t["ticker"], t["value"], t["category"], t["subtype"],
-                     t["cost_basis"], t["gain_loss"], t["gain_loss_pct"]),
-                )
         conn.commit()
     finally:
         conn.close()
+    upsert_daily_rows(paths.db_path, alloc)
 
     # Ingest Qianji transactions for /cashflow endpoint. Per-date historical
     # CNY rates come from the daily_close table (symbol='CNY=X') so each
