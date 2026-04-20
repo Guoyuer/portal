@@ -1,0 +1,49 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import type { TimelineData } from "@/lib/schemas";
+
+// Default brush range shows ~1 year (252 US trading days per calendar year).
+const TRADING_DAYS_PER_YEAR = 252;
+
+/** Brush state + default window + reset-on-data-arrival effect.
+ *  Kept independent of the /timeline fetch so the two concerns are
+ *  individually testable and the consumer hook stays a thin orchestrator. */
+export function useBrushRange(data: TimelineData | null): {
+  brushStart: number;
+  brushEnd: number;
+  defaultStartIndex: number;
+  defaultEndIndex: number;
+  onBrushChange: (state: { startIndex?: number; endIndex?: number }) => void;
+} {
+  const chartDaily = data?.daily ?? [];
+  const defaultEndIndex = chartDaily.length > 0 ? chartDaily.length - 1 : 0;
+  const defaultStartIndex = chartDaily.length === 0
+    ? 0
+    : Math.max(0, defaultEndIndex - TRADING_DAYS_PER_YEAR);
+
+  const [range, setRange] = useState({ start: 0, end: 0 });
+
+  useEffect(() => {
+    if (data && chartDaily.length > 0) {
+      setRange({ start: defaultStartIndex, end: defaultEndIndex });
+    }
+  // defaults derive purely from data/chartDaily.length
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  const onBrushChange = (state: { startIndex?: number; endIndex?: number }) => {
+    setRange((prev) => ({
+      start: state.startIndex ?? prev.start,
+      end: state.endIndex ?? prev.end,
+    }));
+  };
+
+  return {
+    brushStart: range.start,
+    brushEnd: range.end,
+    defaultStartIndex,
+    defaultEndIndex,
+    onBrushChange,
+  };
+}
