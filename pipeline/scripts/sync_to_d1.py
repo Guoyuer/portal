@@ -377,12 +377,17 @@ def main() -> None:
     if not args.dry_run:
         _ensure_d1_schema_aligned(conn, local=args.local, dry_run=False)
 
-    mode = "full" if args.full else "diff"
+    # Local D1 is a dev mirror — diff mode would leave pre-window rows stale
+    # if local was initially seeded from an older snapshot, drifting forever.
+    # Force full-replace on --local so dev always matches prod.
+    mode = "full" if (args.full or args.local) else "diff"
     since = args.since
     if mode == "diff" and since is None:
         since = _auto_derive_since(conn)
         print(f"  Auto-derived --since={since} (fidelity MAX(run_date) - {_AUTO_SINCE_LOOKBACK_DAYS} days)")
 
+    if args.local and not args.full:
+        print("  --local implies --full (local D1 always mirrors timemachine.db)")
     print(f"  Sync mode: {mode}")
 
     all_sql: list[str] = []

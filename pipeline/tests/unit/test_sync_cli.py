@@ -75,3 +75,17 @@ def test_diff_since_range_covers_recent_rows(fake_db, tmp_path):
     out = result.stdout + result.stderr
     # Expect at least one fidelity INSERT in the SQL preview
     assert "INSERT INTO fidelity_transactions" in out
+
+
+def test_local_implies_full(fake_db, tmp_path):
+    """--local without --full must force full-replace mode.
+
+    Diff mode on local D1 would leave pre-60-day rows stale if the local D1
+    was ever seeded from an older snapshot — the dev-env would silently
+    drift from prod. Regression guard for that class of bug.
+    """
+    result = _run(["--local"], tmp_path, fake_db)
+    assert result.returncode == 0, result.stderr
+    out = result.stdout + result.stderr
+    assert "Sync mode: full" in out
+    assert "DELETE FROM fidelity_transactions;" in out
