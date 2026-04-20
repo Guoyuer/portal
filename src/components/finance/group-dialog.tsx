@@ -8,7 +8,6 @@ import { buildGroupValueSeries, groupNetByDate } from "@/lib/format/group-aggreg
 import { EQUIVALENT_GROUPS } from "@/lib/config/equivalent-groups";
 import { useIsDark } from "@/lib/hooks/hooks";
 import { fmtCurrency, fmtPct } from "@/lib/format/format";
-import { valueColor } from "@/lib/format/thresholds";
 import type { DailyTicker, FidelityTxn } from "@/lib/schemas";
 
 export function GroupChartDialog({
@@ -53,8 +52,6 @@ export function GroupChartDialog({
   const markers = groupNetByDate(fidelityTxns).get(groupKey) ?? new Map();
   const data = buildGroupChartData(series, markers);
   const latest = series[series.length - 1];
-  const gainLoss = latest ? latest.value - latest.costBasis : 0;
-  const gainLossPct = latest && latest.costBasis > 0 ? (gainLoss / latest.costBasis) * 100 : 0;
 
   return (
     <dialog
@@ -70,13 +67,7 @@ export function GroupChartDialog({
           <div className="flex items-baseline gap-3 min-w-0 flex-wrap">
             <span className="font-semibold text-lg truncate">{group.display}</span>
             {latest && (
-              <>
-                <span className="text-sm text-muted-foreground">value {fmtCurrency(latest.value)}</span>
-                <span className="text-sm text-muted-foreground">cost {fmtCurrency(latest.costBasis)}</span>
-                <span className={`text-sm ${valueColor(gainLoss)}`}>
-                  {gainLoss >= 0 ? "+" : ""}{fmtCurrency(gainLoss)} ({fmtPct(gainLossPct, true)})
-                </span>
-              </>
+              <span className="text-sm text-muted-foreground">value {fmtCurrency(latest.value)}</span>
             )}
             {latest && latest.value > 0 ? (
               <span className="text-xs text-muted-foreground truncate flex gap-2">

@@ -73,7 +73,6 @@ function GroupTooltip({ active, payload }: TooltipContentProps) {
   return (
     <TooltipCard active={active} payload={payload} title={fmtDateMedium(d.date)}>
       <p style={{ margin: 0 }}>Value: {fmtCurrency(d.value)}</p>
-      <p style={{ margin: 0 }}>Cost: {fmtCurrency(d.costBasis)}</p>
       {marker && (
         <>
           <p style={{ margin: "6px 0 0 0", fontWeight: 600, color: d.sellCluster ? SELL_COLOR : BUY_COLOR }}>
@@ -94,7 +93,6 @@ function GroupTooltip({ active, payload }: TooltipContentProps) {
 
 export function GroupChart({ data }: { data: GroupChartPoint[] }) {
   const isDark = useIsDark();
-  const latestCost = data[data.length - 1]?.costBasis;
   return (
     <ResponsiveContainer width="100%" height="100%">
       <ComposedChart data={data} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
@@ -116,31 +114,6 @@ export function GroupChart({ data }: { data: GroupChartPoint[] }) {
           axisLine={false}
         />
         <Tooltip content={GroupTooltip} />
-        <Line
-          type="monotone"
-          dataKey="costBasis"
-          stroke={isDark ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.3)"}
-          strokeWidth={1.25}
-          strokeDasharray="4 4"
-          dot={false}
-          isAnimationActive={false}
-          label={(props: { index?: number; x?: number | string; y?: number | string }) => {
-            const xN = typeof props.x === "number" ? props.x : Number(props.x);
-            const yN = typeof props.y === "number" ? props.y : Number(props.y);
-            if (props.index !== data.length - 1 || latestCost == null || !Number.isFinite(xN) || !Number.isFinite(yN)) return <g />;
-            return (
-              <text
-                x={xN - 4}
-                y={yN - 6}
-                textAnchor="end"
-                fill={isDark ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.45)"}
-                fontSize={10}
-              >
-                Cost {fmtCurrency(latestCost)}
-              </text>
-            );
-          }}
-        />
         <Line
           type="monotone"
           dataKey="value"

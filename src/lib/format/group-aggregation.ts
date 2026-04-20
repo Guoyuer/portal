@@ -109,31 +109,36 @@ export type GroupValuePoint = {
   date: string;
   ts: number;
   value: number;
-  costBasis: number;
-  constituents: { ticker: string; value: number; costBasis: number }[];
+  constituents: { ticker: string; value: number }[];
 };
 
 /**
- * Sum constituent tickers' daily `value` and `costBasis` into a single
- * per-date $ series suitable for the group chart's Y-axis.
+ * Sum constituent tickers' daily `value` into a per-date $ series for the
+ * group chart's Y-axis.
+ *
+ * Cost basis is intentionally excluded. Without per-lot data the pipeline
+ * uses avg-cost accounting (see etl/replay.py), which at the group level
+ * drops on every sell proportionally — confusingly comparable to but not
+ * the same as tax-lot cost basis. The group view is for exposure-change
+ * analysis, not gain/loss; per-ticker gain/loss stays on the ticker chart.
  */
 export function buildGroupValueSeries(
   dailyTickers: DailyTicker[],
   groupTickers: string[],
 ): GroupValuePoint[] {
   const set = new Set(groupTickers);
-  const byDate = new Map<string, { value: number; costBasis: number; parts: { ticker: string; value: number; costBasis: number }[] }>();
+  const byDate = new Map<string, { value: number; parts: { ticker: string; value: number }[] }>();
   for (const dt of dailyTickers) {
     if (!set.has(dt.ticker)) continue;
     const e = byDate.get(dt.date);
-    const part = { ticker: dt.ticker, value: dt.value, costBasis: dt.costBasis };
-    if (e) { e.value += dt.value; e.costBasis += dt.costBasis; e.parts.push(part); }
-    else byDate.set(dt.date, { value: dt.value, costBasis: dt.costBasis, parts: [part] });
+    const part = { ticker: dt.ticker, value: dt.value };
+    if (e) { e.value += dt.value; e.parts.push(part); }
+    else byDate.set(dt.date, { value: dt.value, parts: [part] });
   }
   return [...byDate.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, { value, costBasis, parts }]) => {
+    .map(([date, { value, parts }]) => {
       const [y, m, d] = date.split("-").map(Number);
-      return { date, ts: new Date(y, m - 1, d).getTime(), value, costBasis, constituents: parts };
+      return { date, ts: new Date(y, m - 1, d).getTime(), value, constituents: parts };
     });
 }

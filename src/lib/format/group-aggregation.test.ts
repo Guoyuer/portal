@@ -132,9 +132,9 @@ describe("buildGroupValueSeries", () => {
       dt("2026-01-03", "SPY", 1100),
     ], ["SPY", "VOO"]);
     expect(series).toHaveLength(2);
-    expect(series[0]).toMatchObject({ date: "2026-01-02", value: 1500, costBasis: 0 });
+    expect(series[0]).toMatchObject({ date: "2026-01-02", value: 1500 });
     expect(series[0].constituents).toHaveLength(2);
-    expect(series[1]).toMatchObject({ date: "2026-01-03", value: 1100, costBasis: 0 });
+    expect(series[1]).toMatchObject({ date: "2026-01-03", value: 1100 });
   });
 
   it("ignores tickers not in the group", () => {
