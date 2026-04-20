@@ -113,8 +113,7 @@ export default function FinancePage() {
   const [unmatchedExpanded, setUnmatchedExpanded] = useState(false);
   const tl = useBundle();
 
-  const snapshotDate = tl.snapshot?.date ?? null;
-  const startDate = tl.startDate;
+  const { snapshotDate, startDate } = tl;
 
   // Tab title with date range
   useEffect(() => {

@@ -42,6 +42,7 @@ export interface ComputedBundle {
   categories: CategoryMeta[];
   snapshot: DailyPoint | null;
   startDate: string | null;
+  snapshotDate: string | null;
   allocation: AllocationResponse | null;
   cashflow: CashflowResponse | null;
   activity: ActivityResponse | null;
@@ -67,6 +68,7 @@ const EMPTY_BUNDLE: ComputedBundle = {
   categories: [],
   snapshot: null,
   startDate: null,
+  snapshotDate: null,
   allocation: null,
   cashflow: null,
   activity: null,
@@ -145,6 +147,7 @@ export function computeBundle(
     categories: data.categories,
     snapshot,
     startDate,
+    snapshotDate,
     allocation,
     ...computeWindow(data, investmentTxns, startDate, snapshotDate),
     monthlyFlows: computeMonthlyFlows(data.qianjiTxns, startDate, snapshotDate),

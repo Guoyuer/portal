@@ -39,6 +39,7 @@ export interface BundleState {
   defaultEndIndex: number;
   snapshot: DailyPoint | null;
   startDate: string | null;
+  snapshotDate: string | null;
   brushStart: number;
   brushEnd: number;
   onBrushChange: (state: { startIndex?: number; endIndex?: number }) => void;

@@ -16,19 +16,19 @@ export function useBrushRange(data: TimelineData | null): {
   defaultEndIndex: number;
   onBrushChange: (state: { startIndex?: number; endIndex?: number }) => void;
 } {
-  const chartDaily = data?.daily ?? [];
-  const defaultEndIndex = chartDaily.length > 0 ? chartDaily.length - 1 : 0;
-  const defaultStartIndex = chartDaily.length === 0
+  const len = data?.daily.length ?? 0;
+  const defaultEndIndex = len > 0 ? len - 1 : 0;
+  const defaultStartIndex = len === 0
     ? 0
     : Math.max(0, defaultEndIndex - TRADING_DAYS_PER_YEAR);
 
   const [range, setRange] = useState({ start: 0, end: 0 });
 
   useEffect(() => {
-    if (data && chartDaily.length > 0) {
+    if (data && len > 0) {
       setRange({ start: defaultStartIndex, end: defaultEndIndex });
     }
-  // defaults derive purely from data/chartDaily.length
+  // defaults derive purely from data.daily.length
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
 
