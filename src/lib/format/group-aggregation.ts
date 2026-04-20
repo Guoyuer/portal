@@ -103,7 +103,7 @@ export function groupNetByDate(
   return result;
 }
 
-// ── Group value series (for the group chart Y-axis) ──────────────────────
+// ── Group value series (for the header total-holdings display) ───────────
 
 export type GroupValuePoint = {
   date: string;
@@ -113,14 +113,8 @@ export type GroupValuePoint = {
 };
 
 /**
- * Sum constituent tickers' daily `value` into a per-date $ series for the
- * group chart's Y-axis.
- *
- * Cost basis is intentionally excluded. Without per-lot data the pipeline
- * uses avg-cost accounting (see etl/replay.py), which at the group level
- * drops on every sell proportionally — confusingly comparable to but not
- * the same as tax-lot cost basis. The group view is for exposure-change
- * analysis, not gain/loss; per-ticker gain/loss stays on the ticker chart.
+ * Sum constituent tickers' daily `value` into a per-date $ series.
+ * Used for the header's "Holdings $X" display — not plotted on the chart.
  */
 export function buildGroupValueSeries(
   dailyTickers: DailyTicker[],

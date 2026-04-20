@@ -25,7 +25,7 @@ type TickerData = {
   error: string | null;
 };
 
-function useTickerData(symbol: string): TickerData {
+export function useTickerData(symbol: string): TickerData {
   const [state, setState] = useState<TickerData>({ data: null, avgCost: null, transactions: [], error: null });
   useEffect(() => {
     if (IS_PSEUDO_TICKER(symbol)) return;
