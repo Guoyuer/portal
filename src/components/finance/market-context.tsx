@@ -5,6 +5,7 @@ import { Area, AreaChart, YAxis } from "recharts";
 import type { MarketData, IndexReturn } from "@/lib/schemas";
 import { fmtPct } from "@/lib/format/format";
 import { SectionHeader } from "@/components/finance/section";
+import { MARKET_GAIN, MARKET_LOSS } from "@/lib/format/chart-colors";
 
 // ── Display name mapping ────────────────────────────────────────────────
 const INDEX_NAMES: Record<string, string> = {
@@ -12,19 +13,17 @@ const INDEX_NAMES: Record<string, string> = {
   "^NDX": "NASDAQ 100",
 };
 
-// ── Palette ─────────────────────────────────────────────────────────────
-const GAIN = "#81b29a";
-const LOSS = "#cd6155";
-
-function returnColor(v: number) { return v >= 0 ? GAIN : LOSS; }
-function returnBg(v: number) { return v >= 0 ? "bg-[#81b29a]/15" : "bg-[#cd6155]/15"; }
+function returnColor(v: number) { return v >= 0 ? MARKET_GAIN : MARKET_LOSS; }
+// ~15% alpha (0x26 / 255 ≈ 0.15) — matches the previous `bg-[…]/15` Tailwind
+// arbitrary class the JIT used to emit, without duplicating the hex in two places.
+function returnBgAlpha(v: number) { return `${v >= 0 ? MARKET_GAIN : MARKET_LOSS}26`; }
 
 // ── Badge ───────────────────────────────────────────────────────────────
 function ReturnBadge({ label, value }: { label: string; value: number }) {
   return (
     <span
-      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold tabular-nums ${returnBg(value)}`}
-      style={{ color: returnColor(value) }}
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold tabular-nums"
+      style={{ color: returnColor(value), backgroundColor: returnBgAlpha(value) }}
     >
       <span className="text-[9px] opacity-60 font-normal">{label}</span>
       {fmtPct(value, true)}
@@ -49,7 +48,7 @@ function Sparkline({ idx }: { idx: IndexReturn }) {
   }, []);
 
   const data = idx.sparkline?.map((v) => ({ v }));
-  const color = idx.ytdReturn >= 0 ? GAIN : LOSS;
+  const color = idx.ytdReturn >= 0 ? MARKET_GAIN : MARKET_LOSS;
 
   return (
     <div ref={ref} className="w-full h-full">

@@ -1,9 +1,5 @@
 import type { UnmatchedItem } from "@/lib/compute/compute";
-
-const LABELS: Record<UnmatchedItem["source"], string> = {
-  fidelity:  "Fidelity",
-  robinhood: "Robinhood",
-};
+import { SOURCE_FULL_LABEL } from "@/components/finance/source-badge";
 
 export function UnmatchedPanel({ items }: { items: UnmatchedItem[] }) {
   if (items.length === 0) return null;
@@ -20,7 +16,7 @@ export function UnmatchedPanel({ items }: { items: UnmatchedItem[] }) {
       {[...grouped.entries()].map(([src, list]) => (
         <div key={src} className="mb-2 last:mb-0">
           <div className="font-medium text-red-300 mb-1">
-            {`${LABELS[src]} (${list.length}):`}
+            {`${SOURCE_FULL_LABEL[src]} (${list.length}):`}
           </div>
           <ul className="pl-4 space-y-0.5 text-muted-foreground font-mono text-xs">
             {list.map((it, i) => (

@@ -4,6 +4,7 @@
 // Functions here are side-effect-free and fully unit-testable.
 
 import type { TickerPricePoint, TickerTransaction } from "@/lib/schemas";
+import { parseLocalDate } from "@/lib/format/format";
 
 export type TickerChartPoint = {
   date: string;
@@ -74,8 +75,7 @@ export function mergeTickerData(
   }
 
   return prices.map((p) => {
-    const [y, m, d] = p.date.split("-");
-    const ts = new Date(+y, +m - 1, +d).getTime();
+    const ts = parseLocalDate(p.date).getTime();
     const point: TickerChartPoint = { date: p.date, ts, close: p.close };
     const buy = buyMap.get(p.date);
     if (buy) { point.buyPrice = buy.qty > 0 ? buy.amount / buy.qty : 0; point.buyQty = buy.qty; point.buyAmount = buy.amount; point.buyTxnCount = buy.count; }
@@ -174,6 +174,13 @@ export function computeAvgCost(txns: TickerTransaction[]): number | null {
     }
   }
   return totalQty > 0 ? totalCost / totalQty : null;
+}
+
+/** Build a Map<date, close> from the prices array returned by /prices/:symbol. */
+export function priceMapFromSeries(prices: TickerPricePoint[]): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const p of prices) m.set(p.date, p.close);
+  return m;
 }
 
 export function sizeClusters(buys: Cluster[], sells: Cluster[]): { buys: Cluster[]; sells: Cluster[] } {

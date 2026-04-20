@@ -5,7 +5,8 @@
 // height) once the dialog is wide enough to give each column headroom.
 
 import { fmtCurrency, fmtDateMedium, fmtQty } from "@/lib/format/format";
-import { useIsMobile } from "@/lib/hooks/hooks";
+import { useIsDark, useIsMobile } from "@/lib/hooks/hooks";
+import { BUY_COLOR, SELL_COLOR } from "@/lib/format/chart-colors";
 import type { TickerTransaction } from "@/lib/schemas";
 import type { Selection } from "./ticker-markers";
 
@@ -13,13 +14,12 @@ export function TransactionTable({
   transactions,
   selected,
   tableScrollRef,
-  isDark,
 }: {
   transactions: TickerTransaction[];
   selected: Selection | null;
   tableScrollRef: React.RefObject<HTMLDivElement | null>;
-  isDark: boolean;
 }) {
+  const isDark = useIsDark();
   const isMobile = useIsMobile();
   if (transactions.length === 0) return null;
 
@@ -51,8 +51,7 @@ export function TransactionTable({
     return (
       <>
         <td data-date={t.runDate} data-side={dataSide} className={`px-2 py-1.5 ${bg}`}>{fmtDateMedium(t.runDate)}</td>
-        {/* Arbitrary-value Tailwind classes must be literal strings so the JIT can extract them */}
-        <td className={`px-2 py-1.5 capitalize ${bg} ${t.actionType === "sell" ? "text-[#E69F00]" : "text-[#009E73]"}`}>{t.actionType}</td>
+        <td className={`px-2 py-1.5 capitalize ${bg}`} style={{ color: t.actionType === "sell" ? SELL_COLOR : BUY_COLOR }}>{t.actionType}</td>
         <td className={`px-2 py-1.5 text-right font-mono ${bg}`}>{fmtQty(Math.abs(t.quantity))}</td>
         <td className={`px-2 py-1.5 text-right font-mono ${bg}`}>{fmtCurrency(t.price)}</td>
         <td className={`px-2 py-1.5 text-right font-mono ${bg}`}>{fmtCurrency(Math.abs(t.amount))}</td>

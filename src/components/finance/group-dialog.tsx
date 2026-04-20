@@ -3,7 +3,9 @@
 // ── Group chart dialog: mirrors TickerChartDialog for equivalent-ticker groups ──
 
 import { useEffect, useRef, useState } from "react";
-import { GroupChart, buildGroupChartData, priceMapFromSeries } from "./group-chart";
+import { useHoverState } from "@/lib/hooks/use-hover-state";
+import { GroupChart, buildGroupChartData } from "./group-chart";
+import { priceMapFromSeries } from "@/lib/format/ticker-data";
 import { ChartDialog } from "./chart-dialog";
 import { buildGroupValueSeries, groupNetByDate } from "@/lib/format/group-aggregation";
 import { EQUIVALENT_GROUPS } from "@/lib/config/equivalent-groups";
@@ -13,7 +15,7 @@ import type { TickerTransaction } from "@/lib/schemas";
 import { TransactionTable } from "./transaction-table";
 import { MarkerHoverPanel } from "./marker-hover-panel";
 import { useIsDark } from "@/lib/hooks/hooks";
-import type { HoverState, Selection } from "./ticker-markers";
+import type { Selection } from "./ticker-markers";
 import { useTickerData } from "./ticker-chart";
 
 // ── Adapter: FidelityTxn rows → TickerTransaction (shapes are identical) ──
@@ -52,7 +54,7 @@ export function GroupChartDialog({
 
   const isDark = useIsDark();
   const [selected, setSelected] = useState<Selection | null>(null);
-  const [hover, setHover] = useState<HoverState | null>(null);
+  const { hover, onEnter, onMove, onLeave } = useHoverState();
   const tableScrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -75,10 +77,6 @@ export function GroupChartDialog({
 
   const sorted = fidelityTxnsToTickerTransactions(fidelityTxns, group.tickers)
     .sort((a, b) => b.runDate.localeCompare(a.runDate));
-
-  const handleEnter = (h: HoverState) => setHover(h);
-  const handleMove = (x: number, y: number) => setHover((prev) => (prev ? { ...prev, x, y } : null));
-  const handleLeave = () => setHover(null);
 
   const header = (
     <div className="flex items-baseline gap-3 min-w-0 flex-wrap">
@@ -151,9 +149,9 @@ export function GroupChartDialog({
       <GroupChart
         data={chartData}
         representative={group.representative}
-        onEnter={handleEnter}
-        onMove={handleMove}
-        onLeave={handleLeave}
+        onEnter={onEnter}
+        onMove={onMove}
+        onLeave={onLeave}
         onSelect={setSelected}
         selectedKey={selected?.key ?? null}
         tooltipWrapperStyle={hover ? { visibility: "hidden" } : undefined}
@@ -171,7 +169,6 @@ export function GroupChartDialog({
         transactions={sorted}
         selected={selected}
         tableScrollRef={tableScrollRef}
-        isDark={isDark}
       />
     </ChartDialog>
   );

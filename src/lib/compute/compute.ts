@@ -17,6 +17,7 @@ import type {
   ApiTicker,
   ApiCategory,
   MonthlyFlowPoint,
+  SourceKind,
 } from "@/lib/compute/computed-types";
 export type { ActivityTicker };
 
@@ -36,6 +37,7 @@ function accum(map: Map<string, { count: number; total: number }>, key: string, 
 
 // ── Category colour palette ──────────────────────────────────────────────
 import { CAT_COLOR_BY_KEY } from "@/lib/format/chart-colors";
+import { parseLocalDate } from "@/lib/format/format";
 
 /** Build a display-name → color map from the bundle's categories. */
 export function catColorByName(categories: CategoryMeta[]): Record<string, string> {
@@ -136,7 +138,7 @@ function isInvestmentAction(s: string): s is InvestmentActionType {
 }
 
 export interface InvestmentTxn {
-  source: "fidelity" | "robinhood" | "401k";
+  source: SourceKind;
   date: string;
   ticker: string;
   actionType: InvestmentActionType;
@@ -195,7 +197,7 @@ const MATCH_WINDOW_MS = 7 * 86_400_000; // Qianji can lag a deposit by up to 7 d
 const DUST_THRESHOLD = 1;
 
 export interface UnmatchedItem {
-  source: "fidelity" | "robinhood";
+  source: Exclude<SourceKind, "401k">;
   date: string;
   amount: number;
 }
@@ -304,6 +306,8 @@ function matchAndRecord(
   out: SourceCrossCheck,
   sourceLabel: UnmatchedItem["source"],
 ): void {
+  // Pre-compute candidate timestamps once (O(n+m) instead of O(n*m))
+  const candidateMs = candidates.map((q) => parseLocalDate(q.date).getTime());
   const used = new Set<number>();
   const sorted = [...deposits].sort((a, b) => a.ms - b.ms);
   for (const dep of sorted) {
@@ -313,7 +317,7 @@ function matchAndRecord(
     for (let i = 0; i < candidates.length; i++) {
       if (used.has(i)) continue;
       if (Math.round(candidates[i].amount * 100) !== depCents) continue;
-      const candMs = new Date(candidates[i].date).getTime();
+      const candMs = candidateMs[i];
       if (Math.abs(dep.ms - candMs) <= MATCH_WINDOW_MS && candMs < bestMs) {
         bestIdx = i;
         bestMs = candMs;
@@ -330,10 +334,10 @@ function matchAndRecord(
 
 // ── Activity ──────────────────────────────────────────────────────────────
 
-type ActivityBucket = { count: number; total: number; sources: Set<"fidelity" | "robinhood" | "401k"> };
+type ActivityBucket = { count: number; total: number; sources: Set<SourceKind> };
 
-function accumWithSrc(m: Map<string, ActivityBucket>, key: string, amount: number, src: "fidelity" | "robinhood" | "401k") {
-  const e = m.get(key) ?? { count: 0, total: 0, sources: new Set<"fidelity" | "robinhood" | "401k">() };
+function accumWithSrc(m: Map<string, ActivityBucket>, key: string, amount: number, src: SourceKind) {
+  const e = m.get(key) ?? { count: 0, total: 0, sources: new Set<SourceKind>() };
   e.count += 1;
   e.total += amount;
   e.sources.add(src);
@@ -406,8 +410,6 @@ export type GroupedActivityResponse = {
   sellsBySymbol: ActivityTicker[];
   dividendsBySymbol: ActivityTicker[];
 };
-
-type SourceKind = "fidelity" | "robinhood" | "401k";
 
 type GroupAccum = { count: number; total: number; sources: Set<SourceKind>; isGroup: boolean; groupKey?: string };
 
