@@ -35,6 +35,23 @@ const matchMediaStub = (q: string) => ({
   dispatchEvent: () => true,
 });
 
+// Mock useTickerData so GroupChartDialog doesn't make real network calls.
+// Return a minimal resolved state with a few price points.
+vi.mock("./ticker-chart", () => ({
+  useTickerData: () => ({
+    data: [
+      { date: "2025-01-02", ts: Date.parse("2025-01-02"), close: 500 },
+      { date: "2025-01-03", ts: Date.parse("2025-01-03"), close: 505 },
+    ],
+    avgCost: null,
+    transactions: [],
+    error: null,
+  }),
+  // Preserve the real exports used elsewhere in this file (none needed here)
+  TickerChart: () => null,
+  TickerDialogOnly: () => null,
+}));
+
 beforeEach(() => {
   vi.stubGlobal("matchMedia", matchMediaStub);
 });
@@ -61,6 +78,20 @@ describe("GroupChartDialog", () => {
     );
     expect(screen.getByText("S&P 500")).toBeTruthy();
     expect(screen.getByText(/VOO.*IVV.*SPY/)).toBeTruthy();
+  });
+
+  it("renders Holdings label (not 'value') when daily data present", () => {
+    render(
+      <GroupChartDialog
+        groupKey="sp500"
+        dailyTickers={[
+          { date: "2025-01-02", ticker: "VOO", value: 10000, category: "", subtype: "", costBasis: 0, gainLoss: 0, gainLossPct: 0 },
+        ]}
+        fidelityTxns={[]}
+        onClose={() => {}}
+      />,
+    );
+    expect(screen.getByText(/Holdings/)).toBeTruthy();
   });
 
   it("transaction table shows only rows for group-member tickers", () => {
@@ -175,16 +206,16 @@ describe("MarkerHoverPanel", () => {
     expect(container.querySelector("p")?.nextElementSibling?.textContent).toMatch(/Close/);
   });
 
-  it("shows Value label for group clusters (qty=0, price=0) with custom valueLabel", () => {
+  it("shows custom valueLabel for group clusters (qty=0, price=0)", () => {
     const groupCluster = { ...baseCluster, qty: 0, price: 0 };
     const { getByText } = render(
       <MarkerHoverPanel
-        hover={{ cluster: groupCluster, side: "buy", dayIso: "2025-06-15", close: 50000, x: 0, y: 0 }}
+        hover={{ cluster: groupCluster, side: "buy", dayIso: "2025-06-15", close: 500, x: 0, y: 0 }}
         isDark={false}
-        valueLabel="Value"
+        valueLabel="VOO"
       />,
     );
-    expect(getByText(/Value:/)).toBeTruthy();
+    expect(getByText(/VOO:/)).toBeTruthy();
   });
 
   it("renders breakdown for group clusters with multiple tickers", () => {
@@ -197,14 +228,15 @@ describe("MarkerHoverPanel", () => {
         { symbol: "IVV", signed: -800 },
       ],
     };
-    const { getByText } = render(
+    const { getAllByText, getByText } = render(
       <MarkerHoverPanel
         hover={{ cluster: groupCluster, side: "buy", dayIso: "2025-06-15", close: 50000, x: 0, y: 0 }}
         isDark={false}
-        valueLabel="Value"
+        valueLabel="VOO"
       />,
     );
-    expect(getByText(/VOO/)).toBeTruthy();
+    // VOO appears as both the valueLabel line and the breakdown line
+    expect(getAllByText(/VOO/).length).toBeGreaterThanOrEqual(1);
     expect(getByText(/IVV/)).toBeTruthy();
   });
 
