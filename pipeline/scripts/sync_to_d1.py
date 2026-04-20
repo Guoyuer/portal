@@ -53,6 +53,8 @@ TABLES_TO_SYNC: list[str] = [
     "computed_daily",
     "computed_daily_tickers",
     "fidelity_transactions",
+    "robinhood_transactions",
+    "empower_contributions",
     "qianji_transactions",
     "computed_market_indices",
     "computed_holdings_detail",
@@ -328,6 +330,7 @@ _DIFF_TABLES: set[str] = {"daily_close"}
 # INSERT OR IGNORE would skip them and leave stale projections in D1.
 _RANGE_TABLES: dict[str, str] = {
     "fidelity_transactions": "run_date",
+    "robinhood_transactions": "txn_date",
     "qianji_transactions": "date",
     "computed_daily": "date",
     "computed_daily_tickers": "date",
