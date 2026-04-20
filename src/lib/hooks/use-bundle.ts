@@ -1,20 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { FETCH_TIMEOUT_MS, TIMELINE_URL } from "@/lib/config";
-import { fetchWithSchema } from "@/lib/schemas/fetch-schema";
-import {
-  TimelineDataSchema,
-  type CategoryMeta,
-  type MarketData,
-  type StockDetail,
-  type DailyPoint,
-  type DailyTicker,
-  type QianjiTxn,
-  type FidelityTxn,
-  type RobinhoodTxn,
-  type EmpowerContribution,
-  type TimelineData,
+import type {
+  CategoryMeta,
+  MarketData,
+  StockDetail,
+  DailyPoint,
+  DailyTicker,
+  QianjiTxn,
+  FidelityTxn,
+  RobinhoodTxn,
+  EmpowerContribution,
 } from "@/lib/schemas";
 import type {
   AllocationResponse,
@@ -22,22 +17,14 @@ import type {
   ActivityResponse,
   MonthlyFlowPoint,
 } from "@/lib/compute/computed-types";
-import {
-  computeAllocation,
-  computeCashflow,
-  computeActivity,
-  computeGroupedActivity,
-  computeCrossCheck,
-  computeMonthlyFlows,
-  normalizeInvestmentTxns,
-  buildDateIndex,
-  buildTickerIndex,
-  type CrossCheck,
-  type GroupedActivityResponse,
-  type InvestmentTxn,
+import type {
+  CrossCheck,
+  GroupedActivityResponse,
+  InvestmentTxn,
 } from "@/lib/compute/compute";
-
-// ── Hook ────────────────────────────────────────────────────────────────
+import { computeBundle } from "@/lib/compute/compute-bundle";
+import { useTimelineData } from "./use-timeline-data";
+import { useBrushRange } from "./use-brush-range";
 
 export interface BundleState {
   chartDaily: DailyPoint[];
@@ -52,6 +39,7 @@ export interface BundleState {
   defaultEndIndex: number;
   snapshot: DailyPoint | null;
   startDate: string | null;
+  snapshotDate: string | null;
   brushStart: number;
   brushEnd: number;
   onBrushChange: (state: { startIndex?: number; endIndex?: number }) => void;
@@ -72,101 +60,12 @@ export interface BundleState {
   txnsError: string | null;
 }
 
+/** Finance dashboard's single data entry point. Orchestrates three layers:
+ *  fetch+parse (`useTimelineData`), brush window state (`useBrushRange`),
+ *  and the pure compute pipeline (`computeBundle`). */
 export function useBundle(): BundleState {
-  const [data, setData] = useState<TimelineData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const [fullRange, setFullRange] = useState({ start: 0, end: 0 });
-
-  // ── Fetch once ──────────────────────────────────────────────────────
-  useEffect(() => {
-    let cancelled = false;
-    fetchWithSchema(TIMELINE_URL, TimelineDataSchema, {
-      cache: "no-store",
-      timeoutMs: FETCH_TIMEOUT_MS,
-    })
-      .then((parsed) => { if (!cancelled) setData(parsed); })
-      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load"); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, []);
-
-  // ── Indexes (built once when data arrives) ──────────────────────────
-  const dateIndex = data ? buildDateIndex(data.daily) : new Map<string, number>();
-  const tickerIndex = data ? buildTickerIndex(data.dailyTickers) : new Map();
-
-  // ── Chart data (no downsampling — show every day) ───────────────────
-  const chartDaily = data?.daily ?? [];
-
-  const defaultEndIndex = chartDaily.length > 0 ? chartDaily.length - 1 : 0;
-  // Default brush range shows ~1 year (252 US trading days per calendar year)
-  const TRADING_DAYS_PER_YEAR = 252;
-  const defaultStartIndex = (!data || chartDaily.length === 0)
-    ? 0
-    : Math.max(0, defaultEndIndex - TRADING_DAYS_PER_YEAR);
-
-  useEffect(() => {
-    if (data && chartDaily.length > 0) {
-      setFullRange({ start: defaultStartIndex, end: defaultEndIndex });
-    }
-  // defaultStartIndex and defaultEndIndex derive purely from data/chartDaily.length
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data]);
-
-  const onBrushChange = (state: { startIndex?: number; endIndex?: number }) => {
-    setFullRange((prev) => ({
-      start: state.startIndex ?? prev.start,
-      end: state.endIndex ?? prev.end,
-    }));
-  };
-
-  // ── Derived timeline state (instant — user sees these during drag) ──
-  const snapshot = data?.daily[fullRange.end] ?? null;
-  const startDate = data?.daily[fullRange.start]?.date ?? null;
-  const snapshotDate = snapshot?.date ?? null;
-
-  // ── Computed data (pure, instant) ───────────────────────────────────
-  const categories = data?.categories ?? [];
-  const investmentTxns = data
-    ? normalizeInvestmentTxns(data.fidelityTxns, data.robinhoodTxns, data.empowerContributions)
-    : [];
-  const allocation = (data && snapshotDate) ? computeAllocation(data.daily, tickerIndex, dateIndex, snapshotDate, categories) : null;
-  const cashflow = (data && startDate && snapshotDate) ? computeCashflow(data.qianjiTxns, startDate, snapshotDate) : null;
-  const activity = (data && startDate && snapshotDate) ? computeActivity(investmentTxns, startDate, snapshotDate) : null;
-  const groupedActivity = (data && startDate && snapshotDate) ? computeGroupedActivity(investmentTxns, startDate, snapshotDate) : null;
-  const crossCheck = (data && startDate && snapshotDate) ? computeCrossCheck(investmentTxns, data.qianjiTxns, startDate, snapshotDate) : null;
-  const monthlyFlows = computeMonthlyFlows(data?.qianjiTxns ?? [], startDate, snapshotDate);
-
-  return {
-    chartDaily,
-    dailyTickers: data?.dailyTickers ?? [],
-    qianjiTxns: data?.qianjiTxns ?? [],
-    fidelityTxns: data?.fidelityTxns ?? [],
-    robinhoodTxns: data?.robinhoodTxns ?? [],
-    empowerContributions: data?.empowerContributions ?? [],
-    investmentTxns,
-    categories,
-    defaultStartIndex,
-    defaultEndIndex,
-    brushStart: fullRange.start,
-    brushEnd: fullRange.end,
-    snapshot,
-    startDate,
-    onBrushChange,
-    loading,
-    error,
-    allocation,
-    cashflow,
-    activity,
-    groupedActivity,
-    market: data?.market ?? null,
-    holdingsDetail: data?.holdingsDetail ?? null,
-    crossCheck,
-    monthlyFlows,
-    syncMeta: data?.syncMeta ?? null,
-    marketError: data?.errors?.market ?? null,
-    holdingsError: data?.errors?.holdings ?? null,
-    txnsError: data?.errors?.txns ?? null,
-  };
+  const { data, loading, error } = useTimelineData();
+  const brush = useBrushRange(data);
+  const computed = computeBundle(data, brush.brushStart, brush.brushEnd);
+  return { ...computed, ...brush, loading, error };
 }
