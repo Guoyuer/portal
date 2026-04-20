@@ -2,21 +2,12 @@
 
 // ── Group position-value chart (total group $ over time + B/S markers) ───
 
-import {
-  ComposedChart,
-  Line,
-  Scatter,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from "recharts";
+import { Line, Scatter } from "recharts";
 import type { TooltipContentProps } from "recharts/types/component/Tooltip";
 import { useIsDark } from "@/lib/hooks/hooks";
-import { gridStroke, axisProps } from "@/lib/format/chart-styles";
-import { fmtCurrency, fmtCurrencyShort, fmtDateMedium, fmtTick } from "@/lib/format/format";
+import { fmtCurrency, fmtCurrencyShort, fmtDateMedium } from "@/lib/format/format";
 import { BuyClusterMarker, SellClusterMarker } from "./ticker-markers";
+import { MarkerChart } from "./marker-chart";
 import type { GroupValuePoint, GroupNetEntry } from "@/lib/format/group-aggregation";
 import type { Cluster } from "@/lib/format/ticker-data";
 import { scaleR } from "@/lib/format/ticker-data";
@@ -94,38 +85,17 @@ function GroupTooltip({ active, payload }: TooltipContentProps) {
 export function GroupChart({ data }: { data: GroupChartPoint[] }) {
   const isDark = useIsDark();
   return (
-    <ResponsiveContainer width="100%" height="100%">
-      <ComposedChart data={data} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke={gridStroke(isDark)} vertical={false} />
-        <XAxis
-          dataKey="ts"
-          type="number"
-          scale="time"
-          domain={["dataMin", "dataMax"]}
-          tickFormatter={fmtTick}
-          hide
-          {...axisProps(isDark)}
-        />
-        <YAxis
-          domain={["auto", "auto"]}
-          tickFormatter={fmtCurrencyShort}
-          width={60}
-          {...axisProps(isDark)}
-          axisLine={false}
-        />
-        <Tooltip content={GroupTooltip} />
-        <Line
-          type="monotone"
-          dataKey="value"
-          stroke={isDark ? "#60a5fa" : "#2563eb"}
-          strokeWidth={2}
-          dot={false}
-          isAnimationActive={false}
-        />
-        {/* Sell first, Buy second — Buy paints on top (matches ticker-dialog ordering) */}
-        <Scatter dataKey="sellClusterPrice" shape={SellClusterMarker} legendType="none" isAnimationActive={false} />
-        <Scatter dataKey="buyClusterPrice" shape={BuyClusterMarker} legendType="none" isAnimationActive={false} />
-      </ComposedChart>
-    </ResponsiveContainer>
+    <MarkerChart
+      data={data}
+      yTickFormatter={fmtCurrencyShort}
+      yWidth={60}
+      hideXAxis
+      tooltipContent={GroupTooltip}
+    >
+      <Line type="monotone" dataKey="value" stroke={isDark ? "#60a5fa" : "#2563eb"} strokeWidth={2} dot={false} isAnimationActive={false} />
+      {/* Sell first, Buy second — Buy paints on top (matches ticker-dialog ordering) */}
+      <Scatter dataKey="sellClusterPrice" shape={SellClusterMarker} legendType="none" isAnimationActive={false} />
+      <Scatter dataKey="buyClusterPrice" shape={BuyClusterMarker} legendType="none" isAnimationActive={false} />
+    </MarkerChart>
   );
 }

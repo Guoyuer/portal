@@ -3,21 +3,13 @@
 // ── Near-fullscreen ticker dialog (price chart + transaction table) ─────
 
 import { useEffect, useRef, useState } from "react";
-import {
-  ComposedChart,
-  Line,
-  Scatter,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ReferenceLine,
-  ResponsiveContainer,
-} from "recharts";
+import { Line, Scatter, ReferenceLine } from "recharts";
+import { ChartDialog } from "./chart-dialog";
+import { MarkerChart } from "./marker-chart";
 import type { TooltipContentProps } from "recharts/types/component/Tooltip";
-import { fmtCurrency, fmtDateMedium, fmtQty, fmtTick } from "@/lib/format/format";
+import { fmtCurrency, fmtDateMedium, fmtQty } from "@/lib/format/format";
 import { useIsDark, useIsMobile } from "@/lib/hooks/hooks";
-import { tooltipStyle, gridStroke, axisProps } from "@/lib/format/chart-styles";
+import { tooltipStyle } from "@/lib/format/chart-styles";
 import { TooltipCard } from "@/components/charts/tooltip-card";
 import type { TickerTransaction } from "@/lib/schemas";
 import {
@@ -92,55 +84,33 @@ function TickerDialogChart({
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 min-h-0">
-        <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={clusteredData} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke={gridStroke(isDark)} vertical={false} />
-            <XAxis
-              dataKey="ts"
-              type="number"
-              scale="time"
-              domain={["dataMin", "dataMax"]}
-              tickFormatter={fmtTick}
-              hide
-              {...axisProps(isDark)}
+        <MarkerChart
+          data={clusteredData}
+          yTickFormatter={(v) => `$${v}`}
+          hideXAxis
+          tooltipContent={DialogPriceTooltip}
+          tooltipWrapperStyle={hover ? { visibility: "hidden" } : undefined}
+        >
+          <Line type="monotone" dataKey="close" stroke={isDark ? "#60a5fa" : "#2563eb"} strokeWidth={1.5} dot={false} activeDot={false} isAnimationActive={false} />
+          {/* Reinvest dots first (paint underneath), then Sell, then Buy on top */}
+          <Scatter dataKey="reinvestDot" shape={ReinvestMarker} legendType="none" isAnimationActive={false} />
+          {/* Sell first, Buy second — Buy paints on top so click hit-testing prefers the larger/more-frequent buy cluster when a same-date sell overlaps */}
+          <Scatter dataKey="sellClusterPrice" shape={renderSell} legendType="none" isAnimationActive={false} />
+          <Scatter dataKey="buyClusterPrice" shape={renderBuy} legendType="none" isAnimationActive={false} />
+          {avgCost != null && (
+            <ReferenceLine
+              y={avgCost}
+              stroke={isDark ? "rgba(255,255,255,0.25)" : "rgba(0,0,0,0.2)"}
+              strokeDasharray="4 4"
+              label={{
+                value: `Cost ${fmtCurrency(avgCost)}`,
+                position: "insideTopRight",
+                fill: isDark ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.45)",
+                fontSize: 10,
+              }}
             />
-            <YAxis
-              domain={["auto", "auto"]}
-              tickFormatter={(v: number) => `$${v}`}
-              width={55}
-              {...axisProps(isDark)}
-              axisLine={false}
-            />
-            <Tooltip content={DialogPriceTooltip} wrapperStyle={hover ? { visibility: "hidden" } : undefined} />
-            <Line
-              type="monotone"
-              dataKey="close"
-              stroke={isDark ? "#60a5fa" : "#2563eb"}
-              strokeWidth={1.5}
-              dot={false}
-              activeDot={false}
-              isAnimationActive={false}
-            />
-            {/* Reinvest dots first (paint underneath), then Sell, then Buy on top */}
-            <Scatter dataKey="reinvestDot" shape={ReinvestMarker} legendType="none" isAnimationActive={false} />
-            {/* Sell first, Buy second — Buy paints on top so click hit-testing prefers the larger/more-frequent buy cluster when a same-date sell overlaps */}
-            <Scatter dataKey="sellClusterPrice" shape={renderSell} legendType="none" isAnimationActive={false} />
-            <Scatter dataKey="buyClusterPrice" shape={renderBuy} legendType="none" isAnimationActive={false} />
-            {avgCost != null && (
-              <ReferenceLine
-                y={avgCost}
-                stroke={isDark ? "rgba(255,255,255,0.25)" : "rgba(0,0,0,0.2)"}
-                strokeDasharray="4 4"
-                label={{
-                  value: `Cost ${fmtCurrency(avgCost)}`,
-                  position: "insideTopRight",
-                  fill: isDark ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.45)",
-                  fontSize: 10,
-                }}
-              />
-            )}
-          </ComposedChart>
-        </ResponsiveContainer>
+          )}
+        </MarkerChart>
       </div>
       {hover && (
         <div
@@ -290,25 +260,9 @@ export function TickerChartDialog({
   transactions: TickerTransaction[];
   onClose: () => void;
 }) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
   const tableScrollRef = useRef<HTMLDivElement>(null);
   const isDark = useIsDark();
   const [selected, setSelected] = useState<Selection | null>(null);
-
-  useEffect(() => {
-    const el = dialogRef.current;
-    if (!el) return;
-    el.showModal();
-    const onCancel = (e: Event) => { e.preventDefault(); onClose(); };
-    el.addEventListener("cancel", onCancel);
-    // Lock body scroll while modal is open — <dialog> modal doesn't block wheel propagation on its own
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      el.removeEventListener("cancel", onCancel);
-      document.body.style.overflow = prevOverflow;
-    };
-  }, [onClose]);
 
   useEffect(() => {
     if (!selected || !tableScrollRef.current) return;
@@ -320,38 +274,19 @@ export function TickerChartDialog({
   const sorted = [...transactions].sort((a, b) => b.runDate.localeCompare(a.runDate));
 
   return (
-    <dialog
-      ref={dialogRef}
-      onClick={(e) => {
-        e.stopPropagation();
-        if (e.target === dialogRef.current) onClose();
-      }}
-      className="fixed inset-0 m-auto backdrop:bg-black/50 backdrop:backdrop-blur-sm bg-transparent p-0 max-w-none max-h-none border-0 overflow-visible"
+    <ChartDialog
+      header={<span className="font-semibold text-lg font-mono">{symbol}</span>}
+      onClose={onClose}
     >
-      <div className={`${isDark ? "bg-zinc-900 text-zinc-100" : "bg-white text-zinc-900"} rounded-xl shadow-2xl flex flex-col resize overflow-hidden w-[95vw] h-[92vh] min-w-[400px] min-h-[300px] max-w-[99vw] max-h-[98vh]`}>
-        {/* Header */}
-        <div className="shrink-0 flex items-center justify-between px-5 py-3 border-b border-foreground/10">
-          <span className="font-semibold text-lg font-mono">{symbol}</span>
-          <button
-            onClick={onClose}
-            aria-label="Close"
-            className={`w-8 h-8 flex items-center justify-center rounded-full text-2xl leading-none ${isDark ? "hover:bg-zinc-800 text-zinc-300 hover:text-zinc-50" : "hover:bg-zinc-100 text-zinc-500 hover:text-zinc-900"} transition-colors`}
-          >
-            &times;
-          </button>
-        </div>
-        {/* Chart */}
-        <div className="flex-1 min-h-0 px-4 pt-4 pb-2">
-          <TickerDialogChart data={data} avgCost={avgCost} selected={selected} onSelect={setSelected} />
-        </div>
-        {/* Transaction table */}
-        <TransactionTable
-          transactions={sorted}
-          selected={selected}
-          tableScrollRef={tableScrollRef}
-          isDark={isDark}
-        />
+      <div className="flex-1 min-h-0 px-4 pt-4 pb-2">
+        <TickerDialogChart data={data} avgCost={avgCost} selected={selected} onSelect={setSelected} />
       </div>
-    </dialog>
+      <TransactionTable
+        transactions={sorted}
+        selected={selected}
+        tableScrollRef={tableScrollRef}
+        isDark={isDark}
+      />
+    </ChartDialog>
   );
 }

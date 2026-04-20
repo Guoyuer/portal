@@ -6,26 +6,16 @@
 // are one-per-day (no clustering) and the tooltip is the simple single-day
 // variant. The larger dialog chart lives in ticker-dialog.tsx.
 
-import {
-  ComposedChart,
-  Line,
-  Scatter,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ReferenceLine,
-  ResponsiveContainer,
-} from "recharts";
+import { Line, Scatter, ReferenceLine } from "recharts";
 import type { TooltipContentProps } from "recharts/types/component/Tooltip";
-import { fmtCurrency, fmtDateMedium, fmtQty, fmtTick } from "@/lib/format/format";
+import { fmtCurrency, fmtDateMedium, fmtQty } from "@/lib/format/format";
 import { useIsDark } from "@/lib/hooks/hooks";
-import { gridStroke, axisProps } from "@/lib/format/chart-styles";
 import { buildClusteredData, tsToIsoLocal, type ClusteredPoint } from "@/lib/format/ticker-data";
 import type { TickerChartPoint } from "@/lib/format/ticker-data";
 import { BUY_COLOR, SELL_COLOR } from "@/lib/format/chart-colors";
 import { TooltipCard } from "@/components/charts/tooltip-card";
 import { BuyClusterMarker, SellClusterMarker, ReinvestMarker } from "./ticker-markers";
+import { MarkerChart } from "./marker-chart";
 
 function PriceTooltip({ active, payload }: TooltipContentProps) {
   const d = payload?.[0]?.payload as ClusteredPoint | undefined;
@@ -61,50 +51,29 @@ export function TickerChartBase({
   const clustered = buildClusteredData(data);
 
   return (
-    <ResponsiveContainer width="100%" height={height}>
-      <ComposedChart data={clustered} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke={gridStroke(isDark)} vertical={false} />
-        <XAxis
-          dataKey="ts"
-          type="number"
-          scale="time"
-          domain={["dataMin", "dataMax"]}
-          tickFormatter={fmtTick}
-          {...axisProps(isDark)}
+    <MarkerChart
+      data={clustered}
+      height={height}
+      yTickFormatter={(v) => `$${v}`}
+      tooltipContent={PriceTooltip}
+    >
+      <Line type="monotone" dataKey="close" stroke={isDark ? "#60a5fa" : "#2563eb"} strokeWidth={1.5} dot={false} isAnimationActive={false} />
+      <Scatter dataKey="reinvestDot" shape={ReinvestMarker} legendType="none" isAnimationActive={false} />
+      <Scatter dataKey="sellClusterPrice" shape={SellClusterMarker} legendType="none" isAnimationActive={false} />
+      <Scatter dataKey="buyClusterPrice" shape={BuyClusterMarker} legendType="none" isAnimationActive={false} />
+      {avgCost != null && (
+        <ReferenceLine
+          y={avgCost}
+          stroke={isDark ? "rgba(255,255,255,0.25)" : "rgba(0,0,0,0.2)"}
+          strokeDasharray="4 4"
+          label={{
+            value: `Avg ${fmtCurrency(avgCost)}`,
+            position: "right",
+            fill: isDark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.4)",
+            fontSize: 10,
+          }}
         />
-        <YAxis
-          domain={["auto", "auto"]}
-          tickFormatter={(v: number) => `$${v}`}
-          width={55}
-          {...axisProps(isDark)}
-          axisLine={false}
-        />
-        <Tooltip content={PriceTooltip} />
-        <Line
-          type="monotone"
-          dataKey="close"
-          stroke={isDark ? "#60a5fa" : "#2563eb"}
-          strokeWidth={1.5}
-          dot={false}
-          isAnimationActive={false}
-        />
-        <Scatter dataKey="reinvestDot" shape={ReinvestMarker} legendType="none" isAnimationActive={false} />
-        <Scatter dataKey="sellClusterPrice" shape={SellClusterMarker} legendType="none" isAnimationActive={false} />
-        <Scatter dataKey="buyClusterPrice" shape={BuyClusterMarker} legendType="none" isAnimationActive={false} />
-        {avgCost != null && (
-          <ReferenceLine
-            y={avgCost}
-            stroke={isDark ? "rgba(255,255,255,0.25)" : "rgba(0,0,0,0.2)"}
-            strokeDasharray="4 4"
-            label={{
-              value: `Avg ${fmtCurrency(avgCost)}`,
-              position: "right",
-              fill: isDark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.4)",
-              fontSize: 10,
-            }}
-          />
-        )}
-      </ComposedChart>
-    </ResponsiveContainer>
+      )}
+    </MarkerChart>
   );
 }
