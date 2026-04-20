@@ -7,13 +7,12 @@ import { Line, Scatter, ReferenceLine } from "recharts";
 import { ChartDialog } from "./chart-dialog";
 import { MarkerChart } from "./marker-chart";
 import { PriceTooltip } from "./ticker-chart-base";
-import { fmtCurrency, fmtDateMedium, fmtQty } from "@/lib/format/format";
+import { fmtCurrency } from "@/lib/format/format";
 import { useIsDark } from "@/lib/hooks/hooks";
-import { tooltipStyle } from "@/lib/format/chart-styles";
 import type { TickerTransaction } from "@/lib/schemas";
-import { buildClusteredData, tsToIsoLocal, type TickerChartPoint } from "@/lib/format/ticker-data";
+import { buildClusteredData, type TickerChartPoint } from "@/lib/format/ticker-data";
 import { TransactionTable } from "./transaction-table";
-import { BUY_COLOR, SELL_COLOR } from "@/lib/format/chart-colors";
+import { MarkerHoverPanel } from "./marker-hover-panel";
 import {
   BuyClusterMarker,
   SellClusterMarker,
@@ -81,29 +80,7 @@ function TickerDialogChart({
           )}
         </MarkerChart>
       </div>
-      {hover && (
-        <div
-          style={{
-            ...tooltipStyle(isDark),
-            position: "fixed",
-            top: hover.y + 14,
-            left: hover.x + 14,
-            pointerEvents: "none",
-            zIndex: 100,
-          }}
-        >
-          <p style={{ fontWeight: 600, marginBottom: 2 }}>{fmtDateMedium(hover.dayIso)}</p>
-          <p style={{ margin: 0 }}>Close: {fmtCurrency(hover.close)}</p>
-          <p style={{ color: hover.side === "buy" ? BUY_COLOR : SELL_COLOR, margin: 0 }}>
-            {hover.side === "buy" ? "Buy" : "Sell"}
-            {hover.cluster.count > 1 ? ` ×${hover.cluster.count}` : ""}
-            : {fmtQty(hover.cluster.qty)} @ {fmtCurrency(hover.cluster.price)} = {fmtCurrency(hover.cluster.amount)}
-            {hover.cluster.count > 1 && (
-              <> <span style={{ opacity: 0.7 }}>(around {fmtDateMedium(tsToIsoLocal(hover.cluster.ts))})</span></>
-            )}
-          </p>
-        </div>
-      )}
+      {hover && <MarkerHoverPanel hover={hover} isDark={isDark} />}
     </div>
   );
 }
