@@ -19,6 +19,15 @@ log = logging.getLogger(__name__)
 # investigate an incoming data issue.
 _DAY_OVER_DAY_WINDOW_DAYS = 7
 
+# Fidelity↔Qianji deposit reconcile tuning. Mirrors the frontend
+# ``computeCrossCheck`` (``src/lib/compute/compute.ts``) so the pipeline gate
+# and the UI display agree on what counts as "matched". Qianji entries can
+# legitimately lag Fidelity by a few days (bank posting delay + manual
+# logging), so the window is generous; sub-``_RECONCILE_DUST_USD`` amounts
+# are cash-sweep / residual interest that the user doesn't log.
+_RECONCILE_WINDOW_DAYS = 7
+_RECONCILE_DUST_USD = 1.0
+
 # Known valid categories in ``computed_daily_tickers``. Updated when a new
 # asset class lands; unknown values surface as a validation FATAL so a typo
 # in the allocation classifier is caught at build time.
@@ -285,6 +294,92 @@ def _check_category_subtype_enums(conn: sqlite3.Connection) -> list[CheckResult]
     return results
 
 
+def _check_fidelity_qianji_reconcile(conn: sqlite3.Connection) -> list[CheckResult]:
+    """Every Fidelity deposit must match a Qianji transfer / income-to-Fidelity
+    within a 7-day window, to the cent.
+
+    Byte-for-byte parity with the frontend ``computeCrossCheck``
+    (``src/lib/compute/compute.ts``), promoted to a pipeline gate so
+    unmatched deposits abort the build before the drift can reach D1.
+    Qianji is the user-maintained source of truth for cash movements;
+    an unmatched deposit is almost always a forgotten or mis-typed log.
+    Empirical baseline at add-time: 101/101 in-window historical deposits
+    matched cleanly, so the gate's failure mode is "fix Qianji at source".
+
+    Structural exclusions mirror the frontend:
+
+    - Sub-``_RECONCILE_DUST_USD`` amounts: cash-sweep / residual interest
+      that the user doesn't log and shouldn't.
+    - Deposits dated before ``first_qianji_date - window``: Qianji didn't
+      exist yet, so nothing to reconcile against.
+    - Empty Qianji candidate set: silent pass (fresh DB / test fixture /
+      user hasn't started Qianji — same behaviour as the frontend).
+
+    Matching is bipartite on an interval graph (edge iff same cents + |date
+    diff| ≤ window). Processing deposits chronologically and taking the
+    earliest unused in-window candidate is provably maximum-matching for
+    this class of graph — a "nearest unused" greedy can orphan later
+    deposits by stealing shared candidates.
+    """
+    deposits = conn.execute(
+        "SELECT run_date, amount, action FROM fidelity_transactions "
+        "WHERE action_type = 'deposit' AND ABS(amount) >= ? ORDER BY run_date",
+        (_RECONCILE_DUST_USD,),
+    ).fetchall()
+    if not deposits:
+        return []
+
+    candidates = conn.execute(
+        "SELECT date, amount FROM qianji_transactions "
+        "WHERE type = 'transfer' OR (type = 'income' AND LOWER(account_to) LIKE 'fidelity%')",
+    ).fetchall()
+    if not candidates:
+        return []
+
+    earliest_qianji = min(c[0] for c in candidates)
+    floor = (date.fromisoformat(earliest_qianji)
+             - timedelta(days=_RECONCILE_WINDOW_DAYS)).isoformat()
+
+    in_window = [(d, abs(a), act) for d, a, act in deposits if d >= floor]
+
+    used: set[int] = set()
+    unmatched: list[tuple[str, float, str]] = []
+    for dep_date, dep_amt, dep_action in sorted(in_window, key=lambda x: x[0]):
+        dep_cents = round(dep_amt * 100)
+        dep_dt = date.fromisoformat(dep_date)
+        best_idx = -1
+        best_cand_dt: date | None = None
+        for i, (c_date, c_amt) in enumerate(candidates):
+            if i in used:
+                continue
+            if round(c_amt * 100) != dep_cents:
+                continue
+            c_dt = date.fromisoformat(c_date)
+            if abs((dep_dt - c_dt).days) <= _RECONCILE_WINDOW_DAYS and (
+                best_cand_dt is None or c_dt < best_cand_dt
+            ):
+                best_idx = i
+                best_cand_dt = c_dt
+        if best_idx >= 0:
+            used.add(best_idx)
+        else:
+            unmatched.append((dep_date, dep_amt, dep_action))
+
+    return [
+        CheckResult(
+            name="fidelity_qianji_reconcile",
+            severity=Severity.FATAL,
+            message=(
+                f"{dep_date}: Fidelity deposit ${dep_amt:,.2f} ({dep_action[:60]}) "
+                f"has no matching Qianji transfer/income within "
+                f"\u00b1{_RECONCILE_WINDOW_DAYS}d. Add or correct the Qianji "
+                f"entry at source and re-run."
+            ),
+        )
+        for dep_date, dep_amt, dep_action in unmatched
+    ]
+
+
 def _check_date_gaps(conn: sqlite3.Connection) -> list[CheckResult]:
     """Warn if any gap between consecutive computed_daily dates exceeds 7 calendar days."""
     rows = conn.execute(
@@ -325,6 +420,7 @@ def validate_build(db_path: Path) -> list[CheckResult]:
         _check_holdings_prices_are_fresh,
         _check_cost_basis_nonneg,
         _check_category_subtype_enums,
+        _check_fidelity_qianji_reconcile,
         _check_date_gaps,
     )
     conn = get_connection(db_path)
