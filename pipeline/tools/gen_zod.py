@@ -118,6 +118,29 @@ _SPECS: tuple[ViewSpec, ...] = (
         extra={"is_retirement": "bool"},
         coerce_bool=frozenset({"is_retirement"}),
     ),
+    ViewSpec(
+        output="RobinhoodTxn",
+        source="RobinhoodTransaction",
+        include={
+            "txn_date": None,
+            "action": None,
+            "action_kind": None,
+            "ticker": None,
+            "quantity": None,
+            "amount_usd": None,
+            "raw_description": None,
+        },
+    ),
+    ViewSpec(
+        output="EmpowerContribution",
+        source="EmpowerContribution",
+        include={
+            "date": None,
+            "amount": None,
+            "ticker": None,
+            "cusip": None,
+        },
+    ),
 )
 
 
