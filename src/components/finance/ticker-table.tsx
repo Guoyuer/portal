@@ -47,7 +47,16 @@ interface TickerRowProps {
   endDate?: string;
 }
 
-function ExpanderIndicator({ expanded }: { expanded: boolean }) {
+function ExpanderIndicator({ expanded, isGroup }: { expanded: boolean; isGroup?: boolean }) {
+  if (isGroup) {
+    // Groups open a full-screen dialog — use a pop-out icon so users can
+    // predict the interaction instead of seeing the same chevron as solo rows.
+    return (
+      <span className="inline-block w-3 text-[10px] text-muted-foreground" aria-label="Opens full view">
+        &#x2197;
+      </span>
+    );
+  }
   return (
     <span className={`inline-block w-3 text-[10px] text-muted-foreground transition-transform ${expanded ? "rotate-90" : ""}`}>
       &#9654;
@@ -61,7 +70,7 @@ function TickerRow({ symbol, count, total, isGroup, expanded, onToggle, startDat
     <>
       <TableRow className="even:bg-muted/50 cursor-pointer hover:bg-muted/80 group" onClick={onToggle}>
         <TableCell className="font-mono">
-          <ExpanderIndicator expanded={expanded} />
+          <ExpanderIndicator expanded={expanded} isGroup={isGroup} />
           {symbol}
         </TableCell>
         <TableCell className="text-right">{count}</TableCell>
@@ -88,7 +97,7 @@ function TickerRowOverflow({ symbol, count, total, isGroup, expanded, onToggle, 
         onClick={onToggle}
       >
         <td className="px-2 py-1.5 font-mono text-muted-foreground">
-          <ExpanderIndicator expanded={expanded} />
+          <ExpanderIndicator expanded={expanded} isGroup={isGroup} />
           {symbol}
         </td>
         <td className={numCell}>{count}</td>

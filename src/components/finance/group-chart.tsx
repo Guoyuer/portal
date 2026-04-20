@@ -39,18 +39,24 @@ export type GroupChartPoint = GroupValuePoint & {
   sellClusterPrice?: number;
 };
 
+// Match ticker-data.ts sizeClusters — sqrt-normalized radius so magnitude is
+// immediately perceptible (a $5000 net dwarfs a $500 one).
+const MIN_R = 9;
+const MAX_R = 22;
+
 /** Combine the daily value series with the group-net markers into chart points. */
 export function buildGroupChartData(
   series: GroupValuePoint[],
   markers: Map<string, GroupNetEntry>,
 ): GroupChartPoint[] {
+  const maxAmount = Math.max(1, ...Array.from(markers.values(), (m) => m.net));
   return series.map((p) => {
     const entry = markers.get(p.date);
     if (!entry) return p;
     const cluster: GroupMarkerCluster = {
       ts: p.ts,
       count: 1,
-      r: 12,
+      r: MIN_R + (MAX_R - MIN_R) * Math.sqrt(entry.net / maxAmount),
       amount: entry.net,
       price: 0,
       qty: 0,
@@ -81,7 +87,9 @@ function GroupTooltip({ active, payload }: TooltipContentProps) {
           <p style={{ margin: "6px 0 0 0", fontWeight: 600, color: d.sellCluster ? SELL_COLOR : BUY_COLOR }}>
             Net {signIcon(d.sellCluster ? 1 : -1)}{fmtCurrency(marker.amount)} {d.sellCluster ? "sell" : "buy"}
           </p>
-          {marker.breakdown.map((b) => (
+          {/* Breakdown is only informative when multiple tickers contribute —
+              for single-ticker groups the breakdown line would just restate the net. */}
+          {marker.breakdown.length > 1 && marker.breakdown.map((b) => (
             <p key={b.symbol} style={{ margin: 0, fontSize: 12, fontFamily: "monospace" }}>
               {b.symbol}  {signIcon(b.signed)}{fmtCurrency(Math.abs(b.signed))}
             </p>
@@ -94,6 +102,7 @@ function GroupTooltip({ active, payload }: TooltipContentProps) {
 
 export function GroupChart({ data }: { data: GroupChartPoint[] }) {
   const isDark = useIsDark();
+  const latestCost = data[data.length - 1]?.costBasis;
   return (
     <ResponsiveContainer width="100%" height="100%">
       <ComposedChart data={data} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
@@ -123,6 +132,22 @@ export function GroupChart({ data }: { data: GroupChartPoint[] }) {
           strokeDasharray="4 4"
           dot={false}
           isAnimationActive={false}
+          label={(props: { index?: number; x?: number | string; y?: number | string }) => {
+            const xN = typeof props.x === "number" ? props.x : Number(props.x);
+            const yN = typeof props.y === "number" ? props.y : Number(props.y);
+            if (props.index !== data.length - 1 || latestCost == null || !Number.isFinite(xN) || !Number.isFinite(yN)) return <g />;
+            return (
+              <text
+                x={xN - 4}
+                y={yN - 6}
+                textAnchor="end"
+                fill={isDark ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.45)"}
+                fontSize={10}
+              >
+                Cost {fmtCurrency(latestCost)}
+              </text>
+            );
+          }}
         />
         <Line
           type="monotone"
