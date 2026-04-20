@@ -3,10 +3,11 @@
 // ── Group position-value chart (total group $ over time + B/S markers) ───
 
 import { Line, Scatter } from "recharts";
+import type { CSSProperties } from "react";
 import type { TooltipContentProps } from "recharts/types/component/Tooltip";
 import { useIsDark } from "@/lib/hooks/hooks";
 import { fmtCurrency, fmtCurrencyShort, fmtDateMedium } from "@/lib/format/format";
-import { BuyClusterMarker, SellClusterMarker } from "./ticker-markers";
+import { BuyClusterMarker, SellClusterMarker, type ClusterMarkerProps, type HoverState, type Selection } from "./ticker-markers";
 import { MarkerChart } from "./marker-chart";
 import type { GroupValuePoint, GroupNetEntry } from "@/lib/format/group-aggregation";
 import type { Cluster } from "@/lib/format/ticker-data";
@@ -82,8 +83,24 @@ function GroupTooltip({ active, payload }: TooltipContentProps) {
   );
 }
 
-export function GroupChart({ data }: { data: GroupChartPoint[] }) {
+export type GroupChartInteractiveProps = {
+  onEnter?: (h: HoverState) => void;
+  onMove?: (x: number, y: number) => void;
+  onLeave?: () => void;
+  onSelect?: (sel: Selection | null) => void;
+  selectedKey?: string | null;
+  tooltipWrapperStyle?: CSSProperties;
+};
+
+export function GroupChart({ data, onEnter, onMove, onLeave, onSelect, selectedKey, tooltipWrapperStyle }: { data: GroupChartPoint[] } & GroupChartInteractiveProps) {
   const isDark = useIsDark();
+  const interactive = Boolean(onEnter || onSelect);
+  const renderBuy = interactive
+    ? (props: ClusterMarkerProps) => <BuyClusterMarker {...props} onEnter={onEnter} onMove={onMove} onLeave={onLeave} onSelect={onSelect} selectedKey={selectedKey} />
+    : BuyClusterMarker;
+  const renderSell = interactive
+    ? (props: ClusterMarkerProps) => <SellClusterMarker {...props} onEnter={onEnter} onMove={onMove} onLeave={onLeave} onSelect={onSelect} selectedKey={selectedKey} />
+    : SellClusterMarker;
   return (
     <MarkerChart
       data={data}
@@ -91,11 +108,12 @@ export function GroupChart({ data }: { data: GroupChartPoint[] }) {
       yWidth={60}
       hideXAxis
       tooltipContent={GroupTooltip}
+      tooltipWrapperStyle={tooltipWrapperStyle}
     >
       <Line type="monotone" dataKey="value" stroke={isDark ? "#60a5fa" : "#2563eb"} strokeWidth={2} dot={false} isAnimationActive={false} />
       {/* Sell first, Buy second — Buy paints on top (matches ticker-dialog ordering) */}
-      <Scatter dataKey="sellClusterPrice" shape={SellClusterMarker} legendType="none" isAnimationActive={false} />
-      <Scatter dataKey="buyClusterPrice" shape={BuyClusterMarker} legendType="none" isAnimationActive={false} />
+      <Scatter dataKey="sellClusterPrice" shape={renderSell} legendType="none" isAnimationActive={false} />
+      <Scatter dataKey="buyClusterPrice" shape={renderBuy} legendType="none" isAnimationActive={false} />
     </MarkerChart>
   );
 }

@@ -28,7 +28,7 @@ function clusterKey(side: "buy" | "sell", c: Cluster): string {
 }
 
 export type ClusterMarkerProps = MarkerProps & {
-  payload?: { buyCluster?: Cluster; sellCluster?: Cluster; date?: string; close?: number };
+  payload?: { buyCluster?: Cluster; sellCluster?: Cluster; date?: string; close?: number; value?: number };
   onEnter?: (h: HoverState) => void;
   onMove?: (x: number, y: number) => void;
   onLeave?: () => void;
@@ -73,7 +73,7 @@ function ClusterMarker({ side, cx, cy, payload, onEnter, onMove, onLeave, onSele
   const fontSize = Math.max(9, Math.min(r * 1.1, 13));
   return (
     <g
-      onMouseEnter={(e) => onEnter?.({ cluster: c, side, dayIso: payload?.date ?? "", close: payload?.close ?? 0, x: e.clientX, y: e.clientY })}
+      onMouseEnter={(e) => onEnter?.({ cluster: c, side, dayIso: payload?.date ?? "", close: payload?.close ?? payload?.value ?? 0, x: e.clientX, y: e.clientY })}
       onMouseMove={(e) => onMove?.(e.clientX, e.clientY)}
       onMouseLeave={onLeave}
       onClick={onSelect ? (e) => {
