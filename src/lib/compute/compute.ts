@@ -126,11 +126,20 @@ export function cashflowState(cashflow: CashflowResponse | null): CashflowState 
 
 /** Unified shape used by computeActivity + computeCrossCheck. Internal to
  *  the compute layer; does NOT cross the D1/Worker/Zod boundary. */
+const INVESTMENT_ACTION_TYPES = [
+  "buy", "sell", "dividend", "reinvestment", "deposit", "contribution",
+] as const;
+type InvestmentActionType = (typeof INVESTMENT_ACTION_TYPES)[number];
+
+function isInvestmentAction(s: string): s is InvestmentActionType {
+  return (INVESTMENT_ACTION_TYPES as readonly string[]).includes(s);
+}
+
 export interface InvestmentTxn {
   source: "fidelity" | "robinhood" | "401k";
   date: string;
   ticker: string;
-  actionType: "buy" | "sell" | "dividend" | "reinvestment" | "deposit" | "contribution";
+  actionType: InvestmentActionType;
   amount: number;
 }
 
@@ -141,21 +150,24 @@ export function normalizeInvestmentTxns(
 ): InvestmentTxn[] {
   const out: InvestmentTxn[] = [];
   for (const f of fidelity) {
+    // Fidelity emits action types outside our union (interest, ira_contribution,
+    // distribution, ...); downstream logic only branches on the six above.
+    if (!isInvestmentAction(f.actionType)) continue;
     out.push({
       source: "fidelity",
       date: f.runDate,
       ticker: f.symbol,
-      actionType: f.actionType as InvestmentTxn["actionType"],
+      actionType: f.actionType,
       amount: f.amount,
     });
   }
   for (const r of robinhood) {
-    if (r.actionKind === "other") continue;
+    if (!isInvestmentAction(r.actionKind)) continue;
     out.push({
       source: "robinhood",
       date: r.txnDate,
       ticker: r.ticker,
-      actionType: r.actionKind as InvestmentTxn["actionType"],
+      actionType: r.actionKind,
       amount: r.amountUsd,
     });
   }
@@ -426,7 +438,7 @@ function foldIntoGroups(rows: ActivityTicker[]): ActivityTicker[] {
       total: round(v.total),
       isGroup: v.isGroup,
       groupKey: v.groupKey,
-      sources: [...v.sources] as SourceKind[],
+      sources: [...v.sources],
     }))
     .sort((a, b) => b.total - a.total);
 }

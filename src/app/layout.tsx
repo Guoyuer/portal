@@ -1,3 +1,4 @@
+import { StrictMode } from "react";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
@@ -36,19 +37,21 @@ export default function RootLayout({
         <meta name="theme-color" content="#0a0a0a" />
       </head>
       <body className="min-h-full tabular-nums">
-        {/* Animated mesh gradient — gives liquid glass something to refract */}
-        <div className="lg-mesh" />
-        <div className="lg-blob-c" />
-        <div className="lg-blob-d" />
-        <div className="relative z-10">
-          <Sidebar />
-          <div className="md:pl-56">
-            <main className="min-h-screen p-6 pt-14 md:pt-6">{children}</main>
+        <StrictMode>
+          {/* Animated mesh gradient — gives liquid glass something to refract */}
+          <div className="lg-mesh" />
+          <div className="lg-blob-c" />
+          <div className="lg-blob-d" />
+          <div className="relative z-10">
+            <Sidebar />
+            <div className="md:pl-56">
+              <main className="min-h-screen p-6 pt-14 md:pt-6">{children}</main>
+            </div>
           </div>
-        </div>
-        <Script id="sw-register" strategy="lazyOnload">
-          {`if("serviceWorker"in navigator&&location.hostname!=="localhost")navigator.serviceWorker.register("/sw.js")`}
-        </Script>
+          <Script id="sw-register" strategy="lazyOnload">
+            {`if("serviceWorker"in navigator&&location.hostname!=="localhost")navigator.serviceWorker.register("/sw.js")`}
+          </Script>
+        </StrictMode>
       </body>
     </html>
   );

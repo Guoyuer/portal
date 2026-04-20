@@ -151,7 +151,7 @@ export function TickerTable({
     total: item.total,
     isGroup: item.isGroup,
     groupKey: item.groupKey,
-    sources: item.sources as SourceKind[] | undefined,
+    sources: item.sources,
     expanded: expanded === item.ticker,
     onToggle: item.isGroup && item.groupKey
       ? () => setDialog({ kind: "group", key: item.groupKey! })
