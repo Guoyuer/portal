@@ -6,8 +6,9 @@
 
 import type { FidelityTxn, DailyTicker } from "@/lib/schemas";
 import { groupOfTicker } from "@/lib/config/equivalent-groups";
+import { parseLocalDate } from "@/lib/format/format";
 
-export type TxnType = "REAL" | "REINVEST" | "SPLIT" | "ROLLOVER" | "OTHER";
+export type TxnType = "REAL" | "REINVEST" | "SPLIT" | "OTHER";
 
 export function classifyTxn(t: FidelityTxn): TxnType {
   const a = t.actionType;
@@ -37,11 +38,6 @@ export type GroupNetEntry = {
 
 type Real = { date: string; ts: number; symbol: string; side: "buy" | "sell"; amount: number };
 
-function parseIso(iso: string): number {
-  const [y, m, d] = iso.split("-").map(Number);
-  return new Date(y, m - 1, d).getTime();
-}
-
 export function groupNetByDate(
   txns: FidelityTxn[],
 ): Map<string, Map<string, GroupNetEntry>> {
@@ -53,7 +49,7 @@ export function groupNetByDate(
     const side: "buy" | "sell" = t.actionType === "sell" ? "sell" : "buy";
     const entry: Real = {
       date: t.runDate,
-      ts: parseIso(t.runDate),
+      ts: parseLocalDate(t.runDate).getTime(),
       symbol: t.symbol,
       side,
       amount: Math.abs(t.amount),
@@ -131,8 +127,10 @@ export function buildGroupValueSeries(
   }
   return [...byDate.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, { value, parts }]) => {
-      const [y, m, d] = date.split("-").map(Number);
-      return { date, ts: new Date(y, m - 1, d).getTime(), value, constituents: parts };
-    });
+    .map(([date, { value, parts }]) => ({
+      date,
+      ts: parseLocalDate(date).getTime(),
+      value,
+      constituents: parts,
+    }));
 }

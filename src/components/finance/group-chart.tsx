@@ -6,7 +6,7 @@ import { Line, Scatter } from "recharts";
 import type { CSSProperties } from "react";
 import type { TooltipContentProps } from "recharts/types/component/Tooltip";
 import { useIsDark } from "@/lib/hooks/hooks";
-import { fmtCurrency, fmtCurrencyShort, fmtDateMedium } from "@/lib/format/format";
+import { fmtCurrency, fmtCurrencyShort, fmtDateMedium, parseLocalDate } from "@/lib/format/format";
 import { BuyClusterMarker, SellClusterMarker, type ClusterMarkerProps, type HoverState, type Selection } from "./ticker-markers";
 import { MarkerChart } from "./marker-chart";
 import type { GroupNetEntry } from "@/lib/format/group-aggregation";
@@ -14,7 +14,6 @@ import type { Cluster } from "@/lib/format/ticker-data";
 import { scaleR } from "@/lib/format/ticker-data";
 import { TooltipCard } from "@/components/charts/tooltip-card";
 import { BUY_COLOR, SELL_COLOR } from "@/lib/format/chart-colors";
-import type { TickerPricePoint } from "@/lib/schemas";
 
 // ── Chart point shape ────────────────────────────────────────────────────
 
@@ -49,8 +48,7 @@ export function buildGroupChartData(
 
   const points: GroupChartPoint[] = [];
   for (const [date, close] of proxyPrices) {
-    const [y, m, d] = date.split("-").map(Number);
-    const ts = new Date(y, m - 1, d).getTime();
+    const ts = parseLocalDate(date).getTime();
     const entry = markers.get(date);
     if (!entry) {
       points.push({ date, ts, price: close });
@@ -76,13 +74,6 @@ export function buildGroupChartData(
   // callers may build the Map from unsorted data)
   points.sort((a, b) => a.ts - b.ts);
   return points;
-}
-
-/** Build a Map<date, close> from the prices array returned by /prices/:symbol. */
-export function priceMapFromSeries(prices: TickerPricePoint[]): Map<string, number> {
-  const m = new Map<string, number>();
-  for (const p of prices) m.set(p.date, p.close);
-  return m;
 }
 
 // ── Tooltip ───────────────────────────────────────────────────────────────

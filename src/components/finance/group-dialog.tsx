@@ -4,7 +4,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useHoverState } from "@/lib/hooks/use-hover-state";
-import { GroupChart, buildGroupChartData, priceMapFromSeries } from "./group-chart";
+import { GroupChart, buildGroupChartData } from "./group-chart";
+import { priceMapFromSeries } from "@/lib/format/ticker-data";
 import { ChartDialog } from "./chart-dialog";
 import { buildGroupValueSeries, groupNetByDate } from "@/lib/format/group-aggregation";
 import { EQUIVALENT_GROUPS } from "@/lib/config/equivalent-groups";
