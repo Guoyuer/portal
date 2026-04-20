@@ -399,6 +399,55 @@ describe("computeCrossCheck", () => {
     expect(cc.matchedCount).toBe(1);
     expect(cc.ok).toBe(true);
   });
+
+  // Direct-to-Fidelity income (payroll direct deposit, rebate rewards) is
+  // logged as type=income with accountTo="Fidelity …" — not a transfer.
+  it("matches deposit to income record booked directly to Fidelity", () => {
+    const fTxns: FidelityTxn[] = [
+      mkFidelityTxn({ runDate: "2026-01-15", actionType: "deposit", symbol: "", amount: 3346.27 }),
+    ];
+    const qTxns: QianjiTxn[] = [
+      mkQianjiTxn({ date: "2026-01-15", type: "income", category: "Salary", amount: 3346.27, accountTo: "Fidelity taxable" }),
+    ];
+    const cc = computeCrossCheck(fTxns, qTxns, "2026-01-01", "2026-01-31");
+    expect(cc.ok).toBe(true);
+    expect(cc.matchedCount).toBe(1);
+  });
+
+  it("accountTo prefix match is case-insensitive", () => {
+    const fTxns: FidelityTxn[] = [
+      mkFidelityTxn({ runDate: "2026-01-15", actionType: "deposit", symbol: "", amount: 500 }),
+    ];
+    const qTxns: QianjiTxn[] = [
+      mkQianjiTxn({ date: "2026-01-15", type: "income", category: "Rewards", amount: 500, accountTo: "fidelity Roth IRA" }),
+    ];
+    const cc = computeCrossCheck(fTxns, qTxns, "2026-01-01", "2026-01-31");
+    expect(cc.matchedCount).toBe(1);
+  });
+
+  it("does not match income where accountTo is not Fidelity", () => {
+    const fTxns: FidelityTxn[] = [
+      mkFidelityTxn({ runDate: "2026-01-15", actionType: "deposit", symbol: "", amount: 1000 }),
+    ];
+    const qTxns: QianjiTxn[] = [
+      mkQianjiTxn({ date: "2025-12-01", type: "expense", amount: 50 }), // anchor Qianji floor
+      mkQianjiTxn({ date: "2026-01-15", type: "income", category: "Salary", amount: 1000, accountTo: "Chase Debit" }),
+    ];
+    const cc = computeCrossCheck(fTxns, qTxns, "2026-01-01", "2026-01-31");
+    expect(cc.matchedCount).toBe(0);
+    expect(cc.unmatchedTotal).toBe(1000);
+  });
+
+  it("does not match income to Fidelity when amounts differ", () => {
+    const fTxns: FidelityTxn[] = [
+      mkFidelityTxn({ runDate: "2026-01-15", actionType: "deposit", symbol: "", amount: 1000 }),
+    ];
+    const qTxns: QianjiTxn[] = [
+      mkQianjiTxn({ date: "2026-01-15", type: "income", category: "Salary", amount: 999.99, accountTo: "Fidelity taxable" }),
+    ];
+    const cc = computeCrossCheck(fTxns, qTxns, "2026-01-01", "2026-01-31");
+    expect(cc.matchedCount).toBe(0);
+  });
 });
 
 // ── computeGroupedActivity ──────────────────────────────────────────────

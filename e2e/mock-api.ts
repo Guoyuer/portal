@@ -149,7 +149,7 @@ fidelityTxns.push({ runDate: "2025-09-15", actionType: "sell", symbol: "FBTC", a
 
 // ── Qianji transactions (realistic monthly pattern) ─────────────────────
 
-type MockQianji = { date: string; type: string; category: string; amount: number; isRetirement?: boolean };
+type MockQianji = { date: string; type: string; category: string; amount: number; isRetirement?: boolean; accountTo?: string };
 const qianjiTxns: MockQianji[] = [];
 
 for (let m = 0; m < 28; m++) {
@@ -158,24 +158,24 @@ for (let m = 0; m < 28; m++) {
   const ym = d.toISOString().slice(0, 7);
 
   // Income
-  qianjiTxns.push({ date: `${ym}-28`, type: "income", category: "Salary", amount: 8000 });
-  qianjiTxns.push({ date: `${ym}-28`, type: "income", category: "401K", amount: 1600, isRetirement: true });
+  qianjiTxns.push({ date: `${ym}-28`, type: "income", category: "Salary", amount: 8000, accountTo: "" });
+  qianjiTxns.push({ date: `${ym}-28`, type: "income", category: "401K", amount: 1600, isRetirement: true, accountTo: "" });
 
   // Fixed expenses
-  qianjiTxns.push({ date: `${ym}-01`, type: "expense", category: "Rent", amount: 2200 });
-  qianjiTxns.push({ date: `${ym}-05`, type: "expense", category: "Subscriptions", amount: 65 });
+  qianjiTxns.push({ date: `${ym}-01`, type: "expense", category: "Rent", amount: 2200, accountTo: "" });
+  qianjiTxns.push({ date: `${ym}-05`, type: "expense", category: "Subscriptions", amount: 65, accountTo: "" });
 
   // Variable expenses
   for (let w = 0; w < 4; w++) {
-    qianjiTxns.push({ date: `${ym}-${String(w * 7 + 3).padStart(2, "0")}`, type: "expense", category: "Meals", amount: 60 + Math.round(Math.random() * 40) });
-    if (w % 2 === 0) qianjiTxns.push({ date: `${ym}-${String(w * 7 + 5).padStart(2, "0")}`, type: "expense", category: "Grocery", amount: 80 + Math.round(Math.random() * 60) });
+    qianjiTxns.push({ date: `${ym}-${String(w * 7 + 3).padStart(2, "0")}`, type: "expense", category: "Meals", amount: 60 + Math.round(Math.random() * 40), accountTo: "" });
+    if (w % 2 === 0) qianjiTxns.push({ date: `${ym}-${String(w * 7 + 5).padStart(2, "0")}`, type: "expense", category: "Grocery", amount: 80 + Math.round(Math.random() * 60), accountTo: "" });
   }
-  if (m % 2 === 0) qianjiTxns.push({ date: `${ym}-20`, type: "expense", category: "Travel", amount: 200 + Math.round(Math.random() * 300) });
-  if (m % 3 === 0) qianjiTxns.push({ date: `${ym}-15`, type: "expense", category: "Socializing", amount: 80 + Math.round(Math.random() * 120) });
+  if (m % 2 === 0) qianjiTxns.push({ date: `${ym}-20`, type: "expense", category: "Travel", amount: 200 + Math.round(Math.random() * 300), accountTo: "" });
+  if (m % 3 === 0) qianjiTxns.push({ date: `${ym}-15`, type: "expense", category: "Socializing", amount: 80 + Math.round(Math.random() * 120), accountTo: "" });
 
   // Transfer + repayment
-  qianjiTxns.push({ date: `${ym}-10`, type: "transfer", category: "", amount: 5000 });
-  qianjiTxns.push({ date: `${ym}-25`, type: "repayment", category: "", amount: 500 + Math.round(Math.random() * 200) });
+  qianjiTxns.push({ date: `${ym}-10`, type: "transfer", category: "", amount: 5000, accountTo: "Fidelity taxable" });
+  qianjiTxns.push({ date: `${ym}-25`, type: "repayment", category: "", amount: 500 + Math.round(Math.random() * 200), accountTo: "" });
 }
 
 // ── Market data ─────────────────────────────────────────────────────────

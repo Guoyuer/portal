@@ -44,6 +44,7 @@ export const QianjiTxnSchema = z.object({
   type: z.string(),
   category: z.string(),
   amount: z.number(),
+  accountTo: z.string(),
   isRetirement: z.union([z.boolean(), z.number()]).default(false).transform(Boolean),
 });
 

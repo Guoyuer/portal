@@ -36,7 +36,8 @@ CREATE TABLE IF NOT EXISTS qianji_transactions (
     category       TEXT NOT NULL DEFAULT '',
     amount         REAL NOT NULL,
     note           TEXT NOT NULL DEFAULT '',
-    is_retirement  INTEGER NOT NULL DEFAULT 0
+    is_retirement  INTEGER NOT NULL DEFAULT 0,
+    account_to     TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS computed_daily (
@@ -149,7 +150,8 @@ FROM fidelity_transactions ORDER BY id;
 DROP VIEW IF EXISTS v_qianji_txns;
 CREATE VIEW IF NOT EXISTS v_qianji_txns AS
 SELECT date, type, category, amount,
-  is_retirement AS isRetirement
+  is_retirement AS isRetirement,
+  account_to AS accountTo
 FROM qianji_transactions ORDER BY date;
 
 DROP VIEW IF EXISTS v_market_indices;
