@@ -20,6 +20,7 @@ Extend the existing Fidelity Activity section into a unified **Investment Activi
 - No per-account matching (Fidelity `Z29133576` vs `Z29276228`); `accountTo.startsWith("fidelity")` is adequate.
 - No display of Robinhood `action_kind='other'` (account fees, RTP receipts, etc.) — filtered.
 - No aggregation/merging at the D1 pipeline layer. Normalization happens in the frontend compute.ts.
+- **No UI cross-check for 401k contributions.** The pipeline already reconciles QFX vs Qianji at ingest time (`ContributionReconcileError` on per-date $1 tolerance mismatch) — adding a UI cross-check layer would be ~100% tautological (Qianji-fallback rows match by construction; QFX rows are guaranteed to match Qianji on overlap dates). UI cross-check covers only Fidelity + Robinhood where no pipeline-level reconciliation exists.
 
 ## Data flow
 
@@ -44,16 +45,14 @@ qianji_transactions    →  v_qianji_txns            → QianjiTxn              
 - 401k contributions are represented as `actionType='contribution'` but aggregated into the **Buys** table for display (via EQUIVALENT_GROUPS).
 
 ### Cross-check semantics
-- Extended to all three brokers. Badge shows aggregate `matchedCount/totalCount`.
+- Extended to Fidelity + Robinhood (not 401k — see Non-goals). Badge shows aggregate `matchedCount/totalCount`.
 - Per-source matching runs independently (no cross-source candidate pooling).
 - Matching predicates:
   | Source | Deposit source | Qianji candidate predicate |
   |---|---|---|
   | Fidelity | `fidelityTxns where actionType='deposit'` | `type='transfer'` OR `type='income' AND accountTo.startsWith('fidelity')` (case-insensitive) |
   | Robinhood | `robinhoodTxns where actionKind='deposit'` | `type='transfer'` OR `type='income' AND accountTo.startsWith('robinhood')` |
-  | 401k | `empowerContributions` **aggregated by date** (one record per paycheck) | `type='income' AND isRetirement AND accountTo.startsWith('401k')` |
 - `MATCH_WINDOW_MS=7d`, Qianji floor (`earliestQianji − 7d`), dust filter (`< $1`), earliest-in-window matching algorithm — all reused.
-- 401k aggregation rule: `empowerContributions` with the same date are summed to form a single "paycheck contribution" record. Edge case (different-day splits from one paycheck) accepted as potential unmatch and surfaced in drawer.
 
 ### UI
 - Section ID: `fidelity-activity` → `investment-activity`
@@ -113,13 +112,12 @@ interface InvestmentTxn {
 
 ```ts
 interface CrossCheck {
-  matchedCount: number;    // aggregate across all sources
+  matchedCount: number;    // aggregate across fidelity + robinhood
   totalCount: number;
   ok: boolean;
   perSource: {
-    fidelity: SourceCrossCheck;
+    fidelity:  SourceCrossCheck;
     robinhood: SourceCrossCheck;
-    contribution: SourceCrossCheck;  // 401k
   };
   allUnmatched: UnmatchedItem[];     // flat list for drawer
 }
@@ -131,17 +129,13 @@ interface SourceCrossCheck {
 }
 
 interface UnmatchedItem {
-  source: "fidelity" | "robinhood" | "401k";
+  source: "fidelity" | "robinhood";
   date: string;
-  amount: number;                      // for 401k: aggregated paycheck total
-  breakdown?: Array<{                  // populated only for 401k
-    ticker: string;                    // e.g., "401k sp500"
-    amount: number;
-  }>;
+  amount: number;
 }
 ```
 
-**Invariant (tested):** `matchedCount === Σ perSource[*].matched`; `totalCount === Σ perSource[*].total`.
+**Invariant (tested):** `matchedCount === perSource.fidelity.matched + perSource.robinhood.matched`; `totalCount === perSource.fidelity.total + perSource.robinhood.total`.
 
 Old fields (`fidelityTotal`, `matchedTotal`, `unmatchedTotal`) are removed — no backcompat aliases.
 
@@ -183,7 +177,7 @@ computeCrossCheck(investmentTxns: InvestmentTxn[], qianjiTxns: QianjiTxn[], star
 ```
 
 - `computeActivity`: accumulates buys / sells / dividends; `reinvestment` contributes to both dividends and buys (existing behavior); `contribution` contributes to buys only. Tracks `sources` Set per row.
-- `computeCrossCheck`: filters `InvestmentTxn[]` into three pools by `source + actionType`, runs earliest-in-window matching per source, aggregates per-source into 401k-by-date (paycheck total), returns combined `CrossCheck`.
+- `computeCrossCheck`: filters `InvestmentTxn[]` into two deposit pools (fidelity + robinhood), runs earliest-in-window matching per source with source-specific Qianji candidate predicates, returns combined `CrossCheck`. 401k contributions in the array are ignored by this function (not part of UI cross-check scope).
 
 ### `use-bundle.ts`
 
@@ -205,14 +199,12 @@ computeCrossCheck(investmentTxns: InvestmentTxn[], qianjiTxns: QianjiTxn[], star
 
 ### New component: `UnmatchedPanel`
 
-- ~30 lines. Renders a small list grouped by source:
+- ~25 lines. Renders a small list grouped by source:
   ```
   Fidelity (N):
     2024-10-01  $500.00
   Robinhood (M):
-    ...
-  401k (K):
-    2024-05-15  $765.00  (sp500 $450, tech $90, ex-us $225)
+    2024-11-20  $500.00
   ```
 - Uses existing tailwind / color tokens; no new design system pieces.
 
@@ -294,7 +286,7 @@ Added to the `Promise.all` block alongside existing SELECTs. Response object get
 | 1 | All existing `computeActivity` / `computeCrossCheck` / `computeGroupedActivity` call sites migrated to `InvestmentTxn[]` (no shim wraps `[fid, [], []]`) | unit tests |
 | 2 | `e2e/mock-api.ts` fixture includes ≥1 Robinhood buy+sell, ≥1 401k contribution, ≥1 unmatched Robinhood deposit | E2E |
 | 3 | New factories: `mkInvestmentTxn({source, actionType, ...})`, `mkRobinhoodTxn`, `mkEmpowerContribution` | test support |
-| 4 | Test case: 401k contributions split across same date aggregate correctly; contributions on adjacent days do NOT aggregate and may show as unmatched | unit tests |
+| 4 | Test case: `computeCrossCheck` ignores `source="401k"` contributions even when in the InvestmentTxn[] input (invariant: contribution entries contribute neither to matched nor total) | unit tests |
 | 5 | PR description explicitly lists expected first-render unmatched items ("baseline: ~A Robinhood unmatched, ~B 401k unmatched from pre-Qianji period") | docs |
 | 6 | Merge-blocking checklist: prod `wrangler d1 execute --remote --file=schema.sql` → `sync_to_d1.py` → `wrangler deploy` (Worker) → merge (Pages auto-deploys) | ops |
 | 7 | Pipeline L1/L2 regression gate re-run before merge; L1 baselines must not drift (views don't change outputs) | data |
