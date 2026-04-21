@@ -7,10 +7,9 @@ place where that shape is defined, so snapshots and series emitted by the two
 fetchers stay byte-for-byte compatible with the Worker/frontend consumer.
 
 :func:`forward_fill_prices_by_date` is used by the nightly projection path
-(``scripts/project_networth_nightly.py`` over D1 rows) and the offline
-accuracy check (``scripts/_verify_projection.py`` over SQLite rows) to turn
-a sparse ``daily_close``-style event stream into the dense
-``{date: {symbol: price}}`` shape ``etl.projection.project_range`` requires.
+(``scripts/project_networth_nightly.py`` over D1 rows) to turn a sparse
+``daily_close``-style event stream into the dense ``{date: {symbol: price}}``
+shape ``etl.projection.project_range`` requires.
 """
 
 from __future__ import annotations
@@ -58,13 +57,9 @@ def forward_fill_prices_by_date(
     known close for every symbol that has ever traded on or before that date.
 
     Input rows do not need to be sorted — they are bucketed per symbol and
-    sorted internally. Used by:
-
-    * ``scripts/project_networth_nightly.py`` — converts D1's
-      ``daily_close`` query into the dense shape
-      :func:`etl.projection.project_range` consumes.
-    * ``scripts/_verify_projection.py`` — same conversion against the local
-      SQLite ``timemachine.db`` for the accuracy-replay tool.
+    sorted internally. Used by ``scripts/project_networth_nightly.py`` to
+    convert D1's ``daily_close`` query into the dense shape
+    :func:`etl.projection.project_range` consumes.
     """
     by_sym: dict[str, list[tuple[date, float]]] = {}
     all_dates: set[date] = set()

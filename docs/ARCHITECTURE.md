@@ -42,8 +42,8 @@ graph TB
     end
 
     subgraph Frontend["Browser"]
-        FETCH["use-bundle.ts<br/>same-origin GET /api/timeline · /econ · /prices/:sym<br/>Zod safeParse = single drift checkpoint"]
-        COMPUTE["compute.ts<br/>allocation · cashflow (savings) ·<br/>activity · groupedActivity · crossCheck"]
+        FETCH["use-bundle.ts (orchestrator)<br/>↳ use-timeline-data.ts — same-origin GET /api/timeline<br/>+ Zod safeParse (single drift checkpoint)<br/>↳ use-brush-range.ts — brush window state"]
+        COMPUTE["compute-bundle.ts + compute.ts<br/>allocation · cashflow (savings) ·<br/>activity · groupedActivity · crossCheck"]
         GROUPS[/"equivalent-groups.ts<br/>sp500 · nasdaq_100"/]
         UI["React components<br/>(ticker + group dialogs share<br/>marker-hover-panel + use-hover-state)"]
     end
@@ -108,7 +108,7 @@ Worker endpoints. portal-api strips `/api/` internally (so handlers match on `/t
 - `GET /api/econ` — econ_series snapshot + grouped series (includes `dxy`, `usdCny` alongside FRED keys)
 - `GET /api/prices/:symbol` — daily close + transactions, on-demand per ticker click
 
-Worker is a thin adapter: `SELECT` → JSON. There is NO runtime Zod validation on the Worker side — the frontend's `use-bundle.ts` Zod `safeParse` is the single drift checkpoint (doubling it on the shared schema cost ~200ms of Worker CPU per `/timeline` call with no added safety). All shape work lives in D1 views; the only TypeScript transform in the Worker is `JSON.parse(sparkline)` for market-index series.
+Worker is a thin adapter: `SELECT` → JSON. There is NO runtime Zod validation on the Worker side — the frontend's `useTimelineData` Zod `safeParse` (inside `src/lib/hooks/use-timeline-data.ts`, composed by `useBundle`) is the single drift checkpoint (doubling it on the shared schema cost ~200ms of Worker CPU per `/timeline` call with no added safety). All shape work lives in D1 views; the only TypeScript transform in the Worker is `JSON.parse(sparkline)` for market-index series.
 
 `/api/timeline` is fail-open: the critical `v_daily` query returns 503 on failure, but optional sections (market, holdings, txns) degrade to `null` + an `errors: { market?, holdings?, txns? }` entry. Frontend panels render explicit error cards — missing data never hides silently.
 
@@ -133,7 +133,7 @@ Worker is a thin adapter: `SELECT` → JSON. There is NO runtime Zod validation 
 
 All computation is client-side after a single fetch. Zero network during brush interaction:
 
-1. `GET /api/timeline` → parse with Zod `TimelineDataSchema` in `use-bundle.ts` (the single drift checkpoint).
+1. `GET /api/timeline` → parse with Zod `TimelineDataSchema` in `use-timeline-data.ts` (the single drift checkpoint; composed by `use-bundle.ts`).
 2. Build indexes: `dateIndex` (date → array position), `tickerIndex` (date → tickers).
 3. Brush drag → slice `daily[brushStart..brushEnd]` for chart zoom.
 4. Point-in-time: `daily[brushEnd]` → allocation, snapshot.

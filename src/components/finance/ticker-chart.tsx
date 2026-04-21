@@ -11,7 +11,7 @@
 // fetch, range-filtering, and the expand-to-dialog gesture.
 
 import { useEffect, useState } from "react";
-import { TickerPriceResponseSchema, type TickerTransaction } from "@/lib/schemas";
+import { TickerPriceResponseSchema, type TickerTxn } from "@/lib/schemas";
 import { WORKER_BASE } from "@/lib/config";
 import { fetchWithSchema } from "@/lib/schemas/fetch-schema";
 import { mergeTickerData, computeAvgCost, type TickerChartPoint } from "@/lib/format/ticker-data";
@@ -21,7 +21,7 @@ import { TickerChartDialog } from "./ticker-dialog";
 type TickerData = {
   data: TickerChartPoint[] | null;
   avgCost: number | null;
-  transactions: TickerTransaction[];
+  transactions: TickerTxn[];
   error: string | null;
 };
 

@@ -11,15 +11,15 @@ import { buildGroupValueSeries, groupNetByDate } from "@/lib/format/group-aggreg
 import { EQUIVALENT_GROUPS } from "@/lib/config/equivalent-groups";
 import { fmtCurrency, fmtPct } from "@/lib/format/format";
 import type { DailyTicker, FidelityTxn } from "@/lib/schemas";
-import type { TickerTransaction } from "@/lib/schemas";
+import type { TickerTxn } from "@/lib/schemas";
 import { TransactionTable } from "./transaction-table";
 import { MarkerHoverPanel } from "./marker-hover-panel";
 import { useIsDark } from "@/lib/hooks/hooks";
 import type { Selection } from "./ticker-markers";
 import { useTickerData } from "./ticker-chart";
 
-// ── Adapter: FidelityTxn rows → TickerTransaction (shapes are identical) ──
-function fidelityTxnsToTickerTransactions(txns: FidelityTxn[], tickers: string[]): TickerTransaction[] {
+// ── Adapter: FidelityTxn rows → TickerTxn (shapes are identical) ──
+function fidelityTxnsToTickerTxns(txns: FidelityTxn[], tickers: string[]): TickerTxn[] {
   const set = new Set(tickers);
   return txns
     .filter((t) => set.has(t.symbol))
@@ -75,7 +75,7 @@ export function GroupChartDialog({
 
   const markers = groupNetByDate(fidelityTxns).get(groupKey) ?? new Map();
 
-  const sorted = fidelityTxnsToTickerTransactions(fidelityTxns, group.tickers)
+  const sorted = fidelityTxnsToTickerTxns(fidelityTxns, group.tickers)
     .sort((a, b) => b.runDate.localeCompare(a.runDate));
 
   const header = (

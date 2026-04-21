@@ -4,7 +4,7 @@ Two independent checks, both of which must be False to skip the build:
     * :func:`changes_detected` — watched file globs / Qianji DB newer than the
       ``.last_run`` marker?
     * :func:`needs_catchup` — is ``computed_daily``'s latest row more than
-      ``_STALE_DB_THRESHOLD_DAYS`` behind today? (Handles the "no CSV moved but
+      ``STALE_DB_THRESHOLD_DAYS`` behind today? (Handles the "no CSV moved but
       yfinance has new closes" case.)
 
 The marker is never written from this module — the Runner owns that so dry-run

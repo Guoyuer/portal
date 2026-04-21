@@ -9,7 +9,7 @@ import { ChartDialog } from "./chart-dialog";
 import { MarkerChart } from "./marker-chart";
 import { AvgCostReferenceLine, PriceTooltip } from "./ticker-chart-base";
 import { useIsDark } from "@/lib/hooks/hooks";
-import type { TickerTransaction } from "@/lib/schemas";
+import type { TickerTxn } from "@/lib/schemas";
 import { buildClusteredData, type TickerChartPoint } from "@/lib/format/ticker-data";
 import { TransactionTable } from "./transaction-table";
 import { MarkerHoverPanel } from "./marker-hover-panel";
@@ -80,7 +80,7 @@ export function TickerChartDialog({
   symbol: string;
   data: TickerChartPoint[];
   avgCost: number | null;
-  transactions: TickerTransaction[];
+  transactions: TickerTxn[];
   onClose: () => void;
 }) {
   const tableScrollRef = useRef<HTMLDivElement>(null);

@@ -8,7 +8,7 @@ import {
   computeAvgCost,
   type TickerChartPoint,
 } from "@/lib/format/ticker-data";
-import type { TickerTransaction } from "@/lib/schemas";
+import type { TickerTxn } from "@/lib/schemas";
 
 // Helper to build a chart point
 const pt = (date: string, over: Partial<TickerChartPoint> = {}): TickerChartPoint => {
@@ -184,16 +184,16 @@ describe("mergeTickerData reinvestment split", () => {
 });
 
 describe("computeAvgCost", () => {
-  const buy = (date: string, qty: number, price: number): TickerTransaction => ({
+  const buy = (date: string, qty: number, price: number): TickerTxn => ({
     runDate: date, actionType: "buy", quantity: qty, price, amount: -qty * price,
   });
-  const sell = (date: string, qty: number, price: number): TickerTransaction => ({
+  const sell = (date: string, qty: number, price: number): TickerTxn => ({
     runDate: date, actionType: "sell", quantity: -qty, price, amount: qty * price,
   });
-  const reinvest = (date: string, qty: number, price: number): TickerTransaction => ({
+  const reinvest = (date: string, qty: number, price: number): TickerTxn => ({
     runDate: date, actionType: "reinvestment", quantity: qty, price, amount: qty * price,
   });
-  const split = (date: string, qtyDelta: number): TickerTransaction => ({
+  const split = (date: string, qtyDelta: number): TickerTxn => ({
     runDate: date, actionType: "distribution", quantity: qtyDelta, price: 0, amount: 0,
   });
 
