@@ -9,13 +9,13 @@
 import { Line, Scatter, ReferenceLine } from "recharts";
 import type { TooltipContentProps } from "recharts/types/component/Tooltip";
 import { fmtCurrency, fmtDateMedium, fmtQty } from "@/lib/format/format";
-import { useIsDark } from "@/lib/hooks/hooks";
-import { buildClusteredData, tsToIsoLocal, type Cluster, type ClusteredPoint } from "@/lib/format/ticker-data";
-import type { TickerChartPoint } from "@/lib/format/ticker-data";
+import { useIsDark } from "@/lib/hooks/use-is-dark";
+import { buildClusteredData, tsToIsoLocal, type Cluster, type ClusteredPoint } from "@/lib/data/ticker-data";
+import type { TickerChartPoint } from "@/lib/data/ticker-data";
 import { BUY_COLOR, SELL_COLOR } from "@/lib/format/chart-colors";
 import { TooltipCard } from "@/components/charts/tooltip-card";
 import { BuyClusterMarker, SellClusterMarker, ReinvestMarker } from "./ticker-markers";
-import { MarkerChart } from "./marker-chart";
+import { MarkerChart } from "../charts/marker-chart";
 
 export function AvgCostReferenceLine({
   avgCost,

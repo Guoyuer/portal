@@ -5,14 +5,14 @@
 import { useEffect, useRef, useState } from "react";
 import { useHoverState } from "@/lib/hooks/use-hover-state";
 import { Line, Scatter } from "recharts";
-import { ChartDialog } from "./chart-dialog";
-import { MarkerChart } from "./marker-chart";
+import { ChartDialog } from "../charts/chart-dialog";
+import { MarkerChart } from "../charts/marker-chart";
 import { AvgCostReferenceLine, PriceTooltip } from "./ticker-chart-base";
-import { useIsDark } from "@/lib/hooks/hooks";
+import { useIsDark } from "@/lib/hooks/use-is-dark";
 import type { TickerTxn } from "@/lib/schemas";
-import { buildClusteredData, type TickerChartPoint } from "@/lib/format/ticker-data";
-import { TransactionTable } from "./transaction-table";
-import { MarkerHoverPanel } from "./marker-hover-panel";
+import { buildClusteredData, type TickerChartPoint } from "@/lib/data/ticker-data";
+import { TransactionTable } from "../transaction-table";
+import { MarkerHoverPanel } from "../charts/marker-hover-panel";
 import {
   BuyClusterMarker,
   SellClusterMarker,

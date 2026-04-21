@@ -5,7 +5,7 @@
 // group to surface net exposure change (vs. noise from ticker swaps).
 
 import type { FidelityTxn, DailyTicker } from "@/lib/schemas";
-import { groupOfTicker } from "@/lib/config/equivalent-groups";
+import { groupOfTicker } from "@/lib/data/equivalent-groups";
 import { parseLocalDate } from "@/lib/format/format";
 
 export type TxnType = "REAL" | "REINVEST" | "SPLIT" | "OTHER";

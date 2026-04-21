@@ -6,7 +6,7 @@ import {
 } from "recharts";
 import type { EconPoint } from "@/lib/schemas";
 import { fmtMonthYear } from "@/lib/format/format";
-import { useIsDark } from "@/lib/hooks/hooks";
+import { useIsDark } from "@/lib/hooks/use-is-dark";
 import { tooltipStyle, gridStroke, legendStyle } from "@/lib/format/chart-styles";
 
 export interface LineConfig {

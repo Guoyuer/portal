@@ -4,8 +4,9 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 
 // TickerChart fetches /prices/:symbol — stub so the test stays purely about table UX.
-vi.mock("./ticker-chart", () => ({
+vi.mock("./ticker/ticker-chart", () => ({
   TickerChart: ({ symbol }: { symbol: string }) => <div data-testid={`chart-${symbol}`} />,
+  TickerDialogOnly: () => null,
 }));
 
 import { TickerTable, DeviationCell } from "./ticker-table";

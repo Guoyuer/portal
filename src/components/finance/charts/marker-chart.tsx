@@ -17,7 +17,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import type { TooltipContentProps } from "recharts/types/component/Tooltip";
-import { useIsDark } from "@/lib/hooks/hooks";
+import { useIsDark } from "@/lib/hooks/use-is-dark";
 import { gridStroke, axisProps } from "@/lib/format/chart-styles";
 import { fmtTick } from "@/lib/format/format";
 

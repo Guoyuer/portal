@@ -11,8 +11,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { TickerChart, TickerDialogOnly } from "./ticker-chart";
-import { GroupChartDialog } from "./group-dialog";
+import { TickerChart, TickerDialogOnly } from "./ticker/ticker-chart";
+import { GroupChartDialog } from "./group/group-dialog";
 import { SourceBadge, type SourceKind } from "./source-badge";
 import type { ActivityTicker } from "@/lib/compute/compute";
 import type { DailyTicker, FidelityTxn } from "@/lib/schemas";

@@ -400,7 +400,7 @@ export function buildTickerIndex(tickers: DailyTicker[]): Map<string, ApiTicker[
 
 // ── Group-aware activity ──────────────────────────────────────────────────
 
-import { EQUIVALENT_GROUPS, groupOfTicker } from "@/lib/config/equivalent-groups";
+import { EQUIVALENT_GROUPS, groupOfTicker } from "@/lib/data/equivalent-groups";
 
 export type GroupedActivityResponse = {
   buysBySymbol: ActivityTicker[];
