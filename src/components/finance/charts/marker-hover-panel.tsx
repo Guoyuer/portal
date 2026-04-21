@@ -7,8 +7,8 @@
 import { tooltipStyle } from "@/lib/format/chart-styles";
 import { fmtCurrency, fmtDateMedium, fmtQty } from "@/lib/format/format";
 import { BUY_COLOR, SELL_COLOR } from "@/lib/format/chart-colors";
-import type { Cluster } from "@/lib/format/ticker-data";
-import { tsToIsoLocal } from "@/lib/format/ticker-data";
+import type { Cluster } from "@/lib/data/ticker-data";
+import { tsToIsoLocal } from "@/lib/data/ticker-data";
 import type { HoverState } from "@/lib/hooks/use-hover-state";
 
 function TickerAmountLine({ cluster }: { cluster: Cluster }) {

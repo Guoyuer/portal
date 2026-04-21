@@ -7,7 +7,7 @@ import {
   tsToIsoLocal,
   computeAvgCost,
   type TickerChartPoint,
-} from "@/lib/format/ticker-data";
+} from "@/lib/data/ticker-data";
 import type { TickerTxn } from "@/lib/schemas";
 
 // Helper to build a chart point

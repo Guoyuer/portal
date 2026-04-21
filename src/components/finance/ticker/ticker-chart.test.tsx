@@ -4,7 +4,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 
 afterEach(cleanup);
-import { mergeTickerData, type TickerChartPoint } from "@/lib/format/ticker-data";
+import { mergeTickerData, type TickerChartPoint } from "@/lib/data/ticker-data";
 
 // ── mergeTickerData ────────────────────────────────────────────────────
 

@@ -3,10 +3,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import { GroupChartDialog } from "./group-dialog";
-import { TransactionTable } from "./transaction-table";
-import { MarkerHoverPanel } from "./marker-hover-panel";
+import { TransactionTable } from "../transaction-table";
+import { MarkerHoverPanel } from "../charts/marker-hover-panel";
 import type { FidelityTxn } from "@/lib/schemas";
-import type { Selection } from "./ticker-markers";
+import type { Selection } from "../ticker/ticker-markers";
 
 // jsdom doesn't implement HTMLDialogElement.showModal; polyfill lightly:
 if (typeof HTMLDialogElement !== "undefined" && !HTMLDialogElement.prototype.showModal) {

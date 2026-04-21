@@ -126,23 +126,27 @@ portal/
 │   │   ├── finance/
 │   │   │   ├── section.tsx            # SectionHeader + SectionBody layout primitives
 │   │   │   ├── ticker-table.tsx       # Activity table — accepts groupable rows + opens per-ticker or group dialog
+│   │   │   ├── transaction-table.tsx  # Shared table: Date / Type / Qty / Price / Amount (ticker + group dialogs)
+│   │   │   ├── source-badge.tsx       # FID / RH / 401k coloured badge (paired with text, protanomaly-safe)
 │   │   │   ├── charts.tsx             # Donut + stacked income/expenses bar
 │   │   │   ├── timemachine.tsx        # Brush/traveller date-range selector
 │   │   │   ├── metric-cards.tsx       # Portfolio, Net Worth, Savings Rate, Goal
 │   │   │   ├── category-summary.tsx   # Allocation table + donut (groupTickers sorts upstream)
 │   │   │   ├── cash-flow.tsx          # Income/expenses tables (CashFlowRow shared subcomponent)
-│   │   │   ├── chart-dialog.tsx       # Shared near-fullscreen modal shell for ticker + group dialogs
-│   │   │   ├── ticker-chart-base.tsx  # Inline per-ticker chart (AvgCostReferenceLine, cluster markers)
-│   │   │   ├── ticker-dialog.tsx      # Per-ticker modal: price chart + transaction table
-│   │   │   ├── ticker-markers.tsx     # BuyClusterMarker / SellClusterMarker / ReinvestMarker (SVG)
-│   │   │   ├── group-chart.tsx        # Proxy-price chart for equivalence groups (S&P 500, NASDAQ 100)
-│   │   │   ├── group-dialog.tsx       # Group modal: proxy chart + per-member transactions
-│   │   │   ├── marker-chart.tsx       # Shared Recharts layout used by inline + dialog charts
-│   │   │   ├── marker-hover-panel.tsx # Fixed-position hover tooltip (ticker + group variants)
-│   │   │   ├── source-badge.tsx       # FID / RH / 401k coloured badge (paired with text, protanomaly-safe)
-│   │   │   ├── transaction-table.tsx  # Shared table: Date / Type / Qty / Price / Amount
 │   │   │   ├── unmatched-panel.tsx    # "Unmatched deposits" breakdown under the cross-check button
-│   │   │   └── market-context.tsx     # Index returns + macro indicators
+│   │   │   ├── market-context.tsx     # Index returns + macro indicators
+│   │   │   ├── ticker/                # Per-ticker chart + dialog + SVG markers
+│   │   │   │   ├── ticker-chart.tsx          # /prices/:symbol fetch + range filter + dialog open
+│   │   │   │   ├── ticker-chart-base.tsx     # Inline chart (AvgCostReferenceLine, cluster markers)
+│   │   │   │   ├── ticker-dialog.tsx         # Per-ticker modal: price chart + transaction table
+│   │   │   │   └── ticker-markers.tsx        # BuyClusterMarker / SellClusterMarker / ReinvestMarker
+│   │   │   ├── group/                 # Equivalence-group chart + dialog (S&P 500, NASDAQ 100)
+│   │   │   │   ├── group-chart.tsx           # Proxy-price chart for equivalence groups
+│   │   │   │   └── group-dialog.tsx          # Group modal: proxy chart + per-member transactions
+│   │   │   └── charts/                # Shared chart primitives across ticker + group
+│   │   │       ├── chart-dialog.tsx          # Near-fullscreen modal shell
+│   │   │       ├── marker-chart.tsx          # Shared Recharts layout
+│   │   │       └── marker-hover-panel.tsx    # Fixed-position hover tooltip
 │   │   ├── charts/
 │   │   │   └── tooltip-card.tsx       # Shared Recharts tooltip card primitive
 │   │   ├── econ/
@@ -158,22 +162,23 @@ portal/
 │       │   ├── compute.ts             # Pure computation (allocation, cashflow incl. savings, activity, grouped activity, cross-check)
 │       │   ├── compute-bundle.ts      # Orchestrates compute.ts into a ComputedBundle from (parsed /timeline, brush window)
 │       │   └── computed-types.ts      # Client-computed TS types (MonthlyFlowPoint.savings, SourceKind, …)
-│       ├── config/
-│       │   └── equivalent-groups.ts   # S&P 500 / NASDAQ 100 member map + representative ticker
-│       ├── format/
+│       ├── data/                      # Pure data layer (domain data + transforms — no React, no formatting)
+│       │   ├── equivalent-groups.ts   # S&P 500 / NASDAQ 100 member map + representative ticker
+│       │   ├── ticker-data.ts         # Price/transaction merge helper for ticker charts
+│       │   └── group-aggregation.ts   # classifyTxn + groupNetByDate + buildGroupValueSeries
+│       ├── format/                    # Formatters + theming tokens (all purely string/style)
 │       │   ├── format.ts              # Currency/percent/date formatters
 │       │   ├── econ-formatters.ts     # Macro-indicator value formatters
 │       │   ├── chart-styles.ts        # Recharts theming (frozen light/dark style consts)
 │       │   ├── chart-colors.ts        # Okabe-Ito palette + category color map + market gain/loss
-│       │   ├── thresholds.ts          # Business thresholds + value coloring
-│       │   ├── ticker-data.ts         # Price/transaction merge helper for ticker charts
-│       │   └── group-aggregation.ts   # classifyTxn + groupNetByDate + buildGroupValueSeries (equivalence groups)
+│       │   └── thresholds.ts          # Business thresholds + value coloring
 │       ├── hooks/
-│       │   ├── use-bundle.ts          # Thin orchestrator — composes the three hooks below
+│       │   ├── use-bundle.ts          # Thin orchestrator — composes the three data hooks below
 │       │   ├── use-timeline-data.ts   # Fetch /timeline once + Zod safeParse (single drift checkpoint)
 │       │   ├── use-brush-range.ts     # Brush window state + 1-year default + reset-on-data effect
 │       │   ├── use-hover-state.ts     # Marker hover state reused across ticker + group dialogs
-│       │   └── hooks.ts               # Shared React hooks (useIsDark, useIsMobile, ...)
+│       │   ├── use-is-dark.ts         # getIsDark helper + useIsDark hook (MutationObserver on html.dark)
+│       │   └── use-is-mobile.ts       # useIsMobile hook (matchMedia wrapper)
 │       └── schemas/                   # Zod API schemas (timeline, econ, ticker)
 │           └── _generated.ts          # Auto-generated from pipeline/etl/types.py
 │
@@ -375,7 +380,7 @@ pipeline/...                     ← data generation (if needed)
 
 ## Equivalent-groups (S&P 500, NASDAQ 100)
 
-`src/lib/config/equivalent-groups.ts` declares hand-maintained groups of economically-equivalent tickers — e.g. `{ VOO, IVV, SPY, FXAIX, "401k sp500" }` all collapse into "S&P 500" in the activity table. Each group has a `representative` ticker whose `/prices` series anchors the group chart's Y-axis, so rebalancing between members (selling VOO → buying FXAIX) shows up as net-zero exposure change rather than a spurious buy-sell pair.
+`src/lib/data/equivalent-groups.ts` declares hand-maintained groups of economically-equivalent tickers — e.g. `{ VOO, IVV, SPY, FXAIX, "401k sp500" }` all collapse into "S&P 500" in the activity table. Each group has a `representative` ticker whose `/prices` series anchors the group chart's Y-axis, so rebalancing between members (selling VOO → buying FXAIX) shows up as net-zero exposure change rather than a spurious buy-sell pair.
 
 Module-load invariants: tickers are disjoint across groups, and `representative` must be a member of `tickers`. Violations throw at import time so a bad edit breaks the build rather than silently misclassifying.
 

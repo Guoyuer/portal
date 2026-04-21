@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState } from "react";
 
 /** Non-hook dark mode check for use outside React components (tooltip render functions). */
 export function getIsDark(): boolean {
@@ -17,20 +17,4 @@ export function useIsDark() {
     return () => observer.disconnect();
   }, []);
   return isDark;
-}
-
-const MOBILE_MQL = "(max-width: 639px)";
-
-function subscribeMobile(callback: () => void) {
-  const mql = window.matchMedia(MOBILE_MQL);
-  mql.addEventListener("change", callback);
-  return () => mql.removeEventListener("change", callback);
-}
-
-function getMobileSnapshot() {
-  return window.matchMedia(MOBILE_MQL).matches;
-}
-
-export function useIsMobile() {
-  return useSyncExternalStore(subscribeMobile, getMobileSnapshot, () => false);
 }

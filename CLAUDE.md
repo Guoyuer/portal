@@ -124,7 +124,7 @@ Hooks layering — `use-bundle.ts` is a thin orchestrator that composes three fo
 
 ### Equivalent-groups (S&P 500, NASDAQ 100)
 
-`src/lib/config/equivalent-groups.ts` declares hand-maintained `EQUIVALENT_GROUPS` mapping a display name to a list of member tickers plus a `representative` ticker. Members must be disjoint across groups; a module-load invariant check throws on violation.
+`src/lib/data/equivalent-groups.ts` declares hand-maintained `EQUIVALENT_GROUPS` mapping a display name to a list of member tickers plus a `representative` ticker. Members must be disjoint across groups; a module-load invariant check throws on violation.
 
 Consumers:
 

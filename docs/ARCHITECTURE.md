@@ -149,7 +149,7 @@ Hover state for cluster markers lives in `src/lib/hooks/use-hover-state.ts` and 
 
 ## Equivalent-groups layer
 
-Hand-maintained in `src/lib/config/equivalent-groups.ts` — `EQUIVALENT_GROUPS` maps a key (`sp500`, `nasdaq_100`) to `{ display, tickers: string[], representative: string }`. The `representative` ticker anchors the group chart's Y-axis: when you open "S&P 500", the chart plots VOO's daily close from `GET /prices/VOO`, overlaid with net buy/sell markers aggregated across all members (VOO + IVV + SPY + FXAIX + 401k sp500). This exposes rebalance timing even when members are swapped (selling VOO and buying FXAIX doesn't show as net exposure change).
+Hand-maintained in `src/lib/data/equivalent-groups.ts` — `EQUIVALENT_GROUPS` maps a key (`sp500`, `nasdaq_100`) to `{ display, tickers: string[], representative: string }`. The `representative` ticker anchors the group chart's Y-axis: when you open "S&P 500", the chart plots VOO's daily close from `GET /prices/VOO`, overlaid with net buy/sell markers aggregated across all members (VOO + IVV + SPY + FXAIX + 401k sp500). This exposes rebalance timing even when members are swapped (selling VOO and buying FXAIX doesn't show as net exposure change).
 
 Invariants enforced at module load:
 - A ticker appears in at most one group.

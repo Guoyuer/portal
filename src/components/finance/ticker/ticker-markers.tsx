@@ -5,7 +5,7 @@
 // `onSelect` is supplied, the group is hover/click-aware; otherwise it's
 // purely visual and lets parent click handlers through.
 
-import type { Cluster } from "@/lib/format/ticker-data";
+import type { Cluster } from "@/lib/data/ticker-data";
 import type { HoverState } from "@/lib/hooks/use-hover-state";
 import { BUY_COLOR, SELL_COLOR } from "@/lib/format/chart-colors";
 

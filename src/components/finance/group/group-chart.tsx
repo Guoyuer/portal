@@ -5,14 +5,14 @@
 import { Line, Scatter } from "recharts";
 import type { CSSProperties } from "react";
 import type { TooltipContentProps } from "recharts/types/component/Tooltip";
-import { useIsDark } from "@/lib/hooks/hooks";
+import { useIsDark } from "@/lib/hooks/use-is-dark";
 import { fmtCurrency, fmtCurrencyShort, fmtDateMedium, parseLocalDate } from "@/lib/format/format";
-import { BuyClusterMarker, SellClusterMarker, type ClusterMarkerProps, type Selection } from "./ticker-markers";
+import { BuyClusterMarker, SellClusterMarker, type ClusterMarkerProps, type Selection } from "../ticker/ticker-markers";
 import type { HoverState } from "@/lib/hooks/use-hover-state";
-import { MarkerChart } from "./marker-chart";
-import type { GroupNetEntry } from "@/lib/format/group-aggregation";
-import type { Cluster } from "@/lib/format/ticker-data";
-import { scaleR } from "@/lib/format/ticker-data";
+import { MarkerChart } from "../charts/marker-chart";
+import type { GroupNetEntry } from "@/lib/data/group-aggregation";
+import type { Cluster } from "@/lib/data/ticker-data";
+import { scaleR } from "@/lib/data/ticker-data";
 import { TooltipCard } from "@/components/charts/tooltip-card";
 import { BUY_COLOR, SELL_COLOR } from "@/lib/format/chart-colors";
 

@@ -8,7 +8,7 @@
 // own header + children.
 
 import { useEffect, useRef, type ReactNode } from "react";
-import { useIsDark } from "@/lib/hooks/hooks";
+import { useIsDark } from "@/lib/hooks/use-is-dark";
 
 export function ChartDialog({
   header,

@@ -5,10 +5,11 @@
 // height) once the dialog is wide enough to give each column headroom.
 
 import { fmtCurrency, fmtDateMedium, fmtQty } from "@/lib/format/format";
-import { useIsDark, useIsMobile } from "@/lib/hooks/hooks";
+import { useIsDark } from "@/lib/hooks/use-is-dark";
+import { useIsMobile } from "@/lib/hooks/use-is-mobile";
 import { BUY_COLOR, SELL_COLOR } from "@/lib/format/chart-colors";
 import type { TickerTxn } from "@/lib/schemas";
-import type { Selection } from "./ticker-markers";
+import type { Selection } from "./ticker/ticker-markers";
 
 export function TransactionTable({
   transactions,

@@ -5,18 +5,18 @@
 import { useEffect, useRef, useState } from "react";
 import { useHoverState } from "@/lib/hooks/use-hover-state";
 import { GroupChart, buildGroupChartData } from "./group-chart";
-import { priceMapFromSeries } from "@/lib/format/ticker-data";
-import { ChartDialog } from "./chart-dialog";
-import { buildGroupValueSeries, groupNetByDate } from "@/lib/format/group-aggregation";
-import { EQUIVALENT_GROUPS } from "@/lib/config/equivalent-groups";
+import { priceMapFromSeries } from "@/lib/data/ticker-data";
+import { ChartDialog } from "../charts/chart-dialog";
+import { buildGroupValueSeries, groupNetByDate } from "@/lib/data/group-aggregation";
+import { EQUIVALENT_GROUPS } from "@/lib/data/equivalent-groups";
 import { fmtCurrency, fmtPct } from "@/lib/format/format";
 import type { DailyTicker, FidelityTxn } from "@/lib/schemas";
 import type { TickerTxn } from "@/lib/schemas";
-import { TransactionTable } from "./transaction-table";
-import { MarkerHoverPanel } from "./marker-hover-panel";
-import { useIsDark } from "@/lib/hooks/hooks";
-import type { Selection } from "./ticker-markers";
-import { useTickerData } from "./ticker-chart";
+import { TransactionTable } from "../transaction-table";
+import { MarkerHoverPanel } from "../charts/marker-hover-panel";
+import { useIsDark } from "@/lib/hooks/use-is-dark";
+import type { Selection } from "../ticker/ticker-markers";
+import { useTickerData } from "../ticker/ticker-chart";
 
 // ── Adapter: FidelityTxn rows → TickerTxn (shapes are identical) ──
 function fidelityTxnsToTickerTxns(txns: FidelityTxn[], tickers: string[]): TickerTxn[] {

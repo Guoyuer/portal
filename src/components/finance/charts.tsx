@@ -19,7 +19,8 @@ import type { Props as LabelProps } from "recharts/types/component/Label";
 import type { TooltipContentProps } from "recharts/types/component/Tooltip";
 import type { CategoryData, MonthlyFlowPoint } from "@/lib/compute/computed-types";
 import { fmtCurrencyShort, fmtDateMonthYear, fmtMonth, fmtMonthYear, fmtTick } from "@/lib/format/format";
-import { useIsDark, useIsMobile } from "@/lib/hooks/hooks";
+import { useIsDark } from "@/lib/hooks/use-is-dark";
+import { useIsMobile } from "@/lib/hooks/use-is-mobile";
 import { tooltipStyle, gridStroke, axisProps } from "@/lib/format/chart-styles";
 import { TooltipCard } from "@/components/charts/tooltip-card";
 

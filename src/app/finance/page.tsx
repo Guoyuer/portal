@@ -8,7 +8,7 @@ import type { MonthlyFlowPoint } from "@/lib/compute/computed-types";
 import { fmtDateMedium } from "@/lib/format/format";
 import { SectionHeader, SectionBody, SectionMessage } from "@/components/finance/section";
 import { TickerTable } from "@/components/finance/ticker-table";
-import { EQUIVALENT_GROUPS } from "@/lib/config/equivalent-groups";
+import { EQUIVALENT_GROUPS } from "@/lib/data/equivalent-groups";
 import { IncomeExpensesChart } from "@/components/finance/charts";
 import { MetricCards } from "@/components/finance/metric-cards";
 import { CashFlow } from "@/components/finance/cash-flow";
