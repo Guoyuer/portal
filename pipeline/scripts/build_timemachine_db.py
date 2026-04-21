@@ -1,12 +1,13 @@
 """Build the timemachine SQLite database from raw data sources.
 
 Integration script that:
-  1. Initialises data/timemachine.db with all tables
-  2. Ingests Fidelity brokerage transactions from CSV
-  3. Ingests Empower 401k quarterly snapshots + contributions from QFX files
-  4. Fetches and stores prices + CNY rates in timemachine.db.daily_close
-  5. Computes daily allocation (reads prices from DB)
-  6. Stores results
+  1.  Initialises data/timemachine.db with all tables
+  2.  Ingests Fidelity brokerage transactions from CSV
+  2b. Ingests Robinhood brokerage transactions from CSV
+  3.  Ingests Empower 401k quarterly snapshots + contributions from QFX files
+  4.  Fetches and stores prices + CNY rates in timemachine.db.daily_close
+  5.  Computes daily allocation (reads prices from DB)
+  6.  Stores results
 
 Refreshes the last ``REFRESH_WINDOW_DAYS`` of ``computed_daily`` on every
 run, plus fills any historical gap beyond the window. If the DB is missing

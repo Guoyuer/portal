@@ -28,7 +28,8 @@ export function useBrushRange(data: TimelineData | null): {
     if (data && len > 0) {
       setRange({ start: defaultStartIndex, end: defaultEndIndex });
     }
-  // defaults derive purely from data.daily.length
+  // Reset the brush window whenever a new bundle arrives; default indices
+  // depend only on data.daily.length, which is captured by the data dep.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
 

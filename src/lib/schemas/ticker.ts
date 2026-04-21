@@ -8,7 +8,7 @@ const TickerPricePointSchema = z.object({
   close: z.number(),
 });
 
-const TickerTransactionSchema = z.object({
+const TickerTxnSchema = z.object({
   runDate: z.string(),
   actionType: z.string(),
   quantity: z.number(),
@@ -19,8 +19,8 @@ const TickerTransactionSchema = z.object({
 export const TickerPriceResponseSchema = z.object({
   symbol: z.string(),
   prices: z.array(TickerPricePointSchema).default([]),
-  transactions: z.array(TickerTransactionSchema).default([]),
+  transactions: z.array(TickerTxnSchema).default([]),
 });
 
 export type TickerPricePoint = z.infer<typeof TickerPricePointSchema>;
-export type TickerTransaction = z.infer<typeof TickerTransactionSchema>;
+export type TickerTxn = z.infer<typeof TickerTxnSchema>;

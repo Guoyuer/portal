@@ -3,7 +3,7 @@
 // All React/rendering concerns live in components/finance/ticker-*.tsx.
 // Functions here are side-effect-free and fully unit-testable.
 
-import type { TickerPricePoint, TickerTransaction } from "@/lib/schemas";
+import type { TickerPricePoint, TickerTxn } from "@/lib/schemas";
 import { parseLocalDate } from "@/lib/format/format";
 
 export type TickerChartPoint = {
@@ -48,7 +48,7 @@ export type ClusteredPoint = TickerChartPoint & {
 
 export function mergeTickerData(
   prices: TickerPricePoint[],
-  transactions: TickerTransaction[],
+  transactions: TickerTxn[],
 ): TickerChartPoint[] {
   // Index transactions by ISO date (qty/amount summed; price becomes VWAP below)
   const buyMap = new Map<string, { qty: number; amount: number; count: number }>();
@@ -154,7 +154,7 @@ export function scaleR(amount: number, maxAmount: number, minR: number, maxR: nu
  * Stock splits are encoded by Fidelity as `distribution` with `price=0`
  * and a signed share delta (`quantity`) — we adjust qty but not cost.
  */
-export function computeAvgCost(txns: TickerTransaction[]): number | null {
+export function computeAvgCost(txns: TickerTxn[]): number | null {
   let totalCost = 0;
   let totalQty = 0;
   const sorted = [...txns].sort((a, b) => a.runDate.localeCompare(b.runDate));

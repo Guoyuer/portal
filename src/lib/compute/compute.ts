@@ -402,9 +402,6 @@ export function buildTickerIndex(tickers: DailyTicker[]): Map<string, ApiTicker[
 
 import { EQUIVALENT_GROUPS, groupOfTicker } from "@/lib/config/equivalent-groups";
 
-/** ActivityRow is an alias for ActivityTicker — use ActivityTicker for new code. */
-export type ActivityRow = ActivityTicker;
-
 export type GroupedActivityResponse = {
   buysBySymbol: ActivityTicker[];
   sellsBySymbol: ActivityTicker[];
@@ -459,7 +456,7 @@ export function computeGroupedActivity(
   };
 }
 
-// ── Monthly flows (from finance/page.tsx) ─────────────────────────────────
+// ── Monthly flows ────────────────────────────────────────────────────────
 
 export function computeMonthlyFlows(qianjiTxns: QianjiTxn[], start: string | null, end: string | null): MonthlyFlowPoint[] {
   if (!qianjiTxns.length || !start || !end) return [];

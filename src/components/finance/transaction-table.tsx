@@ -7,7 +7,7 @@
 import { fmtCurrency, fmtDateMedium, fmtQty } from "@/lib/format/format";
 import { useIsDark, useIsMobile } from "@/lib/hooks/hooks";
 import { BUY_COLOR, SELL_COLOR } from "@/lib/format/chart-colors";
-import type { TickerTransaction } from "@/lib/schemas";
+import type { TickerTxn } from "@/lib/schemas";
 import type { Selection } from "./ticker-markers";
 
 export function TransactionTable({
@@ -15,7 +15,7 @@ export function TransactionTable({
   selected,
   tableScrollRef,
 }: {
-  transactions: TickerTransaction[];
+  transactions: TickerTxn[];
   selected: Selection | null;
   tableScrollRef: React.RefObject<HTMLDivElement | null>;
 }) {
@@ -38,7 +38,7 @@ export function TransactionTable({
     </>
   );
 
-  const renderCells = (t: TickerTransaction | null) => {
+  const renderCells = (t: TickerTxn | null) => {
     if (!t) return emptyCells;
     const sideMatches = selected
       ? selected.side === "sell"
@@ -77,7 +77,7 @@ export function TransactionTable({
         <tr key={i} className={rowBase}>{renderCells(t)}</tr>
       ))
     : (() => {
-        const pairs: [TickerTransaction, TickerTransaction | null][] = [];
+        const pairs: [TickerTxn, TickerTxn | null][] = [];
         for (let i = 0; i < transactions.length; i += 2) {
           pairs.push([transactions[i], transactions[i + 1] ?? null]);
         }

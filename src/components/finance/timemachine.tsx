@@ -295,7 +295,7 @@ export function TimemachineSummary({
         </>
       )}
 
-      {/* Cross-check: Fidelity deposits vs Qianji transfers */}
+      {/* Cross-check: Fidelity + Robinhood deposits vs Qianji transfers */}
       {cc && cc.totalCount > 0 && (
         <>
           <div className="border-t border-border" />

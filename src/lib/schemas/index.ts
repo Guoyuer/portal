@@ -28,5 +28,5 @@ export {
 export {
   TickerPriceResponseSchema,
   type TickerPricePoint,
-  type TickerTransaction,
+  type TickerTxn,
 } from "./ticker";

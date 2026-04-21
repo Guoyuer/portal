@@ -1,12 +1,13 @@
 """Timemachine DB build orchestration.
 
 Stages:
-  1. Initialise ``data/timemachine.db`` with all tables
-  2. Ingest Fidelity brokerage transactions from CSV
-  3. Ingest Empower 401k quarterly snapshots + contributions from QFX files
-  4. Fetch and store prices + CNY rates in ``timemachine.db.daily_close``
-  5. Compute daily allocation (reads prices from DB)
-  6. Store results
+  1.  Initialise ``data/timemachine.db`` with all tables
+  2.  Ingest Fidelity brokerage transactions from CSV
+  2b. Ingest Robinhood brokerage transactions from CSV
+  3.  Ingest Empower 401k quarterly snapshots + contributions from QFX files
+  4.  Fetch and store prices + CNY rates in ``timemachine.db.daily_close``
+  5.  Compute daily allocation (reads prices from DB)
+  6.  Store results
 
 Refreshes the last ``REFRESH_WINDOW_DAYS`` of ``computed_daily`` on every
 run, plus fills any historical gap beyond the window. If the DB is missing
@@ -360,7 +361,7 @@ def _compute_holding_periods(
 
     # Add Robinhood symbols that aren't in Fidelity — query the
     # ``robinhood_transactions`` table that :func:`etl.sources.robinhood.ingest`
-    # populated in step 3b. (Reading from the DB here instead of the CSV
+    # populated in step 2b. (Reading from the DB here instead of the CSV
     # means a user whose CSV was deleted after an earlier build still has
     # their prices refetched.)
     conn = get_connection(paths.db_path)

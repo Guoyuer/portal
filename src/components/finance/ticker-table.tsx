@@ -14,7 +14,7 @@ import {
 import { TickerChart, TickerDialogOnly } from "./ticker-chart";
 import { GroupChartDialog } from "./group-dialog";
 import { SourceBadge, type SourceKind } from "./source-badge";
-import type { ActivityRow } from "@/lib/compute/compute";
+import type { ActivityTicker } from "@/lib/compute/compute";
 import type { DailyTicker, FidelityTxn } from "@/lib/schemas";
 
 const ACTIVITY_TOP_SYMBOLS = 5;
@@ -129,7 +129,7 @@ export function TickerTable({
   fidelityTxns,
 }: {
   title: string;
-  data: ActivityRow[];
+  data: ActivityTicker[];
   startDate?: string;
   endDate?: string;
   countLabel?: string;
@@ -145,7 +145,7 @@ export function TickerTable({
   const rest = data.slice(ACTIVITY_TOP_SYMBOLS);
   const restTotal = rest.reduce((s, t) => s + t.total, 0);
 
-  const rowProps = (item: ActivityRow): TickerRowProps => ({
+  const rowProps = (item: ActivityTicker): TickerRowProps => ({
     ticker: item.ticker,
     count: item.count,
     total: item.total,
