@@ -9,4 +9,4 @@ httpx>=0.28,<1
 python-dotenv>=1.2.0,<2
 
 # Email body templating for changelog (etl/changelog/render.py)
-jinja2>=3,<4
+jinja2>=3.1.6,<4
