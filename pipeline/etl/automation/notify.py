@@ -232,15 +232,15 @@ def send_report_email(
     validation_warnings: list[str] | None = None,
     started_at: datetime | None = None,
 ) -> None:
-    """Build a changelog and send. Always sends when reached.
+    """Build a changelog and send. Always attempts to send when reached.
 
     The orchestrator already short-circuits the silent no-change path before
     reaching this function (see ``Runner.run`` change-detection block), so
     every call here represents real work that ran end-to-end — failure or
     success. The operator gets a confirmation either way.
 
-    Errors during SMTP are logged and swallowed — email must never affect the
-    sync exit code.
+    Delivery is best-effort: SMTP errors are logged and swallowed — email
+    must never affect the sync exit code.
     """
     if config is None:
         return
