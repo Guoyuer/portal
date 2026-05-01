@@ -631,17 +631,25 @@ class TestEmailNotifications:
         rc = run_automation.main(argv)
         return rc, fake, sent_calls
 
-    def test_no_meaningful_changes_no_email(self, monkeypatch, tmp_path):
-        """Success with no new rows -> no email."""
+    def test_success_with_no_diff_still_emails(self, monkeypatch, tmp_path):
+        """Success email is sent even when snapshot diff is empty.
+
+        Real-world trigger: manual ``--force`` after a previous run already
+        built the DB — build re-runs incrementally and produces no local
+        diff, but the sync DID write to D1. The operator wants confirmation.
+        Silent no-change runs short-circuit earlier in ``Runner.run`` and
+        never reach ``send_report_email``.
+        """
         from etl.changelog import SyncSnapshot
 
         rc, _, sent = self._invoke_with_email(
             ["--force"], [0, 0, 0], monkeypatch, tmp_path,
             snapshot_before=SyncSnapshot(),
-            snapshot_after=SyncSnapshot(),  # identical -> no meaningful changes
+            snapshot_after=SyncSnapshot(),  # identical
         )
         assert rc == EXIT_OK
-        assert sent == []
+        assert len(sent) == 1
+        assert sent[0]["subject"].startswith("[Portal Sync] OK")
 
     def test_meaningful_changes_sends_email(self, monkeypatch, tmp_path):
         """Success with a new fidelity row -> one email, subject starts with [Portal Sync]."""

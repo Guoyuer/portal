@@ -232,12 +232,12 @@ def send_report_email(
     validation_warnings: list[str] | None = None,
     started_at: datetime | None = None,
 ) -> None:
-    """Build a changelog, decide whether to send, send if yes.
+    """Build a changelog and send. Always sends when reached.
 
-    Policy:
-        ``exit_code != 0``                                -> always send
-        ``exit_code == 0`` and has_meaningful_changes     -> send
-        ``exit_code == 0`` and no meaningful changes      -> skip
+    The orchestrator already short-circuits the silent no-change path before
+    reaching this function (see ``Runner.run`` change-detection block), so
+    every call here represents real work that ran end-to-end — failure or
+    success. The operator gets a confirmation either way.
 
     Errors during SMTP are logged and swallowed — email must never affect the
     sync exit code.
@@ -249,11 +249,6 @@ def send_report_email(
         changelog = diff(snapshot_before, snapshot_after)
     else:
         changelog = SyncChangelog()
-
-    should_send = exit_code != 0 or changelog.has_meaningful_changes()
-    if not should_send:
-        log.info("  Email skipped (no meaningful changes)")
-        return
 
     context = _build_context(
         changelog, exit_code, log_file, snapshot_before, snapshot_after, error,
