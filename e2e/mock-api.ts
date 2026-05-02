@@ -1,5 +1,5 @@
 // ── Mock API server for E2E tests ────────────────────────────────────────
-// Serves realistic fixture data on /timeline, /prices/:symbol, and /econ
+// Serves realistic fixture data on /timeline, /prices, /prices/:symbol, and /econ
 // so E2E tests don't depend on the production Worker.
 // Started by Playwright via webServer.
 
@@ -290,7 +290,23 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // /prices/:symbol — daily close prices + fidelity transactions for a symbol
+  // /prices — bundle of all daily close prices + fidelity transactions by symbol
+  if (url.pathname === "/prices") {
+    const symbols = Array.from(new Set([...Object.keys(SYMBOL_PRICES), ...fidelityTxns.map((t) => t.symbol).filter(Boolean)]))
+      .sort();
+    const payload = Object.fromEntries(symbols.map((symbol) => {
+      const prices = SYMBOL_PRICES[symbol] ?? [];
+      const txns = fidelityTxns
+        .filter((t) => t.symbol === symbol)
+        .map((t) => ({ runDate: t.runDate, actionType: t.actionType, quantity: t.quantity, price: t.price, amount: t.amount }));
+      return [symbol, { symbol, prices, transactions: txns }];
+    }));
+    res.writeHead(200, CORS);
+    res.end(JSON.stringify(payload));
+    return;
+  }
+
+  // /prices/:symbol — compatibility route for the old per-symbol endpoint
   const priceMatch = url.pathname.match(/^\/prices\/([A-Za-z0-9.^=-]+)$/);
   if (priceMatch) {
     const symbol = decodeURIComponent(priceMatch[1]).toUpperCase();

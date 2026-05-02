@@ -7,12 +7,12 @@
 // - Inline chart: ./ticker-chart-base  (TickerChartBase, non-interactive)
 // - Dialog: ./ticker-dialog         (near-fullscreen modal with clustering)
 //
-// This file is kept small deliberately — it owns only the /prices/:symbol
-// fetch, range-filtering, and the expand-to-dialog gesture.
+// This file is kept small deliberately — it owns only the lazy /prices bundle
+// fetch, per-symbol lookup, range-filtering, and the expand-to-dialog gesture.
 
 import { useEffect, useState } from "react";
-import { TickerPriceResponseSchema, type TickerTxn } from "@/lib/schemas";
-import { WORKER_BASE } from "@/lib/config";
+import { TickerPricesBundleSchema, type TickerPricesBundle, type TickerTxn } from "@/lib/schemas";
+import { PRICES_URL } from "@/lib/config";
 import { fetchWithSchema } from "@/lib/schemas/fetch-schema";
 import { mergeTickerData, computeAvgCost, type TickerChartPoint } from "@/lib/data/ticker-data";
 import { TickerChartBase } from "./ticker-chart-base";
@@ -25,14 +25,27 @@ type TickerData = {
   error: string | null;
 };
 
+let pricesBundlePromise: Promise<TickerPricesBundle> | null = null;
+
+function loadPricesBundle(): Promise<TickerPricesBundle> {
+  pricesBundlePromise ??= fetchWithSchema(PRICES_URL, TickerPricesBundleSchema)
+    .catch((err: unknown) => {
+      pricesBundlePromise = null;
+      throw err;
+    });
+  return pricesBundlePromise;
+}
+
 export function useTickerData(symbol: string): TickerData {
   const [state, setState] = useState<TickerData>({ data: null, avgCost: null, transactions: [], error: null });
   useEffect(() => {
     if (IS_PSEUDO_TICKER(symbol)) return;
+    const canonical = symbol.toUpperCase();
     let cancelled = false;
-    fetchWithSchema(`${WORKER_BASE}/prices/${encodeURIComponent(symbol)}`, TickerPriceResponseSchema)
-      .then(({ prices, transactions: txns }) => {
+    loadPricesBundle()
+      .then((bundle) => {
         if (cancelled) return;
+        const { prices, transactions: txns } = bundle[canonical] ?? { symbol: canonical, prices: [], transactions: [] };
         setState({ data: mergeTickerData(prices, txns), transactions: txns, avgCost: computeAvgCost(txns), error: null });
       })
       .catch((e) => { if (!cancelled) setState((s) => ({ ...s, error: e instanceof Error ? e.message : "Failed to load" })); });
@@ -42,7 +55,7 @@ export function useTickerData(symbol: string): TickerData {
 }
 
 // 401k pseudo-tickers ("401k sp500", "401k tech", "401k ex-us") come from
-// the Empower QFX source and don't exist in /prices — they represent the
+// the Empower QFX source and don't exist in the prices bundle — they represent the
 // user's holding within the 401k plan, not a tradable market symbol.
 const IS_PSEUDO_TICKER = (sym: string) => sym.startsWith("401k ");
 

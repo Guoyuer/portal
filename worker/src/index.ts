@@ -45,8 +45,8 @@ type R2Manifest = {
   objects: {
     timeline: ManifestObject;
     econ: ManifestObject;
+    prices: ManifestObject;
   };
-  prices: Record<string, ManifestObject>;
 };
 
 const MANIFEST_KEY = "manifest.json";
@@ -107,15 +107,13 @@ function validManifest(value: unknown): value is R2Manifest {
   if (!value || typeof value !== "object") return false;
   const obj = value as Record<string, unknown>;
   const objects = obj.objects as Record<string, unknown> | undefined;
-  const prices = obj.prices as Record<string, unknown> | undefined;
   return (
     typeof obj.version === "string"
     && typeof obj.generatedAt === "string"
     && !!objects
     && validManifestObject(objects.timeline)
     && validManifestObject(objects.econ)
-    && !!prices
-    && Object.values(prices).every(validManifestObject)
+    && validManifestObject(objects.prices)
   );
 }
 
@@ -158,14 +156,6 @@ async function handleR2Endpoint(
   const manifest = await loadR2Manifest(env);
   if (manifest instanceof Response) return manifest;
   return streamR2Object(env, select(manifest));
-}
-
-async function handleR2Prices(env: Env, symbol: string): Promise<Response> {
-  const manifest = await loadR2Manifest(env);
-  if (manifest instanceof Response) return manifest;
-  const descriptor = manifest.prices[symbol];
-  if (!descriptor) return jsonResponse({ symbol, prices: [], transactions: [] });
-  return streamR2Object(env, descriptor);
 }
 
 // ── /timeline ────────────────────────────────────────────────────────────
@@ -268,7 +258,45 @@ async function handleEcon(env: Env): Promise<Response> {
   }
 }
 
-// ── /prices/:symbol ──────────────────────────────────────────────────────
+// ── /prices and /prices/:symbol ──────────────────────────────────────────
+
+async function handlePricesBundle(env: Env): Promise<Response> {
+  try {
+    type SymbolRow = { symbol: string };
+    type PriceRow = { symbol: string; date: string; close: number };
+    type TxnRow = {
+      symbol: string;
+      runDate: string;
+      actionType: string;
+      quantity: number;
+      price: number;
+      amount: number;
+    };
+    const [symbolRows, priceRows, txnRows] = await Promise.all([
+      env.DB.prepare(
+        "SELECT symbol FROM daily_close WHERE symbol <> '' UNION SELECT symbol FROM fidelity_transactions WHERE symbol <> '' ORDER BY symbol",
+      ).all<SymbolRow>(),
+      env.DB.prepare("SELECT symbol, date, close FROM daily_close WHERE symbol <> '' ORDER BY symbol, date")
+        .all<PriceRow>(),
+      env.DB.prepare(
+        "SELECT symbol, run_date AS runDate, action_type AS actionType, quantity, price, amount FROM fidelity_transactions WHERE symbol <> '' ORDER BY symbol, id",
+      ).all<TxnRow>(),
+    ]);
+    const payload: Record<string, { symbol: string; prices: Array<Omit<PriceRow, "symbol">>; transactions: Array<Omit<TxnRow, "symbol">> }> = {};
+    for (const row of symbolRows.results) {
+      payload[row.symbol] = { symbol: row.symbol, prices: [], transactions: [] };
+    }
+    for (const { symbol, ...price } of priceRows.results) {
+      (payload[symbol] ??= { symbol, prices: [], transactions: [] }).prices.push(price);
+    }
+    for (const { symbol, ...txn } of txnRows.results) {
+      (payload[symbol] ??= { symbol, prices: [], transactions: [] }).transactions.push(txn);
+    }
+    return jsonResponse(payload);
+  } catch (e) {
+    return dbError(e);
+  }
+}
 
 async function handlePrices(env: Env, symbol: string): Promise<Response> {
   try {
@@ -317,15 +345,25 @@ export default {
       );
     }
 
-    const priceMatch = pathname.match(/^\/prices\/([^/]+)$/);
-    if (priceMatch) {
-      const symbol = normalizeSymbol(priceMatch[1]);
-      if (!symbol) return errorResponse("Malformed price symbol", 400);
+    if (pathname === "/prices") {
       return cachedJson(
         request,
         ctx,
         TTLS.prices,
-        () => (useR2 ? handleR2Prices(env, symbol) : handlePrices(env, symbol)),
+        () => (useR2 ? handleR2Endpoint(env, (m) => m.objects.prices) : handlePricesBundle(env)),
+      );
+    }
+
+    const priceMatch = pathname.match(/^\/prices\/([^/]+)$/);
+    if (priceMatch) {
+      const symbol = normalizeSymbol(priceMatch[1]);
+      if (!symbol) return errorResponse("Malformed price symbol", 400);
+      if (useR2) return errorResponse("Use /prices for the bundled R2 price payload", 404);
+      return cachedJson(
+        request,
+        ctx,
+        TTLS.prices,
+        () => handlePrices(env, symbol),
       );
     }
 

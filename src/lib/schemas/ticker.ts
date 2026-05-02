@@ -1,5 +1,6 @@
-// ── Ticker price endpoint schemas (/prices/:symbol) ──────────────────────
-// Runtime + compile-time types for the on-demand ticker detail payload.
+// ── Ticker price endpoint schemas (/prices) ──────────────────────────────
+// Runtime + compile-time types for the lazy prices bundle and each ticker's
+// chart payload.
 
 import { z } from "zod";
 
@@ -22,5 +23,8 @@ export const TickerPriceResponseSchema = z.object({
   transactions: z.array(TickerTxnSchema).default([]),
 });
 
+export const TickerPricesBundleSchema = z.record(z.string(), TickerPriceResponseSchema);
+
 export type TickerPricePoint = z.infer<typeof TickerPricePointSchema>;
 export type TickerTxn = z.infer<typeof TickerTxnSchema>;
+export type TickerPricesBundle = z.infer<typeof TickerPricesBundleSchema>;
