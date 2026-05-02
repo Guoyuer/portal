@@ -97,7 +97,7 @@ def test_verify_rejects_hash_drift(empty_db: Path, tmp_path: Path) -> None:
         verify_artifacts(db_path=empty_db, artifact_dir=artifact_dir, schema=False)
 
 
-def test_export_rejects_path_unsafe_symbols(empty_db: Path, tmp_path: Path) -> None:
+def test_export_allows_symbols_that_are_only_json_keys(empty_db: Path, tmp_path: Path) -> None:
     _seed_exportable_db(empty_db)
     conn = get_connection(empty_db)
     try:
@@ -109,13 +109,16 @@ def test_export_rejects_path_unsafe_symbols(empty_db: Path, tmp_path: Path) -> N
     finally:
         conn.close()
 
-    with pytest.raises(RuntimeError, match="Path-unsafe"):
-        export_artifacts(
-            db_path=empty_db,
-            artifact_dir=tmp_path / "r2",
-            version="2026-05-02T170000Z",
-            generated_at="2026-05-02T17:00:00Z",
-        )
+    artifact_dir = tmp_path / "r2"
+    export_artifacts(
+        db_path=empty_db,
+        artifact_dir=artifact_dir,
+        version="2026-05-02T170000Z",
+        generated_at="2026-05-02T17:00:00Z",
+    )
+
+    prices = json.loads((artifact_dir / "snapshots/2026-05-02T170000Z/prices.json").read_text())
+    assert prices["BAD/SYM"]["prices"] == [{"close": 1.0, "date": "2026-05-01"}]
 
 
 def test_remote_publish_uploads_manifest_last(empty_db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

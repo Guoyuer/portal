@@ -130,7 +130,7 @@ This intentionally republishes the full price bundle between versions. That is s
 
 The frontend fetches `/api/prices` lazily the first time a ticker chart is opened, caches the bundle in memory, and then looks up `bundle[symbol]`. The Worker streams `prices.json` directly and does not parse the bundle on the hot path. Do not put prices into `timeline.json`; that would make every dashboard load pay the price-chart cost even when no ticker chart is opened.
 
-For v1, use canonical ticker strings as object keys inside `prices.json`. The exporter must fail loudly if a symbol contains `/` or another path-unsafe character. Add encoding later only when a real ticker requires it.
+For v1, use canonical ticker strings as object keys inside `prices.json`. Symbols no longer participate in R2 object paths, so the exporter should not reject path-unsafe ticker text merely because it contains `/` or another URL/path character.
 
 ### yfinance call count must not change
 
@@ -334,7 +334,7 @@ Keep row counts in `reports/export-summary.json`, not in the manifest. They are 
 
 Do not include hashes that require the Worker to re-read and hash object bodies on every request. The Worker can trust a published manifest because the publisher already verified it; request-time verification should be existence/content-type/streaming only.
 
-Keys in `prices.json` are canonical ticker strings. The exporter must reject path-unsafe symbols in v1 rather than silently generating ambiguous object keys. Path-unsafe means containing `/`, `\`, `..`, NUL, or control characters; alphanumerics plus `.`, `-`, `_`, `=`, and `^` are accepted (`CNY=X`, `^GSPC`, `000300.SS`).
+Keys in `prices.json` are canonical ticker strings. They are JSON object keys, not R2 object path segments, so no URL/path encoding or path-safety filter is needed in steady state.
 
 ### Component boundaries
 

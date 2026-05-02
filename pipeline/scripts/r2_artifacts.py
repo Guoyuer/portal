@@ -12,7 +12,6 @@ import argparse
 import hashlib
 import json
 import os
-import re
 import shutil
 import sqlite3
 import subprocess
@@ -37,7 +36,6 @@ _DEFAULT_ARTIFACT_DIR = _PROJECT_DIR / "artifacts" / "r2"
 _LOCK_PATH = _PROJECT_DIR / "data" / ".r2-publisher.lock"
 _BUCKET_NAME = "portal-data"
 _CONTENT_TYPE_JSON = "application/json"
-_PATH_SAFE_SYMBOL = re.compile(r"^[A-Za-z0-9._=^-]+$")
 
 sys.path.insert(0, str(_PROJECT_DIR))
 import etl.dotenv_loader  # noqa: F401  (side effect: load pipeline/.env)
@@ -160,20 +158,6 @@ def _row_count(conn: sqlite3.Connection, table_or_view: str) -> int:
     return int(_scalar(conn, f"SELECT COUNT(*) FROM {table_or_view}") or 0)  # noqa: S608
 
 
-def _path_safe_symbol(symbol: str) -> bool:
-    return bool(symbol) and ".." not in symbol and _PATH_SAFE_SYMBOL.fullmatch(symbol) is not None
-
-
-def _assert_path_safe_symbol(symbol: str) -> None:
-    if _path_safe_symbol(symbol):
-        return
-    msg = (
-        f"Path-unsafe price symbol {symbol!r}. Allowed: alphanumerics plus '.', '-', '_', '=', '^'; "
-        "disallowed: '/', '\\', '..', NUL/control characters."
-    )
-    raise RuntimeError(msg)
-
-
 def _price_symbols(conn: sqlite3.Connection) -> list[str]:
     rows = conn.execute(
         """
@@ -183,10 +167,7 @@ def _price_symbols(conn: sqlite3.Connection) -> list[str]:
         ORDER BY symbol
         """
     )
-    symbols = [str(row[0]).upper() for row in rows]
-    for symbol in symbols:
-        _assert_path_safe_symbol(symbol)
-    return symbols
+    return [str(row[0]).upper() for row in rows]
 
 
 def _build_timeline(conn: sqlite3.Connection, *, version: str, generated_at: str) -> JsonDict:
