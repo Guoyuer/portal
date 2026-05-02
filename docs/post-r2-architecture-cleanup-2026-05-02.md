@@ -47,7 +47,7 @@ tightening tasks.
 | P2 | Done | Export SQLite booleans as JSON booleans | Stops leaking SQLite 0/1 storage into frontend schemas. |
 | P3 | Done | Tighten frontend Zod defaults on required artifact fields | Makes schema drift fail loudly instead of silently filling missing fields. |
 | P3 | Done | Rename publish email code to receipt/reporting module | Aligns naming with the simplified email role. |
-| P3 | Deferred | Harden or prune conditional mock e2e checks | Worth doing only with fixture-specific assertions; avoid making smoke tests brittle. |
+| P3 | Done | Harden conditional mock e2e checks | Mock finance E2E now fails on missing fixture-backed sections instead of silently returning. |
 
 ### Emit `/econ.series` as JSON arrays
 
@@ -113,13 +113,12 @@ warnings, duration, and failure stage.
 
 ### Harden or prune conditional mock e2e checks
 
-Status: deferred. `e2e/finance.spec.ts` still contains many conditional returns such as "if no
-table, return" or "if market card does not render, return". That is reasonable
-for smoke tests against variable data, but the mock API fixture is controlled.
-Mock regression tests should assert the expected fixture state or be deleted.
-
-Do this only as a fixture-specific Playwright cleanup. It is not a data
-correctness gate, and making broad UI smoke tests brittle is not a useful trade.
+Status: implemented. `e2e/finance.spec.ts` no longer silently returns or skips
+when fixture-backed cashflow, activity, market, or timemachine UI is missing.
+The old `#net-worth` fallback test was deleted because that fallback section no
+longer exists in the R2-era UI. Tests now assert concrete mock fixture rows such
+as expense categories, activity overflow, SPAXX no-price fallback, market cards,
+sticky brush, and timemachine summary/chart output.
 
 ## Remaining Optional Items
 
@@ -132,10 +131,8 @@ These are intentionally not planned unless they become annoying:
 
 ## Suggested PR Order
 
-1. Replace silent returns in `e2e/finance.spec.ts` with deterministic fixture
-   assertions, or delete duplicated weak smoke tests.
-2. Decide on the two low-priority optional items only if they start adding
-   runtime or maintenance noise.
+Decide on the two low-priority optional items only if they start adding runtime
+or maintenance noise.
 
 ## Do Not Simplify
 
