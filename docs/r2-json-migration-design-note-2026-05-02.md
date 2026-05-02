@@ -197,6 +197,7 @@ These are non-negotiable. Implementation is allowed to be simple, but it must pr
 5. **Publish-time gates:** before the manifest switch, every referenced object must exist, be non-empty, match local `bytes`/`sha256`, match SQLite row counts, and parse with the frontend schemas.
 6. **Manifest-last publication:** `manifest.json` is updated only after all snapshot objects are uploaded and read-back verified. Missing manifests or referenced objects return explicit 5xx errors; the Worker must not silently fall back to an older object.
 7. **No full Yahoo refetch:** versioning price artifacts means copying/merging local JSON, not re-fetching full history. Price publishers must carry forward active price rows and fetch only the missing/revision window from Yahoo.
+8. **Single publisher:** at most one publisher may be in flight at a time. Enforce this with a local file lock or one chained automation entry. Two concurrent publishers derived from the same active manifest can silently drop one side's diff when the later manifest wins.
 
 ### DB-to-artifact transformation
 
@@ -258,7 +259,11 @@ snapshots/<version>/prices/<symbol>.json
 
 The exporter should generate a price file for every symbol the frontend can request: every distinct `daily_close.symbol`, plus any representative group ticker that needs an on-demand chart. Missing transaction rows become `transactions: []`.
 
-The nightly price publisher may reuse the active snapshot as input: copy forward unchanged `timeline.json`, `econ.json`, and unchanged price files; merge gap-fetched price rows into changed symbol files; verify the complete new version; then update the manifest last. This preserves the same user-facing atomicity as an ETL publish.
+The nightly price publisher uses the same publish path with a price-update invocation: carry forward unchanged `timeline.json`, `econ.json`, and unchanged price files; merge gap-fetched price rows into changed symbol files; verify the complete new version; then update the manifest last. This preserves the same user-facing atomicity as an ETL publish.
+
+With the initial Wrangler-based publisher, carry-forward can re-upload unchanged objects; the data volume is acceptable. If the publisher later moves to the S3-compatible R2 API, use server-side `CopyObject` for unchanged carry-forward objects instead of downloading and re-uploading bytes.
+
+Per-symbol transactions in `prices/<symbol>.json` duplicate filtered slices of `timeline.json.fidelityTxns`. This denormalization is intentional: `/api/prices/:symbol` stays self-contained and the Worker does not need joins or large JSON parsing.
 
 ### Artifact contract
 
@@ -339,9 +344,11 @@ r2://portal-data/
 }
 ```
 
+`objects` is the fixed, small endpoint set (`timeline`, `econ`). `prices` is the variable per-symbol map. Keeping them separate makes the manifest easier to scan and avoids treating dynamic ticker keys like fixed top-level endpoints.
+
 Do not include hashes that require the Worker to re-read and hash object bodies on every request. The Worker can trust a published manifest because the publisher already verified it; request-time verification should be existence/content-type/streaming only.
 
-Keys in `prices` are canonical ticker strings. The exporter must reject path-unsafe symbols in v1 rather than silently generating ambiguous object keys.
+Keys in `prices` are canonical ticker strings. The exporter must reject path-unsafe symbols in v1 rather than silently generating ambiguous object keys. Path-unsafe means containing `/`, `\`, `..`, NUL, or control characters; alphanumerics plus `.`, `-`, `_`, `=`, and `^` are accepted (`CNY=X`, `^GSPC`, `000300.SS`).
 
 ### Component boundaries
 
@@ -394,13 +401,14 @@ Required behavior:
 - Stream endpoint artifact object bodies directly.
 - For `/prices/:symbol`, decode the path segment, uppercase the symbol, reject path-unsafe symbols, and read the manifest-listed `prices/<symbol>.json` artifact.
 - If the manifest does not know the symbol, return the current SQL-compatible empty payload. If a manifest-referenced object is missing, return an explicit error.
+- If an R2 read fails transiently, return an explicit 5xx. A single same-request retry is acceptable, but do not fall back to a previous manifest or older object.
 - Preserve current cache TTL intent: timeline around 60s, econ around 600s, prices around 300s unless implementation finds a better existing constant.
 - Return explicit errors for missing manifest, missing referenced object, or malformed route.
 - Do not parse endpoint JSON on the hot path.
 
 ### Cache and ETag strategy
 
-`manifest.json` is the only mutable pointer for snapshot data. Do not cache it aggressively. The Worker may cache it for no longer than the shortest endpoint TTL, or skip edge caching for the manifest and rely on endpoint response caching.
+`manifest.json` is the only mutable pointer for snapshot data. Do not cache it aggressively. Keep a small in-Worker TTL cache around the parsed manifest, at most 30 seconds. Endpoint responses can still use the existing edge TTLs. Do not put the manifest in a long-lived edge cache.
 
 Immutable snapshot objects may be uploaded with long-lived metadata such as:
 
@@ -443,7 +451,7 @@ The publish sequence is:
 
 Any failure before step 8 must leave the previous production manifest active. Any failure after step 8 is a post-publish incident and should be handled by publishing the previous manifest or reverting the Worker build.
 
-The publisher should use `wrangler r2 object put` first because it matches the existing Cloudflare CLI workflow and local R2 simulation. If throughput or ergonomics become a real problem, switch the implementation behind `r2_artifacts.py` to the S3-compatible R2 API; keep the command surface unchanged.
+The publisher should use `wrangler r2 object put` first because it matches the existing Cloudflare CLI workflow and local R2 simulation. If throughput or carry-forward ergonomics become a real problem, switch the implementation behind `r2_artifacts.py` to the S3-compatible R2 API and use server-side `CopyObject` for unchanged objects; keep the command surface unchanged.
 
 ## Validation Strategy
 
@@ -503,7 +511,7 @@ Before upload:
 
 Compare the current D1-backed Worker payload to the R2-exported payload.
 
-This is migration-only validation, not a permanent parallel check. Run the existing `verify_vs_prod.py` first so current D1 is known-good against local SQLite. Then D1-vs-R2 parity checks whether the new exporter and R2 Worker reproduce the existing API contract. Delete this harness after cutover confidence is established.
+This is migration-only validation, not a permanent parallel check. During the migration-only parity phase, while D1 is still live, run the existing `verify_vs_prod.py` first so current D1 is known-good against local SQLite. Then D1-vs-R2 parity checks whether the new exporter and R2 Worker reproduce the existing API contract. Delete this harness after cutover confidence is established.
 
 Canonicalization rules:
 
@@ -619,14 +627,14 @@ This is the fastest loop for exporter bugs.
 
 Use Wrangler/Miniflare's local R2 simulation. Cloudflare local development runs Worker code locally and, by default, connects bindings to local simulated resources; R2 supports both local simulation and remote bindings ([Workers local development](https://developers.cloudflare.com/workers/local-development/), [R2 Workers API](https://developers.cloudflare.com/r2/get-started/workers-api/)).
 
-Seed local R2 with the exported artifacts. The eventual `r2_artifacts.py publish --local` command should do this; raw commands illustrate the required order, with `manifest.json` last:
+Seed local R2 with the exported artifacts. The eventual `r2_artifacts.py publish --local` command should do this; the raw command shape is:
 
 ```text
-wrangler r2 object put portal-data/snapshots/<version>/timeline.json --file pipeline/artifacts/r2/snapshots/<version>/timeline.json --local
-wrangler r2 object put portal-data/snapshots/<version>/econ.json --file pipeline/artifacts/r2/snapshots/<version>/econ.json --local
-wrangler r2 object put portal-data/snapshots/<version>/prices/VOO.json --file pipeline/artifacts/r2/snapshots/<version>/prices/VOO.json --local
+wrangler r2 object put portal-data/<key> --file pipeline/artifacts/r2/<key> --local
 wrangler r2 object put portal-data/manifest.json --file pipeline/artifacts/r2/manifest.json --local
 ```
+
+Snapshot objects must be seeded before `manifest.json`.
 
 Then run the Worker locally:
 
@@ -725,7 +733,7 @@ Deliverables:
 - upload-readback verification
 - manifest-last behavior
 - publish summary report
-- price-only publish mode that carries forward active non-price artifacts, gap-fetches prices, writes a fresh complete snapshot, and switches the manifest last
+- single publish path; the price-update invocation carries forward unchanged timeline/econ/price artifacts, gap-fetches prices, writes a fresh complete snapshot, and switches the manifest last
 
 Gate:
 
@@ -823,14 +831,7 @@ R2 object body -> JSON.parse -> JSON.stringify -> Response
 
 ## Cost And Limits
 
-Based on Cloudflare docs checked on 2026-05-02:
-
-- R2 Standard free tier includes 10 GB-month storage, 1M Class A operations/month, and 10M Class B operations/month.
-- R2 egress is free.
-- The current timeline payload is only a few MB raw JSON, far below R2 object limits.
-- Personal dashboard read/write volume should be far below the free tier.
-
-R2 public `r2.dev` URLs are intended for development and can be rate-limited. If R2 is accessed directly, use a custom domain. The preferred design here avoids direct browser access and reads R2 through the Worker.
+R2 Standard free tier includes 10 GB-month storage, 1M Class A operations/month, 10M Class B operations/month, and free egress. Daily snapshots at roughly 5 MB are about 1.8 GB/year, so storage is the only meaningful long-term cost to watch. Avoid public `r2.dev` URLs; serve private R2 objects through the Worker.
 
 ## Code Size Estimate
 
