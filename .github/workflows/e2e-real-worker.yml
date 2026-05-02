@@ -43,7 +43,7 @@ jobs:
 
       # ── Seed local R2 from L2 golden fixtures ──────────────────
       # Builds timemachine.db from committed fixtures, exports endpoint-shaped
-      # artifacts, and publishes them to Miniflare/local R2. Fully offline.
+      # artifacts, and publishes them to Wrangler local R2. Fully offline.
       - name: Seed local R2
         run: bash pipeline/scripts/seed_local_r2_from_fixtures.sh
 

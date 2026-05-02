@@ -4,8 +4,8 @@ import { test, expect } from "@playwright/test";
 // Runs under playwright.config.real.ts against a live `wrangler dev --local`
 // seeded from L2 fixtures (pipeline/scripts/seed_local_r2_from_fixtures.sh).
 //
-// The existing mock-based specs (finance.spec.ts, fail-open.spec.ts, etc.)
-// hard-code fixture-specific strings ("S&P 500", "Buys by Symbol", specific
+// The existing mock-based specs hard-code fixture-specific strings ("S&P 500",
+// "Buys by Symbol", specific
 // ticker names) that don't 1:1 match the L2 golden data, so we don't try to
 // reuse them. Instead these three smoke assertions catch the bug class the
 // mock API cannot: R2 artifact serving defects, Worker code defects, and Zod
@@ -26,7 +26,7 @@ test.describe("Real-worker smoke", () => {
     const body = await res.json();
 
     // Top-level keys the frontend assumes — a missing key would trip Zod.
-    for (const key of ["daily", "dailyTickers", "fidelityTxns", "qianjiTxns", "categories", "errors"]) {
+    for (const key of ["daily", "dailyTickers", "fidelityTxns", "qianjiTxns", "categories", "market", "holdingsDetail"]) {
       expect(body, `missing ${key}`).toHaveProperty(key);
     }
 

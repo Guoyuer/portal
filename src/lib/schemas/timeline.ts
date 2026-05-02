@@ -14,21 +14,6 @@ import {
   TickerDetailSchema,
 } from "./_generated";
 
-// ── Sparkline transform (SQLite stores sparkline as a JSON string) ───────
-
-const SparklineSchema = z
-  .string()
-  .transform((s, ctx) => {
-    try {
-      return JSON.parse(s) as unknown;
-    } catch {
-      ctx.addIssue({ code: "custom", message: "Invalid sparkline JSON" });
-      return z.NEVER;
-    }
-  })
-  .pipe(z.array(z.number()))
-  .nullable();
-
 // ── Market Context ───────────────────────────────────────────────────────
 
 const IndexReturnSchema = z.object({
@@ -37,9 +22,7 @@ const IndexReturnSchema = z.object({
   monthReturn: z.number(),
   ytdReturn: z.number(),
   current: z.number(),
-  // Accept either an already-parsed array (e.g. mock API fixtures) or a JSON
-  // string (the SQLite/export storage format). Both resolve to number[] | null.
-  sparkline: z.union([SparklineSchema, z.array(z.number()).nullable()]).default(null),
+  sparkline: z.array(z.number()).nullable().default(null),
   high52w: z.number().nullable().default(null),
   low52w: z.number().nullable().default(null),
 });
@@ -96,16 +79,6 @@ const CategoryMetaSchema = z.object({
   targetPct: z.number(),
 });
 
-// ── Per-section errors (populated when an optional view fails) ──────────
-
-const TimelineErrorsSchema = z
-  .object({
-    market: z.string().optional(),
-    holdings: z.string().optional(),
-    txns: z.string().optional(),
-  })
-  .default({});
-
 // ── Timeline ────────────────────────────────────────────────────────────
 
 export const TimelineDataSchema = z.object({
@@ -116,10 +89,9 @@ export const TimelineDataSchema = z.object({
   robinhoodTxns: z.array(RobinhoodTxnSchema),
   empowerContributions: z.array(EmpowerContributionSchema),
   categories: z.array(CategoryMetaSchema),
-  market: MarketDataSchema.nullable().default(null),
-  holdingsDetail: z.array(StockDetailSchema).nullable().default(null),
+  market: MarketDataSchema,
+  holdingsDetail: z.array(StockDetailSchema),
   syncMeta: z.record(z.string(), z.string()).nullable().default(null),
-  errors: TimelineErrorsSchema,
 });
 
 // ── Inferred types ──────────────────────────────────────────────────────
@@ -131,7 +103,6 @@ export type QianjiTxn = z.infer<typeof QianjiTxnSchema>;
 export type RobinhoodTxn = z.infer<typeof RobinhoodTxnSchema>;
 export type EmpowerContribution = z.infer<typeof EmpowerContributionSchema>;
 export type TimelineData = z.infer<typeof TimelineDataSchema>;
-export type TimelineErrors = z.infer<typeof TimelineErrorsSchema>;
 export type IndexReturn = z.infer<typeof IndexReturnSchema>;
 export type MarketData = z.infer<typeof MarketDataSchema>;
 export type StockDetail = z.infer<typeof StockDetailSchema>;

@@ -17,8 +17,6 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
-import time
-import uuid
 from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -250,6 +248,21 @@ def _price_symbols(conn: sqlite3.Connection) -> list[str]:
     return [str(row[0]).upper() for row in rows]
 
 
+def _market_indices(conn: sqlite3.Connection) -> list[JsonDict]:
+    rows = _rows(conn, _MARKET_INDICES_SQL)
+    for row in rows:
+        raw = row.get("sparkline")
+        if raw in (None, ""):
+            row["sparkline"] = None
+            continue
+        parsed = json.loads(str(raw))
+        if not isinstance(parsed, list):
+            msg = f"market sparkline is not a JSON array: {row.get('ticker')}"
+            raise RuntimeError(msg)
+        row["sparkline"] = parsed
+    return rows
+
+
 def _build_timeline(conn: sqlite3.Connection, *, version: str, generated_at: str) -> JsonDict:
     daily = _rows(conn, _DAILY_SQL)
     categories = _rows(conn, _CATEGORIES_SQL)
@@ -269,7 +282,7 @@ def _build_timeline(conn: sqlite3.Connection, *, version: str, generated_at: str
         "robinhoodTxns": _rows(conn, _ROBINHOOD_TXNS_SQL),
         "empowerContributions": _rows(conn, _EMPOWER_CONTRIBUTIONS_SQL),
         "categories": categories,
-        "market": {"indices": _rows(conn, _MARKET_INDICES_SQL)},
+        "market": {"indices": _market_indices(conn)},
         "holdingsDetail": _rows(conn, _HOLDINGS_DETAIL_SQL),
         "syncMeta": {
             "backend": "r2",
@@ -277,7 +290,6 @@ def _build_timeline(conn: sqlite3.Connection, *, version: str, generated_at: str
             "last_sync": generated_at,
             "last_date": latest_date,
         },
-        "errors": {},
     }
 
 
@@ -635,21 +647,22 @@ def _readback_wrangler_object(key: str, descriptor: Mapping[str, Any], *, remote
         tmp_path.unlink(missing_ok=True)
 
 
-def _publish_remote_wrangler(artifact_dir: Path, descriptors: list[Mapping[str, Any]]) -> None:
+def _publish_wrangler(artifact_dir: Path, descriptors: list[Mapping[str, Any]], *, remote: bool) -> None:
+    mode = "remote" if remote else "local"
     total = len(descriptors)
-    print(f"Checking remote R2 snapshot keys are absent: {total} objects")
+    print(f"Checking {mode} R2 snapshot keys are absent: {total} objects")
     for idx, descriptor in enumerate(descriptors, start=1):
         if idx == 1 or idx == total or idx % 10 == 0:
             print(f"Checking R2 key {idx}/{total}: {descriptor['key']}")
-        _assert_snapshot_key_absent(str(descriptor["key"]), remote=True)
+        _assert_snapshot_key_absent(str(descriptor["key"]), remote=remote)
 
-    print(f"Uploading and verifying remote R2 snapshot objects: {total} objects")
+    print(f"Uploading and verifying {mode} R2 snapshot objects: {total} objects")
     for idx, descriptor in enumerate(descriptors, start=1):
         key = str(descriptor["key"])
         if idx == 1 or idx == total or idx % 10 == 0:
             print(f"Publishing R2 object {idx}/{total}: {key}")
-        _put_wrangler_object(key, _artifact_path(artifact_dir, key), remote=True)
-        _readback_wrangler_object(key, descriptor, remote=True)
+        _put_wrangler_object(key, _artifact_path(artifact_dir, key), remote=remote)
+        _readback_wrangler_object(key, descriptor, remote=remote)
 
     manifest_path = artifact_dir / "manifest.json"
     manifest_descriptor = {
@@ -659,128 +672,8 @@ def _publish_remote_wrangler(artifact_dir: Path, descriptors: list[Mapping[str, 
         "contentType": _CONTENT_TYPE_JSON,
     }
     print("Publishing R2 manifest.json last")
-    _put_wrangler_object("manifest.json", manifest_path, remote=True)
-    _readback_wrangler_object("manifest.json", manifest_descriptor, remote=True)
-
-
-def _local_r2_root() -> Path:
-    return _WORKER_DIR / ".wrangler" / "state" / "v3" / "r2"
-
-
-def _local_r2_metadata_db() -> Path:
-    """Return the Miniflare metadata DB for the local portal-data R2 bucket.
-
-    Wrangler has no bulk local-R2 import command. Starting Wrangler once per
-    object is still slow during local iteration, so local publish writes the same
-    persisted Miniflare store format that `wrangler r2 object put --local`
-    creates, then verifies the active manifest through Wrangler once.
-    """
-    base = _local_r2_root()
-    bucket_dir = base / _BUCKET_NAME
-    object_dir = base / "miniflare-R2BucketObject"
-    dbs = sorted(object_dir.glob("*.sqlite"))
-    dbs = [p for p in dbs if p.name != "metadata.sqlite"]
-    if not dbs:
-        # Bootstrap the local bucket layout with one Wrangler call. This is
-        # intentionally a single process spawn; all real artifacts are written
-        # directly below.
-        with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".json", delete=False) as tmp:
-            tmp.write("{}")
-            bootstrap = Path(tmp.name)
-        try:
-            result = _run_wrangler_r2(
-                [
-                    "put",
-                    _remote_key(".bootstrap.json"),
-                    "--local",
-                    f"--file={bootstrap}",
-                    f"--content-type={_CONTENT_TYPE_JSON}",
-                ]
-            )
-            if result.returncode != 0:
-                msg = (
-                    "wrangler failed to bootstrap local R2 storage\n"
-                    f"stderr:\n{result.stderr or '(empty)'}\nstdout:\n{result.stdout or '(empty)'}"
-                )
-                raise RuntimeError(msg)
-        finally:
-            bootstrap.unlink(missing_ok=True)
-        dbs = sorted(object_dir.glob("*.sqlite"))
-        dbs = [p for p in dbs if p.name != "metadata.sqlite"]
-    if len(dbs) != 1:
-        msg = f"expected exactly one local R2 metadata DB under {object_dir}, found {len(dbs)}"
-        raise RuntimeError(msg)
-    (bucket_dir / "blobs").mkdir(parents=True, exist_ok=True)
-    return dbs[0]
-
-
-def _put_local_r2_object(
-    conn: sqlite3.Connection,
-    *,
-    key: str,
-    file_path: Path,
-    content_type: str = _CONTENT_TYPE_JSON,
-) -> None:
-    data = file_path.read_bytes()
-    sha = hashlib.sha256(data).hexdigest()
-    suffix = f"{time.time_ns() & ((1 << 64) - 1):016x}"
-    blob_id = f"{sha}{suffix}"
-    blob_path = _local_r2_root() / _BUCKET_NAME / "blobs" / blob_id
-    blob_path.write_bytes(data)
-    conn.execute(
-        """
-        INSERT OR REPLACE INTO _mf_objects
-          (key, blob_id, version, size, etag, uploaded, checksums, http_metadata, custom_metadata)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            key,
-            blob_id,
-            uuid.uuid4().hex,
-            len(data),
-            hashlib.md5(data, usedforsecurity=False).hexdigest(),
-            int(time.time() * 1000),
-            "{}",
-            json.dumps({"contentType": content_type}, separators=(",", ":")),
-            "{}",
-        ),
-    )
-
-
-def _verify_local_manifest_via_wrangler(expected_sha256: str) -> None:
-    with tempfile.NamedTemporaryFile(delete=False) as tmp:
-        tmp_path = Path(tmp.name)
-    try:
-        result = _run_wrangler_r2(
-            ["get", _remote_key("manifest.json"), "--local", f"--file={tmp_path}"]
-        )
-        if result.returncode != 0:
-            msg = (
-                "wrangler could not read back local R2 manifest\n"
-                f"stderr:\n{result.stderr or '(empty)'}\nstdout:\n{result.stdout or '(empty)'}"
-            )
-            raise RuntimeError(msg)
-        _expect_equal("local R2 manifest sha256", _sha256(tmp_path), expected_sha256)
-    finally:
-        tmp_path.unlink(missing_ok=True)
-
-
-def _publish_local_fast(artifact_dir: Path, descriptors: list[Mapping[str, Any]]) -> None:
-    db_path = _local_r2_metadata_db()
-    conn = sqlite3.connect(db_path)
-    try:
-        conn.execute("BEGIN")
-        for descriptor in descriptors:
-            key = str(descriptor["key"])
-            _put_local_r2_object(conn, key=key, file_path=_artifact_path(artifact_dir, key))
-        _put_local_r2_object(conn, key="manifest.json", file_path=artifact_dir / "manifest.json")
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
-    _verify_local_manifest_via_wrangler(_sha256(artifact_dir / "manifest.json"))
+    _put_wrangler_object("manifest.json", manifest_path, remote=remote)
+    _readback_wrangler_object("manifest.json", manifest_descriptor, remote=remote)
 
 
 def publish_artifacts(
@@ -793,12 +686,8 @@ def publish_artifacts(
     manifest = verify_artifacts(db_path=db_path, artifact_dir=artifact_dir, schema=schema)
     descriptors: list[Mapping[str, Any]] = list(manifest["objects"].values())
     with _single_publisher_lock():
-        if remote:
-            _publish_remote_wrangler(artifact_dir, descriptors)
-            mode = "remote"
-        else:
-            _publish_local_fast(artifact_dir, descriptors)
-            mode = "local"
+        _publish_wrangler(artifact_dir, descriptors, remote=remote)
+        mode = "remote" if remote else "local"
     print(f"Published R2 artifacts to {mode} {_BUCKET_NAME}: version={manifest['version']}")
     return manifest
 
@@ -822,7 +711,7 @@ def _parse_args() -> argparse.Namespace:
 
     publish_p = sub.add_parser("publish", help="Publish artifacts with manifest-last ordering")
     mode = publish_p.add_mutually_exclusive_group(required=True)
-    mode.add_argument("--local", action="store_true", help="Publish to Miniflare/local R2")
+    mode.add_argument("--local", action="store_true", help="Publish to Wrangler local R2")
     mode.add_argument("--remote", action="store_true", help="Publish to production R2")
     publish_p.add_argument("--skip-schema", action="store_true", help="Skip frontend Zod validation")
 

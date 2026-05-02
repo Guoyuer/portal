@@ -97,7 +97,7 @@ Useful flags:
 
 - `--dry-run` - build, export, verify, skip publish
 - `--force` - bypass change detection
-- `--local` - publish to local Miniflare R2
+- `--local` - publish to Wrangler local R2
 
 The marker file is updated only after a non-dry-run publish succeeds.
 

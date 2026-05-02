@@ -11,7 +11,6 @@ export {
   type RobinhoodTxn,
   type EmpowerContribution,
   type TimelineData,
-  type TimelineErrors,
   type IndexReturn,
   type MarketData,
   type StockDetail,

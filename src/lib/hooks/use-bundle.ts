@@ -54,10 +54,6 @@ export interface BundleState {
   crossCheck: CrossCheck | null;
   monthlyFlows: MonthlyFlowPoint[];
   syncMeta: Record<string, string> | null;
-  // ── Per-section errors (populated when the Worker could not load a view) ──
-  marketError: string | null;
-  holdingsError: string | null;
-  txnsError: string | null;
 }
 
 /** Finance dashboard's single data entry point. Orchestrates three layers:

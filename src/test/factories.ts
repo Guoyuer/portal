@@ -171,10 +171,9 @@ export function mkTimelinePayload(overrides: Record<string, unknown> = {}) {
     robinhoodTxns: [],
     empowerContributions: [],
     categories: CATEGORIES,
-    market: null,
-    holdingsDetail: null,
+    market: MARKET,
+    holdingsDetail: [],
     syncMeta: null,
     ...overrides,
   };
 }
-

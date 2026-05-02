@@ -39,6 +39,11 @@ def _seed_exportable_db(db_path: Path) -> None:
             "(run_date, account_number, action, action_type, action_kind, symbol, lot_type, quantity, price, amount) "
             "VALUES ('2026-05-01', 'A', 'YOU BOUGHT', 'buy', 'buy', 'VOO', 'Cash', 1, 500.25, -500.25)"
         )
+        conn.execute(
+            "INSERT INTO computed_market_indices "
+            "(ticker, name, current, month_return, ytd_return, high_52w, low_52w, sparkline) "
+            "VALUES ('^GSPC', 'S&P 500', 5000, 1.2, 3.4, 5100, 4000, '[4900,5000]')"
+        )
         conn.commit()
     finally:
         conn.close()
@@ -62,6 +67,8 @@ def test_export_writes_manifest_summary_and_endpoint_artifacts(empty_db: Path, t
 
     timeline = json.loads((artifact_dir / "snapshots/2026-05-02T170000Z/timeline.json").read_text())
     assert timeline["daily"][0]["total"] == 1000
+    assert "errors" not in timeline
+    assert timeline["market"]["indices"][0]["sparkline"] == [4900, 5000]
     assert timeline["syncMeta"] == {
         "backend": "r2",
         "version": "2026-05-02T170000Z",
@@ -121,7 +128,14 @@ def test_export_allows_symbols_that_are_only_json_keys(empty_db: Path, tmp_path:
     assert prices["BAD/SYM"]["prices"] == [{"close": 1.0, "date": "2026-05-01"}]
 
 
-def test_remote_publish_uploads_manifest_last(empty_db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(("remote", "mode_flag"), [(True, "--remote"), (False, "--local")])
+def test_publish_uploads_manifest_last(
+    empty_db: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    remote: bool,
+    mode_flag: str,
+) -> None:
     _seed_exportable_db(empty_db)
     artifact_dir = tmp_path / "r2"
     export_artifacts(
@@ -136,6 +150,7 @@ def test_remote_publish_uploads_manifest_last(empty_db: Path, tmp_path: Path, mo
 
     def fake_wrangler(args: list[str], *, capture: bool = True) -> subprocess.CompletedProcess[str]:
         assert capture
+        assert mode_flag in args
         op = args[0]
         key = args[1].split("/", 1)[1]
         file_arg = next((a for a in args if a.startswith("--file=")), None)
@@ -155,7 +170,7 @@ def test_remote_publish_uploads_manifest_last(empty_db: Path, tmp_path: Path, mo
     monkeypatch.setattr(r2_artifacts, "_run_wrangler_r2", fake_wrangler)
     monkeypatch.setattr(r2_artifacts, "_LOCK_PATH", tmp_path / "publish.lock")
 
-    r2_artifacts.publish_artifacts(db_path=empty_db, artifact_dir=artifact_dir, remote=True, schema=False)
+    r2_artifacts.publish_artifacts(db_path=empty_db, artifact_dir=artifact_dir, remote=remote, schema=False)
 
     assert put_order[-1] == "manifest.json"
     assert "snapshots/2026-05-02T170000Z/timeline.json" in uploaded

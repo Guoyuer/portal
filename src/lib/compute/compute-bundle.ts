@@ -52,9 +52,6 @@ export interface ComputedBundle {
   crossCheck: CrossCheck | null;
   monthlyFlows: MonthlyFlowPoint[];
   syncMeta: Record<string, string> | null;
-  marketError: string | null;
-  holdingsError: string | null;
-  txnsError: string | null;
 }
 
 const EMPTY_BUNDLE: ComputedBundle = {
@@ -78,9 +75,6 @@ const EMPTY_BUNDLE: ComputedBundle = {
   crossCheck: null,
   monthlyFlows: [],
   syncMeta: null,
-  marketError: null,
-  holdingsError: null,
-  txnsError: null,
 };
 
 type WindowSlice = Pick<ComputedBundle, "cashflow" | "activity" | "groupedActivity" | "crossCheck">;
@@ -151,13 +145,8 @@ export function computeBundle(
     allocation,
     ...computeWindow(data, investmentTxns, startDate, snapshotDate),
     monthlyFlows: computeMonthlyFlows(data.qianjiTxns, startDate, snapshotDate),
-    // schema-nullable fields come through as T | null already; no need to coalesce
     market: data.market,
     holdingsDetail: data.holdingsDetail,
     syncMeta: data.syncMeta,
-    // errors is .default({}) + optional members — convert undefined → null for the interface
-    marketError: data.errors.market ?? null,
-    holdingsError: data.errors.holdings ?? null,
-    txnsError: data.errors.txns ?? null,
   };
 }
