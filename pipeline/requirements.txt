@@ -6,7 +6,7 @@ fredapi>=0.5,<1
 httpx>=0.28,<1
 
 # .env auto-loader (dev convenience; existing env vars still win)
-python-dotenv>=1.2.0,<2
+python-dotenv>=1.2.2,<2
 
 # Email body templating for changelog (etl/changelog/render.py)
 jinja2>=3,<4
