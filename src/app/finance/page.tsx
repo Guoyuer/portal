@@ -138,7 +138,7 @@ export default function FinancePage() {
   const {
     allocation, cashflow, activity, groupedActivity, market, crossCheck,
     categories, chartDaily, monthlyFlows,
-    syncMeta, marketError,
+    syncMeta,
     brushStart, brushEnd, defaultStartIndex, defaultEndIndex, onBrushChange,
     dailyTickers, fidelityTxns,
   } = tl;
@@ -233,7 +233,7 @@ export default function FinancePage() {
             <>
               <SectionHeader>Market</SectionHeader>
               <SectionMessage kind="unavailable" wrap={false} data-testid="market-error">
-                Market data failed to load{marketError ? `: ${marketError}` : ""}
+                Market data unavailable
               </SectionMessage>
             </>
           )}

@@ -226,23 +226,6 @@ const TIMELINE = {
   market,
   holdingsDetail,
   syncMeta: { last_sync: new Date().toISOString(), last_date: lastDate },
-  errors: {},
-};
-
-// Failure-mode variant: market section degraded (fail-open behaviour). Used by
-// the error-card Playwright spec — request via ?fail=market.
-const TIMELINE_MARKET_FAILED = {
-  daily,
-  dailyTickers,
-  fidelityTxns,
-  qianjiTxns,
-  robinhoodTxns: [],
-  empowerContributions: [],
-  categories,
-  market: null,
-  holdingsDetail,
-  syncMeta: { last_sync: new Date().toISOString(), last_date: lastDate },
-  errors: { market: "indices: db timeout" },
 };
 
 // ── Econ ─────────────────────────────────────────────────────────────────
@@ -282,10 +265,8 @@ const server = http.createServer((req, res) => {
   const url = new URL(req.url ?? "/", `http://localhost`);
 
   if (url.pathname === "/timeline") {
-    const fail = url.searchParams.get("fail");
-    const payload = fail === "market" ? TIMELINE_MARKET_FAILED : TIMELINE;
     res.writeHead(200, CORS);
-    res.end(JSON.stringify(payload));
+    res.end(JSON.stringify(TIMELINE));
     return;
   }
 
