@@ -34,12 +34,12 @@ Raw data
 -> Next static frontend
 ```
 
-The frontend API surface should stay unchanged:
+The main dashboard endpoints stay the same. Ticker chart data moves from one request per symbol to one lazy bundle request:
 
 ```text
 GET /api/timeline
 GET /api/econ
-GET /api/prices/:symbol
+GET /api/prices
 ```
 
 Only the Worker implementation changes:
@@ -64,7 +64,7 @@ B2 means:
 
 - local SQLite remains the source/build/debug database and SQL investigation surface
 - production serving data becomes validated JSON artifacts in R2
-- the Worker keeps the same public API but reads through a manifest pointer
+- the Worker keeps a narrow API but reads through a manifest pointer
 - row counts, hashes, schema parsing, and baseline-vs-R2 parity are hard gates before cutover
 - `manifest.json` is updated last, after every referenced object is uploaded and verified
 - old R2 snapshots are retained for manifest rollback
@@ -91,10 +91,7 @@ r2://portal-data/
   snapshots/2026-05-02T120000Z/
     timeline.json
     econ.json
-    prices/
-      VOO.json                               # full /prices/VOO response
-      SPY.json
-      FXAIX.json
+    prices.json                              # full /prices bundle, keyed by symbol
 ```
 
 Publication order matters because R2 does not provide a multi-object transaction:
@@ -111,25 +108,29 @@ The manifest acts as the atomic publish pointer. Users should never read a half-
 
 Keep old snapshots unless storage becomes a problem. At today's scale, 5-20 MB per publish is cheap enough that retention should start as "do not actively delete"; add a simple N-day GC only after the R2 bucket has real growth data.
 
-## Prices: Versioned Endpoint Artifacts
+## Prices: Versioned Bundle Artifact
 
-Each price file stores the complete current endpoint response:
+`prices.json` stores every current ticker chart payload keyed by symbol:
 
 ```json
 {
-  "symbol": "VOO",
-  "prices": [
-    { "date": "2026-05-01", "close": 512.34 }
-  ],
-  "transactions": [
-    { "runDate": "2025-01-15", "actionType": "buy", "quantity": 1.23, "price": 480.0, "amount": 590.4 }
-  ]
+  "VOO": {
+    "symbol": "VOO",
+    "prices": [
+      { "date": "2026-05-01", "close": 512.34 }
+    ],
+    "transactions": [
+      { "runDate": "2025-01-15", "actionType": "buy", "quantity": 1.23, "price": 480.0, "amount": 590.4 }
+    ]
+  }
 }
 ```
 
-This intentionally copies unchanged price files between versions. That is simpler and safer than a mutable `prices/` tree with separate transaction-marker artifacts, index files, bootstrap rules, and cross-writer ownership.
+This intentionally republishes the full price bundle between versions. That is simpler and safer than a mutable `prices/` tree with separate transaction-marker artifacts, index files, bootstrap rules, cross-writer ownership, and hundreds of per-object publish calls.
 
-For v1, use the canonical ticker symbol directly as the object filename (`prices/VOO.json`, `prices/CNY=X.json`, `prices/^GSPC.json`). The exporter must fail loudly if a symbol contains `/` or another path-unsafe character. Add encoding later only when a real ticker requires it.
+The frontend fetches `/api/prices` lazily the first time a ticker chart is opened, caches the bundle in memory, and then looks up `bundle[symbol]`. The Worker streams `prices.json` directly and does not parse the bundle on the hot path. Do not put prices into `timeline.json`; that would make every dashboard load pay the price-chart cost even when no ticker chart is opened.
+
+For v1, use canonical ticker strings as object keys inside `prices.json`. The exporter must fail loudly if a symbol contains `/` or another path-unsafe character. Add encoding later only when a real ticker requires it.
 
 ### yfinance call count must not change
 
@@ -146,7 +147,7 @@ After migration the algorithm is identical, only the state reads change:
 
 ```text
 GET manifest.json
-GET active snapshots/<version>/prices/*.json                 # current maxDate by symbol
+GET active snapshots/<version>/prices.json                   # current maxDate by symbol
 → compute per-symbol gap
 → yfinance fetch only the gap
 → merge each changed symbol by date
@@ -156,9 +157,9 @@ GET active snapshots/<version>/prices/*.json                 # current maxDate b
 
 yfinance call count is **identical to today** — gap-only, per-symbol. A full versioned price snapshot does **not** mean a full Yahoo refetch. Price publishers must carry forward existing price rows from the active snapshot and fetch only the missing/revision window. Re-fetching full price history from Yahoo on every publish is a correctness/performance bug.
 
-R2 traffic increases because unchanged price files are copied into the new snapshot, but this is acceptable for a small personal dashboard and removes a whole class of mutable-cache correctness questions. Each symbol update must be an idempotent date-keyed merge of the `prices` array, not blind append, because recent Yahoo closes and split-adjusted history can be revised.
+R2 traffic increases because the whole price bundle is copied into the new snapshot, but this is acceptable for a small personal dashboard and removes a whole class of mutable-cache correctness questions. Each symbol update must be an idempotent date-keyed merge of that symbol's `prices` array, not blind append, because recent Yahoo closes and split-adjusted history can be revised.
 
-The nightly price job should use the same publisher path as the ETL run. It may carry forward unchanged `timeline.json` and `econ.json` from the active snapshot, update price files, verify the complete artifact set, then switch the manifest. Do not keep a separate mutable price publisher.
+The nightly price job should use the same publisher path as the ETL run. It may carry forward unchanged `timeline.json` and `econ.json` from the active snapshot, update `prices.json`, verify the complete artifact set, then switch the manifest. Do not keep a separate mutable price publisher.
 
 ## Why Keep The Worker
 
@@ -168,7 +169,7 @@ The reason is not merely same-origin access. The Worker keeps the production con
 
 - R2 remains private; personal finance JSON is not directly public bucket content.
 - Cloudflare Access/auth stays at the API boundary.
-- The frontend keeps `/api/timeline`, `/api/econ`, and `/api/prices/:symbol`.
+- The frontend uses `/api/timeline`, `/api/econ`, and lazy `/api/prices`.
 - Manifest lookup stays server-side instead of leaking object paths into the browser.
 - Cache headers, missing-object errors, and stale-manifest errors are handled in one place.
 - Rollback can be controlled through the manifest or Worker config without changing frontend code.
@@ -192,7 +193,7 @@ These are non-negotiable. Implementation is allowed to be simple, but it must pr
 
 1. **Single source of truth:** every production artifact is exported from the same local `timemachine.db` that passed regression gates.
 2. **Shape compatibility:** artifacts are endpoint-shaped JSON produced from the same SQLite view projections and source queries as the current D1 Worker.
-3. **Complete versioned snapshot:** `manifest.json` points to one complete snapshot containing `timeline.json`, `econ.json`, and all `prices/<symbol>.json` files. The Worker must never list a snapshot directory and infer "latest".
+3. **Complete versioned snapshot:** `manifest.json` points to one complete snapshot containing `timeline.json`, `econ.json`, and `prices.json`. The Worker must never list a snapshot directory and infer "latest".
 4. **Write-once snapshots:** a publish must create a fresh version id and refuse to overwrite any existing `snapshots/<version>/...` key, using a HEAD check or conditional put such as `If-None-Match: *`.
 5. **Publish-time gates:** before the manifest switch, every referenced object must exist, be non-empty, match local `bytes`/`sha256`, match SQLite row counts, and parse with the frontend schemas.
 6. **Manifest-last publication:** `manifest.json` is updated only after all snapshot objects are uploaded and read-back verified. Missing manifests or referenced objects return explicit 5xx errors; the Worker must not silently fall back to an older object.
@@ -242,28 +243,32 @@ series      = object from SELECT key, points FROM v_econ_series_grouped
 
 Keep `series[key]` as the SQLite JSON string produced by `json_group_array`, matching the current API. The frontend `EconDataSchema` already accepts and parses that string. Migration parity may normalize `generatedAt`; values inside `snapshot` and `series` must match exactly.
 
-Each `prices/<symbol>.json` file is assembled as the full current price endpoint response:
+`prices.json` is assembled as a symbol-keyed bundle of the current price chart responses:
 
 ```text
-snapshots/<version>/prices/<symbol>.json
-  symbol       = canonical symbol
-  prices       = SELECT date, close
-                 FROM daily_close
-                 WHERE symbol = :symbol
-                 ORDER BY date
-  transactions = SELECT run_date AS runDate, action_type AS actionType, quantity, price, amount
-                 FROM fidelity_transactions
-                 WHERE symbol = :symbol
-                 ORDER BY id
+snapshots/<version>/prices.json
+  {
+    [symbol]: {
+      symbol       = canonical symbol
+      prices       = SELECT date, close
+                     FROM daily_close
+                     WHERE symbol = :symbol
+                     ORDER BY date
+      transactions = SELECT run_date AS runDate, action_type AS actionType, quantity, price, amount
+                     FROM fidelity_transactions
+                     WHERE symbol = :symbol
+                     ORDER BY id
+    }
+  }
 ```
 
-The exporter should generate a price file for every symbol the frontend can request: every distinct `daily_close.symbol`, plus any representative group ticker that needs an on-demand chart. Missing transaction rows become `transactions: []`.
+The exporter should generate one bundle entry for every symbol the frontend can request: every distinct `daily_close.symbol`, plus any representative group ticker that needs an on-demand chart. Missing transaction rows become `transactions: []`.
 
-The nightly price publisher uses the same publish path with a price-update invocation: carry forward unchanged `timeline.json`, `econ.json`, and unchanged price files; merge gap-fetched price rows into changed symbol files; verify the complete new version; then update the manifest last. This preserves the same user-facing atomicity as an ETL publish.
+The nightly price publisher uses the same publish path with a price-update invocation: carry forward unchanged `timeline.json` and `econ.json`; merge gap-fetched price rows into `prices.json`; verify the complete new version; then update the manifest last. This preserves the same user-facing atomicity as an ETL publish.
 
 Carry-forward can re-upload unchanged objects in v1; the data volume is acceptable. Revisit only if publish time becomes a real problem.
 
-Per-symbol transactions in `prices/<symbol>.json` duplicate filtered slices of `timeline.json.fidelityTxns`. This denormalization is intentional: `/api/prices/:symbol` stays self-contained and the Worker does not need joins or large JSON parsing.
+Per-symbol transactions in `prices.json` duplicate filtered slices of `timeline.json.fidelityTxns`. This denormalization is intentional: ticker charts stay self-contained on the frontend and the Worker does not need joins or large JSON parsing.
 
 ### Artifact contract
 
@@ -274,7 +279,7 @@ pipeline/artifacts/r2/
   manifest.json
   snapshots/<version>/timeline.json
   snapshots/<version>/econ.json
-  snapshots/<version>/prices/<symbol>.json
+  snapshots/<version>/prices.json
   reports/
     export-summary.json
     parity-summary.json
@@ -287,7 +292,7 @@ r2://portal-data/
   manifest.json
   snapshots/<version>/timeline.json
   snapshots/<version>/econ.json
-  snapshots/<version>/prices/<symbol>.json
+  snapshots/<version>/prices.json
 ```
 
 `manifest.json` should be explicit enough to serve as the publish receipt:
@@ -312,26 +317,24 @@ r2://portal-data/
       "sha256": "...",
       "bytes": 120000,
       "contentType": "application/json"
-    }
-  },
-  "prices": {
-    "VOO": {
-      "key": "snapshots/2026-05-02T170000Z/prices/VOO.json",
+    },
+    "prices": {
+      "key": "snapshots/2026-05-02T170000Z/prices.json",
       "sha256": "...",
-      "bytes": 250000,
+      "bytes": 2600000,
       "contentType": "application/json"
     }
   }
 }
 ```
 
-`objects` is the fixed, small endpoint set (`timeline`, `econ`). `prices` is the variable per-symbol map. Keeping them separate makes the manifest easier to scan and avoids treating dynamic ticker keys like fixed top-level endpoints.
+`objects` is the fixed endpoint artifact set (`timeline`, `econ`, `prices`). Per-symbol keys live inside `prices.json`, not in the manifest, so daily publication stays to three snapshot object uploads plus the manifest flip.
 
 Keep row counts in `reports/export-summary.json`, not in the manifest. They are a publisher/verifier concern; the Worker and frontend do not read them.
 
 Do not include hashes that require the Worker to re-read and hash object bodies on every request. The Worker can trust a published manifest because the publisher already verified it; request-time verification should be existence/content-type/streaming only.
 
-Keys in `prices` are canonical ticker strings. The exporter must reject path-unsafe symbols in v1 rather than silently generating ambiguous object keys. Path-unsafe means containing `/`, `\`, `..`, NUL, or control characters; alphanumerics plus `.`, `-`, `_`, `=`, and `^` are accepted (`CNY=X`, `^GSPC`, `000300.SS`).
+Keys in `prices.json` are canonical ticker strings. The exporter must reject path-unsafe symbols in v1 rather than silently generating ambiguous object keys. Path-unsafe means containing `/`, `\`, `..`, NUL, or control characters; alphanumerics plus `.`, `-`, `_`, `=`, and `^` are accepted (`CNY=X`, `^GSPC`, `000300.SS`).
 
 ### Component boundaries
 
@@ -343,6 +346,7 @@ pipeline/scripts/r2_artifacts.py
     export   -- read SQLite views, write JSON files, write manifest, write export summary
     verify   -- row-count check, sha256/bytes check, latest-date check, schema check, optional baseline diff
     publish  -- upload objects, read back and verify, upload manifest last
+    capture-baseline -- capture current D1 API payloads for migration-only parity
   modes:
     --local  -- publish to Miniflare/local R2
     --remote -- publish to production R2
@@ -368,21 +372,23 @@ Prefer one Python CLI over several near-identical scripts. The ownership boundar
 
 ### Worker behavior
 
-Routes should preserve the current public API:
+Routes should keep the dashboard API small and stream-oriented:
 
 ```text
 GET /api/timeline      -> manifest.objects.timeline.key
 GET /api/econ          -> manifest.objects.econ.key
-GET /api/prices/:sym   -> manifest.prices[symbol].key
+GET /api/prices        -> manifest.objects.prices.key
 ```
+
+During the transition, the D1-backed Worker can keep `/api/prices/:symbol` as a compatibility route. The R2 steady-state path should not need it; the frontend fetches `/api/prices` once, validates it with `TickerPricesBundleSchema`, and picks symbols client-side.
 
 Required behavior:
 
 - Strip the optional `/api` prefix exactly as today.
-- Fetch `manifest.json` for timeline/econ and prices; cache it briefly.
+- Fetch `manifest.json` for timeline/econ/prices; cache it briefly.
 - Stream endpoint artifact object bodies directly.
-- For `/prices/:symbol`, decode the path segment, uppercase the symbol, reject path-unsafe symbols, and read the manifest-listed `prices/<symbol>.json` artifact.
-- If the manifest does not know the symbol, return the current SQL-compatible empty payload. If a manifest-referenced object is missing, return an explicit error.
+- For `/prices`, stream the manifest-listed `prices.json` object. Do not parse the bundle in the Worker just to pick one ticker.
+- If a manifest-referenced object is missing, return an explicit error.
 - If an R2 read fails transiently, return an explicit 5xx. A single same-request retry is acceptable, but do not fall back to a previous manifest or older object.
 - Preserve current cache TTL intent: timeline around 60s, econ around 600s, prices around 300s unless implementation finds a better existing constant.
 - Return explicit errors for missing manifest, missing referenced object, or malformed route.
@@ -412,7 +418,9 @@ Any failure before step 8 must leave the previous production manifest active. An
 
 Post-publish health check is separate and non-blocking in v1: `GET /api/timeline` should return 200 with a non-empty body; on failure log and alert, but do not auto-rollback.
 
-Remote publishing can start with `wrangler r2 object put` because it matches the existing Cloudflare CLI workflow. Local publishing should avoid one Wrangler process per object; use a bulk local-R2 seed path and verify the final `manifest.json` through Wrangler or the Worker. Re-uploading unchanged carry-forward objects is acceptable at this scale; revisit only if publish time becomes a real problem.
+Remote publishing can start with `wrangler r2 object put` because it matches the existing Cloudflare CLI workflow. The remote path must hold the single-publisher lock, refuse to overwrite `snapshots/<version>/...` keys, upload all snapshot objects first, read back and verify `bytes`/`sha256`, then upload and verify `manifest.json` last. Local publishing should avoid one Wrangler process per object; use a bulk local-R2 seed path and verify the final `manifest.json` through Wrangler or the Worker. Re-uploading unchanged carry-forward objects is acceptable at this scale; revisit only if publish time becomes a real problem.
+
+Hard constraint: steady-state publish must not perform one R2 operation per ticker. The v1 artifact set is exactly three snapshot objects (`timeline.json`, `econ.json`, `prices.json`) plus `manifest.json`; the remote publisher may check/read back those objects, but network operations must stay proportional to endpoint artifacts, not symbol count.
 
 ## Validation Strategy
 
@@ -463,7 +471,7 @@ Before upload:
 
 - `timeline.json` parses with the existing frontend Zod schema.
 - `econ.json` parses with the existing frontend Zod schema.
-- every generated `prices/*.json` parses with `TickerPriceResponseSchema`.
+- `prices.json` parses with `TickerPricesBundleSchema`, and every entry parses with `TickerPriceResponseSchema`.
 - `reports/export-summary.json` row counts match SQLite source views.
 - latest date matches `MAX(date)` from `computed_daily`.
 - manifest hashes match local files.
@@ -478,6 +486,9 @@ Canonicalization rules:
 
 - sort object keys
 - keep array order fixed by SQL `ORDER BY`
+- for legacy D1 arrays whose order came from mutable row ids or lacked an explicit semantic `ORDER BY`, canonicalize as multisets during migration parity; this may only hide order differences, never row value or row multiplicity differences
+- normalize JSON number representation for parity (`1` vs `1.0`), while still treating different numeric values as diffs
+- for `prices` rows, use the same `daily_close` refresh-window semantics as the current D1 gate: immutable-window rows must not be dropped or changed; refresh-window close revisions may differ and must be reported as expected price corrections
 - normalize null vs absent only where the current API already treats them equivalently
 - allow known volatile fields such as generated timestamps if needed
 - keep numeric tolerances extremely tight: ideally exact, at most cents for money
@@ -494,6 +505,7 @@ Deterministic migration symbol set:
 
 - compare all price symbols for v1. The current project is small enough that sampling is unnecessary.
 - if the set ever becomes too large, define a deterministic subset then; do not hand-pick a few symbols.
+- if the current D1 `/prices/:symbol` route returns 404 for an otherwise valid local symbol because the old route cannot represent that ticker path, record it as a migration-baseline skip and rely on the local bundle schema/row-count/hash checks for that symbol. This is a pre-existing API reachability bug, not an allowed data diff.
 
 The go/no-go standard should be: zero unexpected diffs.
 
@@ -529,7 +541,7 @@ frontend:
 Expected local checks:
 
 - generated artifacts pass schema, row-count, bytes, sha256, latest-date, and non-empty checks.
-- `GET /api/timeline`, `/api/econ`, and `/api/prices/VOO` return 200 from local R2.
+- `GET /api/timeline`, `/api/econ`, and `/api/prices` return 200 from local R2.
 - response body hash equals the local artifact hash for streamed endpoint artifacts.
 - missing manifest or missing object returns an explicit error, not stale or partial data.
 
@@ -547,7 +559,7 @@ Keep the previous D1-backed Worker deployment and untouched D1 database only for
 
 Implement in three PRs:
 
-1. **Exporter + local R2 Worker:** add `r2_artifacts.py export/verify`, manifest generation, local R2 publish, and Worker R2 routes. Gate: artifacts pass schema/count/hash checks and `wrangler dev --local` serves `/api/timeline`, `/api/econ`, and `/api/prices/VOO` from local R2.
+1. **Exporter + local R2 Worker:** add `r2_artifacts.py export/verify`, manifest generation, local R2 publish, and Worker R2 routes. Gate: artifacts pass schema/count/hash checks and `wrangler dev --local` serves `/api/timeline`, `/api/econ`, and `/api/prices` from local R2.
 2. **Publisher + migration cutover:** add remote publish with manifest-last, single-publisher lock, upload read-back verification, price-update invocation, and one-time baseline-vs-R2 canonical parity. Gate: zero unexpected payload diffs, local-R2 frontend sanity check passes, production smoke returns 200 for `/api/timeline`.
 3. **D1 cleanup:** after at least one successful unattended R2 publish and rollback-window expiry, remove D1 sync, Worker SQL, schema generation, D1 workflows/tests, and the migration-only baseline files. Gate: local SQL/debug still works through `timemachine.db`.
 
@@ -560,7 +572,7 @@ The migration is done when:
 - every publish is gated by regression, artifact validation, row counts, hashes, and manifest-last semantics
 - local testing can rehearse exporter -> local R2 -> Worker -> frontend without touching production
 - D1-specific sync/parity/schema code has been deleted or explicitly quarantined for the short emergency rollback window only
-- the frontend API surface remains unchanged
+- the frontend API surface stays narrow: timeline, econ, and lazy prices bundle
 
 ## Performance Expectations
 

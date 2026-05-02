@@ -27,6 +27,8 @@ export {
 
 export {
   TickerPriceResponseSchema,
+  TickerPricesBundleSchema,
   type TickerPricePoint,
+  type TickerPricesBundle,
   type TickerTxn,
 } from "./ticker";

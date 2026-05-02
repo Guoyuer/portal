@@ -75,10 +75,8 @@ function manifest(): string {
         bytes: 2,
         contentType: "application/json",
       },
-    },
-    prices: {
-      VOO: {
-        key: "snapshots/2026-05-02T170000Z/prices/VOO.json",
+      prices: {
+        key: "snapshots/2026-05-02T170000Z/prices.json",
         sha256: "x",
         bytes: 2,
         contentType: "application/json",
@@ -110,17 +108,20 @@ describe("Worker R2 path", () => {
     await expect(res.json()).resolves.toEqual({ ok: "timeline" });
   });
 
-  it("returns the SQL-compatible empty price payload for unknown symbols", async () => {
+  it("streams the bundled prices artifact without Worker-side symbol lookup", async () => {
     installCache();
     const env = {
       DATA_BACKEND: "r2",
-      PORTAL_DATA: makeR2({ "manifest.json": manifest() }),
+      PORTAL_DATA: makeR2({
+        "manifest.json": manifest(),
+        "snapshots/2026-05-02T170000Z/prices.json": '{"VOO":{"symbol":"VOO","prices":[],"transactions":[]}}',
+      }),
     };
 
-    const res = await worker.fetch(new Request("http://localhost/api/prices/UNKNOWN"), env, makeCtx());
+    const res = await worker.fetch(new Request("http://localhost/api/prices"), env, makeCtx());
 
     expect(res.status).toBe(200);
-    await expect(res.json()).resolves.toEqual({ symbol: "UNKNOWN", prices: [], transactions: [] });
+    await expect(res.json()).resolves.toEqual({ VOO: { symbol: "VOO", prices: [], transactions: [] } });
   });
 
   it("rejects path-unsafe price symbols before reading R2", async () => {

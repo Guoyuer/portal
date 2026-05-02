@@ -8,7 +8,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { EconDataSchema } from "../src/lib/schemas/econ";
-import { TickerPriceResponseSchema } from "../src/lib/schemas/ticker";
+import { TickerPricesBundleSchema } from "../src/lib/schemas/ticker";
 import { TimelineDataSchema } from "../src/lib/schemas/timeline";
 
 type ManifestObject = {
@@ -23,8 +23,8 @@ type R2Manifest = {
   objects: {
     timeline: ManifestObject;
     econ: ManifestObject;
+    prices: ManifestObject;
   };
-  prices: Record<string, ManifestObject>;
 };
 
 async function readJson<T>(filePath: string): Promise<T> {
@@ -56,19 +56,16 @@ async function main(): Promise<void> {
   const econParsed = EconDataSchema.safeParse(econ);
   if (!econParsed.success) fail("econ", econParsed);
 
-  let priceRows = 0;
-  let transactionRows = 0;
-  for (const [symbol, descriptor] of Object.entries(manifest.prices)) {
-    const payload = await readJson<unknown>(artifactPath(artifactDir, descriptor.key));
-    const parsed = TickerPriceResponseSchema.safeParse(payload);
-    if (!parsed.success) fail(`prices/${symbol}`, parsed);
-    priceRows += parsed.data.prices.length;
-    transactionRows += parsed.data.transactions.length;
-  }
+  const prices = await readJson<unknown>(artifactPath(artifactDir, manifest.objects.prices.key));
+  const pricesParsed = TickerPricesBundleSchema.safeParse(prices);
+  if (!pricesParsed.success) fail("prices", pricesParsed);
+  const pricePayloads = Object.values(pricesParsed.data);
+  const priceRows = pricePayloads.reduce((sum, payload) => sum + payload.prices.length, 0);
+  const transactionRows = pricePayloads.reduce((sum, payload) => sum + payload.transactions.length, 0);
 
   console.log(
     `[validate_r2_artifacts_zod] ok - version=${manifest.version} `
-      + `daily=${timelineParsed.data.daily.length} prices=${Object.keys(manifest.prices).length} `
+      + `daily=${timelineParsed.data.daily.length} prices=${pricePayloads.length} `
       + `priceRows=${priceRows} transactionRows=${transactionRows}`,
   );
 }

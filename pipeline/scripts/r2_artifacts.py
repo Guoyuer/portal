@@ -1,12 +1,10 @@
-"""Export, verify, and locally publish R2 JSON artifacts.
+"""Export, verify, and publish R2 JSON artifacts.
 
-PR1 scope:
-    export -> verify -> publish --local
-
-Remote publication and migration-baseline parity build on the same artifact
-contract in the cutover PR. The exporter reads the local SQLite views that
-currently feed D1, writes endpoint-shaped JSON files, then verifies hashes,
-row counts, latest-date coverage, and frontend Zod schema compatibility.
+The exporter reads the local SQLite views that currently feed D1, writes
+endpoint-shaped JSON files, then verifies hashes, row counts, latest-date
+coverage, and frontend Zod schema compatibility. Publication is manifest-last:
+snapshot objects are uploaded/read-back verified before ``manifest.json`` is
+switched.
 """
 
 from __future__ import annotations
@@ -22,11 +20,17 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 import uuid
-from collections.abc import Iterable, Mapping
-from datetime import UTC, datetime
+from collections.abc import Iterable, Iterator, Mapping
+from contextlib import contextmanager
+from datetime import UTC, date, datetime
+from json import JSONDecodeError
 from pathlib import Path
-from typing import Any
+from subprocess import CompletedProcess
+from typing import Any, cast
 
 # ruff: noqa: E402
 
@@ -35,14 +39,41 @@ _REPO_DIR = _PROJECT_DIR.parent
 _WORKER_DIR = _REPO_DIR / "worker"
 _DEFAULT_DB_PATH = Path(os.environ.get("PORTAL_DB_PATH", str(_PROJECT_DIR / "data" / "timemachine.db")))
 _DEFAULT_ARTIFACT_DIR = _PROJECT_DIR / "artifacts" / "r2"
+_DEFAULT_BASELINE_DIR = _PROJECT_DIR / "migration-baseline"
+_DEFAULT_BASE_URL = "https://portal.guoyuer.com/api"
+_LOCK_PATH = _PROJECT_DIR / "data" / ".r2-publisher.lock"
+_ACCESS_ENV_PATH = _WORKER_DIR / ".env.access"
 _BUCKET_NAME = "portal-data"
 _CONTENT_TYPE_JSON = "application/json"
 _PATH_SAFE_SYMBOL = re.compile(r"^[A-Za-z0-9._=^-]+$")
 
 sys.path.insert(0, str(_PROJECT_DIR))
 import etl.dotenv_loader  # noqa: F401  (side effect: load pipeline/.env)
+from etl.prices import refresh_window_start
 
 JsonDict = dict[str, Any]
+
+
+# ── Single-publisher lock ─────────────────────────────────────────────────
+
+
+@contextmanager
+def _single_publisher_lock(lock_path: Path = _LOCK_PATH) -> Iterator[None]:
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError as exc:
+        detail = lock_path.read_text(encoding="utf-8", errors="replace") if lock_path.exists() else ""
+        msg = f"another R2 publisher appears to be running: {lock_path}"
+        if detail:
+            msg += f"\nlock detail: {detail.strip()}"
+        raise RuntimeError(msg) from exc
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(f"pid={os.getpid()} started={_generated_at_from(_utc_now())}\n")
+        yield
+    finally:
+        lock_path.unlink(missing_ok=True)
 
 
 # ── JSON/filesystem helpers ────────────────────────────────────────────────
@@ -93,7 +124,11 @@ def _write_json(path: Path, payload: object) -> JsonDict:
 
 
 def _read_json(path: Path) -> JsonDict:
-    return json.loads(path.read_text(encoding="utf-8"))
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        msg = f"expected JSON object: {path}"
+        raise RuntimeError(msg)
+    return payload
 
 
 def _sha256(path: Path) -> str:
@@ -107,6 +142,80 @@ def _descriptor(key: str, path: Path, payload: object) -> JsonDict:
 
 def _artifact_path(artifact_dir: Path, key: str) -> Path:
     return artifact_dir / Path(*key.split("/"))
+
+
+def _canonical_bytes(payload: object) -> bytes:
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def _normalize_json_numbers(value: object) -> object:
+    if isinstance(value, bool) or value is None or isinstance(value, str):
+        return value
+    if isinstance(value, int | float):
+        return float(value)
+    if isinstance(value, list):
+        return [_normalize_json_numbers(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _normalize_json_numbers(item) for key, item in value.items()}
+    return value
+
+
+def _utc_today() -> date:
+    return _utc_now().date()
+
+
+def _price_parity_cutoff_iso() -> str:
+    return refresh_window_start(_utc_today()).isoformat()
+
+
+def _normalize_for_parity(label: str, payload: JsonDict) -> JsonDict:
+    normalized = cast(JsonDict, json.loads(json.dumps(payload)))
+    if label == "timeline":
+        # D1 exposes sync_meta from mutable table state; R2 exposes publish
+        # receipt metadata. This is intentionally not financial data.
+        normalized["syncMeta"] = None
+        # The current D1 Worker does not ORDER BY v_fidelity_txns in
+        # /timeline. Treat that array as a set for migration parity; values
+        # and multiplicity still have to match exactly.
+        if isinstance(normalized.get("fidelityTxns"), list):
+            normalized["fidelityTxns"] = sorted(normalized["fidelityTxns"], key=_canonical_bytes)
+    elif label == "econ":
+        # Same payload values, different publication timestamp source.
+        normalized["generatedAt"] = "<normalized>"
+    elif label.startswith("prices/"):
+        # Current D1 /prices/:symbol orders transactions by local D1 row id.
+        # Local SQLite ids can differ, so compare the transaction multiset.
+        if isinstance(normalized.get("transactions"), list):
+            normalized["transactions"] = sorted(normalized["transactions"], key=_canonical_bytes)
+    return cast(JsonDict, _normalize_json_numbers(normalized))
+
+
+def _load_access_env_file(path: Path = _ACCESS_ENV_PATH) -> dict[str, str]:
+    if not path.exists():
+        return {}
+    values: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        values[key.strip()] = value.strip().strip('"').strip("'")
+    return values
+
+
+def _access_headers() -> dict[str, str]:
+    file_values = _load_access_env_file()
+    client_id = os.environ.get("CLOUDFLARE_ACCESS_CLIENT_ID") or file_values.get("CLOUDFLARE_ACCESS_CLIENT_ID")
+    client_secret = (
+        os.environ.get("CLOUDFLARE_ACCESS_CLIENT_SECRET")
+        or file_values.get("CLOUDFLARE_ACCESS_CLIENT_SECRET")
+    )
+    if not client_id or not client_secret:
+        return {}
+    return {
+        "CF-Access-Client-Id": client_id,
+        "CF-Access-Client-Secret": client_secret,
+    }
 
 
 # ── SQLite shape loaders ───────────────────────────────────────────────────
@@ -177,7 +286,10 @@ def _build_timeline(conn: sqlite3.Connection, *, version: str, generated_at: str
     return {
         "daily": daily,
         "dailyTickers": _rows(conn, "SELECT * FROM v_daily_tickers"),
-        "fidelityTxns": _rows(conn, "SELECT * FROM v_fidelity_txns"),
+        "fidelityTxns": _rows(
+            conn,
+            "SELECT * FROM v_fidelity_txns ORDER BY runDate, symbol, actionType, amount, quantity, price",
+        ),
         "qianjiTxns": _rows(conn, "SELECT * FROM v_qianji_txns"),
         "robinhoodTxns": _rows(conn, "SELECT * FROM v_robinhood_txns"),
         "empowerContributions": _rows(conn, "SELECT * FROM v_empower_contributions"),
@@ -220,11 +332,24 @@ def _build_price(conn: sqlite3.Connection, symbol: str) -> JsonDict:
             SELECT run_date AS runDate, action_type AS actionType, quantity, price, amount
             FROM fidelity_transactions
             WHERE symbol = ?
-            ORDER BY id
+            ORDER BY run_date, action_type, amount, quantity, price
             """,
             (symbol,),
         ),
     }
+
+
+def _build_prices_bundle(conn: sqlite3.Connection) -> tuple[JsonDict, JsonDict]:
+    prices: JsonDict = {}
+    row_counts: JsonDict = {}
+    for symbol in _price_symbols(conn):
+        payload = _build_price(conn, symbol)
+        prices[symbol] = payload
+        row_counts[symbol] = {
+            "priceRows": len(payload["prices"]),
+            "transactionRows": len(payload["transactions"]),
+        }
+    return prices, row_counts
 
 
 def _sqlite_row_counts(conn: sqlite3.Connection) -> JsonDict:
@@ -301,16 +426,12 @@ def export_artifacts(
             ),
         }
 
-        prices: JsonDict = {}
-        price_row_counts: JsonDict = {}
-        for symbol in _price_symbols(conn):
-            payload = _build_price(conn, symbol)
-            key = f"snapshots/{version}/prices/{symbol}.json"
-            prices[symbol] = _descriptor(key, snapshot_dir / "prices" / f"{symbol}.json", payload)
-            price_row_counts[symbol] = {
-                "priceRows": len(payload["prices"]),
-                "transactionRows": len(payload["transactions"]),
-            }
+        prices, price_row_counts = _build_prices_bundle(conn)
+        objects["prices"] = _descriptor(
+            f"snapshots/{version}/prices.json",
+            snapshot_dir / "prices.json",
+            prices,
+        )
 
         row_counts = _sqlite_row_counts(conn)
         json_counts = _json_row_counts(timeline, econ)
@@ -323,7 +444,6 @@ def export_artifacts(
             "generatedAt": generated_at,
             "source": {"gitCommit": _git_commit(), "latestDate": latest_date},
             "objects": objects,
-            "prices": prices,
         }
         manifest_path = artifact_dir / "manifest.json"
         manifest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -335,8 +455,8 @@ def export_artifacts(
             "source": manifest["source"],
             "rowCounts": row_counts,
             "priceRowCounts": price_row_counts,
-            "objectCount": 2 + len(prices),
-            "totalBytes": sum(int(d["bytes"]) for d in [*objects.values(), *prices.values()]),
+            "objectCount": len(objects),
+            "totalBytes": sum(int(d["bytes"]) for d in objects.values()),
         }
         _write_json(artifact_dir / "reports" / "export-summary.json", summary)
         return manifest
@@ -384,9 +504,16 @@ def _verify_row_counts(artifact_dir: Path, db_path: Path, manifest: Mapping[str,
         _expect_equal("summary rowCounts", summary["rowCounts"], sqlite_counts)
         _expect_equal("JSON rowCounts", json_counts, sqlite_counts)
 
+        prices_bundle = _read_json(_artifact_path(artifact_dir, manifest["objects"]["prices"]["key"]))
         expected_prices: JsonDict = {}
-        for symbol in _price_symbols(conn):
-            payload = _read_json(_artifact_path(artifact_dir, manifest["prices"][symbol]["key"]))
+        expected_symbols = _price_symbols(conn)
+        _expect_equal("prices bundle symbols", sorted(prices_bundle), expected_symbols)
+        for symbol in expected_symbols:
+            payload = prices_bundle[symbol]
+            if not isinstance(payload, dict):
+                msg = f"prices bundle payload for {symbol} is not a JSON object"
+                raise RuntimeError(msg)
+            _expect_equal(f"prices bundle symbol {symbol}", payload["symbol"], symbol)
             expected_prices[symbol] = {
                 "priceRows": len(payload["prices"]),
                 "transactionRows": len(payload["transactions"]),
@@ -423,6 +550,7 @@ def verify_artifacts(
     *,
     db_path: Path = _DEFAULT_DB_PATH,
     artifact_dir: Path = _DEFAULT_ARTIFACT_DIR,
+    baseline_dir: Path | None = None,
     schema: bool = True,
 ) -> JsonDict:
     manifest_path = artifact_dir / "manifest.json"
@@ -433,19 +561,289 @@ def verify_artifacts(
 
     _verify_descriptor(artifact_dir, "timeline", manifest["objects"]["timeline"])
     _verify_descriptor(artifact_dir, "econ", manifest["objects"]["econ"])
-    for symbol, descriptor in manifest["prices"].items():
-        _assert_path_safe_symbol(str(symbol))
-        _verify_descriptor(artifact_dir, f"price {symbol}", descriptor)
+    _verify_descriptor(artifact_dir, "prices", manifest["objects"]["prices"])
 
     _verify_row_counts(artifact_dir, db_path, manifest)
     if schema:
         _run_schema_check(artifact_dir)
+    if baseline_dir is not None:
+        _verify_baseline_parity(artifact_dir, baseline_dir, manifest)
 
     print(
         "R2 artifacts verified: "
-        f"version={manifest['version']} objects={2 + len(manifest['prices'])}"
+        f"version={manifest['version']} objects={len(manifest['objects'])}"
     )
     return manifest
+
+
+# ── Migration baseline parity ──────────────────────────────────────────────
+
+
+def _compare_payloads(
+    *,
+    label: str,
+    artifact_path: Path,
+    baseline_path: Path,
+) -> JsonDict:
+    if not baseline_path.exists():
+        msg = f"baseline missing for {label}: {baseline_path}"
+        raise RuntimeError(msg)
+    return _compare_payload_values(label=label, artifact=_read_json(artifact_path), baseline=_read_json(baseline_path))
+
+
+def _compare_payload_values(
+    *,
+    label: str,
+    artifact: JsonDict,
+    baseline: JsonDict,
+) -> JsonDict:
+    artifact = _normalize_for_parity(label, artifact)
+    baseline = _normalize_for_parity(label, baseline)
+    artifact_hash = hashlib.sha256(_canonical_bytes(artifact)).hexdigest()
+    baseline_hash = hashlib.sha256(_canonical_bytes(baseline)).hexdigest()
+    if artifact_hash != baseline_hash:
+        msg = (
+            f"baseline parity mismatch for {label}\n"
+            f"artifact sha256={artifact_hash}\n"
+            f"baseline sha256={baseline_hash}"
+        )
+        raise RuntimeError(msg)
+    return {"label": label, "sha256": artifact_hash}
+
+
+def _price_rows_by_date(label: str, rows: object) -> dict[str, JsonDict]:
+    if not isinstance(rows, list):
+        msg = f"{label}.prices is not an array"
+        raise RuntimeError(msg)
+    out: dict[str, JsonDict] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            msg = f"{label}.prices contains a non-object row"
+            raise RuntimeError(msg)
+        date_value = row.get("date")
+        if not isinstance(date_value, str) or not date_value:
+            msg = f"{label}.prices contains a row without a date"
+            raise RuntimeError(msg)
+        if date_value in out:
+            msg = f"{label}.prices contains duplicate date {date_value}"
+            raise RuntimeError(msg)
+        out[date_value] = cast(JsonDict, _normalize_json_numbers(row))
+    return out
+
+
+def _compare_price_payload_values(
+    *,
+    label: str,
+    artifact: JsonDict,
+    baseline: JsonDict,
+) -> JsonDict:
+    artifact_symbol = artifact.get("symbol")
+    baseline_symbol = baseline.get("symbol")
+    _expect_equal(f"{label} symbol", artifact_symbol, baseline_symbol)
+
+    artifact_txns_raw = artifact.get("transactions", [])
+    baseline_txns_raw = baseline.get("transactions", [])
+    if not isinstance(artifact_txns_raw, list) or not isinstance(baseline_txns_raw, list):
+        msg = f"{label}.transactions must be arrays"
+        raise RuntimeError(msg)
+    artifact_txns = sorted(
+        cast(list[object], _normalize_json_numbers(artifact_txns_raw)),
+        key=_canonical_bytes,
+    )
+    baseline_txns = sorted(
+        cast(list[object], _normalize_json_numbers(baseline_txns_raw)),
+        key=_canonical_bytes,
+    )
+    _expect_equal(f"{label} transactions", artifact_txns, baseline_txns)
+
+    cutoff = _price_parity_cutoff_iso()
+    artifact_prices = _price_rows_by_date(label, artifact.get("prices"))
+    baseline_prices = _price_rows_by_date(label, baseline.get("prices"))
+    failures: list[str] = []
+    allowed_recent_diffs = 0
+
+    for price_date, baseline_row in sorted(baseline_prices.items()):
+        artifact_row = artifact_prices.get(price_date)
+        if artifact_row is None:
+            if price_date < cutoff:
+                failures.append(f"{price_date}: baseline row missing from artifact")
+            else:
+                allowed_recent_diffs += 1
+            continue
+        if artifact_row == baseline_row:
+            continue
+        if price_date < cutoff:
+            failures.append(
+                f"{price_date}: artifact={artifact_row!r} baseline={baseline_row!r}"
+            )
+        else:
+            allowed_recent_diffs += 1
+
+    for price_date in sorted(set(artifact_prices) - set(baseline_prices)):
+        if price_date >= cutoff:
+            allowed_recent_diffs += 1
+
+    if failures:
+        preview = "\n  ".join(failures[:20])
+        extra = "" if len(failures) <= 20 else f"\n  ... {len(failures) - 20} more"
+        msg = (
+            f"baseline parity mismatch for {label}: immutable price rows differ before {cutoff}\n"
+            f"  {preview}{extra}"
+        )
+        raise RuntimeError(msg)
+
+    payload = {
+        "symbol": artifact_symbol,
+        "priceRows": len(artifact_prices),
+        "transactionRows": len(artifact_txns),
+        "allowedRecentPriceDiffs": allowed_recent_diffs,
+    }
+    payload_hash = hashlib.sha256(_canonical_bytes(_normalize_json_numbers(artifact))).hexdigest()
+    return {"label": label, "sha256": payload_hash, **payload}
+
+
+def _verify_baseline_parity(
+    artifact_dir: Path,
+    baseline_dir: Path,
+    manifest: Mapping[str, Any],
+) -> None:
+    comparisons: list[JsonDict] = [
+        _compare_payloads(
+            label="timeline",
+            artifact_path=_artifact_path(artifact_dir, manifest["objects"]["timeline"]["key"]),
+            baseline_path=baseline_dir / "timeline.json",
+        ),
+        _compare_payloads(
+            label="econ",
+            artifact_path=_artifact_path(artifact_dir, manifest["objects"]["econ"]["key"]),
+            baseline_path=baseline_dir / "econ.json",
+        ),
+    ]
+    prices_bundle = _read_json(_artifact_path(artifact_dir, manifest["objects"]["prices"]["key"]))
+    baseline_summary_path = baseline_dir / "reports" / "baseline-summary.json"
+    baseline_summary = _read_json(baseline_summary_path) if baseline_summary_path.exists() else {}
+    skipped_prices = {
+        str(item["symbol"])
+        for item in baseline_summary.get("skippedPrices", [])
+        if isinstance(item, dict) and "symbol" in item
+    }
+    baseline_prices_dir = baseline_dir / "prices"
+    baseline_symbols = sorted(p.name.removesuffix(".json") for p in baseline_prices_dir.glob("*.json"))
+    bundle_symbols = sorted(prices_bundle)
+    expected_baseline_symbols = [symbol for symbol in bundle_symbols if symbol not in skipped_prices]
+    _expect_equal("baseline price symbols", baseline_symbols, expected_baseline_symbols)
+    for symbol in bundle_symbols:
+        if symbol in skipped_prices:
+            continue
+        payload = prices_bundle[symbol]
+        if not isinstance(payload, dict):
+            msg = f"prices bundle payload for {symbol} is not a JSON object"
+            raise RuntimeError(msg)
+        comparisons.append(
+            _compare_price_payload_values(
+                label=f"prices/{symbol}",
+                artifact=payload,
+                baseline=_read_json(baseline_dir / "prices" / f"{symbol}.json"),
+            )
+        )
+    _write_json(
+        artifact_dir / "reports" / "parity-summary.json",
+        {
+            "baselineDir": str(baseline_dir),
+            "version": manifest["version"],
+            "comparisons": comparisons,
+            "skippedPrices": sorted(skipped_prices),
+        },
+    )
+    print(f"Baseline parity verified: {len(comparisons)} payloads")
+
+
+def _fetch_json_bytes(url: str) -> bytes:
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "Mozilla/5.0 PortalR2Migration/1.0",
+            **_access_headers(),
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=60) as response:  # noqa: S310 - operator-provided URL
+            status = int(response.status)
+            data = cast(bytes, response.read())
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        msg = f"HTTP {exc.code} from {url}\n{body[:500]}"
+        raise RuntimeError(msg) from exc
+    except urllib.error.URLError as exc:
+        msg = f"Failed to fetch {url}: {exc}"
+        raise RuntimeError(msg) from exc
+    if status != 200:
+        msg = f"HTTP {status} from {url}"
+        raise RuntimeError(msg)
+    try:
+        json.loads(data.decode("utf-8"))
+    except JSONDecodeError as exc:
+        preview = data[:500].decode("utf-8", errors="replace")
+        msg = (
+            f"Non-JSON response from {url}. If this endpoint is behind Cloudflare Access, set "
+            "CLOUDFLARE_ACCESS_CLIENT_ID and CLOUDFLARE_ACCESS_CLIENT_SECRET in worker/.env.access.\n"
+            f"Response preview:\n{preview}"
+        )
+        raise RuntimeError(msg) from exc
+    return data
+
+
+def capture_baseline(
+    *,
+    db_path: Path = _DEFAULT_DB_PATH,
+    baseline_dir: Path = _DEFAULT_BASELINE_DIR,
+    base_url: str = _DEFAULT_BASE_URL,
+    overwrite: bool = False,
+) -> None:
+    if baseline_dir.exists() and not overwrite:
+        msg = f"baseline directory already exists: {baseline_dir}; pass --overwrite to replace it"
+        raise RuntimeError(msg)
+    if baseline_dir.exists():
+        shutil.rmtree(baseline_dir)
+    baseline_dir.mkdir(parents=True)
+
+    base = base_url.rstrip("/")
+    (baseline_dir / "timeline.json").write_bytes(_fetch_json_bytes(f"{base}/timeline"))
+    (baseline_dir / "econ.json").write_bytes(_fetch_json_bytes(f"{base}/econ"))
+
+    conn = _connect_ro(db_path)
+    try:
+        symbols = _price_symbols(conn)
+    finally:
+        conn.close()
+
+    prices_dir = baseline_dir / "prices"
+    prices_dir.mkdir(parents=True)
+    skipped_prices: list[JsonDict] = []
+    total_symbols = len(symbols)
+    for idx, symbol in enumerate(symbols, start=1):
+        if idx == 1 or idx == total_symbols or idx % 10 == 0:
+            print(f"Capturing price baseline {idx}/{total_symbols}: {symbol}")
+        encoded = urllib.parse.quote(symbol, safe="._=^-")
+        try:
+            (prices_dir / f"{symbol}.json").write_bytes(_fetch_json_bytes(f"{base}/prices/{encoded}"))
+        except RuntimeError as exc:
+            message = str(exc)
+            if not message.startswith("HTTP 404 from "):
+                raise
+            skipped_prices.append({"symbol": symbol, "reason": "current D1 /prices/:symbol route returned 404"})
+            print(f"Skipping current D1 price baseline for {symbol}: route returned 404")
+
+    summary = {
+        "capturedAt": _generated_at_from(_utc_now()),
+        "baseUrl": base,
+        "payloads": 2 + len(symbols) - len(skipped_prices),
+        "symbols": symbols,
+        "skippedPrices": skipped_prices,
+    }
+    _write_json(baseline_dir / "reports" / "baseline-summary.json", summary)
+    print(f"Captured D1 API baseline: {baseline_dir} ({summary['payloads']} payloads)")
 
 
 # ── Publish ────────────────────────────────────────────────────────────────
@@ -475,6 +873,94 @@ def _remote_key(key: str) -> str:
     return f"{_BUCKET_NAME}/{key}"
 
 
+def _wrangler_detail(result: CompletedProcess[str]) -> str:
+    return f"stderr:\n{result.stderr or '(empty)'}\nstdout:\n{result.stdout or '(empty)'}"
+
+
+def _object_absent(key: str, *, remote: bool) -> bool:
+    with tempfile.NamedTemporaryFile(delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+    try:
+        result = _run_wrangler_r2(
+            ["get", _remote_key(key), "--remote" if remote else "--local", f"--file={tmp_path}"]
+        )
+        if result.returncode == 0:
+            return False
+        detail = (result.stderr + result.stdout).lower()
+        if "specified key does not exist" in detail or "not found" in detail or "does not exist" in detail:
+            return True
+        msg = f"could not check R2 key existence for {key}\n{_wrangler_detail(result)}"
+        raise RuntimeError(msg)
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
+def _assert_snapshot_key_absent(key: str, *, remote: bool) -> None:
+    if _object_absent(key, remote=remote):
+        return
+    msg = f"R2 snapshot object already exists; refusing to overwrite: {key}"
+    raise RuntimeError(msg)
+
+
+def _put_wrangler_object(key: str, file_path: Path, *, remote: bool) -> None:
+    result = _run_wrangler_r2(
+        [
+            "put",
+            _remote_key(key),
+            "--remote" if remote else "--local",
+            f"--file={file_path}",
+            f"--content-type={_CONTENT_TYPE_JSON}",
+        ]
+    )
+    if result.returncode != 0:
+        msg = f"wrangler r2 object put failed for {key}\n{_wrangler_detail(result)}"
+        raise RuntimeError(msg)
+
+
+def _readback_wrangler_object(key: str, descriptor: Mapping[str, Any], *, remote: bool) -> None:
+    with tempfile.NamedTemporaryFile(delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+    try:
+        result = _run_wrangler_r2(
+            ["get", _remote_key(key), "--remote" if remote else "--local", f"--file={tmp_path}"]
+        )
+        if result.returncode != 0:
+            msg = f"wrangler r2 object get failed for {key}\n{_wrangler_detail(result)}"
+            raise RuntimeError(msg)
+        _expect_equal(f"R2 readback bytes {key}", tmp_path.stat().st_size, int(descriptor["bytes"]))
+        _expect_equal(f"R2 readback sha256 {key}", _sha256(tmp_path), descriptor["sha256"])
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
+def _publish_remote_wrangler(artifact_dir: Path, descriptors: list[Mapping[str, Any]]) -> None:
+    total = len(descriptors)
+    print(f"Checking remote R2 snapshot keys are absent: {total} objects")
+    for idx, descriptor in enumerate(descriptors, start=1):
+        if idx == 1 or idx == total or idx % 10 == 0:
+            print(f"Checking R2 key {idx}/{total}: {descriptor['key']}")
+        _assert_snapshot_key_absent(str(descriptor["key"]), remote=True)
+
+    print(f"Uploading and verifying remote R2 snapshot objects: {total} objects")
+    for idx, descriptor in enumerate(descriptors, start=1):
+        key = str(descriptor["key"])
+        if idx == 1 or idx == total or idx % 10 == 0:
+            print(f"Publishing R2 object {idx}/{total}: {key}")
+        _put_wrangler_object(key, _artifact_path(artifact_dir, key), remote=True)
+        _readback_wrangler_object(key, descriptor, remote=True)
+
+    manifest_path = artifact_dir / "manifest.json"
+    manifest_descriptor = {
+        "key": "manifest.json",
+        "sha256": _sha256(manifest_path),
+        "bytes": manifest_path.stat().st_size,
+        "contentType": _CONTENT_TYPE_JSON,
+    }
+    print("Publishing R2 manifest.json last")
+    _put_wrangler_object("manifest.json", manifest_path, remote=True)
+    _readback_wrangler_object("manifest.json", manifest_descriptor, remote=True)
+
+
 def _local_r2_root() -> Path:
     return _WORKER_DIR / ".wrangler" / "state" / "v3" / "r2"
 
@@ -483,7 +969,7 @@ def _local_r2_metadata_db() -> Path:
     """Return the Miniflare metadata DB for the local portal-data R2 bucket.
 
     Wrangler has no bulk local-R2 import command. Starting Wrangler once per
-    object is too slow for ~100 price files, so local publish writes the same
+    object is still slow during local iteration, so local publish writes the same
     persisted Miniflare store format that `wrangler r2 object put --local`
     creates, then verifies the active manifest through Wrangler once.
     """
@@ -599,16 +1085,19 @@ def publish_artifacts(
     *,
     db_path: Path = _DEFAULT_DB_PATH,
     artifact_dir: Path = _DEFAULT_ARTIFACT_DIR,
+    remote: bool = False,
     schema: bool = True,
 ) -> JsonDict:
     manifest = verify_artifacts(db_path=db_path, artifact_dir=artifact_dir, schema=schema)
-    descriptors: list[Mapping[str, Any]] = [
-        manifest["objects"]["timeline"],
-        manifest["objects"]["econ"],
-        *manifest["prices"].values(),
-    ]
-    _publish_local_fast(artifact_dir, descriptors)
-    print(f"Published R2 artifacts to local {_BUCKET_NAME}: version={manifest['version']}")
+    descriptors: list[Mapping[str, Any]] = list(manifest["objects"].values())
+    with _single_publisher_lock():
+        if remote:
+            _publish_remote_wrangler(artifact_dir, descriptors)
+            mode = "remote"
+        else:
+            _publish_local_fast(artifact_dir, descriptors)
+            mode = "local"
+    print(f"Published R2 artifacts to {mode} {_BUCKET_NAME}: version={manifest['version']}")
     return manifest
 
 
@@ -628,10 +1117,18 @@ def _parse_args() -> argparse.Namespace:
 
     verify_p = sub.add_parser("verify", help="Verify local artifact hashes, row counts, and Zod schemas")
     verify_p.add_argument("--skip-schema", action="store_true", help="Skip frontend Zod validation")
+    verify_p.add_argument("--baseline", type=Path, default=None, help="Optional D1 API baseline directory for parity")
 
     publish_p = sub.add_parser("publish", help="Publish artifacts with manifest-last ordering")
-    publish_p.add_argument("--local", action="store_true", help="Publish to Miniflare/local R2")
+    mode = publish_p.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--local", action="store_true", help="Publish to Miniflare/local R2")
+    mode.add_argument("--remote", action="store_true", help="Publish to production R2")
     publish_p.add_argument("--skip-schema", action="store_true", help="Skip frontend Zod validation")
+
+    baseline_p = sub.add_parser("capture-baseline", help="Capture current D1-backed API payloads for migration parity")
+    baseline_p.add_argument("--baseline-dir", type=Path, default=_DEFAULT_BASELINE_DIR)
+    baseline_p.add_argument("--base-url", default=_DEFAULT_BASE_URL)
+    baseline_p.add_argument("--overwrite", action="store_true")
 
     return parser.parse_args()
 
@@ -648,15 +1145,25 @@ def main() -> int:
             )
             print(f"Exported R2 artifacts: version={manifest['version']} dir={args.artifact_dir}")
         elif args.command == "verify":
-            verify_artifacts(db_path=args.db, artifact_dir=args.artifact_dir, schema=not args.skip_schema)
+            verify_artifacts(
+                db_path=args.db,
+                artifact_dir=args.artifact_dir,
+                baseline_dir=args.baseline,
+                schema=not args.skip_schema,
+            )
         elif args.command == "publish":
-            if not args.local:
-                msg = "PR1 only supports publish --local; remote manifest-last publishing lands in PR2"
-                raise RuntimeError(msg)
             publish_artifacts(
                 db_path=args.db,
                 artifact_dir=args.artifact_dir,
+                remote=args.remote,
                 schema=not args.skip_schema,
+            )
+        elif args.command == "capture-baseline":
+            capture_baseline(
+                db_path=args.db,
+                baseline_dir=args.baseline_dir,
+                base_url=args.base_url,
+                overwrite=args.overwrite,
             )
         else:  # pragma: no cover - argparse enforces choices
             msg = f"unknown command: {args.command}"
