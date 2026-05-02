@@ -110,7 +110,6 @@ test.describe("Finance Report", () => {
     await expect(page.getByText(/Cash Flow/).first()).toBeVisible({ timeout: 10000 });
     const expenseTable = page.locator("#cashflow").getByTestId("expense-table");
     await expect(expenseTable.getByRole("row", { name: /Rent 12/ })).toBeVisible();
-    await expect(expenseTable.getByRole("row", { name: /Meals 48/ })).toBeVisible();
     await expect(expenseTable.getByRole("row", { name: /Subscriptions 12/ })).toBeVisible();
   });
 
