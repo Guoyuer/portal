@@ -52,6 +52,7 @@ jobs:
         id: commit
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -67,7 +68,7 @@ jobs:
             exit 0
           fi
           git commit -m "chore(regression): refresh L1 baselines (triggered by label)"
-          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
+          git push origin "HEAD:${PR_HEAD_REF}"
           echo "changed=true" >> "$GITHUB_OUTPUT"
 
       - name: Comment on PR
