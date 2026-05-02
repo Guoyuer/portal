@@ -1,35 +1,53 @@
 /**
- * Automated performance test — measures frame times during brush drag.
+ * Manual performance diagnostic: measures frame times during brush drag.
  * Uses rAF loop to capture per-frame durations + Long Task observer.
- * Requires local dev server + backend — skipped in CI.
+ * Requires Next dev on :3000 and a static production build on :3100.
+ *
+ * Run:
+ *   npm run dev
+ *   npm run build && npx serve out --single -l 3100
+ *   npx playwright test -c playwright.manual.config.ts e2e/manual/perf-brush.spec.ts
  */
-import { test as base, expect, Page } from "@playwright/test";
+import { test as base, expect } from "@playwright/test";
+import type { Page } from "@playwright/test";
 
-const test = base.extend({})
+const test = base.extend({});
 test.skip(() => !!process.env.CI, "Requires local dev server + backend");
 
 const DEV_URL = "http://localhost:3000";
 const PROD_URL = "http://localhost:3100";
+
+type PerfData = {
+  frames: number[];
+  longTasks: number[];
+};
+
+type PerfWindow = Window & {
+  __perfData?: PerfData;
+  __perfMeasuring?: boolean;
+};
 
 async function measureBrushDrag(page: Page, label: string) {
   await page.getByText("Net Worth").first().waitFor({ timeout: 10000 });
 
   // Inject frame timing + long task observer
   await page.evaluate(() => {
-    (window as any).__perfData = { frames: [] as number[], longTasks: [] as number[] };
+    const perfWindow = window as PerfWindow;
+    const perfData: PerfData = { frames: [], longTasks: [] };
+    perfWindow.__perfData = perfData;
     new PerformanceObserver((list) => {
       for (const entry of list.getEntries()) {
-        (window as any).__perfData.longTasks.push(Math.round(entry.duration));
+        perfData.longTasks.push(Math.round(entry.duration));
       }
     }).observe({ type: "longtask", buffered: false });
     let last = performance.now();
     function measure() {
       const now = performance.now();
-      (window as any).__perfData.frames.push(Math.round(now - last));
+      perfData.frames.push(Math.round(now - last));
       last = now;
-      if ((window as any).__perfMeasuring) requestAnimationFrame(measure);
+      if (perfWindow.__perfMeasuring) requestAnimationFrame(measure);
     }
-    (window as any).__perfMeasuring = true;
+    perfWindow.__perfMeasuring = true;
     requestAnimationFrame(measure);
   });
 
@@ -39,8 +57,10 @@ async function measureBrushDrag(page: Page, label: string) {
   if (!box) throw new Error("Brush not found");
 
   await page.evaluate(() => {
-    (window as any).__perfData.frames = [];
-    (window as any).__perfData.longTasks = [];
+    const perfWindow = window as PerfWindow;
+    if (!perfWindow.__perfData) throw new Error("Perf observer was not initialized");
+    perfWindow.__perfData.frames = [];
+    perfWindow.__perfData.longTasks = [];
   });
 
   const startX = box.x + 20;
@@ -51,11 +71,14 @@ async function measureBrushDrag(page: Page, label: string) {
   await page.mouse.up();
   await page.waitForTimeout(300);
 
-  await page.evaluate(() => { (window as any).__perfMeasuring = false; });
+  await page.evaluate(() => {
+    (window as PerfWindow).__perfMeasuring = false;
+  });
 
-  const perf = await page.evaluate(() => (window as any).__perfData as {
-    frames: number[];
-    longTasks: number[];
+  const perf = await page.evaluate(() => {
+    const perfData = (window as PerfWindow).__perfData;
+    if (!perfData) throw new Error("Perf data was not collected");
+    return perfData;
   });
 
   const frames = perf.frames.filter((f) => f > 0);

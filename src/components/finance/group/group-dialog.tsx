@@ -18,6 +18,18 @@ import { useIsDark } from "@/lib/hooks/use-is-dark";
 import type { Selection } from "../ticker/ticker-markers";
 import { useTickerData } from "../ticker/ticker-chart";
 
+type EquivalentGroup = (typeof EQUIVALENT_GROUPS)[string];
+
+type GroupChartDialogProps = {
+  groupKey: string;
+  dailyTickers: DailyTicker[];
+  fidelityTxns: FidelityTxn[];
+  startDate?: string;
+  endDate?: string;
+  onClose: () => void;
+  onSelectTicker?: (symbol: string) => void;
+};
+
 // ── Adapter: FidelityTxn rows → TickerTxn (shapes are identical) ──
 function fidelityTxnsToTickerTxns(txns: FidelityTxn[], tickers: string[]): TickerTxn[] {
   const set = new Set(tickers);
@@ -34,24 +46,24 @@ function fidelityTxnsToTickerTxns(txns: FidelityTxn[], tickers: string[]): Ticke
 
 export function GroupChartDialog({
   groupKey,
+  ...props
+}: GroupChartDialogProps) {
+  const group = EQUIVALENT_GROUPS[groupKey];
+  if (!group) return null;
+
+  return <GroupChartDialogContent groupKey={groupKey} group={group} {...props} />;
+}
+
+function GroupChartDialogContent({
+  groupKey,
+  group,
   dailyTickers,
   fidelityTxns,
   startDate,
   endDate,
   onClose,
   onSelectTicker,
-}: {
-  groupKey: string;
-  dailyTickers: DailyTicker[];
-  fidelityTxns: FidelityTxn[];
-  startDate?: string;
-  endDate?: string;
-  onClose: () => void;
-  onSelectTicker?: (symbol: string) => void;
-}) {
-  const group = EQUIVALENT_GROUPS[groupKey];
-  if (!group) return null;
-
+}: GroupChartDialogProps & { group: EquivalentGroup }) {
   const isDark = useIsDark();
   const [selected, setSelected] = useState<Selection | null>(null);
   const { hover, onEnter, onMove, onLeave } = useHoverState();

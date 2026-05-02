@@ -33,6 +33,11 @@ jobs:
               - 'package-lock.json'
               - 'next.config.*'
               - 'tsconfig*.json'
+              - 'worker/src/**'
+              - 'worker/package.json'
+              - 'worker/package-lock.json'
+              - 'worker/tsconfig.json'
+              - 'worker/wrangler.toml'
               - 'vitest.config.*'
               - 'playwright.config.*'
               - 'e2e/**'
@@ -111,6 +116,9 @@ jobs:
       # ── Unit tests + coverage ──────────────────────────────────
       - if: needs.detect.outputs.frontend == 'true' || github.event_name == 'push'
         run: npm run test:coverage
+      - name: Worker typecheck
+        if: needs.detect.outputs.frontend == 'true' || github.event_name == 'push'
+        run: npx tsc -p worker/tsconfig.json --noEmit
       - name: Coverage report to PR
         if: needs.detect.outputs.frontend == 'true' && github.event_name == 'pull_request'
         uses: davelosert/vitest-coverage-report-action@v2

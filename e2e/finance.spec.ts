@@ -101,10 +101,6 @@ test.describe("Finance Report", () => {
     await expect(tm.getByText("CC Payments")).toBeVisible();
   });
 
-  test("net savings uses correct color", async ({ page }) => {
-    // Net Savings is now plain text in timemachine range stats, no color coding
-  });
-
   test("shows investment activity section", async ({ page }) => {
     const section = page.locator("#investment-activity");
     await expect(section).toBeAttached();
@@ -173,7 +169,7 @@ test.describe("Finance Report", () => {
     // Should have: price line, scatter series (buy/sell), reference line (avg cost)
     await expect(chart.locator(".recharts-line")).toBeVisible();
     expect(await chart.locator(".recharts-scatter").count()).toBeGreaterThanOrEqual(1);
-    await expect(chart.locator(".recharts-reference-line")).toBeVisible();
+    await expect(chart.getByText(/^Avg \$/)).toBeVisible();
     await firstTicker.click(); // collapse
   });
 
@@ -386,16 +382,7 @@ test.describe("Finance Report", () => {
     }
   });
 
-  test("stat bar metrics have color-coded values", async ({ page }) => {
-    // Stat bar removed — metrics consolidated into timemachine range stats
-  });
-
-
   // ── Savings Rate Trend ──────────────────────────────────────────────────
-
-  test("savings rate trend section renders", async ({ page }) => {
-    // Savings rate trend section removed — consolidated into timemachine
-  });
 
   // ── Timemachine ─────────────────────────────────────────────────────────
 

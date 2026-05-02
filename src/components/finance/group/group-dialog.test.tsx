@@ -10,9 +10,7 @@ import type { Selection } from "../ticker/ticker-markers";
 
 // jsdom doesn't implement HTMLDialogElement.showModal; polyfill lightly:
 if (typeof HTMLDialogElement !== "undefined" && !HTMLDialogElement.prototype.showModal) {
-  // eslint-disable-next-line @typescript-eslint/no-empty-function
   HTMLDialogElement.prototype.showModal = function () { (this as HTMLDialogElement).open = true; };
-  // eslint-disable-next-line @typescript-eslint/no-empty-function
   HTMLDialogElement.prototype.close = function () { (this as HTMLDialogElement).open = false; };
 }
 

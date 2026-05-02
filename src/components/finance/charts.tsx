@@ -18,7 +18,7 @@ import {
 import type { Props as LabelProps } from "recharts/types/component/Label";
 import type { TooltipContentProps } from "recharts/types/component/Tooltip";
 import type { CategoryData, MonthlyFlowPoint } from "@/lib/compute/computed-types";
-import { fmtCurrencyShort, fmtDateMonthYear, fmtMonth, fmtMonthYear, fmtTick } from "@/lib/format/format";
+import { fmtCurrencyShort, fmtDateMonthYear, fmtMonth } from "@/lib/format/format";
 import { useIsDark } from "@/lib/hooks/use-is-dark";
 import { useIsMobile } from "@/lib/hooks/use-is-mobile";
 import { tooltipStyle, gridStroke, axisProps } from "@/lib/format/chart-styles";
@@ -52,8 +52,8 @@ export function AllocationDonut({
             stroke="rgba(255,255,255,0.3)"
             strokeWidth={1}
           >
-            {data.map((d, i) => (
-              <Cell key={i} fill={colorByName[d.name]} />
+            {data.map((d) => (
+              <Cell key={d.name} fill={colorByName[d.name]} />
             ))}
           </Pie>
           <Tooltip
@@ -69,7 +69,7 @@ export function AllocationDonut({
       </div>
       {/* Legend — clean grid below */}
       <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2 text-sm">
-        {data.map((d, i) => (
+        {data.map((d) => (
           <div key={d.name} className="flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: colorByName[d.name] }} />
             <span className="text-muted-foreground">{d.name} {d.pct.toFixed(0)}%</span>
@@ -188,4 +188,3 @@ export function IncomeExpensesChart({
     </ResponsiveContainer>
   );
 }
-

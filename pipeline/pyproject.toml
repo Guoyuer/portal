@@ -49,6 +49,7 @@ exclude = ["tests/", "data/", "\\.venv/"]
 [tool.ruff]
 line-length = 120
 target-version = "py312"
+extend-exclude = [".pytest-tmp*"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "A", "SIM"]
