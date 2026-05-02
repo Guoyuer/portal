@@ -1,5 +1,10 @@
 # R2 JSON Migration Design Note - 2026-05-02
 
+Status: Historical design record. The R2 migration has completed; use
+`docs/ARCHITECTURE.md`, `docs/RUNBOOK.md`, and
+`docs/post-r2-architecture-cleanup-2026-05-02.md` for current operational
+guidance.
+
 ## Context
 
 The current production data path is:
@@ -348,7 +353,7 @@ pipeline/scripts/r2_artifacts.py
     publish  -- upload objects, read back and verify, upload manifest last
     capture-baseline -- capture current D1 API payloads for migration-only parity
   modes:
-    --local  -- publish to Miniflare/local R2
+    --local  -- publish to Wrangler local R2
     --remote -- publish to production R2
 
 scripts/validate_r2_artifacts_zod.ts

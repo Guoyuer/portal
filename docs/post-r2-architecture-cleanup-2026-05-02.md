@@ -37,7 +37,7 @@ The remaining cleanup falls into four buckets:
 | P1 | Done | Replace local R2 private-store publish with normal Wrangler local object ops | Removes dependency on Miniflare private SQLite/blob layout | 100-130 LoC |
 | P1 | Done | Remove R2-dead fail-open `/timeline.errors` contract | Deletes a D1-era response shape that is no longer reachable | ~150 LoC |
 | P1 | Done | Emit `sparkline` as JSON array, not JSON string | Moves data conversion to exporter and simplifies frontend schema | ~30 LoC |
-| P1 | Pending | Fix stale `AGENTS.md` / mark old D1 docs historical | Prevents future agents from following deleted D1 architecture | docs only |
+| P1 | Done | Fix stale `AGENTS.md` / mark old D1 docs historical | Prevents future agents from following deleted D1 architecture | docs only |
 | P2 | Pending | Delete one-shot `etl/migrations` package | Removes ceremonial per-build migration framework | ~280 LoC |
 | P2 gated | Needs decision | Delete changelog/daily diff email subsystem | Large simplification, but only if the daily email is no longer wanted | ~2,100 LoC |
 | P3 | Optional | Consider deleting live `/timeline` Zod smoke script | Duplicates publish-time artifact Zod validation, but has better CI errors | ~40 LoC |
@@ -473,14 +473,14 @@ Completed:
    - Emit `sparkline` as an array.
    - Verify `r2_artifacts.py export -> verify -> publish --local`.
 
+2. **PR D: Documentation hygiene**
+   - Replace stale root `AGENTS.md` with a short pointer to `CLAUDE.md`.
+   - Mark the old D1-era review/migration documents historical.
+
 Remaining:
 
-2. **PR C: One-shot migration cleanup**
+3. **PR C: One-shot migration cleanup**
    - Delete `etl/migrations` after confirming the precondition.
-
-3. **PR D: Documentation hygiene**
-   - Fix/delete `AGENTS.md`.
-   - Archive or mark superseded D1-era docs.
 
 4. **PR E: Changelog/email removal**
    - Only if the daily email is no longer wanted.
