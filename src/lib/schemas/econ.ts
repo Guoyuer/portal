@@ -9,7 +9,7 @@ const EconPointSchema = z.object({
 });
 
 // Series points arrive from SQLite/export as a JSON-encoded string (produced by
-// json_group_array in v_econ_series_grouped). Mock API fixtures pass arrays
+// the exporter's json_group_array query). Mock API fixtures pass arrays
 // directly. Accept both; resolve to EconPoint[].
 const EconPointsSchema = z
   .union([
