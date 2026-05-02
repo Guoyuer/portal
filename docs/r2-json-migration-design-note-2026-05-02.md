@@ -606,7 +606,7 @@ R2 object body -> JSON.parse -> JSON.stringify -> Response
 
 ## Cost And Limits
 
-R2 Standard free tier includes 10 GB-month storage, 1M Class A operations/month, 10M Class B operations/month, and free egress. Daily snapshots at roughly 5 MB are about 1.8 GB/year, so storage is the only meaningful long-term cost to watch. Avoid public `r2.dev` URLs; serve private R2 objects through the Worker.
+R2 Standard free tier includes 10 GB-month storage, 1M Class A operations/month, 10M Class B operations/month, and free egress. The current full snapshot is roughly 8 MiB, so daily retained snapshots add about 2.8 GiB/year. Endpoint reads intentionally bypass Worker caching for publication correctness: each endpoint hit is one manifest read plus one artifact read, so a dashboard load plus first price chart costs about 4 Class B operations. That is still far below the 10M/month free Class B allowance for a personal dashboard. Avoid public `r2.dev` URLs; serve private R2 objects through the Worker.
 
 ## Code Size Estimate
 

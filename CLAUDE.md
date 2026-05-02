@@ -114,7 +114,7 @@ Serves 3 endpoints:
 - `GET /econ`
 - `GET /prices`
 
-Routes strip optional `/api` so the same code serves `workers.dev`, local `wrangler dev`, and the production zone route. The Worker owns manifest lookup, R2 object streaming, short cache TTLs, and explicit 5xx failures for missing or invalid artifacts.
+Routes strip optional `/api` so the same code serves `workers.dev`, local `wrangler dev`, and the production zone route. The Worker owns manifest lookup, R2 object streaming with `no-store` headers, and explicit 5xx failures for missing or invalid artifacts.
 
 ### R2 Artifacts
 

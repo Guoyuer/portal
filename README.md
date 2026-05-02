@@ -52,7 +52,7 @@ Data publication is manifest-last: the pipeline exports endpoint-shaped JSON fro
 - `GET /api/econ` - FRED/Yahoo macro snapshot and series
 - `GET /api/prices` - all ticker price/transaction payloads, loaded lazily by ticker/group charts
 
-The Worker does not query SQL and does not run runtime Zod validation. It owns same-origin routing, manifest lookup, R2 object streaming, short edge caching, and explicit 5xx failures for missing/invalid artifacts.
+The Worker does not query SQL and does not run runtime Zod validation. It owns same-origin routing, manifest lookup, R2 object streaming with `no-store` headers, and explicit 5xx failures for missing/invalid artifacts.
 
 ## Commands
 
@@ -145,7 +145,7 @@ portal/
 │   └── lib/                     # compute, hooks, schemas, formatting
 ├── worker/                      # R2-backed Cloudflare Worker
 │   ├── src/index.ts             # /timeline /econ /prices
-│   ├── src/utils.ts             # cache/error helpers
+│   ├── src/utils.ts             # error helpers
 │   └── wrangler.toml            # R2 binding PORTAL_DATA -> portal-data
 ├── pipeline/
 │   ├── etl/                     # ingest, replay, precompute, validate

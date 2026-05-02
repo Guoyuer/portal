@@ -37,13 +37,13 @@ This avoids mutable production table sync. Users either see the old manifest or 
 
 ## Runtime Endpoints
 
-| Endpoint | Artifact | TTL |
-| --- | --- | --- |
-| `/api/timeline` | `snapshots/<version>/timeline.json` | 60s |
-| `/api/econ` | `snapshots/<version>/econ.json` | 600s |
-| `/api/prices` | `snapshots/<version>/prices.json` | 300s |
+| Endpoint | Artifact |
+| --- | --- |
+| `/api/timeline` | `snapshots/<version>/timeline.json` |
+| `/api/econ` | `snapshots/<version>/econ.json` |
+| `/api/prices` | `snapshots/<version>/prices.json` |
 
-The Worker strips an optional `/api` prefix, validates only manifest shape, streams R2 bodies, and returns explicit 5xx for missing/invalid manifest or referenced objects. Frontend Zod parsing remains the runtime data-contract checkpoint.
+The Worker strips an optional `/api` prefix, validates only manifest shape, streams R2 bodies with `no-store` headers, and returns explicit 5xx for missing/invalid manifest or referenced objects. It intentionally does not cache endpoint responses, so a manifest flip is not masked by stale Worker cache entries. Frontend Zod parsing remains the runtime data-contract checkpoint.
 
 ## SQLite Shape Layer
 
@@ -89,3 +89,7 @@ detect changes -> build_timemachine_db.py -> optional verify_positions.py -> r2_
 - Cloudflare Access protects `portal.guoyuer.com/*`.
 
 CI deploys Pages. Worker deploy is manual with `cd worker && npx wrangler deploy`.
+
+## R2 Usage Envelope
+
+The current snapshot is about 8 MiB (`timeline.json`, `econ.json`, `prices.json`). Daily retained snapshots add about 2.8 GiB/year. Because endpoint responses are not Worker-cached, each endpoint request performs two R2 reads: `manifest.json` plus the referenced artifact. A normal dashboard load plus the first ticker/group chart is roughly 4 Class B operations, which is comfortably within R2's monthly free tier for personal use.
