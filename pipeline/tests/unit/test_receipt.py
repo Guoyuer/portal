@@ -5,10 +5,10 @@ import json
 import tempfile
 from pathlib import Path
 
-from etl.changelog import (
+from etl.automation.receipt import (
     PublishSummary,
     RowDelta,
-    SyncChangelog,
+    SyncReceipt,
     SyncSnapshot,
     build_subject,
     capture,
@@ -126,7 +126,7 @@ def test_load_publish_summary(tmp_path: Path) -> None:
 
 
 def test_format_text_success_receipt() -> None:
-    cl = SyncChangelog(
+    cl = SyncReceipt(
         row_deltas=[RowDelta("fidelityTxns", 1, 3)],
         net_worth_before=1000,
         net_worth_after=1100,
@@ -147,7 +147,7 @@ def test_format_text_success_receipt() -> None:
 
 def test_format_text_failure() -> None:
     body = format_text(
-        SyncChangelog(),
+        SyncReceipt(),
         _ctx(exit_code=2, status_label="ARTIFACT VERIFY FAILED", error="r2_artifacts.py verify exited with code 1"),
     )
 
@@ -159,7 +159,7 @@ def test_format_text_failure() -> None:
 
 def test_format_text_warnings_and_dry_run() -> None:
     body = format_text(
-        SyncChangelog(),
+        SyncReceipt(),
         _ctx(publish_summary=_summary(), dry_run=True, warnings=["date gap"]),
     )
 
@@ -169,15 +169,15 @@ def test_format_text_warnings_and_dry_run() -> None:
 
 
 def test_format_html_escapes_text() -> None:
-    html = format_html(SyncChangelog(), _ctx(exit_code=1, error="bad <tag> & data"))
+    html = format_html(SyncReceipt(), _ctx(exit_code=1, error="bad <tag> & data"))
     assert "<pre>" in html
     assert "bad &lt;tag&gt; &amp; data" in html
 
 
 def test_build_subject_success_and_failure() -> None:
-    cl = SyncChangelog(row_deltas=[RowDelta("daily", 1, 2)], net_worth_before=1000, net_worth_after=1100)
+    cl = SyncReceipt(row_deltas=[RowDelta("daily", 1, 2)], net_worth_before=1000, net_worth_after=1100)
     assert build_subject(cl, 0, publish_summary=_summary()) == (
         "[Portal Sync] OK - 2026-05-01, nw +$100.00, 1 row delta"
     )
-    assert build_subject(SyncChangelog(), 1, "BUILD FAILED") == "[Portal Sync] FAIL - BUILD FAILED"
-    assert build_subject(SyncChangelog(), 99) == "[Portal Sync] FAIL (exit 99)"
+    assert build_subject(SyncReceipt(), 1, "BUILD FAILED") == "[Portal Sync] FAIL - BUILD FAILED"
+    assert build_subject(SyncReceipt(), 99) == "[Portal Sync] FAIL (exit 99)"

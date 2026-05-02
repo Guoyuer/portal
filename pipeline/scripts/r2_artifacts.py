@@ -156,6 +156,14 @@ def _row_count(conn: sqlite3.Connection, table_or_view: str) -> int:
     return int(_scalar(conn, f"SELECT COUNT(*) FROM {table_or_view}") or 0)  # noqa: S608
 
 
+def _json_array(raw: object, *, label: str) -> list[Any]:
+    parsed = json.loads(str(raw))
+    if not isinstance(parsed, list):
+        msg = f"{label} is not a JSON array"
+        raise RuntimeError(msg)
+    return parsed
+
+
 _DAILY_SQL = """
 SELECT date, total, us_equity AS usEquity, non_us_equity AS nonUsEquity,
   crypto, safe_net AS safeNet, liabilities
@@ -255,11 +263,14 @@ def _market_indices(conn: sqlite3.Connection) -> list[JsonDict]:
         if raw in (None, ""):
             row["sparkline"] = None
             continue
-        parsed = json.loads(str(raw))
-        if not isinstance(parsed, list):
-            msg = f"market sparkline is not a JSON array: {row.get('ticker')}"
-            raise RuntimeError(msg)
-        row["sparkline"] = parsed
+        row["sparkline"] = _json_array(raw, label=f"market sparkline for {row.get('ticker')}")
+    return rows
+
+
+def _qianji_txns(conn: sqlite3.Connection) -> list[JsonDict]:
+    rows = _rows(conn, _QIANJI_TXNS_SQL)
+    for row in rows:
+        row["isRetirement"] = bool(row["isRetirement"])
     return rows
 
 
@@ -278,7 +289,7 @@ def _build_timeline(conn: sqlite3.Connection, *, version: str, generated_at: str
         "daily": daily,
         "dailyTickers": _rows(conn, _DAILY_TICKERS_SQL),
         "fidelityTxns": _rows(conn, _FIDELITY_TXNS_SQL),
-        "qianjiTxns": _rows(conn, _QIANJI_TXNS_SQL),
+        "qianjiTxns": _qianji_txns(conn),
         "robinhoodTxns": _rows(conn, _ROBINHOOD_TXNS_SQL),
         "empowerContributions": _rows(conn, _EMPOWER_CONTRIBUTIONS_SQL),
         "categories": categories,
@@ -299,7 +310,7 @@ def _build_econ(conn: sqlite3.Connection, *, generated_at: str) -> JsonDict:
         for row in _rows(conn, _ECON_SNAPSHOT_SQL)
     }
     series = {
-        str(row["key"]): row["points"]
+        str(row["key"]): _json_array(row["points"], label=f"econ series {row['key']}")
         for row in _rows(conn, _ECON_SERIES_GROUPED_SQL)
     }
     return {"generatedAt": generated_at, "snapshot": snapshot, "series": series}

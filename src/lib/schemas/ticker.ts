@@ -19,8 +19,8 @@ const TickerTxnSchema = z.object({
 
 export const TickerPriceResponseSchema = z.object({
   symbol: z.string(),
-  prices: z.array(TickerPricePointSchema).default([]),
-  transactions: z.array(TickerTxnSchema).default([]),
+  prices: z.array(TickerPricePointSchema),
+  transactions: z.array(TickerTxnSchema),
 });
 
 export const TickerPricesBundleSchema = z.record(z.string(), TickerPriceResponseSchema);

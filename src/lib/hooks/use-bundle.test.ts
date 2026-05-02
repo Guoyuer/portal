@@ -99,8 +99,8 @@ describe("useBundle", () => {
       http.get(TIMELINE_URL, () => HttpResponse.json({
         ...VALID_PAYLOAD,
         qianjiTxns: [
-          { date: "2026-01-02", type: "income", category: "Salary", amount: 5000, accountTo: "" },
-          { date: "2026-01-03", type: "expense", category: "Rent", amount: 2000, accountTo: "" },
+          { date: "2026-01-02", type: "income", category: "Salary", amount: 5000, isRetirement: false, accountTo: "" },
+          { date: "2026-01-03", type: "expense", category: "Rent", amount: 2000, isRetirement: false, accountTo: "" },
         ],
         fidelityTxns: [
           { runDate: "2026-01-03", actionType: "buy", symbol: "VTI", amount: -1000, quantity: 10, price: 100 },
@@ -140,8 +140,8 @@ describe("useBundle", () => {
       http.get(TIMELINE_URL, () => HttpResponse.json({
         ...VALID_PAYLOAD,
         qianjiTxns: [
-          { date: "2026-01-02", type: "income", category: "Salary", amount: 5000, accountTo: "" },
-          { date: "2026-01-03", type: "expense", category: "Rent", amount: 2000, accountTo: "" },
+          { date: "2026-01-02", type: "income", category: "Salary", amount: 5000, isRetirement: false, accountTo: "" },
+          { date: "2026-01-03", type: "expense", category: "Rent", amount: 2000, isRetirement: false, accountTo: "" },
         ],
       })),
     );

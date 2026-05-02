@@ -24,7 +24,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from etl.changelog import PublishSummary, SyncSnapshot, capture, load_publish_summary
+from etl.automation.receipt import PublishSummary, SyncSnapshot, capture, load_publish_summary
 
 from . import notify
 from ._constants import (

@@ -85,12 +85,11 @@ CREATE TABLE IF NOT EXISTS empower_funds (
 );
 
 -- Qianji transaction rows (from Qianji app DB)
--- ``note`` is read by changelog.py for the low-count-category row expansion
--- in the daily sync email; ``is_retirement`` lets the frontend split income
--- into retirement vs take-home without substring sniffing. ``account_to``
--- exposes Qianji's ``targetact`` so the cross-check can match Fidelity
--- deposits against income entries booked directly into a Fidelity account
--- (payroll direct deposits, rebate rewards) — not just transfers.
+-- ``is_retirement`` lets the frontend split income into retirement vs
+-- take-home without substring sniffing. ``account_to`` exposes Qianji's
+-- ``targetact`` so the cross-check can match Fidelity deposits against income
+-- entries booked directly into a Fidelity account (payroll direct deposits,
+-- rebate rewards) — not just transfers.
 CREATE TABLE IF NOT EXISTS qianji_transactions (
     date           TEXT NOT NULL,
     type           TEXT NOT NULL,
@@ -210,7 +209,7 @@ def get_connection(path: Path) -> sqlite3.Connection:
 def get_readonly_connection(path: Path) -> sqlite3.Connection:
     """Return a read-only connection via SQLite's URI mode.
 
-    Used by reporters (changelog snapshot, allocation's Qianji date read,
+    Used by reporters (publish receipt, allocation's Qianji date read,
     Qianji record loader) that only ever SELECT — protects against a code-
     path bug accidentally mutating the DB. Does not enforce the
     ``file.exists()`` check; callers typically gate on that separately so

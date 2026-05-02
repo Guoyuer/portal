@@ -126,7 +126,7 @@ class TestParseQjAmount:
     # ── Historical-rate lookup (per-bill-date) ───────────────────────────
     # The live-rate fallback used to revalue every quirk bill every build
     # with today's rate, which caused the USD amount to drift from run to run
-    # and surfaced as "ghost adds" in the changelog email. The right rate for
+    # and surfaced as "ghost adds" in the publish receipt. The right rate for
     # a 2024 bill is the 2024 rate — look it up by bill_date in a dict of
     # historical rates (loaded from ``daily_close WHERE symbol='CNY=X'``).
 
@@ -146,7 +146,7 @@ class TestParseQjAmount:
         Regression guard for the root CNY bug — tomorrow's run with a new
         live rate must still compute the same USD as today's run for a
         historical bill. This eliminates the need for a cross-run stable
-        identity (source_id) in the changelog snapshot.
+        identity (source_id) in the reporting snapshot.
         """
         from datetime import date as _date
         extra = _extra("CNY", 7000.0, None, 0.0, "USD", 7000.0)

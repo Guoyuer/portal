@@ -82,8 +82,8 @@ def parse_qj_amount(
       - If ``bill_date`` + ``historical_cny_rates`` are supplied, use the
         rate for the bill's date (walks back up to 7 days for weekends /
         holidays). **This is the primary path** — it makes the USD amount
-        stable across runs, so the changelog snapshot's content-tuple
-        identity doesn't ghost on FX drift.
+        stable across runs, so reporting snapshots compare stable row identity
+        and do not report FX-drift ghosts.
       - Else if ``cny_rate`` is supplied, use the scalar (legacy path,
         still needed by tests and offline fixtures).
       - Else log a warning and fall back to ``money`` unchanged.

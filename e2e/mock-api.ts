@@ -219,7 +219,11 @@ const TIMELINE = {
   daily,
   dailyTickers,
   fidelityTxns,
-  qianjiTxns,
+  qianjiTxns: qianjiTxns.map((txn) => ({
+    ...txn,
+    isRetirement: txn.isRetirement ?? false,
+    accountTo: txn.accountTo ?? "",
+  })),
   robinhoodTxns: [],
   empowerContributions: [],
   categories,

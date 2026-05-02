@@ -580,7 +580,7 @@ class TestEmailNotifications:
     """Integration tests for the email-send branch of Runner.run().
 
     Strategy: monkeypatch ``etl.automation.notify.send`` (the low-level SMTP call)
-    and ``etl.changelog.capture`` (to inject before/after snapshots). This
+    and ``etl.automation.receipt.capture`` (to inject before/after snapshots). This
     lets us assert send-or-skip policy without touching real SMTP or SQLite.
     """
 
@@ -598,7 +598,7 @@ class TestEmailNotifications:
         downloads_seed=None,
     ):
         """Same as TestExitCodeMapping._invoke but with email-config env vars + send mock."""
-        from etl.changelog import SyncSnapshot
+        from etl.automation.receipt import SyncSnapshot
 
         fake = _FakeRun(codes)
         monkeypatch.setattr(runner, "run_python_script", fake)
@@ -648,7 +648,7 @@ class TestEmailNotifications:
 
     def test_success_with_no_diff_still_emails(self, monkeypatch, tmp_path):
         """Success email is sent even when snapshot diff is empty."""
-        from etl.changelog import SyncSnapshot
+        from etl.automation.receipt import SyncSnapshot
 
         rc, _, sent = self._invoke_with_email(
             ["--force"], [0, 0, 0, 0], monkeypatch, tmp_path,
@@ -661,7 +661,7 @@ class TestEmailNotifications:
 
     def test_row_count_change_sends_email_summary(self, monkeypatch, tmp_path):
         """Success with a row-count delta -> one compact summary email."""
-        from etl.changelog import SyncSnapshot
+        from etl.automation.receipt import SyncSnapshot
 
         before = SyncSnapshot(row_counts={"fidelityTxns": 0})
         after = SyncSnapshot(row_counts={"fidelityTxns": 1})
@@ -676,7 +676,7 @@ class TestEmailNotifications:
 
     def test_build_failure_sends_email_with_exit_1(self, monkeypatch, tmp_path):
         """Build fail -> email even though no snapshot_after available."""
-        from etl.changelog import SyncSnapshot
+        from etl.automation.receipt import SyncSnapshot
 
         rc, _, sent = self._invoke_with_email(
             ["--force"], [5], monkeypatch, tmp_path,
@@ -699,7 +699,7 @@ class TestEmailNotifications:
         ``include_started_at=False`` on this branch and the email had no
         ``Duration: …`` line — the only failure email that didn't.
         """
-        from etl.changelog import SyncSnapshot
+        from etl.automation.receipt import SyncSnapshot
 
         rc, _, sent = self._invoke_with_email(
             ["--force"], [0, 1], monkeypatch, tmp_path,
@@ -714,7 +714,7 @@ class TestEmailNotifications:
 
     def test_email_disabled_no_smtp_activity(self, monkeypatch, tmp_path, capsys):
         """No SMTP_USER/PASSWORD -> no send call, log notes disabled."""
-        from etl.changelog import SyncSnapshot
+        from etl.automation.receipt import SyncSnapshot
 
         rc, _, sent = self._invoke_with_email(
             ["--force"], [0, 0, 0, 0], monkeypatch, tmp_path,
@@ -730,7 +730,7 @@ class TestEmailNotifications:
 
     def test_email_send_failure_does_not_fail_sync(self, monkeypatch, tmp_path, capsys):
         """SMTP error is logged but must not affect the exit code."""
-        from etl.changelog import SyncSnapshot
+        from etl.automation.receipt import SyncSnapshot
 
         rc, _, sent = self._invoke_with_email(
             ["--force"], [0, 0, 0, 0], monkeypatch, tmp_path,
@@ -848,7 +848,7 @@ class TestExtractValidationWarnings:
     ):
         """End-to-end: Runner.run() resets the buffer at start → a second
         invocation in the same process does NOT see warnings from the first."""
-        from etl.changelog import SyncSnapshot
+        from etl.automation.receipt import SyncSnapshot
 
         # Pre-seed the buffer as if a prior run had left stale warnings around.
         runner._SCRIPT_OUTPUT_BUFFER.extend([

@@ -43,20 +43,18 @@ tightening tasks.
 
 | Priority | Status | Cleanup | Why |
 | --- | --- | --- | --- |
-| P2 | Proposed | Emit `/econ.series` as arrays, not JSON strings | Removes the last frontend JSON-string compatibility schema. |
-| P2 | Proposed | Export SQLite booleans as JSON booleans | Stops leaking SQLite 0/1 storage into frontend schemas. |
-| P3 | Proposed | Tighten frontend Zod defaults on required artifact fields | Makes schema drift fail loudly instead of silently filling missing arrays. |
-| P3 | Proposed | Rename `etl.changelog` to publish receipt/reporting module | Aligns naming with the simplified email role. |
-| P3 | Proposed | Harden or prune conditional mock e2e checks | Converts weak smoke tests into deterministic fixture assertions. |
+| P2 | Done | Emit `/econ.series` as arrays, not JSON strings | Removes the last frontend JSON-string compatibility schema. |
+| P2 | Done | Export SQLite booleans as JSON booleans | Stops leaking SQLite 0/1 storage into frontend schemas. |
+| P3 | Done | Tighten frontend Zod defaults on required artifact fields | Makes schema drift fail loudly instead of silently filling missing arrays. |
+| P3 | Done | Rename publish email code to receipt/reporting module | Aligns naming with the simplified email role. |
+| P3 | Deferred | Harden or prune conditional mock e2e checks | Worth doing only with fixture-specific assertions; avoid making smoke tests brittle. |
 
 ### Emit `/econ.series` as JSON arrays
 
-`pipeline/scripts/r2_artifacts.py` builds `econ.series` with
+Status: implemented. `pipeline/scripts/r2_artifacts.py` builds `econ.series` with
 `json_group_array(...)`, which returns a JSON-encoded string per series.
-`src/lib/schemas/econ.ts` then accepts both strings and arrays via a union and
-transform. R2 transports JSON natively, so the exporter should `json.loads` each
-series and publish real arrays. The frontend schema can then validate
-`EconPoint[]` directly.
+R2 transports JSON natively, so the exporter now `json.loads` each series and
+publishes real arrays. The frontend schema validates `EconPoint[]` directly.
 
 Verification:
 
@@ -68,11 +66,10 @@ cd pipeline && .venv/Scripts/python.exe scripts/r2_artifacts.py verify
 
 ### Export SQLite booleans as JSON booleans
 
-`QianjiTxn.isRetirement` is stored as SQLite INTEGER 0/1, and the generated Zod
-schema currently accepts `boolean | number` with a transform. R2 artifacts are
-JSON API payloads, not SQLite rows. Convert `isRetirement` to a real boolean in
-the exporter, then remove `coerce_bool` from `pipeline/tools/gen_zod.py` if no
-other exported field needs it.
+Status: implemented. `QianjiTxn.isRetirement` is stored as SQLite INTEGER 0/1,
+but R2 artifacts are JSON API payloads, not SQLite rows. The exporter now
+converts `isRetirement` to a real boolean, and `pipeline/tools/gen_zod.py` no
+longer needs a `coerce_bool` mode.
 
 Verification:
 
@@ -84,7 +81,8 @@ cd pipeline && .venv/Scripts/python.exe -m pytest -q
 
 ### Tighten Zod defaults on required artifact fields
 
-Some schemas still default missing exporter-guaranteed fields to empty values:
+Status: implemented. These exporter-guaranteed fields no longer default missing
+values to empty arrays/records:
 
 - `TimelineDataSchema.dailyTickers`
 - `TimelineDataSchema.fidelityTxns`
@@ -93,47 +91,42 @@ Some schemas still default missing exporter-guaranteed fields to empty values:
 - `TickerPriceResponseSchema.transactions`
 - `EconDataSchema.series`
 
-Those defaults made sense when the frontend was defensive against partial Worker
-responses. Under the current R2 publication model, missing fields mean
-artifact/schema drift and should fail loudly. Keep nullability only for fields
-that are genuinely optional in the published API, such as nullable market
-values.
+Under the current R2 publication model, missing fields mean artifact/schema
+drift and fail loudly. Nullability remains only for fields that are genuinely
+optional in the published API, such as nullable market values.
 
-### Rename `etl.changelog` to publish receipt/reporting
+### Rename publish email code to receipt/reporting
 
-The old changelog subsystem produced semantic row-level diffs. After the email
-simplification, `pipeline/etl/changelog/__init__.py` formats a compact publish
-receipt: artifact version, latest date, object sizes, aggregate row deltas,
-latest net worth, warnings, duration, and failure stage. The name now overstates
-its job. Move it to something like `etl.automation.report` or
-`etl.automation.receipt` and update stale "changelog email" wording.
+Status: implemented. The old changelog subsystem produced semantic row-level
+diffs. After the email simplification, the code now lives in
+`etl.automation.receipt` and formats a compact publish receipt: artifact
+version, latest date, object sizes, aggregate row deltas, latest net worth,
+warnings, duration, and failure stage.
 
 ### Harden or prune conditional mock e2e checks
 
-`e2e/finance.spec.ts` still contains many conditional returns such as "if no
+Status: deferred. `e2e/finance.spec.ts` still contains many conditional returns such as "if no
 table, return" or "if market card does not render, return". That is reasonable
 for smoke tests against variable data, but the mock API fixture is controlled.
 Mock regression tests should assert the expected fixture state or be deleted.
+
+Do this only as a fixture-specific Playwright cleanup. It is not a data
+correctness gate, and making broad UI smoke tests brittle is not a useful trade.
 
 ## Remaining Optional Items
 
 These are intentionally not planned unless they become annoying:
 
-- `scripts/validate_timeline_zod.ts`: duplicates publish-time Zod validation,
+- `scripts/validate_live_api_zod.ts`: duplicates publish-time Zod validation,
   but produces clearer failures in the real-worker workflow.
 - Automation double-verify: the runner does `export -> verify -> publish`, and
   `publish` verifies again. This is conservative and cheap enough.
 
 ## Suggested PR Order
 
-1. Remove remaining published-shape compatibility:
-   - emit `/econ.series` as arrays
-   - export Qianji `isRetirement` as a JSON boolean
-   - tighten Zod defaults only for exporter-guaranteed fields
-2. Rename `etl.changelog` to a publish receipt/reporting module.
-3. Replace silent returns in `e2e/finance.spec.ts` with deterministic fixture
+1. Replace silent returns in `e2e/finance.spec.ts` with deterministic fixture
    assertions, or delete duplicated weak smoke tests.
-4. Decide on the two low-priority optional items only if they start adding
+2. Decide on the two low-priority optional items only if they start adding
    runtime or maintenance noise.
 
 ## Do Not Simplify
