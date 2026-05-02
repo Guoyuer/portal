@@ -8,20 +8,6 @@ import { MarkerHoverPanel } from "../charts/marker-hover-panel";
 import type { FidelityTxn } from "@/lib/schemas";
 import type { Selection } from "../ticker/ticker-markers";
 
-// jsdom doesn't implement HTMLDialogElement.showModal; polyfill lightly:
-if (typeof HTMLDialogElement !== "undefined" && !HTMLDialogElement.prototype.showModal) {
-  HTMLDialogElement.prototype.showModal = function () { (this as HTMLDialogElement).open = true; };
-  HTMLDialogElement.prototype.close = function () { (this as HTMLDialogElement).open = false; };
-}
-
-// Recharts uses ResizeObserver (as a constructor); provide a no-op class for jsdom
-class ResizeObserverStub {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-}
-global.ResizeObserver = ResizeObserverStub as unknown as typeof ResizeObserver;
-
 const matchMediaStub = (q: string) => ({
   matches: false,
   media: q,
@@ -119,8 +105,6 @@ describe("GroupChartDialog", () => {
 // ── TransactionTable unit tests ──────────────────────────────────────────
 
 describe("TransactionTable", () => {
-  const mkRef = (): React.RefObject<HTMLDivElement | null> => ({ current: null });
-
   const txns = [
     { runDate: "2025-03-01", actionType: "buy", quantity: 10, price: 100, amount: -1000 },
     { runDate: "2025-03-02", actionType: "sell", quantity: -5, price: 110, amount: 550 },
@@ -128,7 +112,7 @@ describe("TransactionTable", () => {
   ];
 
   it("renders rows sorted as provided (caller's responsibility)", () => {
-    render(<TransactionTable transactions={txns} selected={null} tableScrollRef={mkRef()}  />);
+    render(<TransactionTable transactions={txns} selected={null} />);
     const dates = screen.getAllByText(/Mar \d+, 2025/);
     expect(dates.length).toBeGreaterThanOrEqual(3);
   });
@@ -136,7 +120,7 @@ describe("TransactionTable", () => {
   it("highlights buy rows when selection side=buy matches the date", () => {
     const selected: Selection = { key: "buy-123-1", dates: ["2025-03-01"], side: "buy" };
     const { container } = render(
-      <TransactionTable transactions={txns} selected={selected} tableScrollRef={mkRef()}  />,
+      <TransactionTable transactions={txns} selected={selected} />,
     );
     const highlightedCell = container.querySelector('td[data-date="2025-03-01"][data-side="buy"]');
     expect(highlightedCell).toBeTruthy();
@@ -147,7 +131,7 @@ describe("TransactionTable", () => {
   it("highlights sell rows when selection side=sell matches the date", () => {
     const selected: Selection = { key: "sell-456-1", dates: ["2025-03-02"], side: "sell" };
     const { container } = render(
-      <TransactionTable transactions={txns} selected={selected} tableScrollRef={mkRef()}  />,
+      <TransactionTable transactions={txns} selected={selected} />,
     );
     const highlightedCell = container.querySelector('td[data-date="2025-03-02"][data-side="sell"]');
     expect(highlightedCell).toBeTruthy();
@@ -156,14 +140,14 @@ describe("TransactionTable", () => {
 
   it("returns null when transactions is empty", () => {
     const { container } = render(
-      <TransactionTable transactions={[]} selected={null} tableScrollRef={mkRef()}  />,
+      <TransactionTable transactions={[]} selected={null} />,
     );
     expect(container.firstChild).toBeNull();
   });
 
   it("stamps data-side='buy' on reinvestment rows", () => {
     const { container } = render(
-      <TransactionTable transactions={txns} selected={null} tableScrollRef={mkRef()}  />,
+      <TransactionTable transactions={txns} selected={null} />,
     );
     const reinvestCell = container.querySelector('td[data-date="2025-03-03"]');
     expect(reinvestCell?.getAttribute("data-side")).toBe("buy");

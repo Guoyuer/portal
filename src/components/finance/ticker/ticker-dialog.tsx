@@ -2,7 +2,7 @@
 
 // ── Near-fullscreen ticker dialog (price chart + transaction table) ─────
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useHoverState } from "@/lib/hooks/use-hover-state";
 import { Line, Scatter } from "recharts";
 import { ChartDialog } from "../charts/chart-dialog";
@@ -83,16 +83,7 @@ export function TickerChartDialog({
   transactions: TickerTxn[];
   onClose: () => void;
 }) {
-  const tableScrollRef = useRef<HTMLDivElement>(null);
   const [selected, setSelected] = useState<Selection | null>(null);
-
-  useEffect(() => {
-    if (!selected || !tableScrollRef.current) return;
-    // Scroll the most-recent member (sorted descending, so first match = latest) into view
-    const cell = tableScrollRef.current.querySelector<HTMLElement>(`td[data-date="${selected.dates[0]}"][data-side="${selected.side}"]`);
-    cell?.scrollIntoView({ block: "center", behavior: "smooth" });
-  }, [selected]);
-
   const sorted = [...transactions].sort((a, b) => b.runDate.localeCompare(a.runDate));
 
   return (
@@ -106,7 +97,6 @@ export function TickerChartDialog({
       <TransactionTable
         transactions={sorted}
         selected={selected}
-        tableScrollRef={tableScrollRef}
       />
     </ChartDialog>
   );
