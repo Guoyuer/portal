@@ -1,5 +1,9 @@
 # Code Quality and Overengineering Review - 2026-05-02
 
+Status: Historical review. This document was written against the pre-R2/D1
+architecture and should not be used as current implementation guidance. Use
+`docs/post-r2-architecture-cleanup-2026-05-02.md` for the active cleanup plan.
+
 Scope: current `main` after PR #275 (`bfe06f7`). This review records defects still present on
 the branch plus overengineering patterns that look like "vibe coding" residue: useful-looking
 process, tests, or abstractions that now cost more than they protect.
