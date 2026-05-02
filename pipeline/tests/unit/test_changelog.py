@@ -911,18 +911,20 @@ class TestFormatHtml:
 
 class TestBuildSubject:
     def test_failure_subject(self) -> None:
-        subj = build_subject(SyncChangelog(), exit_code=1)
+        subj = build_subject(SyncChangelog(), exit_code=1, status_label="BUILD FAILED")
         assert "FAIL" in subj
         assert "BUILD FAILED" in subj
 
     def test_build_subject_includes_label_on_failure(self) -> None:
         """Failure subject should name the gate, not just the exit code."""
+        from etl.changelog import build_subject
+
         cl = SyncChangelog()
         assert build_subject(cl, 0) == "[Portal Sync] OK"
-        assert build_subject(cl, 1) == "[Portal Sync] FAIL — BUILD FAILED"
-        assert build_subject(cl, 2) == "[Portal Sync] FAIL — PARITY GATE FAILED"
-        assert build_subject(cl, 5) == "[Portal Sync] FAIL — PARITY GATE COULD NOT RUN"
-        # Unknown code falls back to the exit number.
+        assert build_subject(cl, 1, "BUILD FAILED") == "[Portal Sync] FAIL — BUILD FAILED"
+        assert build_subject(cl, 2, "PARITY GATE FAILED") == "[Portal Sync] FAIL — PARITY GATE FAILED"
+        assert build_subject(cl, 5, "PARITY GATE COULD NOT RUN") == "[Portal Sync] FAIL — PARITY GATE COULD NOT RUN"
+        # No label provided → falls back to the exit number.
         assert build_subject(cl, 99) == "[Portal Sync] FAIL (exit 99)"
 
     def test_success_no_changes(self) -> None:

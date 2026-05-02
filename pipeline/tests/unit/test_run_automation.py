@@ -713,7 +713,7 @@ class TestEmailNotifications:
         assert rc == EXIT_BUILD_FAIL
         assert len(sent) == 1
         assert "FAIL" in sent[0]["subject"]
-        assert "1" in sent[0]["subject"]
+        assert "BUILD FAILED" in sent[0]["subject"]
         # Body should mention the error
         assert "build_timemachine_db.py" in sent[0]["text"]
         # P1 regression: failure emails must include Duration.

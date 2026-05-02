@@ -254,7 +254,7 @@ def send_report_email(
         changelog, exit_code, log_file, snapshot_before, snapshot_after, error,
         validation_warnings, started_at=started_at,
     )
-    subject = build_subject(changelog, exit_code)
+    subject = build_subject(changelog, exit_code, _STATUS_LABELS.get(exit_code))
     html = format_html(changelog, context)
     text = format_text(changelog, context)
 

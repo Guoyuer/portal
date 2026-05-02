@@ -80,20 +80,24 @@ def format_html(changelog: SyncChangelog, context: dict[str, Any]) -> str:
     )
 
 
-def build_subject(changelog: SyncChangelog, exit_code: int) -> str:
+def build_subject(
+    changelog: SyncChangelog,
+    exit_code: int,
+    status_label: str | None = None,
+) -> str:
     """Short, informative subject line.
 
     Successful syncs with changes → summary of counts. Failures → ``FAIL —
     <label>`` so the operator can triage from the inbox row alone, with an
-    ``(exit N)`` fallback for unknown codes.
+    ``(exit N)`` fallback when no label was provided. The label comes from
+    :data:`etl.automation._constants._STATUS_LABELS`; the caller resolves
+    it (rather than importing here) so this module stays free of any
+    `etl.automation` dependency.
     """
     if exit_code != 0:
-        import importlib
-        _constants = importlib.import_module("etl.automation._constants")
-        label = _constants._STATUS_LABELS.get(exit_code)
-        if label is None:
+        if status_label is None:
             return f"[Portal Sync] FAIL (exit {exit_code})"
-        return f"[Portal Sync] FAIL — {label}"
+        return f"[Portal Sync] FAIL — {status_label}"
     bits: list[str] = []
     if changelog.fidelity_added:
         bits.append(f"{len(changelog.fidelity_added)} fidelity")
