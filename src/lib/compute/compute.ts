@@ -127,7 +127,7 @@ export function cashflowState(cashflow: CashflowResponse | null): CashflowState 
 // ── Investment txn unification ────────────────────────────────────────────
 
 /** Unified shape used by computeActivity + computeCrossCheck. Internal to
- *  the compute layer; does NOT cross the D1/Worker/Zod boundary. */
+ *  the compute layer; does NOT cross the artifact/Worker/Zod boundary. */
 const INVESTMENT_ACTION_TYPES = [
   "buy", "sell", "dividend", "reinvestment", "deposit", "contribution",
 ] as const;

@@ -1,12 +1,10 @@
-"""Shared yfinance helpers used by the market data module and nightly scripts.
+"""Shared yfinance helpers used by market data and price ingestion.
 
 yfinance's :func:`yfinance.download` returns a DataFrame whose shape depends on
 the number of tickers requested: single-ticker responses come back with flat
 columns (``Open``/``Close``/...), multi-ticker responses use a ``MultiIndex``
-(``(field, ticker)``). Three call sites across ``etl/prices.py``,
-``scripts/sync_prices_nightly.py``, and ``etl/market/yahoo.py`` handled that
-branching independently and inconsistently — :func:`extract_close` normalizes
-the extraction into a single place.
+(``(field, ticker)``). :func:`extract_close` normalizes the extraction into a
+single place.
 """
 
 from __future__ import annotations

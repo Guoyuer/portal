@@ -11,21 +11,24 @@ Tiering rule: 🟢 = do if touching this area, 🟡 = do if you expect to keep i
 
 Detailed review: `docs/code-quality-overengineering-review-2026-05-02.md`.
 
-### R1. Pre-sync gate must cover every destructive sync table
+### R1. Remove destructive production DB sync from the publish path
 
-`verify_vs_prod.py` currently checks row counts for only four tables, while `sync_to_d1.py` can
-range-replace or full-replace more tables. Derive the gate from the same sync policy used by
-`sync_to_d1.py` so `local < prod` is blocked for every table where sync can delete prod rows.
+The R2 migration replaced mutable production table sync with validated JSON
+artifact publication. `r2_artifacts.py verify` now checks local SQLite row
+counts, artifact hashes, latest-date coverage, and frontend Zod schemas before
+publish; remote publish readback-verifies snapshot bytes before flipping
+`manifest.json`.
 
-- [x] Done — shared policy now lives in `pipeline/scripts/sync_policy.py`; the prod gate uses it.
+- [x] Done — steady-state production publish is R2 manifest-last.
 
-### R2. Match `computed_daily` drift-check window to the sync replacement window
+### R2. Keep data correctness at least as strong as the old path
 
-The gate compares only the latest seven `computed_daily` rows, but default diff sync replaces roughly
-the last 60 days. Compare the full replacement range and source the allowed refresh boundary from
-`refresh_window_start()`.
+The migration had to improve or preserve every correctness guarantee: local
+build validation, shortfall/drift detection during cutover, schema validation,
+and atomic production publication.
 
-- [x] Done — `verify_vs_prod.py` now checks the full sync replacement range and uses the shared refresh window.
+- [x] Done — cutover used baseline parity; steady state uses artifact row-count,
+  hash, Zod, readback, single-publisher, and manifest-last gates.
 
 ### R3. Repair quality gates
 
@@ -155,11 +158,11 @@ These are **new features**, not code quality. Each requires its own design/impl 
 
 ### P1. Spending/income trends visualization
 
-**Status:** Qianji sync is live (`qianji_transactions` in D1) but no UI surfaces it. The `/cashflow` route or a new `/spending` tab could chart monthly category-aggregated spending + income.
+**Status:** Qianji transactions are included in the `/timeline` artifact, but no dedicated spending page surfaces them. A new `/spending` tab could chart monthly category-aggregated spending + income.
 
 **Data already there:** `qianji_transactions(date, type, category, amount, is_retirement)`.
 
-**Missing:** D1 view for aggregation, Worker endpoint, frontend chart.
+**Missing:** derive/precompute aggregation decision and frontend chart.
 
 ### P2. Monthly savings rate
 
@@ -179,9 +182,9 @@ These are **new features**, not code quality. Each requires its own design/impl 
 
 ### P4. Allocation drift alert
 
-**Status:** config.json has `target_weights`; D1 serves current allocation. Comparison is done visually in the UI (allocation chart overlay). No automated alert.
+**Status:** config.json has `target_weights`; `/timeline` serves current allocation. Comparison is done visually in the UI (allocation chart overlay). No automated alert.
 
-**Fix sketch:** add a threshold check in `run_automation.py` (or a separate cron); email when any category drifts > X% from target for Y consecutive days. Mirror the existing sync-failure email path.
+**Fix sketch:** add a threshold check in `run_automation.py` (or a separate cron); email when any category drifts > X% from target for Y consecutive days. Mirror the existing publish-failure email path.
 
 **Effort:** ~1 day.
 

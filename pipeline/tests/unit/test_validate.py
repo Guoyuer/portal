@@ -247,7 +247,7 @@ class TestDateGaps:
 class TestFidelityQianjiReconcile:
     """Pipeline gate mirroring the frontend ``computeCrossCheck``: Fidelity
     deposits must match a Qianji transfer / income-to-Fidelity within 7d
-    and to the cent. Fail-loud so bad data never reaches D1."""
+    and to the cent. Fail-loud so bad data never gets published."""
 
     @staticmethod
     def _add_fidelity_deposit(db_path: Path, run_date: str, amount: float, action: str = "EFT") -> None:

@@ -69,8 +69,7 @@ def test_module_imported_at_script_start() -> None:
     entries = [
         "run_automation.py",
         "build_timemachine_db.py",
-        "sync_to_d1.py",
-        "verify_vs_prod.py",
+        "r2_artifacts.py",
         "verify_positions.py",
     ]
     for name in entries:

@@ -144,7 +144,7 @@ describe("useBundle", () => {
     expect(result.current.txnsError).toBeNull();
   });
 
-  it("parses sparkline from a JSON string (D1 storage format)", async () => {
+  it("parses sparkline from a JSON string (SQLite/export storage format)", async () => {
     server.use(
       http.get(TIMELINE_URL, () => HttpResponse.json({
         ...VALID_PAYLOAD,

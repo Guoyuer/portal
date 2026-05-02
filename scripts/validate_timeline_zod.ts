@@ -1,12 +1,9 @@
 // ── CI smoke: Worker /timeline vs. frontend Zod schema ──────────────────
 //
-// Worker is a thin SELECT→JSON adapter — it does not validate at runtime
-// (see CLAUDE.md "Worker stays thin": doubling the parse cost ~200ms CPU
-// per /timeline call). That means a D1-view-vs-Zod drift only surfaces
-// when a user loads the page in prod. This script runs the same
-// `TimelineDataSchema.safeParse` the browser runs, against a live
-// `wrangler dev --local` seeded from L2 fixtures, so drift breaks CI
-// instead.
+// Worker is a thin R2 object-streaming facade — it does not validate at
+// runtime. This script runs the same `TimelineDataSchema.safeParse` the
+// browser runs, against a live `wrangler dev --local` seeded from L2
+// fixtures, so artifact/schema drift breaks CI instead.
 //
 // Invoked from .github/workflows/e2e-real-worker.yml AFTER wrangler is
 // up and BEFORE Playwright. A Zod failure here exits non-zero with a
@@ -14,7 +11,7 @@
 // Playwright "undefined is not an object" at render time.
 //
 // Run locally:
-//   bash pipeline/scripts/seed_local_d1_from_fixtures.sh
+//   bash pipeline/scripts/seed_local_r2_from_fixtures.sh
 //   (cd worker && npx wrangler dev --local) &
 //   npx tsx scripts/validate_timeline_zod.ts
 //

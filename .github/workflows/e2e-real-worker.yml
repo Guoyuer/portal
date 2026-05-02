@@ -3,8 +3,8 @@ name: E2E (real Worker)
 # Expensive job (build + wrangler startup + Playwright) — gated on an opt-in
 # label OR manual dispatch so it doesn't pile onto every PR. The cheap
 # mock-API E2E runs on the main ci.yml Playwright step; this one catches
-# what the mock can't: schema drift, view column aliasing, worker code
-# defects, payload parity with the frontend's Zod schema.
+# what the mock can't: R2 artifact serving, Worker code defects, and payload
+# parity with the frontend's Zod schema.
 on:
   pull_request:
     types: [labeled, synchronize, reopened]
@@ -37,18 +37,20 @@ jobs:
           cache: npm
       - run: npm ci
 
-      # ── Seed local D1 from L2 golden fixtures ──────────────────
-      # Runs the committed seed script: builds timemachine.db from the
-      # fixtures under pipeline/tests/fixtures/regression/, applies
-      # worker/schema.sql to the local D1, and syncs rows via
-      # sync_to_d1.py --local. Fully offline.
-      - name: Seed local D1
-        run: bash pipeline/scripts/seed_local_d1_from_fixtures.sh
+      - name: Install Worker dependencies
+        working-directory: worker
+        run: npm ci
+
+      # ── Seed local R2 from L2 golden fixtures ──────────────────
+      # Builds timemachine.db from committed fixtures, exports endpoint-shaped
+      # artifacts, and publishes them to Miniflare/local R2. Fully offline.
+      - name: Seed local R2
+        run: bash pipeline/scripts/seed_local_r2_from_fixtures.sh
 
       # ── Start wrangler dev --local in the background ──────────
       # Background wrangler, then poll /timeline until 200 so the Next
       # build knows the Worker is reachable at bake time.
-      - name: Start wrangler dev (local D1)
+      - name: Start wrangler dev (local R2)
         working-directory: worker
         run: |
           nohup npx wrangler dev --local > "$GITHUB_WORKSPACE/wrangler.log" 2>&1 &
@@ -68,8 +70,8 @@ jobs:
           exit 1
 
       # ── Zod smoke: /timeline vs. frontend schema ──────────────
-      # Worker doesn't validate at runtime (thin SELECT→JSON adapter,
-      # see CLAUDE.md "Worker stays thin"), so a Zod-vs-view drift
+      # Worker doesn't validate at runtime (thin R2 streaming facade,
+      # see CLAUDE.md "Worker"), so an artifact-vs-schema drift
       # would only surface when a user loads the page in prod. This
       # step runs `TimelineDataSchema.safeParse` against the live
       # wrangler response — drift fails CI here with a clean

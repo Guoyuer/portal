@@ -1,21 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import worker, { __resetR2ManifestCacheForTests } from "./index";
+import worker from "./index";
 
 function makeCtx(): ExecutionContext {
   return {
     waitUntil: vi.fn(),
     passThroughOnException: vi.fn(),
   };
-}
-
-function installCache(): void {
-  vi.stubGlobal("caches", {
-    default: {
-      match: vi.fn(() => Promise.resolve(undefined)),
-      put: vi.fn(() => Promise.resolve()),
-    },
-  });
 }
 
 function makeR2Object(key: string, bodyText: string): R2ObjectBody {
@@ -87,14 +78,11 @@ function manifest(): string {
 
 describe("Worker R2 path", () => {
   afterEach(() => {
-    __resetR2ManifestCacheForTests();
     vi.unstubAllGlobals();
   });
 
   it("streams manifest-referenced endpoint artifacts", async () => {
-    installCache();
     const env = {
-      DATA_BACKEND: "r2",
       PORTAL_DATA: makeR2({
         "manifest.json": manifest(),
         "snapshots/2026-05-02T170000Z/timeline.json": '{"ok":"timeline"}',
@@ -105,13 +93,12 @@ describe("Worker R2 path", () => {
 
     expect(res.status).toBe(200);
     expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
     await expect(res.json()).resolves.toEqual({ ok: "timeline" });
   });
 
   it("streams the bundled prices artifact without Worker-side symbol lookup", async () => {
-    installCache();
     const env = {
-      DATA_BACKEND: "r2",
       PORTAL_DATA: makeR2({
         "manifest.json": manifest(),
         "snapshots/2026-05-02T170000Z/prices.json": '{"VOO":{"symbol":"VOO","prices":[],"transactions":[]}}',
@@ -124,13 +111,49 @@ describe("Worker R2 path", () => {
     await expect(res.json()).resolves.toEqual({ VOO: { symbol: "VOO", prices: [], transactions: [] } });
   });
 
-  it("rejects path-unsafe price symbols before reading R2", async () => {
-    installCache();
+  it("does not expose the old per-symbol price route", async () => {
     const r2 = makeR2({ "manifest.json": manifest() });
-    const env = { DATA_BACKEND: "r2", PORTAL_DATA: r2 };
+    const env = { PORTAL_DATA: r2 };
 
-    const res = await worker.fetch(new Request("http://localhost/api/prices/BAD%2FSYM"), env, makeCtx());
+    const res = await worker.fetch(new Request("http://localhost/api/prices/VOO"), env, makeCtx());
 
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(404);
+  });
+
+  it("does not cache endpoint artifacts across manifest updates", async () => {
+    const firstManifest = manifest();
+    const secondManifest = JSON.stringify({
+      ...JSON.parse(firstManifest),
+      version: "2026-05-02T180000Z",
+      objects: {
+        ...JSON.parse(firstManifest).objects,
+        timeline: {
+          key: "snapshots/2026-05-02T180000Z/timeline.json",
+          sha256: "x",
+          bytes: 2,
+          contentType: "application/json",
+        },
+      },
+    });
+    let activeManifest = firstManifest;
+    const r2 = {
+      get: vi.fn((key: string) => {
+        const objects: Record<string, string> = {
+          "manifest.json": activeManifest,
+          "snapshots/2026-05-02T170000Z/timeline.json": '{"version":"old"}',
+          "snapshots/2026-05-02T180000Z/timeline.json": '{"version":"new"}',
+        };
+        const body = objects[key];
+        return Promise.resolve(body === undefined ? null : makeR2Object(key, body));
+      }),
+    } as unknown as R2Bucket;
+    const env = { PORTAL_DATA: r2 };
+
+    const first = await worker.fetch(new Request("http://localhost/api/timeline"), env, makeCtx());
+    activeManifest = secondManifest;
+    const second = await worker.fetch(new Request("http://localhost/api/timeline"), env, makeCtx());
+
+    await expect(first.json()).resolves.toEqual({ version: "old" });
+    await expect(second.json()).resolves.toEqual({ version: "new" });
   });
 });

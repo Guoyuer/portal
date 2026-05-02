@@ -1,5 +1,5 @@
 // ── Mock API server for E2E tests ────────────────────────────────────────
-// Serves realistic fixture data on /timeline, /prices, /prices/:symbol, and /econ
+// Serves realistic fixture data on /timeline, /prices, and /econ
 // so E2E tests don't depend on the production Worker.
 // Started by Playwright via webServer.
 
@@ -258,9 +258,8 @@ const ECON = {
 
 // ── Server ───────────────────────────────────────────────────────────────
 
-// Frontend now uses `credentials: "include"` so Access cookies flow to the
-// real Worker; browsers reject wildcard Allow-Origin alongside credentials,
-// so the mock echoes the request's Origin and opts into credentials too.
+// Echo the request Origin so the mock behaves like a same-origin Worker route
+// while still accepting cross-origin local dev requests.
 function corsFor(req: http.IncomingMessage): Record<string, string> {
   // Node types `origin` as `string | string[] | undefined`. A comma-joined
   // array would be rejected by the browser; normalise to the first value.
@@ -303,19 +302,6 @@ const server = http.createServer((req, res) => {
     }));
     res.writeHead(200, CORS);
     res.end(JSON.stringify(payload));
-    return;
-  }
-
-  // /prices/:symbol — compatibility route for the old per-symbol endpoint
-  const priceMatch = url.pathname.match(/^\/prices\/([A-Za-z0-9.^=-]+)$/);
-  if (priceMatch) {
-    const symbol = decodeURIComponent(priceMatch[1]).toUpperCase();
-    const prices = SYMBOL_PRICES[symbol] ?? [];
-    const txns = fidelityTxns
-      .filter((t) => t.symbol === symbol)
-      .map((t) => ({ runDate: t.runDate, actionType: t.actionType, quantity: t.quantity, price: t.price, amount: t.amount }));
-    res.writeHead(200, CORS);
-    res.end(JSON.stringify({ symbol, prices, transactions: txns }));
     return;
   }
 

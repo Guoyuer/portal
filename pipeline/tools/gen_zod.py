@@ -18,8 +18,8 @@ supports four shape transformations between Python and TS:
 3. **Rename** — declare ``include={"src_name": "outName"}``. Inherits
    the source type; only the name differs on the TS side.
 4. **Extra fields** — fields not present in the Python TypedDict but
-   added by downstream ingestion (e.g. ``is_retirement`` set when
-   writing to D1). Declare with ``extra={"is_retirement": "bool"}``.
+   added by downstream ingestion (e.g. ``is_retirement`` set while building
+   local SQLite rows). Declare with ``extra={"is_retirement": "bool"}``.
    Type must be one of the Python scalars (``str``, ``float``,
    ``int``, ``bool``).
 
@@ -69,13 +69,12 @@ class ViewSpec:
             output (camelCase) name, or ``None`` to derive it automatically.
             If ``None``, all source fields are emitted with auto-camelCase.
         extra: Fields absent from the TypedDict but present in the Python
-            row written to D1. Map output name → scalar Python type.
+            row written to SQLite/exported JSON. Map output name → scalar Python type.
         coerce_bool: Source or extra field names that arrive as SQLite
-            INTEGER 0/1 via D1 (SQLite has no native BOOLEAN). Emits
+            INTEGER 0/1 (SQLite has no native BOOLEAN). Emits
             ``z.union([z.boolean(), z.number()]).default(false).transform(Boolean)``
             instead of plain ``z.boolean()`` so 0/1 coerces to false/true
-            and missing values default to false. Keeps the Worker a
-            thin SELECT→JSON adapter; the type boundary stays in Zod.
+            and missing values default to false. The type boundary stays in Zod.
     """
     output: str
     source: str
@@ -90,7 +89,7 @@ _SPECS: tuple[ViewSpec, ...] = (
     ViewSpec(output="TickerDetail", source="TickerDetail"),
     ViewSpec(output="AllocationRow", source="AllocationRow"),
 
-    # D1-view projections (subsets ± renames)
+    # Exporter view projections (subsets ± renames)
     ViewSpec(
         output="FidelityTxn",
         source="FidelityTransaction",
@@ -113,7 +112,7 @@ _SPECS: tuple[ViewSpec, ...] = (
             "amount": None,
             "account_to": None,
         },
-        # `is_retirement` is added during D1 ingestion. D1 returns it as
+        # `is_retirement` is added during ingestion. SQLite stores it as
         # INTEGER 0/1 (SQLite has no native BOOLEAN), hence coerce_bool.
         extra={"is_retirement": "bool"},
         coerce_bool=frozenset({"is_retirement"}),

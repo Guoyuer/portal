@@ -6,7 +6,7 @@
 // the same palette.
 //
 // Pipeline owns category name/order/target; colors live frontend-only so the
-// palette can be tuned without re-syncing D1.
+// palette can be tuned without republishing data artifacts.
 
 const OKABE_ITO = {
   blue: "#0072B2",

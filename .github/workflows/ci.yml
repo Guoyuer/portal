@@ -37,15 +37,6 @@ jobs:
           if-no-files-found: warn
       - run: cd pipeline && python -m mypy etl/ --ignore-missing-imports
       - run: cd pipeline && python -m ruff check .
-      - name: Verify worker/schema.sql is up to date
-        working-directory: pipeline
-        run: |
-          python3 scripts/gen_schema_sql.py
-          if ! git diff --exit-code ../worker/schema.sql; then
-            echo "::error::worker/schema.sql is out of date."
-            echo "::error::Run 'cd pipeline && python3 scripts/gen_schema_sql.py' and commit the result."
-            exit 1
-          fi
 
   frontend:
     runs-on: ubuntu-latest

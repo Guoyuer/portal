@@ -5,8 +5,7 @@ Handles everything except yfinance I/O and split cross-validation:
     honoring the refresh-window immutability invariant.
   * :func:`_cached_range` — min/max dates currently cached for a symbol.
   * :func:`_holding_periods_from_action_kind_rows` — pure computation over
-    Fidelity-shaped rows; input may come from either a local DB or D1 (via
-    ``sync_prices_nightly.py``).
+    Fidelity-shaped rows.
   * :func:`symbol_holding_periods_from_db` — wraps the row query against
     ``fidelity_transactions`` in the local SQLite DB.
   * :func:`load_prices` / :func:`load_cny_rates` — read paths consumed by
@@ -112,8 +111,7 @@ def _holding_periods_from_action_kind_rows(
     Each row is ``(run_date_iso, symbol, action_kind, quantity)`` —
     pre-fetched from a Fidelity-shaped table. Symbol-stripping + ``qty``
     coercion happen here so call sites can pass raw DB rows directly.
-    Used by :func:`symbol_holding_periods_from_db` (against a local
-    SQLite DB) and the nightly D1 sync (against rows pulled via wrangler).
+    Used by :func:`symbol_holding_periods_from_db` against a local SQLite DB.
     """
     holdings: dict[str, float] = {}
     first_held: dict[str, date] = {}

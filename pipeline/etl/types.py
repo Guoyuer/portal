@@ -139,7 +139,7 @@ class QianjiRecord(TypedDict):
 
 class RobinhoodTransaction(TypedDict):
     """Robinhood transaction row matching the ``robinhood_transactions``
-    table. Source of truth for the D1 view ``v_robinhood_txns``.
+    table and exported API transaction shape.
     """
     txn_date: str              # ISO YYYY-MM-DD
     action: str                # raw Trans Code from CSV (Buy/Sell/CDIV/ACH/...)
@@ -152,7 +152,7 @@ class RobinhoodTransaction(TypedDict):
 
 class EmpowerContribution(TypedDict):
     """One 401k contribution row matching the ``empower_contributions``
-    table. Source of truth for the D1 view ``v_empower_contributions``.
+    table and exported API contribution shape.
     """
     date: str
     amount: float
@@ -183,6 +183,5 @@ class AllocationRow(TypedDict):
     safe_net: float
     liabilities: float
     tickers: list[TickerDetail]
-
 
 

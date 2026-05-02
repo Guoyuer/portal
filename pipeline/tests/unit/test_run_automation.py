@@ -24,7 +24,6 @@ from etl.automation import (  # noqa: E402
     EXIT_BUILD_FAIL,
     EXIT_OK,
     EXIT_PARITY_FAIL,
-    EXIT_PARITY_INFRA,
     EXIT_POSITIONS_FAIL,
     EXIT_SYNC_FAIL,
     changes,
@@ -36,11 +35,9 @@ from etl.automation._constants import _STATUS_LABELS  # noqa: E402
 from scripts import run_automation  # noqa: E402
 
 
-def test_parity_infra_exit_code_has_distinct_label() -> None:
-    """Code 5 must be present and labelled separately from code 2 (drift)."""
-    assert EXIT_PARITY_INFRA == 5
-    assert _STATUS_LABELS[EXIT_PARITY_INFRA] == "PARITY GATE COULD NOT RUN"
-    assert _STATUS_LABELS[EXIT_PARITY_FAIL] == "PARITY GATE FAILED"
+def test_artifact_verify_exit_code_label() -> None:
+    assert _STATUS_LABELS[EXIT_PARITY_FAIL] == "ARTIFACT VERIFY FAILED"
+    assert _STATUS_LABELS[EXIT_SYNC_FAIL] == "R2 PUBLISH FAILED"
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -272,45 +269,53 @@ class TestExitCodeMapping:
         return rc, fake
 
     def test_all_ok_returns_0(self, monkeypatch, tmp_path):
-        rc, fake = self._invoke(["--force"], [0, 0, 0], monkeypatch, tmp_path)
+        rc, fake = self._invoke(["--force"], [0, 0, 0, 0], monkeypatch, tmp_path)
         assert rc == EXIT_OK
-        # Build, verify, sync — all three called.
         scripts = [c[0].name for c in fake.calls]
-        assert scripts == ["build_timemachine_db.py", "verify_vs_prod.py", "sync_to_d1.py"]
+        assert scripts == ["build_timemachine_db.py", "r2_artifacts.py", "r2_artifacts.py", "r2_artifacts.py"]
+        assert fake.calls[1][1] == ("export",)
+        assert fake.calls[2][1] == ("verify",)
+        assert fake.calls[3][1] == ("publish", "--remote")
 
     def test_build_fail_returns_1(self, monkeypatch, tmp_path):
         rc, fake = self._invoke(["--force"], [5], monkeypatch, tmp_path)
         assert rc == EXIT_BUILD_FAIL
         assert [c[0].name for c in fake.calls] == ["build_timemachine_db.py"]
 
-    def test_parity_fail_returns_2(self, monkeypatch, tmp_path):
+    def test_artifact_export_fail_returns_2(self, monkeypatch, tmp_path):
         rc, fake = self._invoke(["--force"], [0, 7], monkeypatch, tmp_path)
         assert rc == EXIT_PARITY_FAIL
-        # Sync must NOT have been attempted after parity fails.
-        assert [c[0].name for c in fake.calls] == ["build_timemachine_db.py", "verify_vs_prod.py"]
+        assert [c[0].name for c in fake.calls] == ["build_timemachine_db.py", "r2_artifacts.py"]
+        assert fake.calls[1][1] == ("export",)
+
+    def test_artifact_verify_fail_returns_2(self, monkeypatch, tmp_path):
+        rc, fake = self._invoke(["--force"], [0, 0, 7], monkeypatch, tmp_path)
+        assert rc == EXIT_PARITY_FAIL
+        assert [c[0].name for c in fake.calls] == ["build_timemachine_db.py", "r2_artifacts.py", "r2_artifacts.py"]
+        assert fake.calls[2][1] == ("verify",)
 
     def test_sync_fail_returns_3(self, monkeypatch, tmp_path):
-        rc, _ = self._invoke(["--force"], [0, 0, 9], monkeypatch, tmp_path)
+        rc, _ = self._invoke(["--force"], [0, 0, 0, 9], monkeypatch, tmp_path)
         assert rc == EXIT_SYNC_FAIL
 
-    def test_local_skips_verify_and_passes_local_to_sync(self, monkeypatch, tmp_path):
-        rc, fake = self._invoke(["--force", "--local"], [0, 0], monkeypatch, tmp_path)
+    def test_local_publishes_to_local_r2(self, monkeypatch, tmp_path):
+        rc, fake = self._invoke(["--force", "--local"], [0, 0, 0, 0], monkeypatch, tmp_path)
         assert rc == EXIT_OK
         names = [c[0].name for c in fake.calls]
-        assert names == ["build_timemachine_db.py", "sync_to_d1.py"]
-        # sync invoked with --local arg
-        assert fake.calls[-1][1] == ("--local",)
+        assert names == ["build_timemachine_db.py", "r2_artifacts.py", "r2_artifacts.py", "r2_artifacts.py"]
+        assert fake.calls[-1][1] == ("publish", "--local")
 
     def test_dry_run_skips_sync(self, monkeypatch, tmp_path):
-        rc, fake = self._invoke(["--force", "--dry-run"], [0, 0], monkeypatch, tmp_path)
+        rc, fake = self._invoke(["--force", "--dry-run"], [0, 0, 0], monkeypatch, tmp_path)
         assert rc == EXIT_OK
         names = [c[0].name for c in fake.calls]
-        assert names == ["build_timemachine_db.py", "verify_vs_prod.py"]
+        assert names == ["build_timemachine_db.py", "r2_artifacts.py", "r2_artifacts.py"]
+        assert fake.calls[-1][1] == ("verify",)
 
     def test_success_writes_marker(self, monkeypatch, tmp_path):
         marker = tmp_path / ".last_run"
         assert not marker.exists()
-        rc, _ = self._invoke(["--force"], [0, 0, 0], monkeypatch, tmp_path)
+        rc, _ = self._invoke(["--force"], [0, 0, 0, 0], monkeypatch, tmp_path)
         assert rc == 0
         assert marker.exists()
         assert marker.read_text().strip()  # non-empty ISO timestamp
@@ -321,7 +326,7 @@ class TestExitCodeMapping:
         """
         marker = tmp_path / ".last_run"
         assert not marker.exists()
-        rc, _ = self._invoke(["--force", "--dry-run"], [0, 0], monkeypatch, tmp_path)
+        rc, _ = self._invoke(["--force", "--dry-run"], [0, 0, 0], monkeypatch, tmp_path)
         assert rc == EXIT_OK
         assert not marker.exists(), (
             "dry-run wrote the marker; next real sync would be skipped"
@@ -363,70 +368,47 @@ class TestExitCodeMapping:
     def test_positions_gate_runs_when_fresh_csv_present(self, monkeypatch, tmp_path):
         """[3b] runs verify_positions.py when a fresh Portfolio_Positions CSV is in Downloads."""
         rc, fake = self._invoke(
-            ["--force"], [0, 0, 0, 0], monkeypatch, tmp_path,
+            ["--force"], [0, 0, 0, 0, 0], monkeypatch, tmp_path,
             downloads_seed=("Portfolio_Positions_Apr-07-2026.csv",),
         )
         assert rc == EXIT_OK
         names = [c[0].name for c in fake.calls]
         assert names == [
-            "build_timemachine_db.py", "verify_vs_prod.py",
-            "verify_positions.py", "sync_to_d1.py",
+            "build_timemachine_db.py", "verify_positions.py",
+            "r2_artifacts.py", "r2_artifacts.py", "r2_artifacts.py",
         ]
         # verify_positions invoked with --positions <path>
-        verify_args = fake.calls[2][1]
+        verify_args = fake.calls[1][1]
         assert verify_args[0] == "--positions"
         assert verify_args[1].endswith("Portfolio_Positions_Apr-07-2026.csv")
 
     def test_positions_gate_skipped_when_no_csv(self, monkeypatch, tmp_path):
         """[3b] is skipped (not failed) when no Portfolio_Positions CSV is present."""
-        rc, fake = self._invoke(["--force"], [0, 0, 0], monkeypatch, tmp_path)
+        rc, fake = self._invoke(["--force"], [0, 0, 0, 0], monkeypatch, tmp_path)
         assert rc == EXIT_OK
         names = [c[0].name for c in fake.calls]
-        assert names == ["build_timemachine_db.py", "verify_vs_prod.py", "sync_to_d1.py"]
+        assert names == ["build_timemachine_db.py", "r2_artifacts.py", "r2_artifacts.py", "r2_artifacts.py"]
 
     def test_positions_fail_returns_4(self, monkeypatch, tmp_path):
         """verify_positions non-zero blocks sync with exit code 4."""
         rc, fake = self._invoke(
-            ["--force"], [0, 0, 1], monkeypatch, tmp_path,
+            ["--force"], [0, 1], monkeypatch, tmp_path,
             downloads_seed=("Portfolio_Positions_Apr-07-2026.csv",),
         )
         assert rc == EXIT_POSITIONS_FAIL
         names = [c[0].name for c in fake.calls]
-        assert names == ["build_timemachine_db.py", "verify_vs_prod.py", "verify_positions.py"]
-        # Sync must NOT have run.
+        assert names == ["build_timemachine_db.py", "verify_positions.py"]
+        # Publish must NOT have run.
 
     def test_positions_gate_skipped_in_local_mode(self, monkeypatch, tmp_path):
-        """--local skips both [3] parity and [3b] positions gates."""
+        """--local skips the positions gate and publishes to local R2."""
         rc, fake = self._invoke(
-            ["--force", "--local"], [0, 0], monkeypatch, tmp_path,
+            ["--force", "--local"], [0, 0, 0, 0], monkeypatch, tmp_path,
             downloads_seed=("Portfolio_Positions_Apr-07-2026.csv",),
         )
         assert rc == EXIT_OK
         names = [c[0].name for c in fake.calls]
-        assert names == ["build_timemachine_db.py", "sync_to_d1.py"]
-
-    def test_parity_infra_fail_returns_5(self, monkeypatch, tmp_path):
-        """verify_vs_prod rc=2 (infra) must surface as runner EXIT_PARITY_INFRA=5,
-        NOT as EXIT_PARITY_FAIL=2 — that's the whole point of this split."""
-        rc, fake = self._invoke(["--force"], [0, 2], monkeypatch, tmp_path)
-        assert rc == EXIT_PARITY_INFRA
-        # Sync must NOT have been attempted.
-        assert [c[0].name for c in fake.calls] == [
-            "build_timemachine_db.py", "verify_vs_prod.py",
-        ]
-
-    def test_parity_drift_still_returns_2(self, monkeypatch, tmp_path):
-        """Regression: verify_vs_prod rc=1 (drift) keeps the existing
-        EXIT_PARITY_FAIL=2 mapping (don't accidentally remap drift to infra)."""
-        rc, _ = self._invoke(["--force"], [0, 1], monkeypatch, tmp_path)
-        assert rc == EXIT_PARITY_FAIL
-
-    def test_parity_unknown_rc_treated_as_drift(self, monkeypatch, tmp_path):
-        """Defensive: any other non-zero rc from verify_vs_prod (e.g. a Python
-        crash that bypasses our try/except) is mapped to EXIT_PARITY_FAIL — we
-        err on 'block sync' rather than 'silent retry' for unknown failure modes."""
-        rc, _ = self._invoke(["--force"], [0, 99], monkeypatch, tmp_path)
-        assert rc == EXIT_PARITY_FAIL
+        assert names == ["build_timemachine_db.py", "r2_artifacts.py", "r2_artifacts.py", "r2_artifacts.py"]
 
 
 # ── find_new_positions_csv() ──────────────────────────────────────────────────
@@ -665,18 +647,11 @@ class TestEmailNotifications:
         return rc, fake, sent_calls
 
     def test_success_with_no_diff_still_emails(self, monkeypatch, tmp_path):
-        """Success email is sent even when snapshot diff is empty.
-
-        Real-world trigger: manual ``--force`` after a previous run already
-        built the DB — build re-runs incrementally and produces no local
-        diff, but the sync DID write to D1. The operator wants confirmation.
-        Silent no-change runs short-circuit earlier in ``Runner.run`` and
-        never reach ``send_report_email``.
-        """
+        """Success email is sent even when snapshot diff is empty."""
         from etl.changelog import SyncSnapshot
 
         rc, _, sent = self._invoke_with_email(
-            ["--force"], [0, 0, 0], monkeypatch, tmp_path,
+            ["--force"], [0, 0, 0, 0], monkeypatch, tmp_path,
             snapshot_before=SyncSnapshot(),
             snapshot_after=SyncSnapshot(),  # identical
         )
@@ -693,7 +668,7 @@ class TestEmailNotifications:
             fidelity_txns=frozenset({("2026-04-10", "buy", "VOO", 1.0, -500.0)}),
         )
         rc, _, sent = self._invoke_with_email(
-            ["--force"], [0, 0, 0], monkeypatch, tmp_path,
+            ["--force"], [0, 0, 0, 0], monkeypatch, tmp_path,
             snapshot_before=before, snapshot_after=after,
         )
         assert rc == EXIT_OK
@@ -729,7 +704,7 @@ class TestEmailNotifications:
         from etl.changelog import SyncSnapshot
 
         rc, _, sent = self._invoke_with_email(
-            ["--force"], [0, 0, 1], monkeypatch, tmp_path,
+            ["--force"], [0, 1], monkeypatch, tmp_path,
             snapshot_before=SyncSnapshot(),
             snapshot_after=None,
             downloads_seed=("Portfolio_Positions_Apr-07-2026.csv",),
@@ -744,7 +719,7 @@ class TestEmailNotifications:
         from etl.changelog import SyncSnapshot
 
         rc, _, sent = self._invoke_with_email(
-            ["--force"], [0, 0, 0], monkeypatch, tmp_path,
+            ["--force"], [0, 0, 0, 0], monkeypatch, tmp_path,
             snapshot_before=SyncSnapshot(),
             snapshot_after=SyncSnapshot(
                 fidelity_txns=frozenset({("2026-04-10", "buy", "VOO", 1.0, -500.0)}),
@@ -762,14 +737,14 @@ class TestEmailNotifications:
         from etl.changelog import SyncSnapshot
 
         rc, _, sent = self._invoke_with_email(
-            ["--force"], [0, 0, 0], monkeypatch, tmp_path,
+            ["--force"], [0, 0, 0, 0], monkeypatch, tmp_path,
             snapshot_before=SyncSnapshot(),
             snapshot_after=SyncSnapshot(
                 fidelity_txns=frozenset({("2026-04-10", "buy", "VOO", 1.0, -500.0)}),
             ),
             send_side_effect=ConnectionRefusedError("smtp down"),
         )
-        # Sync must still return OK even though email throw
+        # Publish must still return OK even though email throw
         assert rc == EXIT_OK
         assert len(sent) == 1
         captured = capsys.readouterr()

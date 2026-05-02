@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-from datetime import date
 from pathlib import Path
 
 import pytest
@@ -98,7 +97,7 @@ def test_verify_rejects_hash_drift(empty_db: Path, tmp_path: Path) -> None:
         verify_artifacts(db_path=empty_db, artifact_dir=artifact_dir, schema=False)
 
 
-def test_export_rejects_path_unsafe_symbols(empty_db: Path, tmp_path: Path) -> None:
+def test_export_allows_symbols_that_are_only_json_keys(empty_db: Path, tmp_path: Path) -> None:
     _seed_exportable_db(empty_db)
     conn = get_connection(empty_db)
     try:
@@ -110,19 +109,7 @@ def test_export_rejects_path_unsafe_symbols(empty_db: Path, tmp_path: Path) -> N
     finally:
         conn.close()
 
-    with pytest.raises(RuntimeError, match="Path-unsafe"):
-        export_artifacts(
-            db_path=empty_db,
-            artifact_dir=tmp_path / "r2",
-            version="2026-05-02T170000Z",
-            generated_at="2026-05-02T17:00:00Z",
-        )
-
-
-def test_baseline_parity_normalizes_publish_metadata(empty_db: Path, tmp_path: Path) -> None:
-    _seed_exportable_db(empty_db)
     artifact_dir = tmp_path / "r2"
-    baseline_dir = tmp_path / "baseline"
     export_artifacts(
         db_path=empty_db,
         artifact_dir=artifact_dir,
@@ -130,92 +117,8 @@ def test_baseline_parity_normalizes_publish_metadata(empty_db: Path, tmp_path: P
         generated_at="2026-05-02T17:00:00Z",
     )
 
-    baseline_dir.mkdir()
-    (baseline_dir / "prices").mkdir()
-    timeline = json.loads((artifact_dir / "snapshots/2026-05-02T170000Z/timeline.json").read_text())
-    timeline["syncMeta"] = {"last_sync": "d1-time", "last_date": "2026-05-01"}
-    (baseline_dir / "timeline.json").write_text(json.dumps(timeline), encoding="utf-8")
-
-    econ = json.loads((artifact_dir / "snapshots/2026-05-02T170000Z/econ.json").read_text())
-    econ["generatedAt"] = "d1-time"
-    (baseline_dir / "econ.json").write_text(json.dumps(econ), encoding="utf-8")
-
     prices = json.loads((artifact_dir / "snapshots/2026-05-02T170000Z/prices.json").read_text())
-    (baseline_dir / "prices" / "VOO.json").write_text(json.dumps(prices["VOO"]), encoding="utf-8")
-
-    verify_artifacts(db_path=empty_db, artifact_dir=artifact_dir, baseline_dir=baseline_dir, schema=False)
-    summary = json.loads((artifact_dir / "reports/parity-summary.json").read_text())
-    assert len(summary["comparisons"]) == 3
-
-
-def test_price_baseline_parity_allows_recent_price_revisions(
-    empty_db: Path,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _seed_exportable_db(empty_db)
-    artifact_dir = tmp_path / "r2"
-    baseline_dir = tmp_path / "baseline"
-    export_artifacts(
-        db_path=empty_db,
-        artifact_dir=artifact_dir,
-        version="2026-05-02T170000Z",
-        generated_at="2026-05-02T17:00:00Z",
-    )
-    monkeypatch.setattr(r2_artifacts, "_utc_today", lambda: date(2026, 5, 2))
-
-    baseline_dir.mkdir()
-    (baseline_dir / "prices").mkdir()
-    timeline = json.loads((artifact_dir / "snapshots/2026-05-02T170000Z/timeline.json").read_text())
-    (baseline_dir / "timeline.json").write_text(json.dumps(timeline), encoding="utf-8")
-    econ = json.loads((artifact_dir / "snapshots/2026-05-02T170000Z/econ.json").read_text())
-    (baseline_dir / "econ.json").write_text(json.dumps(econ), encoding="utf-8")
-    prices = json.loads((artifact_dir / "snapshots/2026-05-02T170000Z/prices.json").read_text())
-    baseline_price = prices["VOO"]
-    baseline_price["prices"][0]["close"] = 499.0
-    (baseline_dir / "prices" / "VOO.json").write_text(json.dumps(baseline_price), encoding="utf-8")
-
-    verify_artifacts(db_path=empty_db, artifact_dir=artifact_dir, baseline_dir=baseline_dir, schema=False)
-    summary = json.loads((artifact_dir / "reports/parity-summary.json").read_text())
-    price_summary = next(item for item in summary["comparisons"] if item["label"] == "prices/VOO")
-    assert price_summary["allowedRecentPriceDiffs"] == 1
-
-
-def test_price_baseline_parity_rejects_immutable_shortfall(
-    empty_db: Path,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _seed_exportable_db(empty_db)
-    conn = get_connection(empty_db)
-    try:
-        conn.execute("UPDATE daily_close SET date = '2026-04-20' WHERE symbol = 'VOO'")
-        conn.commit()
-    finally:
-        conn.close()
-    artifact_dir = tmp_path / "r2"
-    baseline_dir = tmp_path / "baseline"
-    export_artifacts(
-        db_path=empty_db,
-        artifact_dir=artifact_dir,
-        version="2026-05-02T170000Z",
-        generated_at="2026-05-02T17:00:00Z",
-    )
-    monkeypatch.setattr(r2_artifacts, "_utc_today", lambda: date(2026, 5, 2))
-
-    baseline_dir.mkdir()
-    (baseline_dir / "prices").mkdir()
-    timeline = json.loads((artifact_dir / "snapshots/2026-05-02T170000Z/timeline.json").read_text())
-    (baseline_dir / "timeline.json").write_text(json.dumps(timeline), encoding="utf-8")
-    econ = json.loads((artifact_dir / "snapshots/2026-05-02T170000Z/econ.json").read_text())
-    (baseline_dir / "econ.json").write_text(json.dumps(econ), encoding="utf-8")
-    prices = json.loads((artifact_dir / "snapshots/2026-05-02T170000Z/prices.json").read_text())
-    baseline_price = prices["VOO"]
-    baseline_price["prices"].append({"date": "2026-04-21", "close": 501.0})
-    (baseline_dir / "prices" / "VOO.json").write_text(json.dumps(baseline_price), encoding="utf-8")
-
-    with pytest.raises(RuntimeError, match="immutable price rows differ"):
-        verify_artifacts(db_path=empty_db, artifact_dir=artifact_dir, baseline_dir=baseline_dir, schema=False)
+    assert prices["BAD/SYM"]["prices"] == [{"close": 1.0, "date": "2026-05-01"}]
 
 
 def test_remote_publish_uploads_manifest_last(empty_db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

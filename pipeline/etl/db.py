@@ -16,14 +16,13 @@ _TABLES = """
 -- string that feeds the action_kind resync migration; ``action_kind`` is the
 -- normalized enum populated at ingest; ``lot_type`` is read by replay's
 -- lot-type bookkeeping. ``action_type`` is the coarse (deposit/buy/sell/...)
--- classification exposed to the frontend via v_fidelity_txns.
+-- classification exposed to the frontend API artifacts.
 CREATE TABLE IF NOT EXISTS fidelity_transactions (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     run_date        TEXT NOT NULL,
-    -- account_number + action default to '' so auto-ALTER on D1 (see
-    -- _ensure_d1_schema_aligned) can ADD COLUMN without a reject; real
-    -- ingest always populates both from the Fidelity CSV, so the default
-    -- only ever applies to pre-existing rows during a schema upgrade.
+    -- account_number + action default to '' so legacy local DBs can add the
+    -- columns without rejecting pre-existing rows; real ingest always
+    -- populates both from the Fidelity CSV.
     account_number  TEXT NOT NULL DEFAULT '',
     action          TEXT NOT NULL DEFAULT '',
     action_type     TEXT NOT NULL DEFAULT '',
@@ -167,8 +166,8 @@ CREATE TABLE IF NOT EXISTS econ_series (
 );
 
 -- Category metadata populated from config.json's target_weights +
--- category_order. The frontend reads this via v_categories so the allocation
--- palette/targets have a single source of truth.
+-- category_order. The R2 exporter exposes this as camelCase JSON so the
+-- allocation palette/targets have a single source of truth.
 CREATE TABLE IF NOT EXISTS categories (
     key           TEXT PRIMARY KEY,
     name          TEXT NOT NULL,
@@ -188,99 +187,14 @@ CREATE INDEX IF NOT EXISTS idx_econ_series_key ON econ_series(key);
 """
 
 
-# ── Views (camelCase API contract) ──────────────────────────────────────────
-
-
-_VIEWS: dict[str, str] = {
-    "v_daily": (
-        "CREATE VIEW IF NOT EXISTS v_daily AS\n"
-        "SELECT date, total, us_equity AS usEquity, non_us_equity AS nonUsEquity,\n"
-        "  crypto, safe_net AS safeNet, liabilities\n"
-        "FROM computed_daily ORDER BY date;"
-    ),
-    "v_daily_tickers": (
-        "CREATE VIEW IF NOT EXISTS v_daily_tickers AS\n"
-        "SELECT date, ticker, value, category, subtype,\n"
-        "  cost_basis AS costBasis, gain_loss AS gainLoss, gain_loss_pct AS gainLossPct\n"
-        "FROM computed_daily_tickers ORDER BY date, value DESC;"
-    ),
-    "v_fidelity_txns": (
-        "CREATE VIEW IF NOT EXISTS v_fidelity_txns AS\n"
-        "SELECT run_date AS runDate, action_type AS actionType, symbol, amount,\n"
-        "  quantity, price\n"
-        "FROM fidelity_transactions ORDER BY id;"
-    ),
-    "v_qianji_txns": (
-        "CREATE VIEW IF NOT EXISTS v_qianji_txns AS\n"
-        "SELECT date, type, category, amount,\n"
-        "  is_retirement AS isRetirement,\n"
-        "  account_to AS accountTo\n"
-        "FROM qianji_transactions ORDER BY date;"
-    ),
-    "v_robinhood_txns": (
-        "CREATE VIEW IF NOT EXISTS v_robinhood_txns AS\n"
-        "SELECT txn_date AS txnDate, action, action_kind AS actionKind,\n"
-        "  ticker, quantity, amount_usd AS amountUsd,\n"
-        "  raw_description AS rawDescription\n"
-        "FROM robinhood_transactions ORDER BY txn_date;"
-    ),
-    "v_empower_contributions": (
-        "CREATE VIEW IF NOT EXISTS v_empower_contributions AS\n"
-        "SELECT date, amount, ticker, cusip\n"
-        "FROM empower_contributions ORDER BY date;"
-    ),
-    "v_market_indices": (
-        "CREATE VIEW IF NOT EXISTS v_market_indices AS\n"
-        "SELECT ticker, name, current, month_return AS monthReturn,\n"
-        "  ytd_return AS ytdReturn, high_52w AS high52w, low_52w AS low52w, sparkline\n"
-        "FROM computed_market_indices ORDER BY ticker;"
-    ),
-    "v_holdings_detail": (
-        "CREATE VIEW IF NOT EXISTS v_holdings_detail AS\n"
-        "SELECT ticker, month_return AS monthReturn, start_value AS startValue,\n"
-        "  end_value AS endValue, high_52w AS high52w, low_52w AS low52w, vs_high AS vsHigh\n"
-        "FROM computed_holdings_detail ORDER BY month_return DESC;"
-    ),
-    "v_econ_series": (
-        "CREATE VIEW IF NOT EXISTS v_econ_series AS\n"
-        "SELECT key, date, value FROM econ_series ORDER BY key, date;"
-    ),
-    # Pre-grouped for the Worker /econ endpoint — each row is a key plus a
-    # JSON array of {date, value} already built by SQLite. The client parses
-    # the string via the EconDataSchema transform.
-    "v_econ_series_grouped": (
-        "CREATE VIEW IF NOT EXISTS v_econ_series_grouped AS\n"
-        "SELECT key,\n"
-        "  json_group_array(json_object('date', date, 'value', value)) AS points\n"
-        "FROM (SELECT key, date, value FROM econ_series ORDER BY key, date)\n"
-        "GROUP BY key ORDER BY key;"
-    ),
-    "v_econ_snapshot": (
-        "CREATE VIEW IF NOT EXISTS v_econ_snapshot AS\n"
-        "SELECT key, value\n"
-        "FROM econ_series t1\n"
-        "WHERE date = (SELECT MAX(date) FROM econ_series t2 WHERE t2.key = t1.key);"
-    ),
-    "v_categories": (
-        "CREATE VIEW IF NOT EXISTS v_categories AS\n"
-        "SELECT key, name,\n"
-        "  display_order AS displayOrder,\n"
-        "  target_pct AS targetPct\n"
-        "FROM categories ORDER BY display_order;"
-    ),
-}
-
-
 # ── Public API ───────────────────────────────────────────────────────────────
 
 
 def init_db(path: Path) -> None:
-    """Create the timemachine SQLite database with all tables, indexes, and views."""
+    """Create the timemachine SQLite database with all tables and indexes."""
     conn = sqlite3.connect(path)
     conn.executescript(_TABLES)
     conn.executescript(_INDEXES)
-    for view_sql in _VIEWS.values():
-        conn.execute(view_sql)
     conn.commit()
     conn.close()
 

@@ -713,15 +713,12 @@ class TestFormatText:
         assert "Blocked at" not in body
         assert "Fidelity: +1" in body
 
-    def test_format_text_header_blocked_at_on_parity_failure(self) -> None:
-        """exit_code=2 → header carries ``Blocked at: parity check (verify_vs_prod)``."""
+    def test_format_text_header_blocked_at_on_artifact_failure(self) -> None:
         cl = SyncChangelog(
             fidelity_added=[("2026-04-10", "buy", "VOO", 1.0, -500.0)],
         )
-        body = format_text(cl, _ctx(exit_code=2, status_label="PARITY GATE FAILED"))
-        assert "Blocked at: parity check (verify_vs_prod)" in body
-        # No separate D1 Sync section and no duplicated row counts.
-        assert "D1 Sync" not in body
+        body = format_text(cl, _ctx(exit_code=2, status_label="ARTIFACT VERIFY FAILED"))
+        assert "Blocked at: artifact verification (r2_artifacts.py)" in body
         assert "fidelity_transactions:" not in body
 
     def test_format_text_header_blocked_at_on_build_failure(self) -> None:
@@ -729,25 +726,16 @@ class TestFormatText:
         assert "Blocked at: build" in body
 
     def test_format_text_header_blocked_at_on_sync_failure(self) -> None:
-        body = format_text(SyncChangelog(), _ctx(exit_code=3, status_label="SYNC FAILED"))
-        assert "Blocked at: sync" in body
+        body = format_text(SyncChangelog(), _ctx(exit_code=3, status_label="R2 PUBLISH FAILED"))
+        assert "Blocked at: R2 publish" in body
 
     def test_format_text_header_blocked_at_on_positions_failure(self) -> None:
         body = format_text(SyncChangelog(), _ctx(exit_code=4, status_label="POSITIONS GATE FAILED"))
         assert "Blocked at: positions check (verify_positions)" in body
 
-    def test_format_text_header_blocked_at_on_parity_infra_failure(self) -> None:
-        """exit_code=5 → header carries 'parity check (verify_vs_prod): infra error'."""
-        body = format_text(
-            SyncChangelog(),
-            _ctx(exit_code=5, status_label="PARITY GATE COULD NOT RUN"),
-        )
-        assert "Blocked at: parity check (verify_vs_prod): infra error" in body
-        assert "Status: PARITY GATE COULD NOT RUN" in body
-
     # PR-S8 Bug 4 regression: FRED line only renders when keys changed
     def test_format_text_fred_omitted_when_not_refreshed(self) -> None:
-        """No key-set change → no FRED lines anywhere (Changes OR D1 Sync)."""
+        """No key-set change → no FRED lines anywhere."""
         cl = SyncChangelog(
             fidelity_added=[("2026-04-10", "buy", "VOO", 1.0, -500.0)],
             econ_refreshed=False,
@@ -903,7 +891,7 @@ class TestFormatHtml:
     def test_html_blocked_at_passthrough_on_failure(self) -> None:
         """HTML body reflects the header's ``Blocked at`` line on failure."""
         html = format_html(SyncChangelog(), _ctx(exit_code=2))
-        assert "Blocked at: parity check (verify_vs_prod)" in html
+        assert "Blocked at: artifact verification (r2_artifacts.py)" in html
 
 
 # ── build_subject() ──────────────────────────────────────────────────────────
@@ -922,8 +910,7 @@ class TestBuildSubject:
         cl = SyncChangelog()
         assert build_subject(cl, 0) == "[Portal Sync] OK"
         assert build_subject(cl, 1, "BUILD FAILED") == "[Portal Sync] FAIL — BUILD FAILED"
-        assert build_subject(cl, 2, "PARITY GATE FAILED") == "[Portal Sync] FAIL — PARITY GATE FAILED"
-        assert build_subject(cl, 5, "PARITY GATE COULD NOT RUN") == "[Portal Sync] FAIL — PARITY GATE COULD NOT RUN"
+        assert build_subject(cl, 2, "ARTIFACT VERIFY FAILED") == "[Portal Sync] FAIL — ARTIFACT VERIFY FAILED"
         # No label provided → falls back to the exit number.
         assert build_subject(cl, 99) == "[Portal Sync] FAIL (exit 99)"
 

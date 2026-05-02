@@ -1,8 +1,8 @@
 """Python orchestrator for the Portal sync pipeline (invoked by Task Scheduler shim).
 
-Flow: change detection -> incremental build -> parity vs prod -> diff sync.
+Flow: change detection -> incremental build -> artifact verify -> R2 publish.
 Logs per-day, optionally pings healthchecks.io, graded exit codes so the
-scheduler can distinguish build-fail from parity-fail from sync-fail.
+scheduler can distinguish build-fail from artifact-verify-fail from publish-fail.
 
 All orchestration logic lives under :mod:`etl.automation`; this script is a
 thin argparse → :class:`~etl.automation.Runner` entry point so Task Scheduler
@@ -11,11 +11,9 @@ thin argparse → :class:`~etl.automation.Runner` entry point so Task Scheduler
 Exit code taxonomy:
     0 — ok, or no changes detected (both normal outcomes for cron)
     1 — build failed
-    2 — verify_vs_prod found drift (local <-> prod parity drift — do NOT sync)
-    3 — sync failed
+    2 — artifact verification failed
+    3 — R2 publish failed
     4 — verify_positions failed (replay disagrees with Fidelity snapshot)
-    5 — verify_vs_prod could not run (wrangler auth/network/CLI crash —
-        retry when env is healthy; drift status unknown)
 
 Email notifications (optional): set ``PORTAL_SMTP_USER`` + ``PORTAL_SMTP_PASSWORD``
 and the orchestrator sends a changelog email on every run that detected real
@@ -24,8 +22,8 @@ changes, and on every failure. Silent no-change runs never email. See
 
 CLI (mirrors the previous PS1 flags):
     --force     Skip change detection
-    --dry-run   Run build + verify but skip the sync step
-    --local     Sync to local D1 (via wrangler --local) and skip verify_vs_prod
+    --dry-run   Run build + artifact verify but skip the publish step
+    --local     Publish to local R2 instead of production R2
 
 Environment variables:
     PORTAL_HEALTHCHECK_URL   Healthchecks.io base URL (recommended; see RUNBOOK §8)

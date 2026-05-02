@@ -1,238 +1,93 @@
-# Portal Architecture
+# Architecture
 
-Personal finance dashboard: Next.js 16 static shell + Cloudflare Worker/D1.
+Portal is a static Next.js 16 dashboard backed by precomputed JSON artifacts in Cloudflare R2.
 
-## System overview
+## Data Flow
 
 ```mermaid
-graph TB
-    subgraph SourceFiles["Raw source files"]
-        QJ[(Qianji SQLite<br/>%APPDATA%)]
-        FID["Fidelity CSVs<br/>Accounts_History_*.csv<br/>Portfolio_Positions_*.csv"]
-        QFX["Empower QFX<br/>Bloomberg.Download_*.qfx"]
-        RHC["Robinhood<br/>Robinhood_history.csv"]
-    end
-
-    subgraph Local["Local machine"]
-        DETECT["run_automation.py<br/>detect → build → verify → sync"]
-        subgraph SourceModules["etl/sources/ — InvestmentSource Protocol"]
-            S_FID["fidelity/<br/>(directory module)"]
-            S_RH["robinhood.py"]
-            S_EMP["empower.py"]
-        end
-        S_QJ["etl/qianji.py<br/>(outside Protocol:<br/>categorical flows, not positions)"]
-        REPLAY["etl/replay.py::replay_transactions<br/>(source-agnostic forward replay)"]
-        PRECOMP["etl/precompute.py<br/>computed_daily · computed_daily_tickers ·<br/>market_indices · holdings_detail"]
-        VALIDATE["validate_build()<br/>FATAL / WARNING gates"]
-        POSGATE["verify_positions.py<br/>replay shares vs Portfolio_Positions"]
-        PARITY["verify_vs_prod.py<br/>local row counts vs prod D1"]
-        DB[(timemachine.db)]
-        DIFF["sync_to_d1.py<br/>diff (default) · --full · --local"]
-    end
-
-    subgraph Cloud["Cloudflare — portal.guoyuer.com (behind CF Access / Google SSO)"]
-        ACCESS["CF Access — SSO cookie on portal.guoyuer.com/*"]
-        subgraph D1Layer["D1 portal-db"]
-            TABLES[(15 tables)]
-            VIEWS[("12 camelCase views<br/>shape layer — all transforms live here")]
-            TABLES --> VIEWS
-        end
-        PAGES["/* — Pages static shell<br/>(static export, output: 'export')"]
-        WORKER_API["/api/* — portal-api Worker<br/>SELECT → JSON (no Zod) ·<br/>edge cache 60/600/300s"]
-    end
-
-    subgraph Frontend["Browser"]
-        FETCH["use-bundle.ts (orchestrator)<br/>↳ use-timeline-data.ts — same-origin GET /api/timeline<br/>+ Zod safeParse (single drift checkpoint)<br/>↳ use-brush-range.ts — brush window state"]
-        COMPUTE["compute-bundle.ts + compute.ts<br/>allocation · cashflow (savings) ·<br/>activity · groupedActivity · crossCheck"]
-        GROUPS[/"equivalent-groups.ts<br/>sp500 · nasdaq_100"/]
-        UI["React components<br/>(ticker + group dialogs share<br/>marker-hover-panel + use-hover-state)"]
-    end
-
-    subgraph CI["GitHub Actions"]
-        TEST["pytest 665 · vitest 282 · Playwright mock-API"]
-        DEPLOY["ci.yml → Pages deploy<br/>(Worker deploy is manual)"]
-    end
-
-    QJ --> S_QJ --> PRECOMP
-    FID --> S_FID
-    RHC --> S_RH
-    QFX --> S_EMP
-    S_FID & S_RH & S_EMP --> REPLAY --> PRECOMP
-    DETECT --> REPLAY
-    PRECOMP --> DB --> VALIDATE
-    FID --> POSGATE
-    DB --> POSGATE
-    VALIDATE -->|PASS| PARITY
-    POSGATE -->|PASS| PARITY
-    PARITY -->|PASS| DIFF --> TABLES
-    VIEWS --> WORKER_API
-    ACCESS -.gates.-> PAGES & WORKER_API
-    WORKER_API --> FETCH --> COMPUTE --> UI
-    GROUPS --> COMPUTE
-    TEST --> DEPLOY --> PAGES
+graph LR
+    RAW["Broker/Qianji/FRED/Yahoo inputs"] --> BUILD["build_timemachine_db.py"]
+    BUILD --> DB["timemachine.db"]
+    DB --> EXPORT["r2_artifacts.py export"]
+    EXPORT --> VERIFY["verify hashes + row counts + Zod"]
+    VERIFY --> R2["R2 portal-data<br/>manifest.json + snapshots"]
+    R2 --> WORKER["portal-api Worker"]
+    WORKER --> API["/api/timeline /api/econ /api/prices"]
+    API --> UI["Next.js static UI"]
 ```
 
-**Principles:** D1 is the persistent store; the local SQLite is a disposable cache. Diff sync (the default) pushes only new rows within an auto-derived date window; `--full` wipes and restores; `--local` implies `--full`. Worker is a thin SELECT → JSON adapter — all shape work lives in the D1 views, and the frontend's `use-bundle.ts` Zod `safeParse` is the single drift checkpoint (doubling it on the Worker cost ~200ms CPU per `/timeline` call with no added safety). The frontend computes allocation, cashflow (with upstream savings filter), activity, grouped activity, and cross-check locally after one fetch.
+The local SQLite DB is the source of truth and remains the SQL debugging surface. Production serving does not query SQL. The Worker streams endpoint-shaped R2 objects selected by the active `manifest.json`.
 
-**Routing (2026-04-13 migration):** The Worker mounts as a **zone route on `portal.guoyuer.com`** — same origin as Pages. `portal.guoyuer.com/api/*` → portal-api. One CF Access app on `portal.guoyuer.com` authenticates the page load and every subsequent API call with the same session cookie — no CORS preflight, no cross-subdomain cookie handshake.
+## Publication Model
 
----
+Publication is manifest-last:
 
-## D1 schema
+1. Build or refresh `pipeline/data/timemachine.db`.
+2. Export endpoint JSON into `pipeline/artifacts/r2/snapshots/<version>/`.
+3. Verify local artifacts:
+   - descriptor hashes and byte counts
+   - SQLite row counts vs JSON row counts
+   - latest computed date
+   - frontend Zod schema compatibility
+4. Publish snapshot objects to R2.
+5. Read back snapshot objects and verify hashes.
+6. Publish `manifest.json` last.
 
-13 base tables are generated from `etl/db.py` via `gen_schema_sql.py`; the sync tooling appends `sync_meta` + `sync_log`, so D1 ends up with 15 tables.
+This avoids mutable production table sync. Users either see the old manifest or the new manifest; no partially published snapshot becomes active.
 
-| Table | Purpose | Sync strategy |
-|-------|---------|---------------|
-| `computed_daily` | Daily totals + 4 categories + liabilities | INSERT OR IGNORE |
-| `computed_daily_tickers` | Per-day per-ticker value, cost basis | INSERT OR IGNORE |
-| `computed_market_indices` | Index returns + sparklines | Full replace |
-| `computed_holdings_detail` | Per-ticker performance | Full replace |
-| `fidelity_transactions` | Classified records (runDate ISO, actionType, symbol, amount, lot_type account bucket) | Range replace |
-| `robinhood_transactions` | Classified records (txnDate ISO, actionKind, ticker, quantity, amountUsd) | Range replace |
-| `qianji_transactions` | Records (date, type, category, amount, isRetirement) | Range replace |
-| `empower_snapshots` | 401k QFX snapshots (per-date totals) | Full replace |
-| `empower_funds` | 401k fund metadata (cusip → ticker) | Full replace |
-| `empower_contributions` | 401k contributions from paystub side-data | Full replace |
-| `daily_close` | Per-symbol daily close prices (cache for ticker charts) | Diff replace |
-| `categories` | Allocation metadata (key, name, displayOrder, targetPct) from `config.json` | Full replace |
-| `econ_series` | Monthly time-series — FRED macro keys + `dxy` (Yahoo) + `usdCny` (Yahoo) | Full replace |
-| `sync_meta` | last_sync timestamp, last_date coverage | Full replace (appended by sync tool) |
-| `sync_log` | Append-only audit trail of D1 schema changes + sync runs | Not synced (D1-only, appended by sync tool) |
+## Runtime Endpoints
 
-D1 has 12 camelCase views: `v_daily`, `v_daily_tickers`, `v_fidelity_txns`, `v_robinhood_txns`, `v_empower_contributions`, `v_qianji_txns`, `v_categories`, `v_market_indices`, `v_holdings_detail`, `v_econ_series`, `v_econ_series_grouped`, `v_econ_snapshot`.
+| Endpoint | Artifact |
+| --- | --- |
+| `/api/timeline` | `snapshots/<version>/timeline.json` |
+| `/api/econ` | `snapshots/<version>/econ.json` |
+| `/api/prices` | `snapshots/<version>/prices.json` |
 
-Worker endpoints. portal-api strips `/api/` internally (so handlers match on `/timeline`, `/econ`, `/prices/:sym`):
+The Worker strips an optional `/api` prefix, validates only manifest shape, streams R2 bodies with `no-store` headers, and returns explicit 5xx for missing/invalid manifest or referenced objects. It intentionally does not cache endpoint responses, so a manifest flip is not masked by stale Worker cache entries. Frontend Zod parsing remains the runtime data-contract checkpoint.
 
-- `GET /api/timeline` — parallel SELECTs across critical + optional views, ~4.6 MB / ~385 KB gzip
-- `GET /api/econ` — econ_series snapshot + grouped series (includes `dxy`, `usdCny` alongside FRED keys)
-- `GET /api/prices/:symbol` — daily close + transactions, on-demand per ticker click
+## SQLite Shape Layer
 
-Worker is a thin adapter: `SELECT` → JSON. There is NO runtime Zod validation on the Worker side — the frontend's `useTimelineData` Zod `safeParse` (inside `src/lib/hooks/use-timeline-data.ts`, composed by `useBundle`) is the single drift checkpoint (doubling it on the shared schema cost ~200ms of Worker CPU per `/timeline` call with no added safety). All shape work lives in D1 views; the only TypeScript transform in the Worker is `JSON.parse(sparkline)` for market-index series.
+`pipeline/etl/db.py` creates base tables only. The R2 exporter owns the snake_case-to-camelCase API projection with explicit SQL aliases next to the JSON assembly code. Those projection queries are local implementation detail; no production SQL schema is deployed.
 
-`/api/timeline` is fail-open: the critical `v_daily` query returns 503 on failure, but optional sections (market, holdings, txns) degrade to `null` + an `errors: { market?, holdings?, txns? }` entry. Frontend panels render explicit error cards — missing data never hides silently.
+## Frontend Compute
 
----
+Frontend fetches `/timeline` once and computes:
 
-## How net worth is computed
+- allocation and net-worth snapshots
+- monthly cashflow and savings rate
+- activity rows
+- grouped activity for equivalent ticker groups
+- Fidelity/Robinhood deposit reconciliation vs Qianji
 
-`computed_daily.total` = sum of all positive-value tickers. Four sources feed it — three live under `etl/sources/` as `InvestmentSource` Protocol implementations, Qianji stays outside the Protocol because its semantics are categorical flows rather than positions.
+Ticker/group charts lazily load `/prices`, then select the ticker client-side. Brush drag is local state and has no network round-trip.
 
-| Source | Module | Method |
-|--------|--------|--------|
-| Fidelity (brokerage) | `etl/sources/fidelity/` | Forward replay via `replay_transactions` → `(account, symbol) → qty` × `daily_close`; Fidelity cash reconstructed inside the same module and mapped to a money-market symbol |
-| Robinhood | `etl/sources/robinhood.py` | Forward replay via the same primitive (shared `ReplayConfig`) → `symbol → qty` × `daily_close` |
-| Empower 401k | `etl/sources/empower.py` | QFX snapshots + proxy interpolation between snapshot dates + contribution fallback from paystub data |
-| Qianji | `etl/qianji.py` | Reverse replay from current balances, CNY at historical rate (not an `InvestmentSource` — provides liabilities + cash-side flows) |
+## Automation
 
-`netWorth = total + liabilities` (credit cards from Qianji, negative).
+`pipeline/scripts/run_automation.py` owns the unattended flow:
 
----
-
-## Frontend data flow
-
-All computation is client-side after a single fetch. Zero network during brush interaction:
-
-1. `GET /api/timeline` → parse with Zod `TimelineDataSchema` in `use-timeline-data.ts` (the single drift checkpoint; composed by `use-bundle.ts`).
-2. Build indexes: `dateIndex` (date → array position), `tickerIndex` (date → tickers).
-3. Brush drag → slice `daily[brushStart..brushEnd]` for chart zoom.
-4. Point-in-time: `daily[brushEnd]` → allocation, snapshot.
-5. Time-range: iterate `fidelityTxns` / `qianjiTxns` / `robinhoodTxns` / `empowerContributions` → cashflow, activity, grouped activity, cross-check.
-
-All in `compute.ts` — pure functions, no network, <1ms for 3 years of data. Notable outputs:
-
-- `computeMonthlyFlows` now emits a `savings` field (`max(0, income − expenses)`) and filters out zero-income months upstream — the chart consumes pre-prepared rows.
-- `computeGroupedActivity` folds buys/sells/dividends for members of an `EQUIVALENT_GROUPS` entry (S&P 500, NASDAQ 100) into a single display row.
-- `group-aggregation.ts::groupNetByDate` clusters Fidelity REAL transactions within a T+2 window, emits net exposure change per cluster (buy/sell + breakdown), and drops swaps below a $50 noise threshold.
-
-Hover state for cluster markers lives in `src/lib/hooks/use-hover-state.ts` and is reused across the ticker and group dialogs.
-
-## Equivalent-groups layer
-
-Hand-maintained in `src/lib/data/equivalent-groups.ts` — `EQUIVALENT_GROUPS` maps a key (`sp500`, `nasdaq_100`) to `{ display, tickers: string[], representative: string }`. The `representative` ticker anchors the group chart's Y-axis: when you open "S&P 500", the chart plots VOO's daily close from `GET /prices/VOO`, overlaid with net buy/sell markers aggregated across all members (VOO + IVV + SPY + FXAIX + 401k sp500). This exposes rebalance timing even when members are swapped (selling VOO and buying FXAIX doesn't show as net exposure change).
-
-Invariants enforced at module load:
-- A ticker appears in at most one group.
-- A group's `representative` is a member of its own `tickers`.
-
----
-
-## Pipeline commands
-
-```bash
-# Full rebuild (build always scans everything; incremental is decided inside the orchestrator via refresh.py)
-python scripts/build_timemachine_db.py
-
-# Build flags (see `--help`): --csv <path>, --no-validate, --data-dir, --config,
-# --downloads, --prices-from-csv, --dry-run-market, --as-of <YYYY-MM-DD>
-
-# Sync to D1 (diff — default; range-replace with auto-derived --since)
-python scripts/sync_to_d1.py
-
-# Sync to D1 (explicit cutoff)
-python scripts/sync_to_d1.py --since 2026-04-01
-
-# Sync to D1 (DESTRUCTIVE full-replace — requires explicit flag)
-python scripts/sync_to_d1.py --full
-
-# Sync to local D1 (implies --full — prevents dev drift from prod)
-python scripts/sync_to_d1.py --local
-
-# Automated pipeline (detect changes → build → verify → sync)
-# Orchestration lives in run_automation.py. Task Scheduler invokes the PS1 shim,
-# which just forwards args to this script.
-python scripts/run_automation.py                # default (live D1)
-python scripts/run_automation.py --dry-run      # build + verify, skip sync
-python scripts/run_automation.py --force --local  # bypass change detection, push to local D1
+```text
+detect changes -> build_timemachine_db.py -> optional verify_positions.py -> r2_artifacts.py export -> verify -> publish
 ```
 
----
+`--dry-run` stops before publish. `--local` publishes to local Miniflare R2 for local Worker/e2e testing.
 
-## Validation gate
+## Correctness Gates
 
-`validate_build()` runs after build, blocks sync on FATAL:
+- Build validation in `etl.validate` catches portfolio/accounting issues before artifacts are exported.
+- Regression tests cover fixture-based row and golden-output behavior.
+- `r2_artifacts.py verify` blocks publish if JSON payloads do not match SQLite counts, latest date, descriptor hashes, or frontend schemas.
+- Remote publish readback verifies R2 bytes before `manifest.json` is flipped.
+- A single-publisher lock prevents concurrent publish processes from racing manifest updates.
 
-| Check | Severity | Threshold |
-|-------|----------|-----------|
-| total ≈ SUM(tickers) per date | FATAL | >$1 diff |
-| Day-over-day change | FATAL / WARNING | >20% AND >$10K / >15% AND >$5K (anchored to the latest `computed_daily` date; anomalies older than 7 days are suppressed — old 401k-snapshot step-functions aren't actionable) |
-| Holdings > $100 have recent price | FATAL | Missing from daily_close |
-| CNY rate freshness | WARNING | >7 days stale |
-| Date gaps | WARNING | >7 calendar days |
+## Cloudflare
 
----
+- Pages serves the static shell.
+- Worker `portal-api` serves `/api/*`.
+- R2 bucket `portal-data` stores active and historical snapshots.
+- Cloudflare Access protects `portal.guoyuer.com/*`.
 
-## Replay verification
+CI deploys Pages. Worker deploy is manual with `cd worker && npx wrangler deploy`.
 
-Run via `pipeline/scripts/verify_positions.py` (positions gate inside `run_automation.py` — exit code 4 on fail):
+## R2 Usage Envelope
 
-| Check | Contract |
-|-------|----------|
-| Fidelity positions | Each (account, symbol) share count from forward replay must match the latest `Portfolio_Positions_*.csv` exactly (no fuzz) |
-| Fidelity cash | Each account's replayed cash balance must match the CSV's money-market row |
-| 401k at QFX snapshot boundaries | Replayed value at every QFX `DTPOSTED` must equal the QFX snapshot (zero error) |
-| Allocation vs live site | <1.5pp per category (manual spot check) |
-
----
-
-## Tech stack
-
-| Layer | Technology |
-|-------|-----------|
-| Frontend | Next.js 16 (static export), React 19, Recharts, Tailwind v4 |
-| Backend | Cloudflare Worker + D1 (edge SQLite) |
-| Pipeline | Python 3.14, SQLite, yfinance, fredapi |
-| CI | GitHub Actions: pytest + vitest + Playwright (mock API) |
-| Deploy | Cloudflare Pages (CI, on push to main) + Workers (manual `wrangler deploy` — CI's `CLOUDFLARE_API_TOKEN` lacks `Zone → Workers Routes → Edit`) |
-| Auth | Cloudflare Access (Google SSO, allow-list = `guoyuer1@gmail.com`) on `portal.guoyuer.com/*` — gates page load and every `/api/*` call with the same session cookie |
-
-Enabled: React Compiler (auto-memo), View Transitions, content-visibility auto.
-
----
-
-## Remaining ideas (not planned)
-
-- Speculation Rules API (prerender /econ from /finance)
-- D1 Global Read Replication (only useful if traveling)
-- ECharts/Nivo (only if Recharts hits perf limits at >5K points)
-- Container Queries for metric cards (grid layout already sufficient)
+The current snapshot is about 8 MiB (`timeline.json`, `econ.json`, `prices.json`). Daily retained snapshots add about 2.8 GiB/year. Because endpoint responses are not Worker-cached, each endpoint request performs two R2 reads: `manifest.json` plus the referenced artifact. A normal dashboard load plus the first ticker/group chart is roughly 4 Class B operations, which is comfortably within R2's monthly free tier for personal use.
