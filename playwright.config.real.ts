@@ -2,8 +2,8 @@ import { defineConfig } from "@playwright/test";
 
 // ── Real-worker Playwright config ────────────────────────────────────────
 // Runs against a live `wrangler dev --local` on :8787 seeded with L2 golden
-// fixtures (see pipeline/scripts/seed_local_d1_from_fixtures.sh), so the
-// browser exercises real D1 views + real Worker code paths — not the
+// fixtures (see pipeline/scripts/seed_local_r2_from_fixtures.sh), so the
+// browser exercises real R2 artifacts + real Worker code paths — not the
 // node http server in e2e/mock-api.ts.
 //
 // Scope: one dedicated smoke spec under e2e/real-worker.spec.ts. The
@@ -13,7 +13,7 @@ import { defineConfig } from "@playwright/test";
 // the real-worker job is a complement, not a replacement.
 //
 // Used by .github/workflows/e2e-real-worker.yml. Runs locally too:
-//   bash pipeline/scripts/seed_local_d1_from_fixtures.sh
+//   bash pipeline/scripts/seed_local_r2_from_fixtures.sh
 //   (cd worker && npx wrangler dev --local) &
 //   npx cross-env NEXT_PUBLIC_TIMELINE_URL=http://localhost:8787/api npx next build
 //   npx cross-env PORT=3100 npx serve out --single &

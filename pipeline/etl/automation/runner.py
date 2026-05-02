@@ -1,8 +1,8 @@
-"""Orchestration state machine: detect → build → verify → sync.
+"""Orchestration state machine: detect → build → verify → publish R2.
 
 The :class:`Runner` collaborates with the helper modules under
-``etl.automation.*`` but owns all the control flow: graded exit codes, the
-pre-sync gates, dry-run semantics, marker update, and the final email report.
+``etl.automation.*`` but owns all the control flow: graded exit codes,
+pre-publish gates, dry-run semantics, marker update, and the final email report.
 
 CLI parsing is here too because the script-side entry point shrinks to
 ``parse_args → Runner.from_args → run`` and we want those bound together.
@@ -10,11 +10,9 @@ CLI parsing is here too because the script-side entry point shrinks to
 Exit-code taxonomy (constants live in :mod:`etl.automation._constants`):
     0 — ok, or no changes detected (both normal outcomes for cron)
     1 — build failed
-    2 — verify_vs_prod found drift (local <-> prod parity drift — do NOT sync)
-    3 — sync failed
+    2 — artifact verification failed (do NOT publish)
+    3 — R2 publish failed
     4 — verify_positions failed (replay disagrees with Fidelity snapshot)
-    5 — verify_vs_prod could not run (wrangler auth/network/CLI crash —
-        retry when env is healthy; drift status unknown)
 """
 from __future__ import annotations
 
@@ -33,7 +31,6 @@ from ._constants import (
     EXIT_BUILD_FAIL,
     EXIT_OK,
     EXIT_PARITY_FAIL,
-    EXIT_PARITY_INFRA,
     EXIT_POSITIONS_FAIL,
     EXIT_SYNC_FAIL,
 )
@@ -134,30 +131,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description="Portal sync orchestrator (Task Scheduler shim: run_portal_sync.ps1)"
     )
     p.add_argument("--force", action="store_true",
-                   help="Skip change detection and always build + sync")
+                   help="Skip change detection and always build + publish")
     p.add_argument("--dry-run", action="store_true",
-                   help="Run build + verify but skip the final sync")
+                   help="Run build + artifact verification but skip the final publish")
     p.add_argument("--local", action="store_true",
-                   help="Sync to local D1 (wrangler --local); skips verify_vs_prod")
-    p.add_argument(
-        "--expected-drops",
-        action="append", default=[],
-        metavar="TABLE=N",
-        help=(
-            "Declare an intentional row-count drop on TABLE of exactly N rows "
-            "(passes through to verify_vs_prod). Use when an ingest-logic "
-            "change legitimately removes rows from the local DB that still "
-            "exist in prod — e.g. after filtering balance-adjustment bills. "
-            "Repeatable."
-        ),
-    )
+                   help="Publish to local R2 instead of production R2")
     return p.parse_args(argv)
 
 
 # ── Runner ───────────────────────────────────────────────────────────────────
 
 class Runner:
-    """Detect → build → verify → sync state machine.
+    """Detect → build → verify → publish state machine.
 
     All collaborators (``MARKER``, path helpers, the subprocess runner, etc.)
     are resolved through module attributes so tests can monkeypatch them at
@@ -240,32 +225,11 @@ class Runner:
                 email_config, snapshot_before, db_path, log_file,
             )
 
-        # [3] Pre-sync gate: guard against local data loss + historical drift.
-        # verify_vs_prod splits its own exit codes — 1=drift, 2=infra (wrangler
-        # auth/network/CLI crash). Anything else non-zero is treated as drift
-        # (block the sync conservatively).
-        if not self.args.local:
-            log.info("[3] Verifying historical immutability + no local data loss vs prod D1...")
-            gate_args: list[str] = []
-            for spec in self.args.expected_drops:
-                gate_args.extend(["--expected-drops", spec])
-            rc = run_python_script(SCRIPTS_DIR / "verify_vs_prod.py", *gate_args)
-            if rc != 0:
-                runner_exit = EXIT_PARITY_INFRA if rc == 2 else EXIT_PARITY_FAIL
-                stage_label = (
-                    "PRE-SYNC GATE (INFRA)" if runner_exit == EXIT_PARITY_INFRA
-                    else "PRE-SYNC GATE"
-                )
-                return self._report_stage_failure(
-                    log, stage_label, rc, runner_exit, "verify_vs_prod.py",
-                    email_config, snapshot_before, db_path, log_file,
-                )
-
-        # [3b] Optional Portfolio_Positions ground-truth gate
+        # [3] Optional Portfolio_Positions ground-truth gate.
         if not self.args.local:
             positions_csv = find_new_positions_csv(downloads, MARKER)
             if positions_csv:
-                log.info("[3b] Verifying share counts vs %s...", positions_csv.name)
+                log.info("[3] Verifying share counts vs %s...", positions_csv.name)
                 rc = run_python_script(SCRIPTS_DIR / "verify_positions.py",
                                        "--positions", str(positions_csv))
                 if rc != 0:
@@ -274,23 +238,40 @@ class Runner:
                         email_config, snapshot_before, db_path, log_file,
                     )
             else:
-                log.info("[3b] No new Portfolio_Positions CSV — skipping ground-truth check")
+                log.info("[3] No new Portfolio_Positions CSV — skipping ground-truth check")
 
-        # [4] Sync (skipped in dry-run)
+        # [4] Export + verify endpoint-shaped R2 artifacts.
+        log.info("[4] Exporting R2 artifacts...")
+        rc = run_python_script(SCRIPTS_DIR / "r2_artifacts.py", "export")
+        if rc != 0:
+            return self._report_stage_failure(
+                log, "EXPORT", rc, EXIT_PARITY_FAIL, "r2_artifacts.py export",
+                email_config, snapshot_before, db_path, log_file,
+            )
+
+        log.info("[5] Verifying R2 artifacts...")
+        rc = run_python_script(SCRIPTS_DIR / "r2_artifacts.py", "verify")
+        if rc != 0:
+            return self._report_stage_failure(
+                log, "ARTIFACT VERIFY", rc, EXIT_PARITY_FAIL, "r2_artifacts.py verify",
+                email_config, snapshot_before, db_path, log_file,
+            )
+
+        # [6] Publish (skipped in dry-run)
         if self.args.dry_run:
-            log.info("[4] Dry run — skipping sync")
+            log.info("[6] Dry run — skipping R2 publish")
         else:
-            log.info("[4] Syncing to D1 (diff mode — default)...")
-            sync_args: tuple[str, ...] = ("--local",) if self.args.local else ()
-            rc = run_python_script(SCRIPTS_DIR / "sync_to_d1.py", *sync_args)
+            mode = "--local" if self.args.local else "--remote"
+            log.info("[6] Publishing R2 artifacts (%s)...", mode)
+            rc = run_python_script(SCRIPTS_DIR / "r2_artifacts.py", "publish", mode)
             if rc != 0:
                 return self._report_stage_failure(
-                    log, "SYNC", rc, EXIT_SYNC_FAIL, "sync_to_d1.py",
+                    log, "PUBLISH", rc, EXIT_SYNC_FAIL, "r2_artifacts.py publish",
                     email_config, snapshot_before, db_path, log_file,
                 )
 
         # Success: update marker — but NOT in dry-run mode. Dry-run skipped the
-        # sync step, so nothing reached D1; touching the marker would make the
+        # publish step, so nothing reached R2; touching the marker would make the
         # next change-detection pass treat the DB as already synced and short-
         # circuit a legitimate follow-up run.
         if not self.args.dry_run:

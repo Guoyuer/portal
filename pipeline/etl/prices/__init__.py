@@ -14,8 +14,8 @@ Split into three cohesive submodules:
 Public API is re-exported from this package; external callers continue to
 ``from etl.prices import ...`` without caring about the submodule layout.
 ``_build_split_factors`` / ``_reverse_split_factor`` /
-``_holding_periods_from_action_kind_rows`` are re-exported too because
-``sync_prices_nightly.py`` (the D1 companion script) reaches in for them.
+``_holding_periods_from_action_kind_rows`` are re-exported for tests and
+small maintenance scripts that need the shared price primitives.
 """
 from __future__ import annotations
 

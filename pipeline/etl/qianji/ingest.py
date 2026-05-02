@@ -185,8 +185,8 @@ def ingest_qianji_transactions(
                         r["amount"],
                         r.get("note", ""),
                         1 if (r["type"] == "income" and r.get("category", "") in retirement_set) else 0,
-                        # `account_to` on the D1 row is the *destination* account
-                        # — the one that received money — semantic, not raw
+                        # `account_to` is the *destination* account — the one
+                        # that received money — semantic, not raw
                         # Qianji column. For transfers that's `targetact`
                         # (our QianjiRecord.account_to). For income, Qianji
                         # stores the receiving account in `fromact` (see

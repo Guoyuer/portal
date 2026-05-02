@@ -8,7 +8,7 @@ const EconPointSchema = z.object({
   value: z.number(),
 });
 
-// Series points arrive from D1 as a JSON-encoded string (produced by
+// Series points arrive from SQLite/export as a JSON-encoded string (produced by
 // json_group_array in v_econ_series_grouped). Mock API fixtures pass arrays
 // directly. Accept both; resolve to EconPoint[].
 const EconPointsSchema = z

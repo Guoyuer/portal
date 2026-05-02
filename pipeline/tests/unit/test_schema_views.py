@@ -1,8 +1,4 @@
-"""Tests for the _VIEWS dictionary — generator contract.
-
-Pins down that db.py owns all view DDL (no hand-written SQL in
-worker/schema.sql).
-"""
+"""Tests for the local SQLite view definitions consumed by the R2 exporter."""
 
 from __future__ import annotations
 
@@ -84,20 +80,6 @@ def test_init_db_creates_all_views() -> None:
         )
     finally:
         tmp.unlink(missing_ok=True)
-
-
-def test_gen_schema_sql_output_contains_every_view() -> None:
-    """After running gen_schema_sql, worker/schema.sql contains every view name."""
-    from pathlib import Path
-
-    schema_path = Path(__file__).resolve().parents[3] / "worker" / "schema.sql"
-    text = schema_path.read_text(encoding="utf-8")
-    from etl.db import _VIEWS
-
-    for name in _VIEWS:
-        assert f"CREATE VIEW IF NOT EXISTS {name}" in text, (
-            f"worker/schema.sql missing view {name}"
-        )
 
 
 if __name__ == "__main__":

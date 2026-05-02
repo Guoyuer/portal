@@ -6,7 +6,7 @@ and is independently testable. The outer script reduces to a thin
 ``argparse → Runner`` entry point.
 
 Public surface:
-    * :class:`Runner` — the detect → build → verify → sync state machine.
+    * :class:`Runner` — the detect → build → verify → publish state machine.
     * :func:`parse_args` — CLI shared between the script and tests.
     * Exit-code constants (``EXIT_OK``, ``EXIT_BUILD_FAIL``, ...).
 
@@ -21,7 +21,6 @@ from ._constants import (
     EXIT_BUILD_FAIL,
     EXIT_OK,
     EXIT_PARITY_FAIL,
-    EXIT_PARITY_INFRA,
     EXIT_POSITIONS_FAIL,
     EXIT_SYNC_FAIL,
 )
@@ -31,7 +30,6 @@ __all__ = [
     "EXIT_BUILD_FAIL",
     "EXIT_OK",
     "EXIT_PARITY_FAIL",
-    "EXIT_PARITY_INFRA",
     "EXIT_POSITIONS_FAIL",
     "EXIT_SYNC_FAIL",
     "Runner",

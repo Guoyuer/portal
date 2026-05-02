@@ -4,7 +4,7 @@ import { EconDataSchema } from "./econ";
 // ── EconDataSchema: series JSON string transform ─────────────────────────
 
 describe("EconDataSchema series parsing", () => {
-  it("accepts a JSON string per key (D1 storage format) and parses it", () => {
+  it("accepts a JSON string per key (SQLite/export storage format) and parses it", () => {
     const payload = {
       generatedAt: "2026-04-12T00:00:00Z",
       snapshot: { fedFundsRate: 4.33 },

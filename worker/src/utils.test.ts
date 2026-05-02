@@ -1,54 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { cachedJson, dbError, jsonResponse, settled, type CacheLike } from "./utils";
-
-// ── jsonResponse ────────────────────────────────────────────────────────
-
-describe("jsonResponse", () => {
-  it("returns 200 JSON with CORS + no-cache headers", async () => {
-    const res = jsonResponse({ x: 1, y: "ok" });
-    expect(res.status).toBe(200);
-    expect(res.headers.get("Cache-Control")).toBe("no-cache");
-    expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
-    await expect(res.json()).resolves.toEqual({ x: 1, y: "ok" });
-  });
-});
-
-// ── dbError ─────────────────────────────────────────────────────────────
-
-describe("dbError", () => {
-  it("returns 502 with Error.message detail", async () => {
-    const res = dbError(new Error("view missing"));
-    expect(res.status).toBe(502);
-    const body = (await res.json()) as { error: string; detail: string };
-    expect(body.error).toBe("Database query failed");
-    expect(body.detail).toBe("view missing");
-  });
-
-  it("falls back to 'unknown' for non-Error rejections", async () => {
-    const res = dbError("string thrown");
-    const body = (await res.json()) as { detail: string };
-    expect(body.detail).toBe("unknown");
-  });
-});
-
-// ── settled ─────────────────────────────────────────────────────────────
-
-describe("settled", () => {
-  it("wraps resolved values in {ok:true, value}", async () => {
-    const r = await settled(Promise.resolve(42));
-    expect(r).toEqual({ ok: true, value: 42 });
-  });
-
-  it("wraps rejections in {ok:false, error} with Error.message", async () => {
-    const r = await settled(Promise.reject(new Error("boom")));
-    expect(r).toEqual({ ok: false, error: "boom" });
-  });
-
-  it("falls back to 'unknown' when the rejection is not an Error", async () => {
-    const r = await settled(Promise.reject("plain-string"));
-    expect(r).toEqual({ ok: false, error: "unknown" });
-  });
-});
+import { cachedJson, type CacheLike } from "./utils";
 
 // ── cachedJson ──────────────────────────────────────────────────────────
 

@@ -47,10 +47,9 @@ def _fmt_qty(v: float) -> str:
 # imported to avoid a cycle (run_automation imports from changelog).
 _EXIT_GATE_NAMES: dict[int, str] = {
     1: "build",
-    2: "parity check (verify_vs_prod)",
-    3: "sync",
+    2: "artifact verification (r2_artifacts.py)",
+    3: "R2 publish",
     4: "positions check (verify_positions)",
-    5: "parity check (verify_vs_prod): infra error",
 }
 
 

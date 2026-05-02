@@ -1,7 +1,7 @@
 // ── Timeline endpoint schemas (/timeline) ────────────────────────────────
-// Runtime + compile-time types for the single /timeline payload. Shared
-// between the Next.js client and the Cloudflare Worker output-validation
-// layer. D1 views shape the rows to match these exact schemas.
+// Runtime + compile-time types for the single /timeline payload. R2 artifacts
+// are exported to match these exact schemas; the Next.js client is the drift
+// checkpoint.
 
 import { z } from "zod";
 
@@ -14,7 +14,7 @@ import {
   TickerDetailSchema,
 } from "./_generated";
 
-// ── Sparkline transform (D1 stores sparkline as a JSON string) ───────────
+// ── Sparkline transform (SQLite stores sparkline as a JSON string) ───────
 
 const SparklineSchema = z
   .string()
@@ -38,7 +38,7 @@ const IndexReturnSchema = z.object({
   ytdReturn: z.number(),
   current: z.number(),
   // Accept either an already-parsed array (e.g. mock API fixtures) or a JSON
-  // string (the D1 storage format). Both resolve to number[] | null.
+  // string (the SQLite/export storage format). Both resolve to number[] | null.
   sparkline: z.union([SparklineSchema, z.array(z.number()).nullable()]).default(null),
   high52w: z.number().nullable().default(null),
   low52w: z.number().nullable().default(null),
@@ -62,7 +62,7 @@ const StockDetailSchema = z.object({
 
 // ── Timemachine (derived from generated AllocationRow) ─────────────────
 // DailyPoint is AllocationRow minus the nested `tickers` — those rows are
-// flattened into a top-level `dailyTickers` array at the D1-view layer.
+// flattened into a top-level `dailyTickers` array by the exporter.
 const DailyPointSchema = AllocationRowSchema.omit({ tickers: true });
 
 // ── Raw transaction schemas (bundled in /timeline) ──────────────────────
@@ -76,10 +76,9 @@ const DailyTickerSchema = TickerDetailSchema.extend({
 // the generated schema directly.
 const FidelityTxnSchema = GeneratedFidelityTxnSchema;
 
-// QianjiTxn's `isRetirement` uses the generator's coerce_bool mode:
-// D1 returns SQLite INTEGER 0/1 for logically-boolean columns (no native
-// BOOLEAN), so the schema accepts `boolean | number` and coerces via
-// Boolean(). Keeps the Worker a thin SELECT→JSON adapter.
+// QianjiTxn's `isRetirement` uses the generator's coerce_bool mode because
+// SQLite stores logical booleans as INTEGER 0/1. The schema accepts
+// `boolean | number` and coerces via Boolean().
 const QianjiTxnSchema = GeneratedQianjiTxnSchema;
 
 // RobinhoodTxn — direct 1:1 projection from the generated schema.

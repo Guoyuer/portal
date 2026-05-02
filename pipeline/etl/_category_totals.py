@@ -1,13 +1,9 @@
-"""Shared per-day category-rollup fold for allocation + projection.
+"""Shared per-day category-rollup fold for allocation.
 
-Both :func:`etl.allocation._build_allocation_row` and
-:func:`etl.projection.project_one_day` reduce a stream of per-ticker
-``(value, category)`` pairs into the same 6-field rollup: a grand total,
-a negatives-only liabilities bucket, and one positive-only bucket per
-canonical category (``US Equity`` / ``Non-US Equity`` / ``Crypto`` /
-``Safe Net``). Kept in a tiny standalone module so :mod:`etl.projection`
-can consume it without pulling in :mod:`etl.allocation`'s full
-pandas/Qianji dependency graph.
+Allocation reduces a stream of per-ticker ``(value, category)`` pairs into a
+6-field rollup: a grand total, a negatives-only liabilities bucket, and one
+positive-only bucket per canonical category (``US Equity`` / ``Non-US Equity`` /
+``Crypto`` / ``Safe Net``).
 """
 from __future__ import annotations
 
@@ -17,8 +13,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class CategoryTotals:
-    """Rounded per-category rollup ready for :class:`AllocationRow` /
-    :class:`ProjectedDay` construction.
+    """Rounded per-category rollup ready for :class:`AllocationRow` construction.
 
     Mirrors the four Okabe-Ito canonical buckets the frontend renders.
     Non-canonical categories (e.g. ``Liability`` that
@@ -45,8 +40,7 @@ def accumulate_category_totals(pairs: Iterable[tuple[float, str]]) -> CategoryTo
     portfolio-liability bucket). Non-negative values roll up by category
     and into ``total``. Zero values contribute to neither — but are not
     short-circuited; callers that want to drop zeros should pre-filter
-    upstream (``allocation`` does, ``projection`` does not, matching the
-    pre-refactor behaviour exactly).
+    upstream.
     """
     category_totals: dict[str, float] = {}
     total = 0.0

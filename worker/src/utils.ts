@@ -11,21 +11,6 @@ const RESPONSE_HEADERS: HeadersInit = {
   "Cache-Control": "no-cache",
 };
 
-/** Success JSON response. No runtime schema validation — the frontend's
- *  Zod parse in ``use-bundle.ts`` is the single source of truth for drift
- *  detection; validating twice on the same shared schema was pure CPU tax
- *  (~200ms per ``/timeline`` call on the 4.6 MB payload). */
-export function jsonResponse(payload: unknown): Response {
-  return Response.json(payload, { headers: RESPONSE_HEADERS });
-}
-
-export function dbError(e: unknown): Response {
-  return Response.json(
-    { error: "Database query failed", detail: e instanceof Error ? e.message : "unknown" },
-    { status: 502, headers: RESPONSE_HEADERS },
-  );
-}
-
 /** Caller passes a plain string and the helper wraps it in
  *  ``{ error: message }``. */
 export function errorResponse(message: string, status: number): Response {
@@ -37,13 +22,6 @@ export function notFoundResponse(): Response {
 }
 
 // ── Edge cache wrapper ──────────────────────────────────────────────────
-//
-// The D1 free tier is 5M row-reads / 100k row-writes per day, and
-// `GET /timeline` alone reads ~36k rows per call (v_daily_tickers
-// dominates). A day of iteration can trivially cross the ceiling once;
-// real telemetry showed 119M row-reads on a single dev-heavy day. An
-// edge cache in front of the read-only GETs turns repeat requests
-// within the TTL into zero D1 reads.
 //
 // We own the Cache-Control header here (it overrides the producer's
 // default "no-cache"). 2xx only — errors and 503s bypass the cache so a
@@ -86,26 +64,4 @@ export async function cachedJson(
 
   ctx.waitUntil(cache.put(key, cacheable.clone()));
   return cacheable;
-}
-
-
-// ── Settled helper (optional queries) ────────────────────────────────────
-
-type SettledResult<T> = { ok: true; value: T } | { ok: false; error: string };
-
-export async function settled<T>(p: Promise<T>): Promise<SettledResult<T>> {
-  try {
-    return { ok: true, value: await p };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "unknown" };
-  }
-}
-
-// ── sync_meta lookup ────────────────────────────────────────────────────
-// Both /timeline and /econ read this key-value table; query shape is fixed.
-
-export async function querySyncMeta(db: D1Database): Promise<Record<string, string>> {
-  type KVRow = { key: string; value: string };
-  const rows = await db.prepare("SELECT key, value FROM sync_meta").all<KVRow>();
-  return Object.fromEntries(rows.results.map((r) => [r.key, r.value]));
 }

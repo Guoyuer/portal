@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import date
-
 import pandas as pd
 
 from etl.market._series import (
-    forward_fill_prices_by_date,
     resample_daily_to_monthly,
     to_monthly_records,
 )
@@ -58,43 +55,3 @@ class TestResampleDailyToMonthly:
 
         result = resample_daily_to_monthly(series)
         assert result.empty
-
-
-class TestForwardFillPricesByDate:
-    def test_basic_shape(self) -> None:
-        rows = [
-            ("SPY", date(2025, 1, 1), 100.0),
-            ("SPY", date(2025, 1, 3), 102.0),
-            ("QQQ", date(2025, 1, 2), 400.0),
-        ]
-        result = forward_fill_prices_by_date(rows)
-
-        # Every observed date gets an entry.
-        assert set(result.keys()) == {date(2025, 1, 1), date(2025, 1, 2), date(2025, 1, 3)}
-        # SPY carries forward on 1/2 where it wasn't observed; QQQ carries to 1/3.
-        assert result[date(2025, 1, 1)] == {"SPY": 100.0}
-        assert result[date(2025, 1, 2)] == {"SPY": 100.0, "QQQ": 400.0}
-        assert result[date(2025, 1, 3)] == {"SPY": 102.0, "QQQ": 400.0}
-
-    def test_symbol_not_yet_traded_is_absent(self) -> None:
-        # QQQ first observation is 1/3 — no carry backwards.
-        rows = [
-            ("SPY", date(2025, 1, 1), 100.0),
-            ("QQQ", date(2025, 1, 3), 400.0),
-        ]
-        result = forward_fill_prices_by_date(rows)
-        assert result[date(2025, 1, 1)] == {"SPY": 100.0}
-        assert "QQQ" not in result[date(2025, 1, 1)]
-        assert result[date(2025, 1, 3)] == {"SPY": 100.0, "QQQ": 400.0}
-
-    def test_unsorted_input_still_correct(self) -> None:
-        rows = [
-            ("SPY", date(2025, 1, 3), 102.0),
-            ("QQQ", date(2025, 1, 2), 400.0),
-            ("SPY", date(2025, 1, 1), 100.0),
-        ]
-        result = forward_fill_prices_by_date(rows)
-        assert result[date(2025, 1, 3)] == {"SPY": 102.0, "QQQ": 400.0}
-
-    def test_empty_input(self) -> None:
-        assert forward_fill_prices_by_date([]) == {}

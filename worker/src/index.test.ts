@@ -94,7 +94,6 @@ describe("Worker R2 path", () => {
   it("streams manifest-referenced endpoint artifacts", async () => {
     installCache();
     const env = {
-      DATA_BACKEND: "r2",
       PORTAL_DATA: makeR2({
         "manifest.json": manifest(),
         "snapshots/2026-05-02T170000Z/timeline.json": '{"ok":"timeline"}',
@@ -111,7 +110,6 @@ describe("Worker R2 path", () => {
   it("streams the bundled prices artifact without Worker-side symbol lookup", async () => {
     installCache();
     const env = {
-      DATA_BACKEND: "r2",
       PORTAL_DATA: makeR2({
         "manifest.json": manifest(),
         "snapshots/2026-05-02T170000Z/prices.json": '{"VOO":{"symbol":"VOO","prices":[],"transactions":[]}}',
@@ -124,13 +122,13 @@ describe("Worker R2 path", () => {
     await expect(res.json()).resolves.toEqual({ VOO: { symbol: "VOO", prices: [], transactions: [] } });
   });
 
-  it("rejects path-unsafe price symbols before reading R2", async () => {
+  it("does not expose the old per-symbol price route", async () => {
     installCache();
     const r2 = makeR2({ "manifest.json": manifest() });
-    const env = { DATA_BACKEND: "r2", PORTAL_DATA: r2 };
+    const env = { PORTAL_DATA: r2 };
 
-    const res = await worker.fetch(new Request("http://localhost/api/prices/BAD%2FSYM"), env, makeCtx());
+    const res = await worker.fetch(new Request("http://localhost/api/prices/VOO"), env, makeCtx());
 
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(404);
   });
 });

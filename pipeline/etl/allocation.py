@@ -10,9 +10,7 @@ This module reconstructs historical asset allocation by combining:
 The per-day math is isolated in ``step_one_day(state, sources, current)`` —
 a pure function with no I/O. ``compute_daily_allocation`` is the orchestrator
 that refreshes ``QianjiBalanceCache`` when Qianji transactions change, then delegates
-the valuation to ``step_one_day``. Anything that has full per-day state in
-hand (e.g. a CI projection script reconstructing state from D1) can call
-``step_one_day`` directly without touching the Python replay engines.
+the valuation to ``step_one_day``.
 """
 from __future__ import annotations
 
@@ -249,7 +247,6 @@ def _build_allocation_row(
         ticker_detail.append(row)
         fold_pairs.append((value, row["category"]))
     # Fold the per-ticker (value, category) pairs into the 4 canonical buckets.
-    # See :mod:`etl._category_totals` — shared with :func:`etl.projection.project_one_day`.
     totals = accumulate_category_totals(fold_pairs)
     return AllocationRow(
         date=current.isoformat(),

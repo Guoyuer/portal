@@ -300,7 +300,7 @@ def _check_fidelity_qianji_reconcile(conn: sqlite3.Connection) -> list[CheckResu
 
     Byte-for-byte parity with the frontend ``computeCrossCheck``
     (``src/lib/compute/compute.ts``), promoted to a pipeline gate so
-    unmatched deposits abort the build before the drift can reach D1.
+    unmatched deposits abort the build before the drift can be published.
     Qianji is the user-maintained source of truth for cash movements;
     an unmatched deposit is almost always a forgotten or mis-typed log.
     Empirical baseline at add-time: 101/101 in-window historical deposits
