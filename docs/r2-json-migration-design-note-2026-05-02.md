@@ -486,6 +486,9 @@ Canonicalization rules:
 
 - sort object keys
 - keep array order fixed by SQL `ORDER BY`
+- for legacy D1 arrays whose order came from mutable row ids or lacked an explicit semantic `ORDER BY`, canonicalize as multisets during migration parity; this may only hide order differences, never row value or row multiplicity differences
+- normalize JSON number representation for parity (`1` vs `1.0`), while still treating different numeric values as diffs
+- for `prices` rows, use the same `daily_close` refresh-window semantics as the current D1 gate: immutable-window rows must not be dropped or changed; refresh-window close revisions may differ and must be reported as expected price corrections
 - normalize null vs absent only where the current API already treats them equivalently
 - allow known volatile fields such as generated timestamps if needed
 - keep numeric tolerances extremely tight: ideally exact, at most cents for money
@@ -502,6 +505,7 @@ Deterministic migration symbol set:
 
 - compare all price symbols for v1. The current project is small enough that sampling is unnecessary.
 - if the set ever becomes too large, define a deterministic subset then; do not hand-pick a few symbols.
+- if the current D1 `/prices/:symbol` route returns 404 for an otherwise valid local symbol because the old route cannot represent that ticker path, record it as a migration-baseline skip and rely on the local bundle schema/row-count/hash checks for that symbol. This is a pre-existing API reachability bug, not an allowed data diff.
 
 The go/no-go standard should be: zero unexpected diffs.
 
