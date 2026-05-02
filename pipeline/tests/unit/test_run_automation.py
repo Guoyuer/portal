@@ -405,6 +405,29 @@ class TestExitCodeMapping:
         names = [c[0].name for c in fake.calls]
         assert names == ["build_timemachine_db.py", "sync_to_d1.py"]
 
+    def test_parity_infra_fail_returns_5(self, monkeypatch, tmp_path):
+        """verify_vs_prod rc=2 (infra) must surface as runner EXIT_PARITY_INFRA=5,
+        NOT as EXIT_PARITY_FAIL=2 — that's the whole point of this split."""
+        rc, fake = self._invoke(["--force"], [0, 2], monkeypatch, tmp_path)
+        assert rc == EXIT_PARITY_INFRA
+        # Sync must NOT have been attempted.
+        assert [c[0].name for c in fake.calls] == [
+            "build_timemachine_db.py", "verify_vs_prod.py",
+        ]
+
+    def test_parity_drift_still_returns_2(self, monkeypatch, tmp_path):
+        """Regression: verify_vs_prod rc=1 (drift) keeps the existing
+        EXIT_PARITY_FAIL=2 mapping (don't accidentally remap drift to infra)."""
+        rc, _ = self._invoke(["--force"], [0, 1], monkeypatch, tmp_path)
+        assert rc == EXIT_PARITY_FAIL
+
+    def test_parity_unknown_rc_treated_as_drift(self, monkeypatch, tmp_path):
+        """Defensive: any other non-zero rc from verify_vs_prod (e.g. a Python
+        crash that bypasses our try/except) is mapped to EXIT_PARITY_FAIL — we
+        err on 'block sync' rather than 'silent retry' for unknown failure modes."""
+        rc, _ = self._invoke(["--force"], [0, 99], monkeypatch, tmp_path)
+        assert rc == EXIT_PARITY_FAIL
+
 
 # ── find_new_positions_csv() ──────────────────────────────────────────────────
 

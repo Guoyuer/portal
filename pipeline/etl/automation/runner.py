@@ -10,9 +10,11 @@ CLI parsing is here too because the script-side entry point shrinks to
 Exit-code taxonomy (constants live in :mod:`etl.automation._constants`):
     0 — ok, or no changes detected (both normal outcomes for cron)
     1 — build failed
-    2 — verify_vs_prod failed (local <-> prod parity drift — do NOT sync)
+    2 — verify_vs_prod found drift (local <-> prod parity drift — do NOT sync)
     3 — sync failed
     4 — verify_positions failed (replay disagrees with Fidelity snapshot)
+    5 — verify_vs_prod could not run (wrangler auth/network/CLI crash —
+        retry when env is healthy; drift status unknown)
 """
 from __future__ import annotations
 
@@ -31,6 +33,7 @@ from ._constants import (
     EXIT_BUILD_FAIL,
     EXIT_OK,
     EXIT_PARITY_FAIL,
+    EXIT_PARITY_INFRA,
     EXIT_POSITIONS_FAIL,
     EXIT_SYNC_FAIL,
 )
@@ -237,7 +240,10 @@ class Runner:
                 email_config, snapshot_before, db_path, log_file,
             )
 
-        # [3] Pre-sync gate: guard against local data loss + historical drift
+        # [3] Pre-sync gate: guard against local data loss + historical drift.
+        # verify_vs_prod splits its own exit codes — 1=drift, 2=infra (wrangler
+        # auth/network/CLI crash). Anything else non-zero is treated as drift
+        # (block the sync conservatively).
         if not self.args.local:
             log.info("[3] Verifying historical immutability + no local data loss vs prod D1...")
             gate_args: list[str] = []
@@ -245,8 +251,13 @@ class Runner:
                 gate_args.extend(["--expected-drops", spec])
             rc = run_python_script(SCRIPTS_DIR / "verify_vs_prod.py", *gate_args)
             if rc != 0:
+                runner_exit = EXIT_PARITY_INFRA if rc == 2 else EXIT_PARITY_FAIL
+                stage_label = (
+                    "PRE-SYNC GATE (INFRA)" if runner_exit == EXIT_PARITY_INFRA
+                    else "PRE-SYNC GATE"
+                )
                 return self._report_stage_failure(
-                    log, "PRE-SYNC GATE", rc, EXIT_PARITY_FAIL, "verify_vs_prod.py",
+                    log, stage_label, rc, runner_exit, "verify_vs_prod.py",
                     email_config, snapshot_before, db_path, log_file,
                 )
 
