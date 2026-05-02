@@ -83,11 +83,17 @@ def format_html(changelog: SyncChangelog, context: dict[str, Any]) -> str:
 def build_subject(changelog: SyncChangelog, exit_code: int) -> str:
     """Short, informative subject line.
 
-    Successful syncs with changes → summary of counts. Failures → prominent
-    [FAIL] tag + exit code.
+    Successful syncs with changes → summary of counts. Failures → ``FAIL —
+    <label>`` so the operator can triage from the inbox row alone, with an
+    ``(exit N)`` fallback for unknown codes.
     """
     if exit_code != 0:
-        return f"[Portal Sync] FAIL (exit {exit_code})"
+        import importlib
+        _constants = importlib.import_module("etl.automation._constants")
+        label = _constants._STATUS_LABELS.get(exit_code)
+        if label is None:
+            return f"[Portal Sync] FAIL (exit {exit_code})"
+        return f"[Portal Sync] FAIL — {label}"
     bits: list[str] = []
     if changelog.fidelity_added:
         bits.append(f"{len(changelog.fidelity_added)} fidelity")
