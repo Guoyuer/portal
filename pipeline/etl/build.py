@@ -35,7 +35,6 @@ from etl.db import (
     init_db,
     upsert_daily_rows,
 )
-from etl.migrations.add_fidelity_action_kind import migrate as _migrate_fidelity_action_kind
 from etl.precompute import (
     precompute_holdings_detail,
     precompute_market,
@@ -282,13 +281,6 @@ def _init_db_and_ingest_sources(
     ingest_categories(paths.db_path, config)
 
     # ── Step 2: Ingest Fidelity ──
-    # Run the action_kind migration *before* ingest so legacy DBs (pre the
-    # 2026-04 data-source abstraction refactor) have the column available for
-    # ingest_fidelity_csv's INSERT. The migration simultaneously backfills
-    # any pre-existing rows that predate the column. Idempotent — no-op on
-    # fresh DBs (the column already exists via init_db's DDL) and on already-
-    # classified rows.
-    _migrate_fidelity_action_kind(paths.db_path)
     print("[2] Ingesting Fidelity transactions...")
     _ingest_fidelity_csvs(paths)
 

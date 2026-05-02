@@ -38,7 +38,7 @@ The remaining cleanup falls into four buckets:
 | P1 | Done | Remove R2-dead fail-open `/timeline.errors` contract | Deletes a D1-era response shape that is no longer reachable | ~150 LoC |
 | P1 | Done | Emit `sparkline` as JSON array, not JSON string | Moves data conversion to exporter and simplifies frontend schema | ~30 LoC |
 | P1 | Done | Fix stale `AGENTS.md` / mark old D1 docs historical | Prevents future agents from following deleted D1 architecture | docs only |
-| P2 | Pending | Delete one-shot `etl/migrations` package | Removes ceremonial per-build migration framework | ~280 LoC |
+| P2 | Done | Delete one-shot `etl/migrations` package | Removes ceremonial per-build migration framework | ~280 LoC |
 | P2 gated | Needs decision | Delete changelog/daily diff email subsystem | Large simplification, but only if the daily email is no longer wanted | ~2,100 LoC |
 | P3 | Optional | Consider deleting live `/timeline` Zod smoke script | Duplicates publish-time artifact Zod validation, but has better CI errors | ~40 LoC |
 | P3 | Optional | Consider collapsing normal automation from `export -> verify -> publish` to `export -> publish` | Avoids double verify on successful publish | small |
@@ -266,9 +266,11 @@ Do not leave them looking like current implementation guidance.
 
 ## P2: Delete the One-Shot `etl/migrations` Package
 
+Status: Implemented in PR C.
+
 ### Why
 
-`pipeline/etl/migrations/` contains one migration: `add_fidelity_action_kind.py`. It is invoked on every build from `pipeline/etl/build.py` and performs idempotent checks/backfill for `fidelity_transactions.action_kind`.
+`pipeline/etl/migrations/` contained one migration: `add_fidelity_action_kind.py`. It was invoked on every build from `pipeline/etl/build.py` and performed idempotent checks/backfill for `fidelity_transactions.action_kind`.
 
 This made sense during transition. After all local DBs and fixtures have the column and populated values, keeping a migration framework for one historical migration is ceremony.
 
@@ -477,10 +479,10 @@ Completed:
    - Replace stale root `AGENTS.md` with a short pointer to `CLAUDE.md`.
    - Mark the old D1-era review/migration documents historical.
 
-Remaining:
-
 3. **PR C: One-shot migration cleanup**
    - Delete `etl/migrations` after confirming the precondition.
+
+Remaining:
 
 4. **PR E: Changelog/email removal**
    - Only if the daily email is no longer wanted.

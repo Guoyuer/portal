@@ -13,10 +13,10 @@ from .types import AllocationRow
 _TABLES = """
 -- Fidelity transaction rows (from merged CSVs)
 -- ``account_number`` is replay's grouping key; ``action`` is the raw CSV
--- string that feeds the action_kind resync migration; ``action_kind`` is the
--- normalized enum populated at ingest; ``lot_type`` is read by replay's
--- lot-type bookkeeping. ``action_type`` is the coarse (deposit/buy/sell/...)
--- classification exposed to the frontend API artifacts.
+-- string retained for audit/debugging; ``action_kind`` is the normalized enum
+-- populated at ingest; ``lot_type`` is read by replay's lot-type bookkeeping.
+-- ``action_type`` is the coarse (deposit/buy/sell/...) classification exposed
+-- to the frontend API artifacts.
 CREATE TABLE IF NOT EXISTS fidelity_transactions (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     run_date        TEXT NOT NULL,
