@@ -736,6 +736,15 @@ class TestFormatText:
         body = format_text(SyncChangelog(), _ctx(exit_code=4, status_label="POSITIONS GATE FAILED"))
         assert "Blocked at: positions check (verify_positions)" in body
 
+    def test_format_text_header_blocked_at_on_parity_infra_failure(self) -> None:
+        """exit_code=5 → header carries 'parity check (verify_vs_prod): infra error'."""
+        body = format_text(
+            SyncChangelog(),
+            _ctx(exit_code=5, status_label="PARITY GATE COULD NOT RUN"),
+        )
+        assert "Blocked at: parity check (verify_vs_prod): infra error" in body
+        assert "Status: PARITY GATE COULD NOT RUN" in body
+
     # PR-S8 Bug 4 regression: FRED line only renders when keys changed
     def test_format_text_fred_omitted_when_not_refreshed(self) -> None:
         """No key-set change → no FRED lines anywhere (Changes OR D1 Sync)."""
@@ -902,9 +911,21 @@ class TestFormatHtml:
 
 class TestBuildSubject:
     def test_failure_subject(self) -> None:
-        subj = build_subject(SyncChangelog(), exit_code=1)
+        subj = build_subject(SyncChangelog(), exit_code=1, status_label="BUILD FAILED")
         assert "FAIL" in subj
-        assert "1" in subj
+        assert "BUILD FAILED" in subj
+
+    def test_build_subject_includes_label_on_failure(self) -> None:
+        """Failure subject should name the gate, not just the exit code."""
+        from etl.changelog import build_subject
+
+        cl = SyncChangelog()
+        assert build_subject(cl, 0) == "[Portal Sync] OK"
+        assert build_subject(cl, 1, "BUILD FAILED") == "[Portal Sync] FAIL — BUILD FAILED"
+        assert build_subject(cl, 2, "PARITY GATE FAILED") == "[Portal Sync] FAIL — PARITY GATE FAILED"
+        assert build_subject(cl, 5, "PARITY GATE COULD NOT RUN") == "[Portal Sync] FAIL — PARITY GATE COULD NOT RUN"
+        # No label provided → falls back to the exit number.
+        assert build_subject(cl, 99) == "[Portal Sync] FAIL (exit 99)"
 
     def test_success_no_changes(self) -> None:
         subj = build_subject(SyncChangelog(), exit_code=0)

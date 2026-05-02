@@ -50,6 +50,7 @@ _EXIT_GATE_NAMES: dict[int, str] = {
     2: "parity check (verify_vs_prod)",
     3: "sync",
     4: "positions check (verify_positions)",
+    5: "parity check (verify_vs_prod): infra error",
 }
 
 

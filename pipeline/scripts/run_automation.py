@@ -11,9 +11,11 @@ thin argparse → :class:`~etl.automation.Runner` entry point so Task Scheduler
 Exit code taxonomy:
     0 — ok, or no changes detected (both normal outcomes for cron)
     1 — build failed
-    2 — verify_vs_prod failed (local <-> prod parity drift — do NOT sync)
+    2 — verify_vs_prod found drift (local <-> prod parity drift — do NOT sync)
     3 — sync failed
     4 — verify_positions failed (replay disagrees with Fidelity snapshot)
+    5 — verify_vs_prod could not run (wrangler auth/network/CLI crash —
+        retry when env is healthy; drift status unknown)
 
 Email notifications (optional): set ``PORTAL_SMTP_USER`` + ``PORTAL_SMTP_PASSWORD``
 and the orchestrator sends a changelog email on every run that detected real
