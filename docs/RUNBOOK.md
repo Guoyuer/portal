@@ -22,6 +22,34 @@ cd pipeline
 
 `publish` verifies again before uploading. It refuses to overwrite existing snapshot objects and flips `manifest.json` only after readback succeeds.
 
+## JSON Shape Changes
+
+Tightening a frontend Zod schema can break production if the active R2 artifact
+still has the old shape. Before merging a breaking JSON shape change, choose one
+of these release orders:
+
+- publish a new compatible R2 artifact first, then deploy the stricter frontend
+- or make the frontend schema temporarily accept both old and new shapes, deploy,
+  publish the new artifact, then remove the compatibility branch
+
+Do not rely only on fresh local export tests for these changes. Also validate the
+currently active production payload with the branch's frontend schema:
+
+```bash
+TIMELINE_URL=https://portal.guoyuer.com/api/timeline npx tsx scripts/validate_timeline_zod.ts
+```
+
+PowerShell:
+
+```powershell
+$env:TIMELINE_URL = "https://portal.guoyuer.com/api/timeline"
+cmd /c npm run validate:timeline
+Remove-Item Env:\TIMELINE_URL
+```
+
+The script reads `worker/.env.access` automatically when Cloudflare Access
+service-token headers are needed.
+
 ## Local Worker Test
 
 ```bash
