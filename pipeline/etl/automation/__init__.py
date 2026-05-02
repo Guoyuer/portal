@@ -21,6 +21,7 @@ from ._constants import (
     EXIT_BUILD_FAIL,
     EXIT_OK,
     EXIT_PARITY_FAIL,
+    EXIT_PARITY_INFRA,
     EXIT_POSITIONS_FAIL,
     EXIT_SYNC_FAIL,
 )
@@ -30,6 +31,7 @@ __all__ = [
     "EXIT_BUILD_FAIL",
     "EXIT_OK",
     "EXIT_PARITY_FAIL",
+    "EXIT_PARITY_INFRA",
     "EXIT_POSITIONS_FAIL",
     "EXIT_SYNC_FAIL",
     "Runner",

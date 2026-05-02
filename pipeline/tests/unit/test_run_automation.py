@@ -24,6 +24,7 @@ from etl.automation import (  # noqa: E402
     EXIT_BUILD_FAIL,
     EXIT_OK,
     EXIT_PARITY_FAIL,
+    EXIT_PARITY_INFRA,
     EXIT_POSITIONS_FAIL,
     EXIT_SYNC_FAIL,
     changes,
@@ -31,7 +32,7 @@ from etl.automation import (  # noqa: E402
     paths,
     runner,
 )
-from etl.automation._constants import _STATUS_LABELS, EXIT_PARITY_INFRA  # noqa: E402
+from etl.automation._constants import _STATUS_LABELS  # noqa: E402
 from scripts import run_automation  # noqa: E402
 
 
