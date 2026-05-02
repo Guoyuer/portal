@@ -53,6 +53,8 @@ __pycache__/
 # Pipeline state + personal data
 pipeline/.sync_state.json
 pipeline/config.json
+pipeline/artifacts/
+pipeline/migration-baseline/
 pipeline/data/
 .wrangler/
 screenshots/
