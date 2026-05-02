@@ -655,4 +655,4 @@ EOF
 - **No placeholders:** every step has actual code or actual command. ✓
 - **Type / name consistency:** `EXIT_PARITY_INFRA = 5` is the single name used everywhere; `_STATUS_LABELS[EXIT_PARITY_INFRA] = "PARITY GATE COULD NOT RUN"`; `_EXIT_GATE_NAMES[5] = "parity check (verify_vs_prod): infra error"`. The two strings differ deliberately — `_STATUS_LABELS` is shouted in the `Status:` line, `_EXIT_GATE_NAMES` is the prose `Blocked at:` clause. Subject reuses `_STATUS_LABELS`. ✓
 - **No backcompat shim:** Task 5 explicitly calls out updating any older subject-line assertion to the new format — no half-migrated state. ✓
-- **Scope discipline:** plan does NOT touch the underlying OAuth refresh problem (transient, resolved itself). It only fixes the *labelling* of future infra failures so they're triagable from the inbox.
+- **Scope discipline:** plan does NOT touch the underlying OAuth refresh problem (transient, resolved itself). It only fixes the *labelling* of future infra failures so they're triageable from the inbox.
