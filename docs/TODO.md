@@ -7,7 +7,7 @@ and superseded plans live under `docs/archive/`.
 
 ## Near-Term Cleanup
 
-- Keep `scripts/validate_timeline_zod.ts` unless it becomes noisy. It duplicates
+- Keep `scripts/validate_live_api_zod.ts` unless it becomes noisy. It duplicates
   publish-time Zod validation, but gives clearer failures in the real-worker
   workflow.
 - Keep the explicit automation `export -> verify -> publish` chain unless

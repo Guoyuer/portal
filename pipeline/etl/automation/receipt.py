@@ -1,4 +1,4 @@
-"""Small publish-summary changelog used by automation emails.
+"""Small publish receipt used by automation emails.
 
 The email is an operator notification, not a correctness gate. Correctness is
 handled by R2 artifact verification, manifest hashes, row counts, Zod parsing,
@@ -76,7 +76,7 @@ class PublishSummary:
 
 
 @dataclass
-class SyncChangelog:
+class SyncReceipt:
     row_deltas: list[RowDelta] = field(default_factory=list)
     net_worth_before: float | None = None
     net_worth_after: float | None = None
@@ -119,13 +119,13 @@ def capture(db_path: Path) -> SyncSnapshot:
     return SyncSnapshot(row_counts=row_counts, net_worth=nw)
 
 
-def diff(before: SyncSnapshot, after: SyncSnapshot) -> SyncChangelog:
+def diff(before: SyncSnapshot, after: SyncSnapshot) -> SyncReceipt:
     keys = sorted(set(before.row_counts) | set(after.row_counts))
     row_deltas = [
         RowDelta(name=key, before=before.row_counts.get(key, 0), after=after.row_counts.get(key, 0))
         for key in keys
     ]
-    return SyncChangelog(
+    return SyncReceipt(
         row_deltas=row_deltas,
         net_worth_before=before.net_worth.value if before.net_worth else None,
         net_worth_after=after.net_worth.value if after.net_worth else None,
@@ -143,7 +143,7 @@ def load_publish_summary(path: Path) -> PublishSummary | None:
     return _publish_summary_from_mapping(raw)
 
 
-def format_text(changelog: SyncChangelog, context: Mapping[str, Any]) -> str:
+def format_text(receipt: SyncReceipt, context: Mapping[str, Any]) -> str:
     lines: list[str] = [
         f"Portal Sync Report  {context.get('timestamp', '')}",
         "",
@@ -179,8 +179,8 @@ def format_text(changelog: SyncChangelog, context: Mapping[str, Any]) -> str:
         ])
 
     lines.append("Snapshot")
-    _append_net_worth(lines, changelog)
-    changed = [row for row in changelog.row_deltas if row.delta != 0]
+    _append_net_worth(lines, receipt)
+    changed = [row for row in receipt.row_deltas if row.delta != 0]
     if changed:
         lines.append("  Row count changes:")
         for row in changed:
@@ -203,15 +203,15 @@ def format_text(changelog: SyncChangelog, context: Mapping[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def format_html(changelog: SyncChangelog, context: Mapping[str, Any]) -> str:
+def format_html(receipt: SyncReceipt, context: Mapping[str, Any]) -> str:
     exit_code = int(context.get("exit_code", 0) or 0)
     color = "#2e7d32" if exit_code == 0 else "#c62828"
-    text = html.escape(format_text(changelog, context), quote=False)
+    text = html.escape(format_text(receipt, context), quote=False)
     return f"<h2 style=\"color:{color}\">Portal Sync</h2><pre>{text}</pre>"
 
 
 def build_subject(
-    changelog: SyncChangelog,
+    receipt: SyncReceipt,
     exit_code: int,
     status_label: str | None = None,
     publish_summary: PublishSummary | None = None,
@@ -224,9 +224,9 @@ def build_subject(
     bits: list[str] = []
     if publish_summary and publish_summary.latest_date:
         bits.append(publish_summary.latest_date)
-    if changelog.net_worth_delta is not None:
-        bits.append(f"nw {_fmt_delta(changelog.net_worth_delta)}")
-    changed_rows = sum(abs(row.delta) for row in changelog.row_deltas if row.delta != 0)
+    if receipt.net_worth_delta is not None:
+        bits.append(f"nw {_fmt_delta(receipt.net_worth_delta)}")
+    changed_rows = sum(abs(row.delta) for row in receipt.row_deltas if row.delta != 0)
     if changed_rows:
         bits.append(f"{changed_rows:,} row delta")
     return "[Portal Sync] OK" if not bits else "[Portal Sync] OK - " + ", ".join(bits)
@@ -277,13 +277,13 @@ def _publish_summary_from_mapping(raw: Mapping[str, Any]) -> PublishSummary:
     )
 
 
-def _append_net_worth(lines: list[str], changelog: SyncChangelog) -> None:
-    before = changelog.net_worth_before
-    after = changelog.net_worth_after
-    before_date = changelog.net_worth_before_date or "?"
-    after_date = changelog.net_worth_after_date or "?"
-    delta = changelog.net_worth_delta
-    pct = changelog.net_worth_delta_pct()
+def _append_net_worth(lines: list[str], receipt: SyncReceipt) -> None:
+    before = receipt.net_worth_before
+    after = receipt.net_worth_after
+    before_date = receipt.net_worth_before_date or "?"
+    after_date = receipt.net_worth_after_date or "?"
+    delta = receipt.net_worth_delta
+    pct = receipt.net_worth_delta_pct()
     if before is not None and after is not None and delta is not None:
         pct_text = f" / {pct:+.2f}%" if pct is not None else ""
         lines.append(

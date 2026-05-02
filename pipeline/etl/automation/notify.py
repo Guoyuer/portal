@@ -27,9 +27,9 @@ from datetime import datetime
 from email.message import EmailMessage
 from pathlib import Path
 
-from etl.changelog import (
+from etl.automation.receipt import (
     PublishSummary,
-    SyncChangelog,
+    SyncReceipt,
     SyncSnapshot,
     build_subject,
     diff,
@@ -244,9 +244,9 @@ def send_report_email(
         return
 
     if snapshot_after is not None:
-        changelog = diff(snapshot_before, snapshot_after)
+        receipt = diff(snapshot_before, snapshot_after)
     else:
-        changelog = SyncChangelog()
+        receipt = SyncReceipt()
 
     context = _build_context(
         exit_code,
@@ -258,9 +258,9 @@ def send_report_email(
         publish_mode=publish_mode,
         dry_run=dry_run,
     )
-    subject = build_subject(changelog, exit_code, _STATUS_LABELS.get(exit_code), publish_summary)
-    html = format_html(changelog, context)
-    text = format_text(changelog, context)
+    subject = build_subject(receipt, exit_code, _STATUS_LABELS.get(exit_code), publish_summary)
+    html = format_html(receipt, context)
+    text = format_text(receipt, context)
 
     try:
         send(subject, html, text, config)

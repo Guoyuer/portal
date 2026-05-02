@@ -16,7 +16,7 @@ Exit code taxonomy:
     4 — verify_positions failed (replay disagrees with Fidelity snapshot)
 
 Email notifications (optional): set ``PORTAL_SMTP_USER`` + ``PORTAL_SMTP_PASSWORD``
-and the orchestrator sends a changelog email on every run that detected real
+and the orchestrator sends a compact receipt email on every run that detected real
 changes, and on every failure. Silent no-change runs never email. See
 ``docs/automation-setup.md`` for Gmail app-password setup.
 

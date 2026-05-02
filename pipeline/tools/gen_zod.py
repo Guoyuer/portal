@@ -70,17 +70,11 @@ class ViewSpec:
             If ``None``, all source fields are emitted with auto-camelCase.
         extra: Fields absent from the TypedDict but present in the Python
             row written to SQLite/exported JSON. Map output name → scalar Python type.
-        coerce_bool: Source or extra field names that arrive as SQLite
-            INTEGER 0/1 (SQLite has no native BOOLEAN). Emits
-            ``z.union([z.boolean(), z.number()]).default(false).transform(Boolean)``
-            instead of plain ``z.boolean()`` so 0/1 coerces to false/true
-            and missing values default to false. The type boundary stays in Zod.
     """
     output: str
     source: str
     include: dict[str, str | None] | None = None
     extra: dict[str, str] = field(default_factory=dict)
-    coerce_bool: frozenset[str] = field(default_factory=frozenset)
 
 
 # Order matters: child schemas must appear before parents that reference them.
@@ -112,10 +106,7 @@ _SPECS: tuple[ViewSpec, ...] = (
             "amount": None,
             "account_to": None,
         },
-        # `is_retirement` is added during ingestion. SQLite stores it as
-        # INTEGER 0/1 (SQLite has no native BOOLEAN), hence coerce_bool.
         extra={"is_retirement": "bool"},
-        coerce_bool=frozenset({"is_retirement"}),
     ),
     ViewSpec(
         output="RobinhoodTxn",
@@ -202,9 +193,6 @@ def _extract_typeddicts(source: str) -> dict[str, list[tuple[str, ast.expr]]]:
     return out
 
 
-_COERCE_BOOL_ZOD = "z.union([z.boolean(), z.number()]).default(false).transform(Boolean)"
-
-
 def _render_schema(spec: ViewSpec, dicts: dict[str, list[tuple[str, ast.expr]]],
                    known: set[str]) -> list[str]:
     """Return the lines of one Zod schema + its inferred TS type."""
@@ -220,30 +208,16 @@ def _render_schema(spec: ViewSpec, dicts: dict[str, list[tuple[str, ast.expr]]],
             raise ValueError(msg)
         selected = list(spec.include.items())
 
-    # Validate that every coerce_bool target actually exists in include/extra.
-    all_target_names = {src for src, _ in selected} | set(spec.extra)
-    unknown_coerce = spec.coerce_bool - all_target_names
-    if unknown_coerce:
-        msg = (f"{spec.output}.coerce_bool references unknown fields: "
-               f"{sorted(unknown_coerce)}")
-        raise ValueError(msg)
-
     lines = [f"export const {spec.output}Schema = z.object({{"]
     for src_name, out_override in selected:
         out_name = out_override or _snake_to_camel(src_name)
-        if src_name in spec.coerce_bool:
-            zod = _COERCE_BOOL_ZOD
-        else:
-            zod = _render_type(source_fields[src_name], known)
+        zod = _render_type(source_fields[src_name], known)
         lines.append(f"  {out_name}: {zod},")
     for extra_name, py_type in spec.extra.items():
         if py_type not in _PYTHON_TO_ZOD_SCALAR:
             msg = f"{spec.output}.extra[{extra_name}]: unsupported type {py_type!r}"
             raise ValueError(msg)
-        zod = (
-            _COERCE_BOOL_ZOD if extra_name in spec.coerce_bool
-            else _PYTHON_TO_ZOD_SCALAR[py_type]
-        )
+        zod = _PYTHON_TO_ZOD_SCALAR[py_type]
         lines.append(f"  {_snake_to_camel(extra_name)}: {zod},")
     lines.append("});")
     lines.append("")

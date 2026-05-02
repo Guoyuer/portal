@@ -33,22 +33,23 @@ of these release orders:
   publish the new artifact, then remove the compatibility branch
 
 Do not rely only on fresh local export tests for these changes. Also validate the
-currently active production payload with the branch's frontend schema:
+currently active production payloads with the branch's frontend schemas:
 
 ```bash
-TIMELINE_URL=https://portal.guoyuer.com/api/timeline npx tsx scripts/validate_timeline_zod.ts
+TIMELINE_URL=https://portal.guoyuer.com/api/timeline npm run validate:api
 ```
 
 PowerShell:
 
 ```powershell
 $env:TIMELINE_URL = "https://portal.guoyuer.com/api/timeline"
-cmd /c npm run validate:timeline
+cmd /c npm run validate:api
 Remove-Item Env:\TIMELINE_URL
 ```
 
-The script reads `worker/.env.access` automatically when Cloudflare Access
-service-token headers are needed.
+The script checks `/timeline`, `/econ`, and `/prices`. It reads
+`worker/.env.access` automatically when Cloudflare Access service-token headers
+are needed.
 
 ## Local Worker Test
 

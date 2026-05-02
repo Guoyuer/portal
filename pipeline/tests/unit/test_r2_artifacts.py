@@ -44,6 +44,16 @@ def _seed_exportable_db(db_path: Path) -> None:
             "(ticker, name, current, month_return, ytd_return, high_52w, low_52w, sparkline) "
             "VALUES ('^GSPC', 'S&P 500', 5000, 1.2, 3.4, 5100, 4000, '[4900,5000]')"
         )
+        conn.execute(
+            "INSERT INTO qianji_transactions "
+            "(date, type, category, amount, is_retirement, account_to) "
+            "VALUES ('2026-05-01', 'income', '401K', 100, 1, '')"
+        )
+        conn.execute(
+            "INSERT INTO econ_series (key, date, value) VALUES "
+            "('fedFundsRate', '2026-04', 4.5), "
+            "('fedFundsRate', '2026-05', 4.25)"
+        )
         conn.commit()
     finally:
         conn.close()
@@ -69,6 +79,7 @@ def test_export_writes_manifest_summary_and_endpoint_artifacts(empty_db: Path, t
     assert timeline["daily"][0]["total"] == 1000
     assert "errors" not in timeline
     assert timeline["market"]["indices"][0]["sparkline"] == [4900, 5000]
+    assert timeline["qianjiTxns"][0]["isRetirement"] is True
     assert timeline["syncMeta"] == {
         "backend": "r2",
         "version": "2026-05-02T170000Z",
@@ -78,6 +89,12 @@ def test_export_writes_manifest_summary_and_endpoint_artifacts(empty_db: Path, t
 
     prices = json.loads((artifact_dir / "snapshots/2026-05-02T170000Z/prices.json").read_text())
     assert prices["VOO"]["transactions"][0]["actionType"] == "buy"
+
+    econ = json.loads((artifact_dir / "snapshots/2026-05-02T170000Z/econ.json").read_text())
+    assert econ["series"]["fedFundsRate"] == [
+        {"date": "2026-04", "value": 4.5},
+        {"date": "2026-05", "value": 4.25},
+    ]
 
     summary = json.loads((artifact_dir / "reports/export-summary.json").read_text())
     assert summary["rowCounts"]["daily"] == 1

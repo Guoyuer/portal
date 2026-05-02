@@ -69,16 +69,16 @@ jobs:
           cat "$GITHUB_WORKSPACE/wrangler.log" || true
           exit 1
 
-      # ── Zod smoke: /timeline vs. frontend schema ──────────────
+      # ── Zod smoke: live Worker payloads vs. frontend schemas ──
       # Worker doesn't validate at runtime (thin R2 streaming facade,
       # see CLAUDE.md "Worker"), so an artifact-vs-schema drift
       # would only surface when a user loads the page in prod. This
-      # step runs `TimelineDataSchema.safeParse` against the live
-      # wrangler response — drift fails CI here with a clean
+      # step runs the frontend schemas against the live wrangler
+      # responses — drift fails CI here with a clean
       # path.message, not downstream as a cryptic Playwright render
       # error. Runs before the Next build for fast feedback.
-      - name: Validate /timeline against Zod schema
-        run: npx tsx scripts/validate_timeline_zod.ts
+      - name: Validate Worker payloads against Zod schemas
+        run: npm run validate:api
 
       # ── Build Next static pointing at the real Worker ─────────
       # NEXT_PUBLIC_TIMELINE_URL is baked into the JS bundle at build

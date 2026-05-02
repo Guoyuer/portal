@@ -59,9 +59,8 @@ const DailyTickerSchema = TickerDetailSchema.extend({
 // the generated schema directly.
 const FidelityTxnSchema = GeneratedFidelityTxnSchema;
 
-// QianjiTxn's `isRetirement` uses the generator's coerce_bool mode because
-// SQLite stores logical booleans as INTEGER 0/1. The schema accepts
-// `boolean | number` and coerces via Boolean().
+// QianjiTxn is exported as endpoint JSON, so logical booleans must already be
+// JSON booleans before they reach the frontend schema.
 const QianjiTxnSchema = GeneratedQianjiTxnSchema;
 
 // RobinhoodTxn — direct 1:1 projection from the generated schema.
@@ -83,9 +82,9 @@ const CategoryMetaSchema = z.object({
 
 export const TimelineDataSchema = z.object({
   daily: z.array(DailyPointSchema),
-  dailyTickers: z.array(DailyTickerSchema).default([]),
-  fidelityTxns: z.array(FidelityTxnSchema).default([]),
-  qianjiTxns: z.array(QianjiTxnSchema).default([]),
+  dailyTickers: z.array(DailyTickerSchema),
+  fidelityTxns: z.array(FidelityTxnSchema),
+  qianjiTxns: z.array(QianjiTxnSchema),
   robinhoodTxns: z.array(RobinhoodTxnSchema),
   empowerContributions: z.array(EmpowerContributionSchema),
   categories: z.array(CategoryMetaSchema),
