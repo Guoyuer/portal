@@ -105,7 +105,14 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            worker/package-lock.json
       - if: needs.detect.outputs.frontend == 'true' || github.event_name == 'push'
+        run: npm ci
+      - name: Install Worker dependencies
+        if: needs.detect.outputs.frontend == 'true' || github.event_name == 'push'
+        working-directory: worker
         run: npm ci
       - uses: actions/cache@v5
         if: needs.detect.outputs.frontend == 'true' || github.event_name == 'push'
@@ -118,7 +125,8 @@ jobs:
         run: npm run test:coverage
       - name: Worker typecheck
         if: needs.detect.outputs.frontend == 'true' || github.event_name == 'push'
-        run: npx tsc -p worker/tsconfig.json --noEmit
+        working-directory: worker
+        run: npx tsc -p tsconfig.json --noEmit
       - name: Coverage report to PR
         if: needs.detect.outputs.frontend == 'true' && github.event_name == 'pull_request'
         uses: davelosert/vitest-coverage-report-action@v2
