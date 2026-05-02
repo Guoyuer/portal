@@ -31,7 +31,16 @@ from etl.automation import (  # noqa: E402
     paths,
     runner,
 )
+from etl.automation._constants import _STATUS_LABELS, EXIT_PARITY_INFRA  # noqa: E402
 from scripts import run_automation  # noqa: E402
+
+
+def test_parity_infra_exit_code_has_distinct_label() -> None:
+    """Code 5 must be present and labelled separately from code 2 (drift)."""
+    assert EXIT_PARITY_INFRA == 5
+    assert _STATUS_LABELS[EXIT_PARITY_INFRA] == "PARITY GATE COULD NOT RUN"
+    assert _STATUS_LABELS[EXIT_PARITY_FAIL] == "PARITY GATE FAILED"
+
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
