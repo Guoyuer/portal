@@ -6,9 +6,12 @@ import sys
 from datetime import date
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "pipeline"))
 
+from scripts import verify_vs_prod  # noqa: E402
 from scripts.verify_vs_prod import (  # noqa: E402
     compare_daily_close_samples,
     compare_recent_totals,
@@ -175,3 +178,67 @@ def test_compare_recent_totals_mixed_shared_and_local_only():
     ]
     results = compare_recent_totals(local, prod, tolerance_dollars=1.0)
     assert all(r.ok for r in results)
+
+
+# ── main() exit-code contract ──────────────────────────────────────────────
+
+
+def _stub_db(tmp_path):
+    """Minimal sqlite DB so the early ``_DB_PATH.exists()`` check passes."""
+    import sqlite3
+    db_path = tmp_path / "timemachine.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("CREATE TABLE fidelity_transactions (id INTEGER)")  # noqa: S608
+    conn.execute("CREATE TABLE qianji_transactions (id INTEGER)")  # noqa: S608
+    conn.execute("CREATE TABLE computed_daily (date TEXT, total REAL)")  # noqa: S608
+    conn.execute("CREATE TABLE daily_close (symbol TEXT, date TEXT, close REAL)")  # noqa: S608
+    conn.commit()
+    conn.close()
+    return db_path
+
+
+def test_main_exits_2_when_wrangler_query_raises(monkeypatch, tmp_path):
+    """A wrangler RuntimeError (auth/network/CLI crash) must exit with the
+    INFRA code (2), NOT the drift code (1). The orchestrator translates
+    these into the runner-level EXIT_PARITY_INFRA / EXIT_PARITY_FAIL."""
+    db_path = _stub_db(tmp_path)
+    monkeypatch.setenv("PORTAL_DB_PATH", str(db_path))
+    monkeypatch.setattr(verify_vs_prod, "_DB_PATH", db_path)
+    monkeypatch.setattr(
+        verify_vs_prod, "run_wrangler_query",
+        lambda sql: (_ for _ in ()).throw(RuntimeError("wrangler query failed (rc=1) ... 7403")),
+    )
+    monkeypatch.setattr(sys, "argv", ["verify_vs_prod.py"])
+    with pytest.raises(SystemExit) as exc:
+        verify_vs_prod.main()
+    assert exc.value.code == 2
+
+
+def test_main_exits_1_on_real_drift(monkeypatch, tmp_path):
+    """Drift (local SHORT in a non-DIFF table) keeps the existing exit 1.
+
+    Stubs the DB with non-empty fidelity_transactions and pretends prod has
+    more rows — ``compare_row_counts`` returns ``ok=False`` and main() exits 1.
+    """
+    import sqlite3
+    db_path = tmp_path / "timemachine.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("CREATE TABLE fidelity_transactions (id INTEGER)")  # noqa: S608
+    conn.execute("CREATE TABLE qianji_transactions (id INTEGER)")  # noqa: S608
+    conn.execute("CREATE TABLE computed_daily (date TEXT, total REAL)")  # noqa: S608
+    conn.execute("CREATE TABLE daily_close (symbol TEXT, date TEXT, close REAL)")  # noqa: S608
+    conn.execute("INSERT INTO fidelity_transactions (id) VALUES (1)")
+    conn.commit()
+    conn.close()
+    monkeypatch.setenv("PORTAL_DB_PATH", str(db_path))
+    monkeypatch.setattr(verify_vs_prod, "_DB_PATH", db_path)
+
+    def fake_query(sql):
+        if "fidelity_transactions" in sql and "COUNT" in sql:
+            return [{"n": 999}]  # prod has way more → SHORT
+        return []
+    monkeypatch.setattr(verify_vs_prod, "run_wrangler_query", fake_query)
+    monkeypatch.setattr(sys, "argv", ["verify_vs_prod.py"])
+    with pytest.raises(SystemExit) as exc:
+        verify_vs_prod.main()
+    assert exc.value.code == 1

@@ -1,6 +1,11 @@
 """Pre-sync gate: guard against local data loss and historical value drift.
 
-Exits 0 when sync is safe. Exits 1 on any real failure (STOP, investigate).
+Exit codes:
+    0 — pass; sync is safe to proceed
+    1 — drift detected; sync would silently rewrite prod history (STOP)
+    2 — infrastructure error (wrangler auth/network/CLI crash); the gate
+        couldn't reach prod, so drift status is unknown. Retry once env
+        is healthy. Mapped by the orchestrator to EXIT_PARITY_INFRA.
 
 The daily incremental flow ALWAYS produces local > prod (Yahoo fetches new
 prices before sync), so an "exact match" gate would block every automated run.
@@ -67,6 +72,12 @@ _TABLES_FOR_COUNT = ["fidelity_transactions", "qianji_transactions", "computed_d
 _CLOSE_TOLERANCE = 0.0001
 _TOTAL_TOLERANCE_DOLLARS = 1.0
 _RECENT_WINDOW_DAYS = 7
+
+# Exit codes used by the gate itself. The orchestrator (etl/automation/runner.py)
+# translates these into the email-level EXIT_PARITY_FAIL / EXIT_PARITY_INFRA
+# so the operator can tell "data drift" from "couldn't reach prod" at a glance.
+_DRIFT_EXIT_CODE = 1
+_INFRA_EXIT_CODE = 2
 
 # Tables whose sync mode is ``INSERT OR IGNORE`` (append-only with a natural
 # PK) — for these, ``local < prod`` is safe: the sync preserves prod's extra
@@ -274,7 +285,7 @@ def main() -> None:
 
     if not _DB_PATH.exists():
         print(f"Error: local DB not found: {_DB_PATH}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(_DRIFT_EXIT_CODE)
 
     print("=" * 60)
     print("  verify_vs_prod: local timemachine.db vs Cloudflare D1")
@@ -287,49 +298,63 @@ def main() -> None:
 
     all_results: list[CheckResult] = []
 
-    # Row counts
-    print("\n[1] Row counts")
-    for table in _TABLES_FOR_COUNT:
-        local_n = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]  # noqa: S608
-        prod_rows = run_wrangler_query(f"SELECT COUNT(*) AS n FROM {table}")  # noqa: S608 — trusted constant
-        prod_n = int(prod_rows[0]["n"]) if prod_rows else 0
-        r = compare_row_counts(table, local_n, prod_n, expected_drop=expected_drops.get(table, 0))
-        all_results.append(r)
-        marker = "✓" if r.ok else "✗"
-        print(f"  {marker} {table}: {r.detail}")
-
-    # daily_close random sample
-    print(f"\n[2] daily_close sample ({args.sample_size} random rows)")
-    all_pairs = conn.execute("SELECT symbol, date FROM daily_close").fetchall()
-    random.seed(42)
-    sampled = random.sample(list(all_pairs), min(args.sample_size, len(all_pairs)))
-    local_samples = []
-    for sym, d in sampled:
-        row = conn.execute("SELECT symbol, date, close FROM daily_close WHERE symbol=? AND date=?",
-                           (sym, d)).fetchone()
-        local_samples.append(dict(row))
-    # Batch query prod
-    conditions = " OR ".join([f"(symbol='{s['symbol']}' AND date='{s['date']}')" for s in local_samples])
-    prod_samples = run_wrangler_query(f"SELECT symbol, date, close FROM daily_close WHERE {conditions}")  # noqa: S608
-    for r in compare_daily_close_samples(local_samples, prod_samples):
-        all_results.append(r)
-        if args.verbose or not r.ok:
+    try:
+        # Row counts
+        print("\n[1] Row counts")
+        for table in _TABLES_FOR_COUNT:
+            local_n = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]  # noqa: S608
+            prod_rows = run_wrangler_query(f"SELECT COUNT(*) AS n FROM {table}")  # noqa: S608 — trusted constant
+            prod_n = int(prod_rows[0]["n"]) if prod_rows else 0
+            r = compare_row_counts(table, local_n, prod_n, expected_drop=expected_drops.get(table, 0))
+            all_results.append(r)
             marker = "✓" if r.ok else "✗"
-            print(f"  {marker} {r.detail}")
+            print(f"  {marker} {table}: {r.detail}")
 
-    # Recent totals
-    print("\n[3] computed_daily recent 7 days")
-    local_totals = [dict(r) for r in conn.execute(
-        "SELECT date, total FROM computed_daily ORDER BY date DESC LIMIT 7"
-    ).fetchall()]
-    prod_totals = run_wrangler_query(
-        "SELECT date, total FROM computed_daily ORDER BY date DESC LIMIT 7"
-    )
-    for r in compare_recent_totals(local_totals, prod_totals):
-        all_results.append(r)
-        if args.verbose or not r.ok:
-            marker = "✓" if r.ok else "✗"
-            print(f"  {marker} {r.detail}")
+        # daily_close random sample
+        print(f"\n[2] daily_close sample ({args.sample_size} random rows)")
+        all_pairs = conn.execute("SELECT symbol, date FROM daily_close").fetchall()
+        random.seed(42)
+        sampled = random.sample(list(all_pairs), min(args.sample_size, len(all_pairs)))
+        local_samples = []
+        for sym, d in sampled:
+            row = conn.execute("SELECT symbol, date, close FROM daily_close WHERE symbol=? AND date=?",
+                               (sym, d)).fetchone()
+            local_samples.append(dict(row))
+        if local_samples:
+            conditions = " OR ".join([f"(symbol='{s['symbol']}' AND date='{s['date']}')" for s in local_samples])
+            prod_samples = run_wrangler_query(f"SELECT symbol, date, close FROM daily_close WHERE {conditions}")  # noqa: S608
+        else:
+            prod_samples = []
+        for r in compare_daily_close_samples(local_samples, prod_samples):
+            all_results.append(r)
+            if args.verbose or not r.ok:
+                marker = "✓" if r.ok else "✗"
+                print(f"  {marker} {r.detail}")
+
+        # Recent totals
+        print("\n[3] computed_daily recent 7 days")
+        local_totals = [dict(r) for r in conn.execute(
+            "SELECT date, total FROM computed_daily ORDER BY date DESC LIMIT 7"
+        ).fetchall()]
+        prod_totals = run_wrangler_query(
+            "SELECT date, total FROM computed_daily ORDER BY date DESC LIMIT 7"
+        )
+        for r in compare_recent_totals(local_totals, prod_totals):
+            all_results.append(r)
+            if args.verbose or not r.ok:
+                marker = "✓" if r.ok else "✗"
+                print(f"  {marker} {r.detail}")
+    except RuntimeError as e:
+        # Infra failure — wrangler couldn't reach prod (auth, 5xx, CLI crash).
+        # We DON'T know whether prod has drifted, so we can't return either
+        # pass or drift. Exit 2 so the orchestrator can label this distinctly
+        # in the email and the operator knows it's a retry-when-healthy
+        # condition, not a data-investigation condition.
+        conn.close()
+        print("\n" + "=" * 60, file=sys.stderr)
+        print(f"  INFRA FAIL: wrangler unreachable\n  {e}", file=sys.stderr)
+        print("=" * 60, file=sys.stderr)
+        sys.exit(_INFRA_EXIT_CODE)
 
     conn.close()
 
@@ -341,7 +366,7 @@ def main() -> None:
         for r in failed:
             print(f"    - {r.table}: {r.detail}")
         print("=" * 60)
-        sys.exit(1)
+        sys.exit(_DRIFT_EXIT_CODE)
     print(f"  PASS: {len(all_results)} checks, all within tolerance")
     print("=" * 60)
 
