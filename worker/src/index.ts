@@ -1,5 +1,10 @@
-// ── Worker: thin API adapter over D1 ─────────────────────────────────────
-// All data-shape work lives in D1 views; this file is SELECT → shape → JSON.
+// ── Worker: thin API adapter ─────────────────────────────────────────────
+// D1 remains the default serving path during the migration. R2 is a temporary
+// PR1 path selected by DATA_BACKEND=r2 for local artifact testing; the final
+// cleanup PR removes the D1 branch instead of keeping a long-lived switch.
+//
+// All D1 data-shape work lives in views; the R2 path streams endpoint-shaped
+// artifacts generated from those same views.
 // Critical (daily) failures return 503; optional (market/holdings/txns) failures
 // degrade to null + a human-readable entry in `errors`.
 //
@@ -23,6 +28,144 @@ import {
 
 interface Env {
   DB: D1Database;
+  PORTAL_DATA?: R2Bucket;
+  DATA_BACKEND?: string;
+}
+
+type ManifestObject = {
+  key: string;
+  sha256: string;
+  bytes: number;
+  contentType: string;
+};
+
+type R2Manifest = {
+  version: string;
+  generatedAt: string;
+  objects: {
+    timeline: ManifestObject;
+    econ: ManifestObject;
+  };
+  prices: Record<string, ManifestObject>;
+};
+
+const MANIFEST_KEY = "manifest.json";
+const MANIFEST_CACHE_MS = 30_000;
+
+let r2ManifestCache: { expiresAt: number; manifest: R2Manifest } | null = null;
+
+export function __resetR2ManifestCacheForTests(): void {
+  r2ManifestCache = null;
+}
+
+function wantsR2(env: Env): boolean {
+  return env.DATA_BACKEND === "r2";
+}
+
+function isPathSafeSymbol(symbol: string): boolean {
+  return /^[A-Z0-9._=^-]+$/.test(symbol) && !symbol.includes("..");
+}
+
+function normalizeSymbol(raw: string): string | null {
+  try {
+    const symbol = decodeURIComponent(raw).toUpperCase();
+    return isPathSafeSymbol(symbol) ? symbol : null;
+  } catch {
+    return null;
+  }
+}
+
+function r2Unavailable(): Response {
+  return errorResponse("R2 backend requested but PORTAL_DATA binding is missing", 500);
+}
+
+function r2StreamResponse(object: R2ObjectBody): Response {
+  const headers = new Headers({
+    "Access-Control-Allow-Origin": "*",
+    "Cache-Control": "no-cache",
+    "Content-Type": "application/json",
+  });
+  object.writeHttpMetadata(headers);
+  headers.set("Access-Control-Allow-Origin", "*");
+  headers.set("Cache-Control", "no-cache");
+  if (!headers.get("Content-Type")) headers.set("Content-Type", "application/json");
+  return new Response(object.body, { headers });
+}
+
+function validManifestObject(value: unknown): value is ManifestObject {
+  if (!value || typeof value !== "object") return false;
+  const obj = value as Record<string, unknown>;
+  return (
+    typeof obj.key === "string"
+    && typeof obj.sha256 === "string"
+    && typeof obj.bytes === "number"
+    && typeof obj.contentType === "string"
+  );
+}
+
+function validManifest(value: unknown): value is R2Manifest {
+  if (!value || typeof value !== "object") return false;
+  const obj = value as Record<string, unknown>;
+  const objects = obj.objects as Record<string, unknown> | undefined;
+  const prices = obj.prices as Record<string, unknown> | undefined;
+  return (
+    typeof obj.version === "string"
+    && typeof obj.generatedAt === "string"
+    && !!objects
+    && validManifestObject(objects.timeline)
+    && validManifestObject(objects.econ)
+    && !!prices
+    && Object.values(prices).every(validManifestObject)
+  );
+}
+
+async function loadR2Manifest(env: Env): Promise<R2Manifest | Response> {
+  if (!env.PORTAL_DATA) return r2Unavailable();
+  const now = Date.now();
+  if (r2ManifestCache && r2ManifestCache.expiresAt > now) {
+    return r2ManifestCache.manifest;
+  }
+
+  const object = await env.PORTAL_DATA.get(MANIFEST_KEY);
+  if (!object) return errorResponse("R2 manifest missing", 503);
+
+  let payload: unknown;
+  try {
+    payload = await object.json();
+  } catch (e) {
+    return errorResponse(
+      `R2 manifest is not valid JSON: ${e instanceof Error ? e.message : "unknown"}`,
+      502,
+    );
+  }
+  if (!validManifest(payload)) return errorResponse("R2 manifest has invalid shape", 502);
+
+  r2ManifestCache = { manifest: payload, expiresAt: now + MANIFEST_CACHE_MS };
+  return payload;
+}
+
+async function streamR2Object(env: Env, descriptor: ManifestObject): Promise<Response> {
+  if (!env.PORTAL_DATA) return r2Unavailable();
+  const object = await env.PORTAL_DATA.get(descriptor.key);
+  if (!object) return errorResponse(`R2 object missing: ${descriptor.key}`, 503);
+  return r2StreamResponse(object);
+}
+
+async function handleR2Endpoint(
+  env: Env,
+  select: (manifest: R2Manifest) => ManifestObject,
+): Promise<Response> {
+  const manifest = await loadR2Manifest(env);
+  if (manifest instanceof Response) return manifest;
+  return streamR2Object(env, select(manifest));
+}
+
+async function handleR2Prices(env: Env, symbol: string): Promise<Response> {
+  const manifest = await loadR2Manifest(env);
+  if (manifest instanceof Response) return manifest;
+  const descriptor = manifest.prices[symbol];
+  if (!descriptor) return jsonResponse({ symbol, prices: [], transactions: [] });
+  return streamR2Object(env, descriptor);
 }
 
 // ── /timeline ────────────────────────────────────────────────────────────
@@ -163,18 +306,36 @@ export default {
       pathname = pathname.slice(API_PREFIX.length) || "/";
     }
 
+    const useR2 = wantsR2(env);
+
     if (pathname === "/econ") {
-      return cachedJson(request, ctx, TTLS.econ, () => handleEcon(env));
+      return cachedJson(
+        request,
+        ctx,
+        TTLS.econ,
+        () => (useR2 ? handleR2Endpoint(env, (m) => m.objects.econ) : handleEcon(env)),
+      );
     }
 
-    const priceMatch = pathname.match(/^\/prices\/([A-Za-z0-9.^=-]+)$/);
+    const priceMatch = pathname.match(/^\/prices\/([^/]+)$/);
     if (priceMatch) {
-      const symbol = decodeURIComponent(priceMatch[1]).toUpperCase();
-      return cachedJson(request, ctx, TTLS.prices, () => handlePrices(env, symbol));
+      const symbol = normalizeSymbol(priceMatch[1]);
+      if (!symbol) return errorResponse("Malformed price symbol", 400);
+      return cachedJson(
+        request,
+        ctx,
+        TTLS.prices,
+        () => (useR2 ? handleR2Prices(env, symbol) : handlePrices(env, symbol)),
+      );
     }
 
     if (pathname === "/timeline") {
-      return cachedJson(request, ctx, TTLS.timeline, () => handleTimeline(env));
+      return cachedJson(
+        request,
+        ctx,
+        TTLS.timeline,
+        () => (useR2 ? handleR2Endpoint(env, (m) => m.objects.timeline) : handleTimeline(env)),
+      );
     }
 
     return notFoundResponse();

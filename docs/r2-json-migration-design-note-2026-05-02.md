@@ -319,8 +319,6 @@ r2://portal-data/
       "key": "snapshots/2026-05-02T170000Z/prices/VOO.json",
       "sha256": "...",
       "bytes": 250000,
-      "priceRows": 1000,
-      "transactionRows": 12,
       "contentType": "application/json"
     }
   }
@@ -363,7 +361,7 @@ worker/src/index.ts
 
 pipeline/scripts/run_automation.py
   change: replace the current verify_vs_prod.py + sync_to_d1.py publish step
-          with r2_artifacts.py verify + publish --remote after migration parity passes
+          with r2_artifacts.py export -> verify -> publish --remote after migration parity passes
 ```
 
 Prefer one Python CLI over several near-identical scripts. The ownership boundaries still matter: export, verification, publication, migration parity, and runtime serving should stay separate even if the first three are subcommands in one file.
@@ -414,7 +412,7 @@ Any failure before step 8 must leave the previous production manifest active. An
 
 Post-publish health check is separate and non-blocking in v1: `GET /api/timeline` should return 200 with a non-empty body; on failure log and alert, but do not auto-rollback.
 
-The publisher should use `wrangler r2 object put` first because it matches the existing Cloudflare CLI workflow and local R2 simulation. Re-uploading unchanged carry-forward objects is acceptable at this scale; revisit only if publish time becomes a real problem.
+Remote publishing can start with `wrangler r2 object put` because it matches the existing Cloudflare CLI workflow. Local publishing should avoid one Wrangler process per object; use a bulk local-R2 seed path and verify the final `manifest.json` through Wrangler or the Worker. Re-uploading unchanged carry-forward objects is acceptable at this scale; revisit only if publish time becomes a real problem.
 
 ## Validation Strategy
 

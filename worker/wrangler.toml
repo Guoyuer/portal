@@ -16,3 +16,7 @@ routes = [
 binding = "DB"
 database_name = "portal-db"
 database_id = "bc076d75-f6ff-4966-99a2-f71e3ba8a033"
+
+[[r2_buckets]]
+binding = "PORTAL_DATA"
+bucket_name = "portal-data"
