@@ -71,7 +71,7 @@ Use this before touching production when changing the Worker or artifact shape.
 
 Set `PORTAL_HEALTHCHECK_URL` to a healthchecks.io ping URL if you want external failure detection. Without it, the runner logs a warning but still runs.
 
-Set these for Gmail changelog/failure email:
+Set these for Gmail publish-receipt/failure email:
 
 ```text
 PORTAL_SMTP_USER=

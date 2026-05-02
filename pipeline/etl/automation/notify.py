@@ -6,8 +6,8 @@ fail — automation still runs. :func:`ping_healthcheck` itself stays tolerant
 too: unset URL silently no-ops, network errors logged + swallowed.
 
 Email is opt-in: set ``PORTAL_SMTP_USER`` + ``PORTAL_SMTP_PASSWORD``. A no-
-change run is silently successful; failures and meaningful-change successes
-send. SMTP errors are logged and swallowed too.
+change run is silently successful; failures and successful publish attempts
+send a compact receipt. SMTP errors are logged and swallowed too.
 
 The :func:`extract_validation_warnings` helper reads the per-run subprocess
 capture buffer (populated by :func:`etl.automation.runner.run_python_script`)
@@ -28,6 +28,7 @@ from email.message import EmailMessage
 from pathlib import Path
 
 from etl.changelog import (
+    PublishSummary,
     SyncChangelog,
     SyncSnapshot,
     build_subject,
@@ -188,22 +189,16 @@ def _fmt_duration(seconds: float) -> str:
 
 
 def _build_context(
-    changelog: SyncChangelog,
     exit_code: int,
     log_file: Path,
-    snapshot_before: SyncSnapshot,
-    snapshot_after: SyncSnapshot | None,
     error: str | None,
     warnings: list[str] | None,
     started_at: datetime | None = None,
+    publish_summary: PublishSummary | None = None,
+    publish_mode: str | None = None,
+    dry_run: bool = False,
 ) -> dict[str, object]:
-    """Assemble the template context dict consumed by format_text / format_html."""
-    before_dates = sorted(snapshot_before.computed_daily.keys()) if snapshot_before.computed_daily else []
-    after_dates: list[str] = []
-    econ_keys: list[str] = []
-    if snapshot_after is not None:
-        after_dates = sorted(snapshot_after.computed_daily.keys())
-        econ_keys = sorted(snapshot_after.econ_series_keys)
+    """Assemble context consumed by format_text / format_html."""
     duration = ""
     if started_at is not None:
         duration = _fmt_duration((datetime.now() - started_at).total_seconds())
@@ -214,9 +209,9 @@ def _build_context(
         "log_file": str(log_file),
         "error": error,
         "warnings": warnings or [],
-        "before_dates": before_dates,
-        "after_dates": after_dates,
-        "econ_keys": econ_keys,
+        "publish_summary": publish_summary,
+        "publish_mode": publish_mode,
+        "dry_run": dry_run,
         "duration": duration,
     }
 
@@ -231,13 +226,16 @@ def send_report_email(
     error: str | None = None,
     validation_warnings: list[str] | None = None,
     started_at: datetime | None = None,
+    publish_summary: PublishSummary | None = None,
+    publish_mode: str | None = None,
+    dry_run: bool = False,
 ) -> None:
-    """Build a changelog and send. Always attempts to send when reached.
+    """Build a compact publish receipt and send it.
 
     The orchestrator already short-circuits the silent no-change path before
-    reaching this function (see ``Runner.run`` change-detection block), so
-    every call here represents real work that ran end-to-end — failure or
-    success. The operator gets a confirmation either way.
+    reaching this function (see ``Runner.run`` change-detection block), so every
+    call here represents real work that ran end-to-end: failure, dry-run, or
+    publish. The operator gets a concise confirmation either way.
 
     Delivery is best-effort: SMTP errors are logged and swallowed — email
     must never affect the sync exit code.
@@ -251,10 +249,16 @@ def send_report_email(
         changelog = SyncChangelog()
 
     context = _build_context(
-        changelog, exit_code, log_file, snapshot_before, snapshot_after, error,
-        validation_warnings, started_at=started_at,
+        exit_code,
+        log_file,
+        error,
+        validation_warnings,
+        started_at=started_at,
+        publish_summary=publish_summary,
+        publish_mode=publish_mode,
+        dry_run=dry_run,
     )
-    subject = build_subject(changelog, exit_code, _STATUS_LABELS.get(exit_code))
+    subject = build_subject(changelog, exit_code, _STATUS_LABELS.get(exit_code), publish_summary)
     html = format_html(changelog, context)
     text = format_text(changelog, context)
 

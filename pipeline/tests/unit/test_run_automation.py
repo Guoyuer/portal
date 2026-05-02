@@ -659,14 +659,12 @@ class TestEmailNotifications:
         assert len(sent) == 1
         assert sent[0]["subject"].startswith("[Portal Sync] OK")
 
-    def test_meaningful_changes_sends_email(self, monkeypatch, tmp_path):
-        """Success with a new fidelity row -> one email, subject starts with [Portal Sync]."""
+    def test_row_count_change_sends_email_summary(self, monkeypatch, tmp_path):
+        """Success with a row-count delta -> one compact summary email."""
         from etl.changelog import SyncSnapshot
 
-        before = SyncSnapshot()
-        after = SyncSnapshot(
-            fidelity_txns=frozenset({("2026-04-10", "buy", "VOO", 1.0, -500.0)}),
-        )
+        before = SyncSnapshot(row_counts={"fidelityTxns": 0})
+        after = SyncSnapshot(row_counts={"fidelityTxns": 1})
         rc, _, sent = self._invoke_with_email(
             ["--force"], [0, 0, 0, 0], monkeypatch, tmp_path,
             snapshot_before=before, snapshot_after=after,
@@ -674,7 +672,7 @@ class TestEmailNotifications:
         assert rc == EXIT_OK
         assert len(sent) == 1
         assert sent[0]["subject"].startswith("[Portal Sync] OK")
-        assert "VOO" in sent[0]["text"]
+        assert "fidelityTxns: 0 -> 1 (+1)" in sent[0]["text"]
 
     def test_build_failure_sends_email_with_exit_1(self, monkeypatch, tmp_path):
         """Build fail -> email even though no snapshot_after available."""
@@ -721,9 +719,7 @@ class TestEmailNotifications:
         rc, _, sent = self._invoke_with_email(
             ["--force"], [0, 0, 0, 0], monkeypatch, tmp_path,
             snapshot_before=SyncSnapshot(),
-            snapshot_after=SyncSnapshot(
-                fidelity_txns=frozenset({("2026-04-10", "buy", "VOO", 1.0, -500.0)}),
-            ),
+            snapshot_after=SyncSnapshot(row_counts={"fidelityTxns": 1}),
             disable_email=True,
         )
         assert rc == EXIT_OK
@@ -739,9 +735,7 @@ class TestEmailNotifications:
         rc, _, sent = self._invoke_with_email(
             ["--force"], [0, 0, 0, 0], monkeypatch, tmp_path,
             snapshot_before=SyncSnapshot(),
-            snapshot_after=SyncSnapshot(
-                fidelity_txns=frozenset({("2026-04-10", "buy", "VOO", 1.0, -500.0)}),
-            ),
+            snapshot_after=SyncSnapshot(row_counts={"fidelityTxns": 1}),
             send_side_effect=ConnectionRefusedError("smtp down"),
         )
         # Publish must still return OK even though email throw

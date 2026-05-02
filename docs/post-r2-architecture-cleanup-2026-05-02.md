@@ -39,7 +39,7 @@ The remaining cleanup falls into four buckets:
 | P1 | Done | Emit `sparkline` as JSON array, not JSON string | Moves data conversion to exporter and simplifies frontend schema | ~30 LoC |
 | P1 | Done | Fix stale `AGENTS.md` / mark old D1 docs historical | Prevents future agents from following deleted D1 architecture | docs only |
 | P2 | Done | Delete one-shot `etl/migrations` package | Removes ceremonial per-build migration framework | ~280 LoC |
-| P2 gated | Needs decision | Delete changelog/daily diff email subsystem | Large simplification, but only if the daily email is no longer wanted | ~2,100 LoC |
+| P2 gated | Done | Simplify changelog/daily email into publish receipt | Keeps daily email while removing audit-grade semantic diff machinery | ~1,300 LoC |
 | P3 | Optional | Consider deleting live `/timeline` Zod smoke script | Duplicates publish-time artifact Zod validation, but has better CI errors | ~40 LoC |
 | P3 | Optional | Consider collapsing normal automation from `export -> verify -> publish` to `export -> publish` | Avoids double verify on successful publish | small |
 
@@ -328,58 +328,63 @@ Expected: count `0`, grep no matches.
 
 Low risk if the precondition is satisfied. The only meaningful risk is silently keeping NULL `action_kind` rows, which the precondition and tests should catch.
 
-## P2 Gated: Decide on Email Reporting Before Deleting Changelog
+## P2 Gated: Simplify Email Reporting Without Deleting It
 
-### Precondition: explicit user decision required
-
-Do not perform this cleanup unless the user explicitly confirms they no longer want the daily diff email.
-
-The changelog subsystem is large, but it has a real product function: showing what changed in the latest sync. If that email is still useful, keep it.
+Status: Implemented as the middle path. Daily email remains, but it is now a
+compact publish receipt rather than a second semantic audit system.
 
 ### Why
 
-The pipeline currently captures a `SyncSnapshot` before and after every run, computes a `SyncChangelog`, renders text/html Jinja templates, and sends an SMTP email. Roughly 2,000+ LoC of code, tests, and templates serve one consumer: the daily operator email.
+The old subsystem captured a `SyncSnapshot` before and after every run, computed
+row-level semantic diffs, rendered text/html Jinja templates, and sent an SMTP
+email. That gave useful operator visibility, but it mixed two responsibilities:
 
-External monitoring can be handled by `PORTAL_HEALTHCHECK_URL`. Failure visibility can be a simpler stage-label + log-tail email.
+- publication correctness audit
+- inbox notification
 
-### Files / changes if confirmed
+Correctness now belongs to R2 artifact verification, manifest descriptors,
+publish readback, logs, and `reports/export-summary.json`. Email should summarize
+the run, not prove data correctness.
 
-1. **Delete**
-   - `pipeline/etl/changelog/`
-   - `pipeline/tests/unit/test_changelog.py`
+### What changed
 
-2. **Simplify `pipeline/etl/automation/notify.py`**
-   - Keep email config, low-level send, healthcheck ping, and duration formatting.
-   - Replace `send_report_email` with a simpler failure-only email:
-     ```text
-     stage label
-     exit code
-     last 200 log lines
-     ```
+Kept:
 
-3. **Simplify `pipeline/etl/automation/runner.py`**
-   - Remove `SyncSnapshot` / `capture`.
-   - Remove the `_SCRIPT_OUTPUT_BUFFER` machinery if warnings no longer need special extraction.
-   - Do not send success emails.
-   - On failure, send the simpler failure email.
+- daily success email when work runs
+- failure email with stage label, error, warnings, log path, and duration
+- SMTP config and healthchecks.io pings
+- before/after snapshot concept, but only for aggregate row counts and latest net worth
 
-4. **Docs**
-   - Update `docs/RUNBOOK.md` and `docs/automation-setup.md`.
-   - Keep SMTP env vars only if failure emails still use SMTP.
+Removed:
+
+- per-row Fidelity/Qianji semantic diffs
+- Qianji note-modified pairing
+- computed_daily per-date modified detail
+- net-worth component-row table and component-sum drift email check
+- FRED key add/remove detail
+- Jinja templates and `jinja2` dependency
+
+The email now includes:
+
+- artifact version, generated time, latest data date, object count, total bytes
+- price symbol/row/transaction counts from `reports/export-summary.json`
+- net worth before -> after + delta
+- aggregate row-count deltas
+- warnings, log path, duration, failure stage when applicable
 
 ### Verification
 
 ```bash
 cd pipeline
+.venv/Scripts/python.exe -m pytest tests/unit/test_changelog.py tests/unit/test_run_automation.py tests/unit/test_email_report.py -q
 .venv/Scripts/python.exe -m pytest -q
-.venv/Scripts/python.exe scripts/run_automation.py --dry-run --local
 ```
-
-Then manually force a failure and confirm a failure email arrives with useful log context.
 
 ### Correctness impact
 
-No data correctness impact. This is an operator-experience decision.
+No data correctness impact. The removed details were notification output, not
+publish gates. Auditability is preserved through logs, R2 manifests, hashes,
+row-count checks, Zod validation, and `reports/export-summary.json`.
 
 ## P3: Consider Deleting `scripts/validate_timeline_zod.ts`
 
@@ -484,10 +489,7 @@ Completed:
 
 Remaining:
 
-4. **PR E: Changelog/email removal**
-   - Only if the daily email is no longer wanted.
-
-5. **Optional P3 cleanup**
+4. **Optional P3 cleanup**
    - Decide on live `/timeline` Zod smoke and duplicate non-dry-run verify.
 
 ## Definition of Done
