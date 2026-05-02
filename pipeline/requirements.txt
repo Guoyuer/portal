@@ -3,7 +3,7 @@ yfinance==1.3.0
 fredapi>=0.5,<1
 
 # HTTP client (used by tests)
-httpx>=0.28,<1
+httpx>=0.28.1,<1
 
 # .env auto-loader (dev convenience; existing env vars still win)
 python-dotenv>=1.2.2,<2
