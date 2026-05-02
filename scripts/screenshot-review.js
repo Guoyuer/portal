@@ -17,11 +17,9 @@ const VIEWPORTS = [
 const JOURNEYS = [
   // Finance page
   { name: "fin-top", url: "/finance", scroll: 0 },
-  { name: "fin-networth", url: "/finance", scrollTo: "#net-worth" },
-  { name: "fin-allocation", url: "/finance", scrollTo: "#allocation" },
+  { name: "fin-timemachine", url: "/finance", scrollTo: "#timemachine" },
+  { name: "fin-activity", url: "/finance", scrollTo: "#investment-activity" },
   { name: "fin-cashflow", url: "/finance", scrollTo: "#cashflow" },
-  { name: "fin-activity", url: "/finance", scrollTo: "#fidelity-activity" },
-  { name: "fin-holdings", url: "/finance", scrollTo: "#holdings" },
   { name: "fin-market", url: "/finance", scrollTo: "#market" },
   // Econ page
   { name: "econ-top", url: "/econ", scroll: 0 },
@@ -75,7 +73,7 @@ async function captureViewport(browser, vp, modes) {
 
       // Scroll
       if (j.scrollTo) {
-        await page.evaluate((id) => document.querySelector(id)?.scrollIntoView({ block: "start" }), j.scrollTo);
+        await page.locator(j.scrollTo).scrollIntoViewIfNeeded({ timeout: 5000 });
       } else if (j.scroll != null) {
         await page.evaluate((y) => window.scrollTo(0, y), j.scroll);
       }

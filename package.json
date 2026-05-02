@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "serve out --single -l 3000",
     "lint": "eslint src e2e worker/src next.config.ts vitest.config.ts playwright.config.ts playwright.config.real.ts playwright.manual.config.ts postcss.config.mjs eslint.config.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
