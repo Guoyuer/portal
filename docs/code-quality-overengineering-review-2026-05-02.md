@@ -157,9 +157,9 @@ abstraction faster than the actual solo-dashboard use case needs.
 
 Examples:
 
-- `docs/plans/2026-04-20-investment-activity.md`: 1,358 lines.
-- `docs/plans/2026-04-19-group-aggregated-bs-markers.md`: 1,016 lines.
-- `docs/plans/2026-05-01-distinguish-parity-infra-vs-drift.md`: 498 lines.
+- `docs/archive/plans/2026-04-20-investment-activity.md`: 1,358 lines.
+- `docs/archive/plans/2026-04-19-group-aggregated-bs-markers.md`: 1,016 lines.
+- `docs/archive/plans/2026-05-01-distinguish-parity-infra-vs-drift.md`: 498 lines.
 
 This is useful as an audit trail, but it is not useful as active operating documentation. The
 current live docs (`README.md`, `ARCHITECTURE.md`, `RUNBOOK.md`, `TODO.md`) are enough for day-to-day

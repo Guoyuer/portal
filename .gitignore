@@ -77,6 +77,8 @@ pipeline/data/timemachine.db
 pipeline/data/prices.db
 pipeline/timemachine.db
 .claude/
+.codex/
+.playwright-mcp/
 
 # Brainstorming visual companion artifacts
 .superpowers/
@@ -84,3 +86,4 @@ pipeline/timemachine.db
 # Ad-hoc QA artifacts (PR diffs, screenshot scratch dirs)
 _pr*.diff
 _screenshots/
+pipeline/.pytest-tmp-review/

@@ -9,7 +9,8 @@
     "lint": "eslint src e2e worker/src next.config.ts vitest.config.ts playwright.config.ts playwright.config.real.ts playwright.manual.config.ts postcss.config.mjs eslint.config.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "validate:timeline": "tsx scripts/validate_timeline_zod.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.0",
@@ -25,7 +26,6 @@
   "devDependencies": {
     "@playwright/test": "^1.59.1",
     "@tailwindcss/postcss": "^4",
-    "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^25",
     "@types/react": "^19",

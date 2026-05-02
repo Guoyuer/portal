@@ -78,6 +78,8 @@ detect changes -> build_timemachine_db.py -> optional verify_positions.py -> r2_
 - `r2_artifacts.py verify` blocks publish if JSON payloads do not match SQLite counts, latest date, descriptor hashes, or frontend schemas.
 - Remote publish readback verifies R2 bytes before `manifest.json` is flipped.
 - A single-publisher lock prevents concurrent publish processes from racing manifest updates.
+- Breaking JSON shape changes must validate the currently active production payload
+  against the branch's frontend schema, or use a compatible two-step release.
 
 ## Cloudflare
 
