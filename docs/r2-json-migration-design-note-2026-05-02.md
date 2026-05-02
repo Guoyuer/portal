@@ -582,6 +582,8 @@ SELECT * FROM v_empower_contributions;
 SELECT * FROM v_categories;
 SELECT * FROM v_market_indices;
 SELECT * FROM v_holdings_detail;
+SELECT key, points FROM v_econ_series_grouped;
+SELECT key, value FROM v_econ_snapshot;
 ```
 
 This avoids re-implementing the API shape in Python from raw tables.
