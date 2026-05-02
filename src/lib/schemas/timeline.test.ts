@@ -14,6 +14,33 @@ describe("TimelineDataSchema", () => {
     expect(TimelineDataSchema.safeParse(payload).success).toBe(false);
   });
 
+  it("rejects missing exporter-guaranteed market fields", () => {
+    const payload = mkTimelinePayload({
+      market: {
+        indices: [
+          {
+            ticker: "^GSPC",
+            name: "S&P 500",
+            monthReturn: 2.5,
+            ytdReturn: 12.3,
+            current: 5500,
+            high52w: 5800,
+            low52w: 4200,
+          },
+        ],
+      },
+    });
+
+    expect(TimelineDataSchema.safeParse(payload).success).toBe(false);
+  });
+
+  it("rejects missing sync metadata", () => {
+    const payload: Record<string, unknown> = { ...mkTimelinePayload() };
+    delete payload.syncMeta;
+
+    expect(TimelineDataSchema.safeParse(payload).success).toBe(false);
+  });
+
   it("rejects numeric Qianji booleans now that the exporter emits JSON booleans", () => {
     const payload = mkTimelinePayload({
       qianjiTxns: [{

@@ -45,7 +45,7 @@ tightening tasks.
 | --- | --- | --- | --- |
 | P2 | Done | Emit `/econ.series` as arrays, not JSON strings | Removes the last frontend JSON-string compatibility schema. |
 | P2 | Done | Export SQLite booleans as JSON booleans | Stops leaking SQLite 0/1 storage into frontend schemas. |
-| P3 | Done | Tighten frontend Zod defaults on required artifact fields | Makes schema drift fail loudly instead of silently filling missing arrays. |
+| P3 | Done | Tighten frontend Zod defaults on required artifact fields | Makes schema drift fail loudly instead of silently filling missing fields. |
 | P3 | Done | Rename publish email code to receipt/reporting module | Aligns naming with the simplified email role. |
 | P3 | Deferred | Harden or prune conditional mock e2e checks | Worth doing only with fixture-specific assertions; avoid making smoke tests brittle. |
 
@@ -82,18 +82,26 @@ cd pipeline && .venv/Scripts/python.exe -m pytest -q
 ### Tighten Zod defaults on required artifact fields
 
 Status: implemented. These exporter-guaranteed fields no longer default missing
-values to empty arrays/records:
+values to empty arrays, records, or `null`:
 
 - `TimelineDataSchema.dailyTickers`
 - `TimelineDataSchema.fidelityTxns`
 - `TimelineDataSchema.qianjiTxns`
+- `TimelineDataSchema.market.indices[].sparkline`
+- `TimelineDataSchema.market.indices[].high52w`
+- `TimelineDataSchema.market.indices[].low52w`
+- `TimelineDataSchema.holdingsDetail[].high52w`
+- `TimelineDataSchema.holdingsDetail[].low52w`
+- `TimelineDataSchema.holdingsDetail[].vsHigh`
+- `TimelineDataSchema.syncMeta`
 - `TickerPriceResponseSchema.prices`
 - `TickerPriceResponseSchema.transactions`
 - `EconDataSchema.series`
 
 Under the current R2 publication model, missing fields mean artifact/schema
-drift and fail loudly. Nullability remains only for fields that are genuinely
-optional in the published API, such as nullable market values.
+drift and fail loudly. Nullability remains only for values that are genuinely
+nullable in the published API, such as holdings 52-week values for rows with
+insufficient price history.
 
 ### Rename publish email code to receipt/reporting
 

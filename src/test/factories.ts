@@ -151,8 +151,8 @@ export const ACTIVITY: ActivityResponse = {
 
 export const MARKET: MarketData = {
   indices: [
-    { ticker: "^GSPC", name: "S&P 500", monthReturn: 2.5, ytdReturn: 12.3, current: 5500, sparkline: null, high52w: 5800, low52w: 4200 },
-    { ticker: "^NDX", name: "NASDAQ 100", monthReturn: -1.2, ytdReturn: 8.7, current: 19000, sparkline: null, high52w: 20000, low52w: 15000 },
+    { ticker: "^GSPC", name: "S&P 500", monthReturn: 2.5, ytdReturn: 12.3, current: 5500, sparkline: [5200, 5400, 5500], high52w: 5800, low52w: 4200 },
+    { ticker: "^NDX", name: "NASDAQ 100", monthReturn: -1.2, ytdReturn: 8.7, current: 19000, sparkline: [18000, 19200, 19000], high52w: 20000, low52w: 15000 },
   ],
 };
 
@@ -173,7 +173,12 @@ export function mkTimelinePayload(overrides: Record<string, unknown> = {}) {
     categories: CATEGORIES,
     market: MARKET,
     holdingsDetail: [],
-    syncMeta: null,
+    syncMeta: {
+      backend: "r2",
+      version: "test",
+      last_sync: "2026-01-06T00:00:00Z",
+      last_date: "2026-01-06",
+    },
     ...overrides,
   };
 }

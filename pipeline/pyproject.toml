@@ -23,7 +23,6 @@ omit = [
     "tests/*",
     "etl/__init__.py",
     "etl/market/__init__.py",
-    "etl/migrations/__init__.py",
 ]
 
 [tool.coverage.report]
@@ -48,7 +47,7 @@ exclude = ["tests/", "data/", "\\.venv/"]
 
 [tool.ruff]
 line-length = 120
-target-version = "py312"
+target-version = "py314"
 extend-exclude = [".pytest-tmp*"]
 
 [tool.ruff.lint]

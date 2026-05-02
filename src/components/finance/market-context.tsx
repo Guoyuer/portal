@@ -47,12 +47,12 @@ function Sparkline({ idx }: { idx: IndexReturn }) {
     return () => ro.disconnect();
   }, []);
 
-  const data = idx.sparkline?.map((v) => ({ v }));
+  const data = idx.sparkline.map((v) => ({ v }));
   const color = idx.ytdReturn >= 0 ? MARKET_GAIN : MARKET_LOSS;
 
   return (
     <div ref={ref} className="w-full h-full">
-      {data && size.w > 0 && size.h > 0 && (
+      {size.w > 0 && size.h > 0 && (
         <AreaChart width={size.w} height={size.h} data={data} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
           <defs>
             <linearGradient id={`spark-${idx.ticker}`} x1="0" y1="0" x2="0" y2="1">
@@ -127,9 +127,7 @@ function IndexCard({ idx }: { idx: IndexReturn }) {
       <div className="-mx-1 -mt-0.5 h-[60px]">
         <Sparkline idx={idx} />
       </div>
-      {idx.high52w != null && idx.low52w != null && (
-        <RangeBar current={idx.current} high={idx.high52w} low={idx.low52w} />
-      )}
+      <RangeBar current={idx.current} high={idx.high52w} low={idx.low52w} />
     </div>
   );
 }
