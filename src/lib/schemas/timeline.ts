@@ -22,9 +22,9 @@ const IndexReturnSchema = z.object({
   monthReturn: z.number(),
   ytdReturn: z.number(),
   current: z.number(),
-  sparkline: z.array(z.number()).nullable().default(null),
-  high52w: z.number().nullable().default(null),
-  low52w: z.number().nullable().default(null),
+  sparkline: z.array(z.number()),
+  high52w: z.number(),
+  low52w: z.number(),
 });
 
 const MarketDataSchema = z.object({
@@ -38,9 +38,9 @@ const StockDetailSchema = z.object({
   monthReturn: z.number(),
   startValue: z.number(),
   endValue: z.number(),
-  high52w: z.number().nullable().default(null),
-  low52w: z.number().nullable().default(null),
-  vsHigh: z.number().nullable().default(null),
+  high52w: z.number().nullable(),
+  low52w: z.number().nullable(),
+  vsHigh: z.number().nullable(),
 });
 
 // ── Timemachine (derived from generated AllocationRow) ─────────────────
@@ -90,7 +90,7 @@ export const TimelineDataSchema = z.object({
   categories: z.array(CategoryMetaSchema),
   market: MarketDataSchema,
   holdingsDetail: z.array(StockDetailSchema),
-  syncMeta: z.record(z.string(), z.string()).nullable().default(null),
+  syncMeta: z.record(z.string(), z.string()),
 });
 
 // ── Inferred types ──────────────────────────────────────────────────────
