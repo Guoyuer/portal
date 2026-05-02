@@ -18,24 +18,24 @@ Instead, this gate checks the only two things that actually matter:
 
     2. Historical value drift — rows present in BOTH local and prod with
        different values for immutable windows:
-         - daily_close: rows with date <= today - 7 must match to 4 decimals
-           (recent prices can be legitimately re-fetched; newer-than-7-day
-           drift is normal)
-         - computed_daily: recent 7 days present in both sides must agree
-           within $1 (this table is INSERT OR IGNORE so prod values are
-           frozen; drift implies a logic change that would desync)
+         - daily_close: rows before the shared refresh window must match to
+           4 decimals (recent prices can be legitimately re-fetched)
+         - computed_daily: the full range that sync will replace is compared;
+           drift is allowed only inside the shared refresh window
 
 What this gate intentionally IGNORES:
     - local > prod on row counts (the pre-sync normal; sync closes the gap)
     - rows only in local, not prod (sync will propagate them)
-    - recent (< 7 days) daily_close value differences
+    - recent daily_close / computed_daily value differences inside the
+      refresh window
 
 Samples (by default):
     - 10 random (symbol, date) rows from daily_close → compare `close`
-      (rows from the recent 7-day window are filtered out before compare)
-    - Last 7 days of computed_daily.total → compare within $1 where both
-      sides have the date
-    - Row counts for 4 core tables (direction check: local >= prod)
+      (rows from the refresh window are filtered out before compare)
+    - All computed_daily.total rows in the sync replacement range → compare
+      within $1 where both sides have the date
+    - Row counts for every synced table, scoped to the rows that sync can
+      delete for range-replace tables
 
 Requires: wrangler CLI authenticated, running from anywhere (uses worker dir).
 
@@ -46,6 +46,8 @@ Usage:
 """
 from __future__ import annotations
 
+# ruff: noqa: E402, I001
+
 import argparse
 import json
 import os
@@ -53,7 +55,7 @@ import random
 import sqlite3
 import sys
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -63,33 +65,27 @@ _PROJECT_DIR = Path(__file__).resolve().parent.parent
 
 # Make etl/ importable and load pipeline/.env before any os.environ lookups.
 sys.path.insert(0, str(_PROJECT_DIR))
-import etl.dotenv_loader  # noqa: E402, F401  (side effect: load pipeline/.env)
-from scripts._wrangler import run_wrangler_query  # noqa: E402
+import etl.dotenv_loader  # noqa: F401  (side effect: load pipeline/.env)
+from etl.prices import refresh_window_start
+from scripts._wrangler import run_wrangler_query, sql_escape
+from scripts.sync_policy import (
+    DIFF_TABLES as _DIFF_TABLES,
+    RANGE_TABLES as _RANGE_TABLES,
+    TABLES_TO_SYNC,
+    auto_derive_since,
+    sync_mode_for_table,
+)
 
 _DB_PATH = Path(os.environ.get("PORTAL_DB_PATH", str(_PROJECT_DIR / "data" / "timemachine.db")))
 
-_TABLES_FOR_COUNT = ["fidelity_transactions", "qianji_transactions", "computed_daily", "daily_close"]
 _CLOSE_TOLERANCE = 0.0001
 _TOTAL_TOLERANCE_DOLLARS = 1.0
-_RECENT_WINDOW_DAYS = 7
 
 # Exit codes used by the gate itself. The orchestrator (etl/automation/runner.py)
 # translates these into the email-level EXIT_PARITY_FAIL / EXIT_PARITY_INFRA
 # so the operator can tell "data drift" from "couldn't reach prod" at a glance.
 _DRIFT_EXIT_CODE = 1
 _INFRA_EXIT_CODE = 2
-
-# Tables whose sync mode is ``INSERT OR IGNORE`` (append-only with a natural
-# PK) — for these, ``local < prod`` is safe: the sync preserves prod's extra
-# rows instead of replacing them. Mirrors ``sync_to_d1._DIFF_TABLES`` so the
-# gate's definition of "data loss" tracks what the sync actually does.
-try:
-    from scripts.sync_to_d1 import _DIFF_TABLES as _SYNC_DIFF_TABLES
-    _DIFF_TABLES: set[str] = _SYNC_DIFF_TABLES
-except ImportError:
-    # Running verify in isolation (e.g. tests that don't add scripts/ to
-    # path). Fall back to the known set; mismatch would surface quickly.
-    _DIFF_TABLES = {"daily_close"}
 
 
 # ── Types ─────────────────────────────────────────────────────────────────
@@ -119,7 +115,13 @@ def parse_wrangler_json(raw: str) -> list[dict[str, Any]]:
 # ── Comparisons ────────────────────────────────────────────────────────────
 
 def compare_row_counts(
-    table: str, local: int, prod: int, expected_drop: int = 0,
+    table: str,
+    local: int,
+    prod: int,
+    expected_drop: int = 0,
+    *,
+    allow_local_short: bool | None = None,
+    scope: str = "",
 ) -> CheckResult:
     """OK when local >= prod, OR when the shortfall matches the operator's
     declared ``expected_drop``, OR when the table's sync mode is DIFF
@@ -127,28 +129,30 @@ def compare_row_counts(
     FAIL only when local is unexpectedly SHORT for a table whose sync
     would actually delete prod rows.
     """
+    short_ok = (table in _DIFF_TABLES) if allow_local_short is None else allow_local_short
+    prefix = f"{scope}: " if scope else ""
     if local == prod:
-        return CheckResult(ok=True, table=table, detail=f"{local} rows (match)")
+        return CheckResult(ok=True, table=table, detail=f"{prefix}{local} rows (match)")
     if local > prod:
         return CheckResult(
             ok=True, table=table,
-            detail=f"local={local} prod={prod} (local ahead by {local - prod} — will sync)",
+            detail=f"{prefix}local={local} prod={prod} (local ahead by {local - prod} — will sync)",
         )
     shortfall = prod - local
     if expected_drop and shortfall == expected_drop:
         return CheckResult(
             ok=True, table=table,
-            detail=f"local={local} prod={prod} (short by {shortfall} — declared via --expected-drops)",
+            detail=f"{prefix}local={local} prod={prod} (short by {shortfall} — declared via --expected-drops)",
         )
-    if table in _DIFF_TABLES:
+    if short_ok:
         # DIFF sync = INSERT OR IGNORE. Prod extras are preserved.
         return CheckResult(
             ok=True, table=table,
-            detail=f"local={local} prod={prod} (short by {shortfall} — {table} sync is INSERT OR IGNORE, prod extras preserved)",
+            detail=f"{prefix}local={local} prod={prod} (short by {shortfall} — {table} sync is INSERT OR IGNORE, prod extras preserved)",
         )
     return CheckResult(
         ok=False, table=table,
-        detail=f"local={local} prod={prod} (local SHORT by {shortfall} — DATA LOSS RISK)",
+        detail=f"{prefix}local={local} prod={prod} (local SHORT by {shortfall} — DATA LOSS RISK)",
     )
 
 
@@ -158,19 +162,19 @@ def compare_daily_close_samples(
     tolerance: float = _CLOSE_TOLERANCE,
     today: date | None = None,
 ) -> list[CheckResult]:
-    """Compare historical (date <= today - 7) rows only.
+    """Compare rows before the shared refresh window only.
 
     Recent prices can legitimately be re-fetched and differ, so they are
     excluded from the comparison. Rows present only in local are ignored
     (sync will propagate them). If every sampled row is within the recent
     window, return a single informational OK result (don't fail the gate).
     """
-    cutoff = ((today or date.today()) - timedelta(days=7)).isoformat()
-    historical = [r for r in local if r["date"] <= cutoff]
+    cutoff = refresh_window_start(today or date.today()).isoformat()
+    historical = [r for r in local if r["date"] < cutoff]
     if not historical:
         return [CheckResult(
             ok=True, table="daily_close",
-            detail=f"sample was all within recent window (> {cutoff}) — skipped",
+            detail=f"sample was all within refresh window (>= {cutoff}) — skipped",
         )]
 
     prod_map = {(r["symbol"], r["date"]): r["close"] for r in prod}
@@ -200,20 +204,16 @@ def compare_recent_totals(
     tolerance_dollars: float = _TOTAL_TOLERANCE_DOLLARS,
     today: date | None = None,
 ) -> list[CheckResult]:
-    """Compare dates present in BOTH sides, with refresh-window awareness.
+    """Compare computed_daily rows present in BOTH sides.
 
-    The pipeline recomputes the last ``_RECENT_WINDOW_DAYS`` of
-    ``computed_daily`` on every build to absorb intraday price updates
-    and late Yahoo corrections; ``upsert_daily_rows`` is INSERT OR
-    REPLACE, and prod's ``computed_daily`` sync is a full DELETE+INSERT.
-    So drift on dates WITHIN the refresh window is the expected flow —
-    local's fresh values will cleanly replace prod's on sync.
+    Callers pass the rows from the sync replacement range. Drift inside the
+    shared refresh window is expected; older drift is a logic/data regression
+    that sync would rewrite into prod.
 
-    Drift on older dates is a genuine red flag: those rows should be
-    immutable, and a mismatch implies a logic change that would silently
-    rewrite prod history. FAIL in that case.
+    Rows present only in local are sync lag and are OK. Rows present only in
+    prod are caught by the scoped row-count check for ``computed_daily``.
     """
-    cutoff = ((today or date.today()) - timedelta(days=_RECENT_WINDOW_DAYS)).isoformat()
+    cutoff = refresh_window_start(today or date.today()).isoformat()
     prod_map = {r["date"]: float(r["total"]) for r in prod}
     results: list[CheckResult] = []
     for r in local:
@@ -231,7 +231,7 @@ def compare_recent_totals(
         if within_tol:
             results.append(CheckResult(ok=True, table="computed_daily", detail=f"{d} within ${tolerance_dollars}"))
         elif d >= cutoff:
-            # Recent window — drift is expected; full-replace sync resolves it.
+            # Refresh window — drift is expected; range-replace sync resolves it.
             results.append(CheckResult(
                 ok=True, table="computed_daily",
                 detail=f"{d} local={lv:.2f} prod={pv:.2f} diff={diff:+.2f} (refresh window — will sync)",
@@ -279,6 +279,21 @@ def _parse_expected_drops(specs: list[str]) -> dict[str, int]:
     return out
 
 
+def _count_local(conn: sqlite3.Connection, table: str, *, date_expr: str | None = None, since: str | None = None) -> int:
+    if date_expr is None:
+        return int(conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])  # noqa: S608
+    return int(conn.execute(f"SELECT COUNT(*) FROM {table} WHERE {date_expr} > ?", (since,)).fetchone()[0])  # noqa: S608
+
+
+def _count_prod(table: str, *, date_expr: str | None = None, since: str | None = None) -> int:
+    if date_expr is None:
+        sql = f"SELECT COUNT(*) AS n FROM {table}"  # noqa: S608
+    else:
+        sql = f"SELECT COUNT(*) AS n FROM {table} WHERE {date_expr} > {sql_escape(since)}"  # noqa: S608
+    rows = run_wrangler_query(sql)
+    return int(rows[0]["n"]) if rows else 0
+
+
 def main() -> None:
     args = _parse_args()
     expected_drops = _parse_expected_drops(args.expected_drops)
@@ -299,13 +314,30 @@ def main() -> None:
     all_results: list[CheckResult] = []
 
     try:
+        since = auto_derive_since(conn)
+        print(f"  Sync replacement cutoff: {since}")
+
         # Row counts
         print("\n[1] Row counts")
-        for table in _TABLES_FOR_COUNT:
-            local_n = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]  # noqa: S608
-            prod_rows = run_wrangler_query(f"SELECT COUNT(*) AS n FROM {table}")  # noqa: S608 — trusted constant
-            prod_n = int(prod_rows[0]["n"]) if prod_rows else 0
-            r = compare_row_counts(table, local_n, prod_n, expected_drop=expected_drops.get(table, 0))
+        for table in TABLES_TO_SYNC:
+            table_mode = sync_mode_for_table(table)
+            if table_mode == "range":
+                date_expr = _RANGE_TABLES[table]
+                local_n = _count_local(conn, table, date_expr=date_expr, since=since)
+                prod_n = _count_prod(table, date_expr=date_expr, since=since)
+                scope = f"{date_expr} > {since}"
+                allow_short = False
+            else:
+                local_n = _count_local(conn, table)
+                prod_n = _count_prod(table)
+                scope = "full table"
+                allow_short = table_mode == "diff"
+            r = compare_row_counts(
+                table, local_n, prod_n,
+                expected_drop=expected_drops.get(table, 0),
+                allow_local_short=allow_short,
+                scope=scope,
+            )
             all_results.append(r)
             marker = "✓" if r.ok else "✗"
             print(f"  {marker} {table}: {r.detail}")
@@ -321,7 +353,10 @@ def main() -> None:
                                (sym, d)).fetchone()
             local_samples.append(dict(row))
         if local_samples:
-            conditions = " OR ".join([f"(symbol='{s['symbol']}' AND date='{s['date']}')" for s in local_samples])
+            conditions = " OR ".join([
+                f"(symbol={sql_escape(s['symbol'])} AND date={sql_escape(s['date'])})"
+                for s in local_samples
+            ])
             prod_samples = run_wrangler_query(f"SELECT symbol, date, close FROM daily_close WHERE {conditions}")  # noqa: S608
         else:
             prod_samples = []
@@ -331,13 +366,15 @@ def main() -> None:
                 marker = "✓" if r.ok else "✗"
                 print(f"  {marker} {r.detail}")
 
-        # Recent totals
-        print("\n[3] computed_daily recent 7 days")
+        # computed_daily replacement range
+        print("\n[3] computed_daily replacement range")
         local_totals = [dict(r) for r in conn.execute(
-            "SELECT date, total FROM computed_daily ORDER BY date DESC LIMIT 7"
+            "SELECT date, total FROM computed_daily WHERE date > ? ORDER BY date",
+            (since,),
         ).fetchall()]
         prod_totals = run_wrangler_query(
-            "SELECT date, total FROM computed_daily ORDER BY date DESC LIMIT 7"
+            "SELECT date, total FROM computed_daily "
+            f"WHERE date > {sql_escape(since)} ORDER BY date"
         )
         for r in compare_recent_totals(local_totals, prod_totals):
             all_results.append(r)

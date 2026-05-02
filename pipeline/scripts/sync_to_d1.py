@@ -19,13 +19,15 @@ Usage:
 
 from __future__ import annotations
 
+# ruff: noqa: E402, I001
+
 import argparse
 import os
 import sqlite3
 import subprocess
 import sys
 import tempfile
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
 # ── Configuration ──────────────────────────────────────────────────────────────
@@ -34,34 +36,23 @@ _PROJECT_DIR = Path(__file__).resolve().parent.parent
 
 # Make etl/ importable and load pipeline/.env before any os.environ lookups.
 sys.path.insert(0, str(_PROJECT_DIR))
-import etl.dotenv_loader  # noqa: E402, F401  (side effect: load pipeline/.env)
-from scripts._wrangler import (  # noqa: E402
+import etl.dotenv_loader  # noqa: F401  (side effect: load pipeline/.env)
+from scripts._wrangler import (
     run_wrangler_command,
     run_wrangler_exec_file,
     run_wrangler_query,
     sql_escape,
 )
+from scripts.sync_policy import (
+    AUTO_SINCE_LOOKBACK_DAYS as _AUTO_SINCE_LOOKBACK_DAYS,
+    RANGE_TABLES as _RANGE_TABLES,
+    TABLES_TO_SYNC,
+    auto_derive_since as _auto_derive_since,
+    sync_mode_for_table,
+)
 
 _DB_PATH = Path(os.environ.get("PORTAL_DB_PATH", str(_PROJECT_DIR / "data" / "timemachine.db")))
 _WORKER_DIR = _PROJECT_DIR.parent / "worker"
-
-# When --since is not supplied, derive cutoff as (latest fidelity run_date - N days).
-# 60 days comfortably exceeds Fidelity's typical CSV export window.
-_AUTO_SINCE_LOOKBACK_DAYS = 60
-
-TABLES_TO_SYNC: list[str] = [
-    "computed_daily",
-    "computed_daily_tickers",
-    "fidelity_transactions",
-    "robinhood_transactions",
-    "empower_contributions",
-    "qianji_transactions",
-    "computed_market_indices",
-    "computed_holdings_detail",
-    "econ_series",
-    "daily_close",
-    "categories",
-]
 
 # ── D1 schema alignment ────────────────────────────────────────────────────
 #
@@ -310,31 +301,9 @@ def _append_sync_log_row(
     )
 
 
-# Tables that use INSERT OR IGNORE in diff mode (append-only, have date PK).
-#
-# KNOWN GAP: ``daily_close`` locally runs ``INSERT OR REPLACE`` within the
-# ``REFRESH_WINDOW_DAYS`` (7) tail to absorb yfinance's end-of-day corrections
-# to T-1 etc. The ``INSERT OR IGNORE`` path here preserves the immutability of
-# rows outside that window (correct) but also skips updates D1 already has
-# inside it, leaving D1 a few cents off on the last ~7 days of prices until
-# ``--full``. Run it manually if a chart starts showing visible drift near the
-# right edge; otherwise the error is well below what Charts renders.
-_DIFF_TABLES: set[str] = {"daily_close"}
-
-# Tables that use range-replace in diff mode (delete after cutoff, reinsert).
-# Value is a SQL expression that yields a YYYY-MM-DD–sortable string for date comparison.
-#
-# ``computed_daily`` + ``computed_daily_tickers`` sit here (not in
-# ``_DIFF_TABLES``) so the local sync's authoritative rows physically replace
-# any projected rows the nightly CI job wrote beyond the last local build —
-# INSERT OR IGNORE would skip them and leave stale projections in D1.
-_RANGE_TABLES: dict[str, str] = {
-    "fidelity_transactions": "run_date",
-    "robinhood_transactions": "txn_date",
-    "qianji_transactions": "date",
-    "computed_daily": "date",
-    "computed_daily_tickers": "date",
-}
+# Sync policy lives in ``scripts.sync_policy`` so the pre-sync verifier and
+# SQL generator cannot drift apart. Re-export the legacy private names above
+# for existing unit tests and small internal callers.
 
 
 # ── SQL generation ─────────────────────────────────────────────────────────────
@@ -413,20 +382,6 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _auto_derive_since(conn: sqlite3.Connection) -> str:
-    """Derive a safe --since cutoff: latest fidelity run_date minus 60 days.
-
-    This guarantees the range-replace window covers any realistic Fidelity
-    CSV export period, so a newly-ingested CSV's date range is fully covered.
-    """
-    row = conn.execute("SELECT MAX(run_date) FROM fidelity_transactions").fetchone()
-    if row and row[0]:
-        latest = date.fromisoformat(row[0])
-    else:
-        latest = date.today()
-    return (latest - timedelta(days=_AUTO_SINCE_LOOKBACK_DAYS)).isoformat()
-
-
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 
@@ -468,10 +423,11 @@ def main() -> None:
     total_rows = 0
 
     for table in TABLES_TO_SYNC:
-        if mode == "diff" and table in _DIFF_TABLES:
+        table_mode = sync_mode_for_table(table, full=(mode == "full"))
+        if mode == "diff" and table_mode == "diff":
             sql, count = _dump_table(conn, table, mode="diff")
             print(f"  {table}: {count} rows (INSERT OR IGNORE)")
-        elif mode == "diff" and table in _RANGE_TABLES:
+        elif mode == "diff" and table_mode == "range":
             sql, count = _dump_table(
                 conn, table, mode="range", date_expr=_RANGE_TABLES[table], since=since,
             )

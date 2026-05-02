@@ -57,6 +57,22 @@ def test_compare_row_counts_local_short_fails():
     assert "35" in result.detail
 
 
+def test_compare_row_counts_diff_table_short_ok():
+    """DIFF tables preserve prod extras, so local < prod is safe there."""
+    result = compare_row_counts("daily_close", local=100, prod=120)
+    assert result.ok is True
+    assert "INSERT OR IGNORE" in result.detail
+
+
+def test_compare_row_counts_range_scope_in_detail():
+    result = compare_row_counts(
+        "computed_daily_tickers", local=5, prod=8,
+        allow_local_short=False, scope="date > 2026-02-01",
+    )
+    assert result.ok is False
+    assert "date > 2026-02-01" in result.detail
+
+
 # ── daily_close samples: historical-only compare ───────────────────────────
 
 def test_compare_daily_close_tolerance():
@@ -188,10 +204,17 @@ def _stub_db(tmp_path):
     import sqlite3
     db_path = tmp_path / "timemachine.db"
     conn = sqlite3.connect(str(db_path))
-    conn.execute("CREATE TABLE fidelity_transactions (id INTEGER)")  # noqa: S608
-    conn.execute("CREATE TABLE qianji_transactions (id INTEGER)")  # noqa: S608
     conn.execute("CREATE TABLE computed_daily (date TEXT, total REAL)")  # noqa: S608
+    conn.execute("CREATE TABLE computed_daily_tickers (date TEXT)")  # noqa: S608
+    conn.execute("CREATE TABLE fidelity_transactions (id INTEGER, run_date TEXT)")  # noqa: S608
+    conn.execute("CREATE TABLE robinhood_transactions (txn_date TEXT)")  # noqa: S608
+    conn.execute("CREATE TABLE empower_contributions (date TEXT)")  # noqa: S608
+    conn.execute("CREATE TABLE qianji_transactions (date TEXT)")  # noqa: S608
+    conn.execute("CREATE TABLE computed_market_indices (id INTEGER)")  # noqa: S608
+    conn.execute("CREATE TABLE computed_holdings_detail (id INTEGER)")  # noqa: S608
+    conn.execute("CREATE TABLE econ_series (id INTEGER)")  # noqa: S608
     conn.execute("CREATE TABLE daily_close (symbol TEXT, date TEXT, close REAL)")  # noqa: S608
+    conn.execute("CREATE TABLE categories (name TEXT)")  # noqa: S608
     conn.commit()
     conn.close()
     return db_path
@@ -221,13 +244,9 @@ def test_main_exits_1_on_real_drift(monkeypatch, tmp_path):
     more rows — ``compare_row_counts`` returns ``ok=False`` and main() exits 1.
     """
     import sqlite3
-    db_path = tmp_path / "timemachine.db"
+    db_path = _stub_db(tmp_path)
     conn = sqlite3.connect(str(db_path))
-    conn.execute("CREATE TABLE fidelity_transactions (id INTEGER)")  # noqa: S608
-    conn.execute("CREATE TABLE qianji_transactions (id INTEGER)")  # noqa: S608
-    conn.execute("CREATE TABLE computed_daily (date TEXT, total REAL)")  # noqa: S608
-    conn.execute("CREATE TABLE daily_close (symbol TEXT, date TEXT, close REAL)")  # noqa: S608
-    conn.execute("INSERT INTO fidelity_transactions (id) VALUES (1)")
+    conn.execute("INSERT INTO fidelity_transactions (id, run_date) VALUES (1, '2026-04-15')")
     conn.commit()
     conn.close()
     monkeypatch.setenv("PORTAL_DB_PATH", str(db_path))
@@ -237,6 +256,63 @@ def test_main_exits_1_on_real_drift(monkeypatch, tmp_path):
         if "fidelity_transactions" in sql and "COUNT" in sql:
             return [{"n": 999}]  # prod has way more → SHORT
         return []
+    monkeypatch.setattr(verify_vs_prod, "run_wrangler_query", fake_query)
+    monkeypatch.setattr(sys, "argv", ["verify_vs_prod.py"])
+    with pytest.raises(SystemExit) as exc:
+        verify_vs_prod.main()
+    assert exc.value.code == 1
+
+
+def test_main_fails_when_range_table_is_short_in_replacement_window(monkeypatch, tmp_path):
+    """Range-replaced tables must be checked in the range sync can delete.
+
+    Regression for a blind spot where computed_daily_tickers was not counted
+    at all, allowing local to be short while sync would delete prod rows.
+    """
+    import sqlite3
+
+    db_path = _stub_db(tmp_path)
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("INSERT INTO fidelity_transactions (id, run_date) VALUES (1, '2026-04-15')")
+    conn.commit()
+    conn.close()
+    monkeypatch.setenv("PORTAL_DB_PATH", str(db_path))
+    monkeypatch.setattr(verify_vs_prod, "_DB_PATH", db_path)
+
+    def fake_query(sql):
+        if "COUNT" in sql and "computed_daily_tickers" in sql:
+            return [{"n": 1}]
+        return [{"n": 0}] if "COUNT" in sql else []
+
+    monkeypatch.setattr(verify_vs_prod, "run_wrangler_query", fake_query)
+    monkeypatch.setattr(sys, "argv", ["verify_vs_prod.py"])
+    with pytest.raises(SystemExit) as exc:
+        verify_vs_prod.main()
+    assert exc.value.code == 1
+
+
+def test_main_fails_on_computed_daily_drift_anywhere_in_replacement_range(monkeypatch, tmp_path):
+    """Drift 8+ days back must fail if sync will range-replace that date."""
+    import sqlite3
+
+    db_path = _stub_db(tmp_path)
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("INSERT INTO fidelity_transactions (id, run_date) VALUES (1, '2026-04-15')")
+    conn.execute("INSERT INTO computed_daily (date, total) VALUES ('2026-03-01', 100)")
+    conn.commit()
+    conn.close()
+    monkeypatch.setenv("PORTAL_DB_PATH", str(db_path))
+    monkeypatch.setattr(verify_vs_prod, "_DB_PATH", db_path)
+
+    def fake_query(sql):
+        if "COUNT" in sql:
+            if "computed_daily" in sql:
+                return [{"n": 1}]
+            return [{"n": 0}]
+        if "SELECT date, total FROM computed_daily" in sql:
+            return [{"date": "2026-03-01", "total": 200}]
+        return []
+
     monkeypatch.setattr(verify_vs_prod, "run_wrangler_query", fake_query)
     monkeypatch.setattr(sys, "argv", ["verify_vs_prod.py"])
     with pytest.raises(SystemExit) as exc:
