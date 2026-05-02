@@ -1,4 +1,32 @@
 import { test, expect } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
+
+function investmentActivity(page: Page): Locator {
+  return page.locator("#investment-activity");
+}
+
+async function visibleActivityTable(page: Page): Promise<{ section: Locator; table: Locator }> {
+  const section = investmentActivity(page);
+  await expect(section).toBeVisible();
+  await expect(section.getByText("Buys by Symbol")).toBeVisible();
+  await expect(section.getByText("Dividends by Symbol")).toBeVisible();
+  const table = section.locator("table").first();
+  await expect(table).toBeVisible();
+  return { section, table };
+}
+
+async function disableGroupedActivity(section: Locator): Promise<void> {
+  await section.getByRole("checkbox", { name: /Group equivalent tickers/i }).uncheck();
+}
+
+async function expandActivityOverflow(section: Locator): Promise<void> {
+  const summaries = section.locator("details summary");
+  const count = await summaries.count();
+  expect(count).toBeGreaterThan(0);
+  for (let i = 0; i < count; i++) {
+    await summaries.nth(i).click();
+  }
+}
 
 test.describe("Finance Report", () => {
   test.beforeEach(async ({ page }) => {
@@ -65,37 +93,30 @@ test.describe("Finance Report", () => {
 
   test("shows cash flow section with period", async ({ page }) => {
     await expect(page.getByText(/Cash Flow/).first()).toBeVisible({ timeout: 10000 });
-    // Wait for cash flow data to load
     const cashflowSection = page.locator("#cashflow");
-    const hasTable = await cashflowSection.locator("table").count();
-    if (hasTable === 0) return; // Skip if no data
-    // Expense items
-    await expect(page.getByText("Expenses").first()).toBeVisible();
+    await expect(cashflowSection.getByTestId("income-table")).toBeVisible();
+    await expect(cashflowSection.getByTestId("expense-table")).toBeVisible();
+    await expect(cashflowSection.getByText("Expenses").first()).toBeVisible();
   });
 
   test("shows income and expense totals", async ({ page }) => {
     await expect(page.getByText(/Cash Flow/).first()).toBeVisible({ timeout: 10000 });
-    // Total rows should exist if cashflow data loaded
-    const totalRows = page.locator("tr").filter({ hasText: "Total" });
-    if (await totalRows.count() > 0) {
-      await expect(totalRows.first()).toBeVisible();
-    }
+    const section = page.locator("#cashflow");
+    await expect(section.getByTestId("income-table").getByRole("row", { name: /Total/ })).toBeVisible();
+    await expect(section.getByTestId("expense-table").getByRole("row", { name: /Total/ })).toBeVisible();
   });
 
-  test("expenses have collapsible minor items", async ({ page }) => {
+  test("shows fixture expense categories", async ({ page }) => {
     await expect(page.getByText(/Cash Flow/).first()).toBeVisible({ timeout: 10000 });
-    // Items < $200 are collapsed
-    const details = page.locator("details");
-    const expenseDetails = details.filter({ hasText: /and \d+ more/ });
-    if (await expenseDetails.count() > 0) {
-      await expect(expenseDetails.first()).toBeVisible();
-    }
+    const expenseTable = page.locator("#cashflow").getByTestId("expense-table");
+    await expect(expenseTable.getByRole("row", { name: /Rent 12/ })).toBeVisible();
+    await expect(expenseTable.getByRole("row", { name: /Meals 48/ })).toBeVisible();
+    await expect(expenseTable.getByRole("row", { name: /Subscriptions 12/ })).toBeVisible();
   });
 
   test("shows cash flow summary metrics", async ({ page }) => {
-    // Net Savings, Investments, CC Payments now in timemachine range stats
     const tm = page.locator("#timemachine");
-    if (!(await tm.isVisible({ timeout: 5000 }).catch(() => false))) return;
+    await expect(tm).toBeVisible();
     await expect(tm.getByText("Net Savings")).toBeVisible();
     await expect(tm.getByText("Investments")).toBeVisible();
     await expect(tm.getByText("CC Payments")).toBeVisible();
@@ -107,100 +128,48 @@ test.describe("Finance Report", () => {
   });
 
   test("shows buys and dividends by symbol", async ({ page }) => {
-    const section = page.locator("#investment-activity");
-    await expect(section).toBeAttached();
-    // Wait for activity data to load
-    const activityTable = section.locator("table").first();
-    try {
-      await activityTable.waitFor({ timeout: 5000 });
-    } catch {
-      return; // No data available
-    }
-    await expect(page.getByText("Buys by Symbol")).toBeVisible();
-    await expect(page.getByText("Dividends by Symbol")).toBeVisible();
+    await visibleActivityTable(page);
   });
 
   test("ticker tables have collapsible overflow", async ({ page }) => {
-    const details = page.locator("details").filter({ hasText: /and \d+ more/ });
-    if (await details.count() > 0) {
-      // Click to expand
-      await details.first().locator("summary").click();
-      // More rows should now be visible
-      await expect(details.first().locator("tr").first()).toBeVisible();
-    }
+    const { section } = await visibleActivityTable(page);
+    const details = section.locator("details").filter({ hasText: /and \d+ more/ });
+    await expect(details.first()).toBeVisible();
+    await details.first().locator("summary").click();
+    await expect(details.first().locator("tr").first()).toBeVisible();
   });
 
   test("clicking ticker row expands inline price chart", async ({ page }) => {
-    const section = page.locator("#investment-activity");
-    const activityTable = section.locator("table").first();
-    try {
-      await activityTable.waitFor({ timeout: 5000 });
-    } catch {
-      return; // No data
-    }
-    // Turn off group view so the first row is a real ticker (inline-expand path)
-    await section.getByRole("checkbox", { name: /Group equivalent tickers/i }).uncheck();
+    const { section, table: activityTable } = await visibleActivityTable(page);
+    await disableGroupedActivity(section);
     const firstTicker = activityTable.locator("td.font-mono").first();
-    if (!(await firstTicker.isVisible())) return;
+    await expect(firstTicker).toBeVisible();
     await firstTicker.click();
-    // Should show loading text, then chart or "no price data"
-    const chartOrFallback = section.locator("text=/Loading.*chart/i").or(section.locator(".recharts-wrapper")).or(section.locator("text=/No price data/i"));
-    await expect(chartOrFallback.first()).toBeVisible({ timeout: 8000 });
-    // Click again to collapse
+    await expect(section.locator(".recharts-wrapper").first()).toBeVisible({ timeout: 8000 });
     await firstTicker.click();
   });
 
   test("ticker chart shows buy markers and avg cost line", async ({ page }) => {
-    const section = page.locator("#investment-activity");
-    const activityTable = section.locator("table").first();
-    try {
-      await activityTable.waitFor({ timeout: 5000 });
-    } catch {
-      return;
-    }
-    // Turn off group view so the first row is a real ticker
-    await section.getByRole("checkbox", { name: /Group equivalent tickers/i }).uncheck();
-    // Click the first ticker with trades
+    const { section, table: activityTable } = await visibleActivityTable(page);
+    await disableGroupedActivity(section);
     const firstTicker = activityTable.locator("td.font-mono").first();
-    if (!(await firstTicker.isVisible())) return;
+    await expect(firstTicker).toBeVisible();
     await firstTicker.click();
     const chart = section.locator(".recharts-wrapper").first();
-    if (!(await chart.isVisible({ timeout: 8000 }).catch(() => false))) return;
-    // Should have: price line, scatter series (buy/sell), reference line (avg cost)
+    await expect(chart).toBeVisible({ timeout: 8000 });
     await expect(chart.locator(".recharts-line")).toBeVisible();
     expect(await chart.locator(".recharts-scatter").count()).toBeGreaterThanOrEqual(1);
     await expect(chart.getByText(/^Avg \$/)).toBeVisible();
-    await firstTicker.click(); // collapse
+    await firstTicker.click();
   });
 
   test("ticker with no prices shows fallback message", async ({ page }) => {
-    const section = page.locator("#investment-activity");
-    const activityTable = section.locator("table").first();
-    try {
-      await activityTable.waitFor({ timeout: 5000 });
-    } catch {
-      return;
-    }
-    // Turn off group view so clicking SPAXX reaches the inline chart path
-    await section.getByRole("checkbox", { name: /Group equivalent tickers/i }).uncheck();
-    // Find SPAXX (money market fund, no daily close prices) — may be in top rows or "more" section
-    const allTickers = section.locator("td.font-mono");
-    let found = false;
-    for (let i = 0; i < await allTickers.count(); i++) {
-      const text = await allTickers.nth(i).textContent();
-      if (text?.includes("SPAXX")) {
-        // Expand "more" section if SPAXX is inside one
-        const details = allTickers.nth(i).locator("xpath=ancestor::details");
-        if (await details.count() > 0) {
-          await details.locator("summary").click();
-          await page.waitForTimeout(300);
-        }
-        await allTickers.nth(i).click();
-        found = true;
-        break;
-      }
-    }
-    if (!found) return;
+    const { section } = await visibleActivityTable(page);
+    await disableGroupedActivity(section);
+    await expandActivityOverflow(section);
+    const spaxxRow = section.getByRole("row", { name: /SPAXX source: fidelity/ });
+    await expect(spaxxRow).toBeVisible();
+    await spaxxRow.click();
     await expect(page.getByText(/Money market fund/)).toBeVisible({ timeout: 5000 });
   });
 
@@ -237,40 +206,33 @@ test.describe("Finance Report", () => {
   test("renders income vs expenses bar chart", async ({ page }) => {
     const section = page.locator("#cashflow");
     const bars = section.locator(".recharts-bar-rectangle");
-    await bars.first().waitFor({ timeout: 5000 }).catch(() => {});
-    if (await bars.count() > 0) {
-      expect(await bars.count()).toBeGreaterThan(0);
-    }
+    await expect(bars.first()).toBeVisible({ timeout: 5000 });
+    expect(await bars.count()).toBeGreaterThan(0);
   });
 
   test("income vs expenses chart has legend", async ({ page }) => {
     const section = page.locator("#cashflow");
-    const chartBars = section.locator(".recharts-bar-rectangle");
-    await chartBars.first().waitFor({ timeout: 5000 }).catch(() => {});
-    if (await chartBars.count() > 0) {
-      await expect(section.getByText("Expenses").first()).toBeVisible();
-      await expect(section.getByText("Savings").first()).toBeVisible();
-    }
+    await expect(section.locator(".recharts-bar-rectangle").first()).toBeVisible({ timeout: 5000 });
+    await expect(section.getByText("Expenses").first()).toBeVisible();
+    await expect(section.getByText("Savings").first()).toBeVisible();
   });
 
   // ── Market ─────────────────────────────────────────────────────
 
   test("shows market context with index cards", async ({ page }) => {
     const section = page.getByTestId("market-section");
-    await expect(section).toBeAttached();
-    // Wait for market cards to render
-    const marketCard = section.locator("[data-slot='card']").first();
-    try { await marketCard.waitFor({ timeout: 10000 }); } catch { return; }
-    await expect(page.getByText("S&P 500").first()).toBeVisible();
+    await expect(section).toBeVisible();
+    await expect(section.getByText("S&P 500")).toBeVisible();
+    await expect(section.getByText("NASDAQ 100")).toBeVisible();
+    await expect(section.getByText("52-week range").first()).toBeVisible();
   });
 
   test("market section renders without macro when FRED unavailable", async ({ page }) => {
     const section = page.getByTestId("market-section");
-    await expect(section).toBeAttached();
-    // Wait for market cards to render
-    const marketCard = section.locator("[data-slot='card']").first();
-    try { await marketCard.waitFor({ timeout: 10000 }); } catch { return; }
-    await expect(page.getByText("S&P 500").first()).toBeVisible();
+    await expect(section).toBeVisible();
+    await expect(section.getByText("Market")).toBeVisible();
+    await expect(section.getByText("S&P 500")).toBeVisible();
+    await expect(section.getByTestId("market-error")).toHaveCount(0);
   });
 
   // ── UI Polish ────────────────────────────────────────────────────────
@@ -287,10 +249,7 @@ test.describe("Finance Report", () => {
     const card = page.getByTestId("savings-rate-card");
     const rate = card.locator("p[class*='font-bold']").first();
     const className = await rate.getAttribute("class");
-    // Should have one of the conditional colors (or N/A if no cashflow data)
-    if (className) {
-      expect(className).toMatch(/text-(green-|emerald-|yellow-|red-)|font-bold/);
-    }
+    expect(className).toMatch(/text-(green-|emerald-|yellow-|red-)|font-bold/);
   });
 
   // ── Dark Mode ──────────────────────────────────────────────────────────
@@ -320,39 +279,23 @@ test.describe("Finance Report", () => {
 
   // ── UI Polish (nav, charts, bento cards) ────────────────────────────────
 
-  test("net worth section shows MoM and YoY badges", async ({ page }) => {
-    // Falls back to #net-worth when timeline API is unavailable
-    const section = page.locator("#net-worth");
-    test.skip(!(await section.isVisible()), "timeline loaded — net-worth fallback not rendered");
-    await expect(section.getByText("MoM")).toBeVisible();
-    await expect(section.getByText("YoY")).toBeVisible();
-    // Values should include percentage
-    await expect(section.getByText(/[+-]\d+\.\d+%/).first()).toBeVisible();
-  });
-
   test("sticky brush bar is visible at page bottom", async ({ page }) => {
-    // Brush is now in a fixed bar at the bottom, not inside individual charts
     const stickyBrush = page.locator(".recharts-brush");
-    if (await stickyBrush.count() > 0) {
-      await expect(stickyBrush.first()).toBeVisible();
-    }
+    await expect(stickyBrush.first()).toBeVisible();
   });
 
   test("savings labels stay correct after brush move", async ({ page }) => {
     const section = page.locator("#cashflow");
     await section.scrollIntoViewIfNeeded();
-    // Wait for chart labels to render
     const labelList = section.locator(".recharts-label-list");
-    if (!(await labelList.isVisible({ timeout: 5000 }).catch(() => false))) return;
+    await expect(labelList).toBeVisible({ timeout: 5000 });
 
-    // Collect savings labels before brush movement
     const allTextBefore = await section.locator("svg text").allTextContents();
     const labelsBefore = allTextBefore.filter((t) => /^\d+%$/.test(t));
-    if (labelsBefore.length === 0) return;
+    expect(labelsBefore.length).toBeGreaterThan(0);
 
-    // Focus left brush traveller in the sticky brush bar and press ArrowRight
     const traveller = page.locator(".recharts-brush-traveller").first();
-    if (!(await traveller.isVisible().catch(() => false))) return;
+    await expect(traveller).toBeVisible();
     await traveller.focus();
     for (let i = 0; i < 6; i++) {
       await page.keyboard.press("ArrowRight");
@@ -373,13 +316,10 @@ test.describe("Finance Report", () => {
   });
 
   test("income vs expenses chart renders bars", async ({ page }) => {
-    // Scroll to chart area
     await page.locator("#cashflow").scrollIntoViewIfNeeded();
     const bars = page.locator("#cashflow .recharts-bar-rectangle");
-    await bars.first().waitFor({ timeout: 5000 }).catch(() => {});
-    if (await bars.count() > 0) {
-      expect(await bars.count()).toBeGreaterThan(0);
-    }
+    await expect(bars.first()).toBeVisible({ timeout: 5000 });
+    expect(await bars.count()).toBeGreaterThan(0);
   });
 
   // ── Savings Rate Trend ──────────────────────────────────────────────────
@@ -388,32 +328,21 @@ test.describe("Finance Report", () => {
 
   test.describe("Timemachine", () => {
     test("shows timemachine chart when timeline API available", async ({ page }) => {
-      // The timemachine section should render if the backend is running
       const tmSection = page.locator("#timemachine");
-      const nwSection = page.locator("#net-worth");
-
-      // One of them should be visible (timemachine if backend running, net-worth otherwise)
-      const tmVisible = await tmSection.isVisible().catch(() => false);
-      const nwVisible = await nwSection.isVisible().catch(() => false);
-      expect(tmVisible || nwVisible).toBe(true);
+      await expect(tmSection).toBeVisible();
+      await expect(tmSection.locator(".recharts-area").first()).toBeVisible();
     });
 
     test("shows allocation categories in timemachine summary", async ({ page }) => {
       const tmSection = page.locator("#timemachine");
-      if (!(await tmSection.isVisible().catch(() => false))) {
-        test.skip();
-        return;
-      }
+      await expect(tmSection).toBeVisible();
       await expect(tmSection.getByText("US Equity").first()).toBeVisible();
       await expect(tmSection.getByText("Safe Net").first()).toBeVisible();
     });
 
     test("shows range stats in timemachine summary", async ({ page }) => {
       const tmSection = page.locator("#timemachine");
-      if (!(await tmSection.isVisible().catch(() => false))) {
-        test.skip();
-        return;
-      }
+      await expect(tmSection).toBeVisible();
       await expect(tmSection.getByText("Income")).toBeVisible();
       await expect(tmSection.getByText("Expenses")).toBeVisible();
       await expect(tmSection.getByText("Investments")).toBeVisible();
@@ -422,20 +351,13 @@ test.describe("Finance Report", () => {
 
     test("displays total value with dollar sign", async ({ page }) => {
       const tmSection = page.locator("#timemachine");
-      if (!(await tmSection.isVisible().catch(() => false))) {
-        test.skip();
-        return;
-      }
-      // Should show a dollar amount like "$412,883" or "$413k"
+      await expect(tmSection).toBeVisible();
       await expect(tmSection.locator("text=/\\$\\d/").first()).toBeVisible();
     });
 
     test("timemachine chart renders stacked areas", async ({ page }) => {
       const tmSection = page.locator("#timemachine");
-      if (!(await tmSection.isVisible().catch(() => false))) {
-        test.skip();
-        return;
-      }
+      await expect(tmSection).toBeVisible();
       const areas = tmSection.locator(".recharts-area");
       expect(await areas.count()).toBeGreaterThan(0);
     });
