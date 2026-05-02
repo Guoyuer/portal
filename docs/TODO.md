@@ -1,9 +1,56 @@
 # Portal TODO
 
-**Captured:** 2026-04-18 (last refreshed 2026-04-20 after PR #260 cleanup pass — see decision log at bottom)
+**Captured:** 2026-04-18 (last refreshed 2026-05-02 after code-quality / overengineering review follow-up)
 **Context:** Code quality assessed at ~8.6/10 after the day's 18-PR refactor run. Further polish hits diminishing returns; remaining work is either small real bugs, optional infrastructure upgrades, or product features (a different dimension).
 
 Tiering rule: 🟢 = do if touching this area, 🟡 = do if you expect to keep investing in code quality, 🔵 = defer until a concrete signal, 🔴 = product direction (not refactor).
+
+---
+
+## 2026-05-02 review follow-up
+
+Detailed review: `docs/code-quality-overengineering-review-2026-05-02.md`.
+
+### R1. Pre-sync gate must cover every destructive sync table
+
+`verify_vs_prod.py` currently checks row counts for only four tables, while `sync_to_d1.py` can
+range-replace or full-replace more tables. Derive the gate from the same sync policy used by
+`sync_to_d1.py` so `local < prod` is blocked for every table where sync can delete prod rows.
+
+- [x] Done — shared policy now lives in `pipeline/scripts/sync_policy.py`; the prod gate uses it.
+
+### R2. Match `computed_daily` drift-check window to the sync replacement window
+
+The gate compares only the latest seven `computed_daily` rows, but default diff sync replaces roughly
+the last 60 days. Compare the full replacement range and source the allowed refresh boundary from
+`refresh_window_start()`.
+
+- [x] Done — `verify_vs_prod.py` now checks the full sync replacement range and uses the shared refresh window.
+
+### R3. Repair quality gates
+
+Worker-only PRs can skip tests/typecheck because CI path filters omit `worker/src/**`, and
+`npm run lint` currently crashes due to the ESLint 10 / Next plugin mismatch.
+
+- [x] Add Worker paths or a Worker CI job.
+- [x] Pin/fix the ESLint stack, or remove the broken lint command from expected checks.
+- [x] Run Worker typecheck in CI when frontend/Worker paths change.
+- [x] Keep `npm run lint` scoped to source/config files so generated tool output cannot break it.
+
+### R4. Move fragile perf e2e out of the default suite
+
+`e2e/perf-brush.spec.ts` requires `localhost:3000` and asserts machine-sensitive frame timings.
+Move it to manual/debug config unless it is made deterministic.
+
+- [x] Done — moved to `e2e/manual/perf-brush.spec.ts`.
+
+### R5. Reduce vibe-coding overhead
+
+Use the review doc as the guardrail: avoid more giant plan docs for small changes, simplify CI path
+filtering if practical, and prefer destructive-boundary contract tests over more implementation-detail
+tests.
+
+- [x] Done — sync policy is centralized, stale/no-op e2e checks were removed, and perf diagnostics are manual-only.
 
 ---
 
