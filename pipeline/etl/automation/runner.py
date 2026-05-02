@@ -24,7 +24,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from etl.changelog import SyncSnapshot, capture
+from etl.changelog import PublishSummary, SyncSnapshot, capture, load_publish_summary
 
 from . import notify
 from ._constants import (
@@ -124,6 +124,10 @@ def get_script_output_buffer() -> list[str]:
     return list(_SCRIPT_OUTPUT_BUFFER)
 
 
+def _artifact_summary_path() -> Path:
+    return SCRIPTS_DIR.parent / "artifacts" / "r2" / "reports" / "export-summary.json"
+
+
 # ── CLI ──────────────────────────────────────────────────────────────────────
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -204,6 +208,7 @@ class Runner:
 
         # Snapshot BEFORE build so we can diff regardless of which exit branch fires.
         snapshot_before = capture(db_path)
+        publish_summary = None
 
         # [1] Change detection + DB freshness catchup
         if not self.args.force:
@@ -256,6 +261,7 @@ class Runner:
                 log, "ARTIFACT VERIFY", rc, EXIT_PARITY_FAIL, "r2_artifacts.py verify",
                 email_config, snapshot_before, db_path, log_file,
             )
+        publish_summary = load_publish_summary(_artifact_summary_path())
 
         # [6] Publish (skipped in dry-run)
         if self.args.dry_run:
@@ -268,6 +274,8 @@ class Runner:
                 return self._report_stage_failure(
                     log, "PUBLISH", rc, EXIT_SYNC_FAIL, "r2_artifacts.py publish",
                     email_config, snapshot_before, db_path, log_file,
+                    publish_summary=publish_summary,
+                    publish_mode="local" if self.args.local else "remote",
                 )
 
         # Success: update marker — but NOT in dry-run mode. Dry-run skipped the
@@ -288,6 +296,9 @@ class Runner:
                 log_file, buffer=get_script_output_buffer(),
             ),
             started_at=self.started_at,
+            publish_summary=publish_summary,
+            publish_mode="local" if self.args.local else "remote",
+            dry_run=self.args.dry_run,
         )
         return EXIT_OK
 
@@ -302,6 +313,8 @@ class Runner:
         snapshot_before: SyncSnapshot,
         db_path: Path,
         log_file: Path,
+        publish_summary: PublishSummary | None = None,
+        publish_mode: str | None = None,
     ) -> int:
         """Shared error-report path used by every stage in :meth:`run`.
 
@@ -320,5 +333,7 @@ class Runner:
                 log_file, buffer=get_script_output_buffer(),
             ),
             started_at=self.started_at,
+            publish_summary=publish_summary,
+            publish_mode=publish_mode,
         )
         return exit_code
