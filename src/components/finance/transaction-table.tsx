@@ -5,6 +5,7 @@
 // height) once the dialog is wide enough to give each column headroom.
 
 import { fmtCurrency, fmtDateMedium, fmtQty } from "@/lib/format/format";
+import { useEffect, useRef } from "react";
 import { useIsDark } from "@/lib/hooks/use-is-dark";
 import { useIsMobile } from "@/lib/hooks/use-is-mobile";
 import { BUY_COLOR, SELL_COLOR } from "@/lib/format/chart-colors";
@@ -14,14 +15,24 @@ import type { Selection } from "./ticker/ticker-markers";
 export function TransactionTable({
   transactions,
   selected,
-  tableScrollRef,
 }: {
   transactions: TickerTxn[];
   selected: Selection | null;
-  tableScrollRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const isDark = useIsDark();
   const isMobile = useIsMobile();
+  const tableScrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!selected || !tableScrollRef.current) return;
+    const cell = tableScrollRef.current.querySelector<HTMLElement>(
+      `td[data-date="${selected.dates[0]}"][data-side="${selected.side}"]`,
+    );
+    if (typeof cell?.scrollIntoView === "function") {
+      cell.scrollIntoView({ block: "center", behavior: "smooth" });
+    }
+  }, [selected]);
+
   if (transactions.length === 0) return null;
 
   const selectedDateSet = selected ? new Set(selected.dates) : null;

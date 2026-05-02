@@ -2,7 +2,7 @@
 
 // ── Group chart dialog: mirrors TickerChartDialog for equivalent-ticker groups ──
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useHoverState } from "@/lib/hooks/use-hover-state";
 import { GroupChart, buildGroupChartData } from "./group-chart";
 import { priceMapFromSeries } from "@/lib/data/ticker-data";
@@ -67,15 +67,6 @@ function GroupChartDialogContent({
   const isDark = useIsDark();
   const [selected, setSelected] = useState<Selection | null>(null);
   const { hover, onEnter, onMove, onLeave } = useHoverState();
-  const tableScrollRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!selected || !tableScrollRef.current) return;
-    const cell = tableScrollRef.current.querySelector<HTMLElement>(
-      `td[data-date="${selected.dates[0]}"][data-side="${selected.side}"]`,
-    );
-    cell?.scrollIntoView({ block: "center", behavior: "smooth" });
-  }, [selected]);
 
   // Fetch proxy ticker price series (transactions field ignored — group markers
   // come from fidelityTxns aggregated across all group members)
@@ -180,7 +171,6 @@ function GroupChartDialogContent({
       <TransactionTable
         transactions={sorted}
         selected={selected}
-        tableScrollRef={tableScrollRef}
       />
     </ChartDialog>
   );

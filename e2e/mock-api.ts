@@ -17,11 +17,21 @@ function tradingDays(startIso: string, count: number): string[] {
   return dates;
 }
 
+function seededRandom(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (Math.imul(1664525, state) + 1013904223) >>> 0;
+    return state / 0x100000000;
+  };
+}
+
+const rand = seededRandom(0x20260502);
+
 /** Generate a realistic-looking price series with trend + noise. */
 function priceSeries(dates: string[], base: number, drift: number, vol: number): { date: string; close: number }[] {
   let price = base;
   return dates.map((date, i) => {
-    price += drift + Math.sin(i / 40) * vol + (Math.random() - 0.5) * vol * 0.3;
+    price += drift + Math.sin(i / 40) * vol + (rand() - 0.5) * vol * 0.3;
     if (price < 1) price = 1;
     return { date, close: Math.round(price * 100) / 100 };
   });
@@ -167,15 +177,15 @@ for (let m = 0; m < 28; m++) {
 
   // Variable expenses
   for (let w = 0; w < 4; w++) {
-    qianjiTxns.push({ date: `${ym}-${String(w * 7 + 3).padStart(2, "0")}`, type: "expense", category: "Meals", amount: 60 + Math.round(Math.random() * 40), accountTo: "" });
-    if (w % 2 === 0) qianjiTxns.push({ date: `${ym}-${String(w * 7 + 5).padStart(2, "0")}`, type: "expense", category: "Grocery", amount: 80 + Math.round(Math.random() * 60), accountTo: "" });
+    qianjiTxns.push({ date: `${ym}-${String(w * 7 + 3).padStart(2, "0")}`, type: "expense", category: "Meals", amount: 60 + Math.round(rand() * 40), accountTo: "" });
+    if (w % 2 === 0) qianjiTxns.push({ date: `${ym}-${String(w * 7 + 5).padStart(2, "0")}`, type: "expense", category: "Grocery", amount: 80 + Math.round(rand() * 60), accountTo: "" });
   }
-  if (m % 2 === 0) qianjiTxns.push({ date: `${ym}-20`, type: "expense", category: "Travel", amount: 200 + Math.round(Math.random() * 300), accountTo: "" });
-  if (m % 3 === 0) qianjiTxns.push({ date: `${ym}-15`, type: "expense", category: "Socializing", amount: 80 + Math.round(Math.random() * 120), accountTo: "" });
+  if (m % 2 === 0) qianjiTxns.push({ date: `${ym}-20`, type: "expense", category: "Travel", amount: 200 + Math.round(rand() * 300), accountTo: "" });
+  if (m % 3 === 0) qianjiTxns.push({ date: `${ym}-15`, type: "expense", category: "Socializing", amount: 80 + Math.round(rand() * 120), accountTo: "" });
 
   // Transfer + repayment
   qianjiTxns.push({ date: `${ym}-10`, type: "transfer", category: "", amount: 5000, accountTo: "Fidelity taxable" });
-  qianjiTxns.push({ date: `${ym}-25`, type: "repayment", category: "", amount: 500 + Math.round(Math.random() * 200), accountTo: "" });
+  qianjiTxns.push({ date: `${ym}-25`, type: "repayment", category: "", amount: 500 + Math.round(rand() * 200), accountTo: "" });
 }
 
 // ── Market data ─────────────────────────────────────────────────────────
