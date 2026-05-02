@@ -47,9 +47,7 @@ The Worker strips an optional `/api` prefix, validates only manifest shape, stre
 
 ## SQLite Shape Layer
 
-`pipeline/etl/db.py` creates base tables and local SQLite projection views such as `v_daily`, `v_daily_tickers`, `v_fidelity_txns`, `v_econ_series_grouped`, and `v_econ_snapshot`. The exporter reads those projections to preserve the API contract.
-
-The views are local implementation detail now. They are not deployed as a production schema.
+`pipeline/etl/db.py` creates base tables only. The R2 exporter owns the snake_case-to-camelCase API projection with explicit SQL aliases next to the JSON assembly code. Those projection queries are local implementation detail; no production SQL schema is deployed.
 
 ## Frontend Compute
 

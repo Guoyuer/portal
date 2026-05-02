@@ -127,8 +127,8 @@ def _precompute_indices(conn: sqlite3.Connection) -> None:
 def _precompute_cny(conn: sqlite3.Connection) -> None:
     """Append USD/CNY monthly history (last close per month) to econ_series.
 
-    Sourced from daily_close where symbol='CNY=X'. v_econ_snapshot then exposes
-    the latest value as snapshot.usdCny on /econ.
+    Sourced from daily_close where symbol='CNY=X'. The R2 exporter exposes the
+    latest value as snapshot.usdCny on /econ.
     """
     last_per_month: dict[str, float] = {}
     for date_str, close in conn.execute(

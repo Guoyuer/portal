@@ -1,4 +1,4 @@
-"""Tests for category metadata pipeline: config → categories table → v_categories view."""
+"""Tests for category metadata pipeline: config → categories table."""
 
 from __future__ import annotations
 
@@ -120,25 +120,6 @@ class TestIngestCategories:
             ).fetchone()
             conn.close()
             assert crypto == (0.0,)
-        finally:
-            db.unlink(missing_ok=True)
-
-
-class TestVCategoriesView:
-    def test_view_exposes_camelcase_columns(self) -> None:
-        db = _make_db()
-        try:
-            config = {
-                "target_weights": {"US Equity": 55, "Non-US Equity": 15, "Crypto": 3, "Safe Net": 27},
-                "category_order": ["US Equity", "Non-US Equity", "Crypto", "Safe Net"],
-            }
-            ingest_categories(db, config)
-            conn = sqlite3.connect(db)
-            cur = conn.execute("SELECT key, name, displayOrder, targetPct FROM v_categories ORDER BY displayOrder")
-            rows = cur.fetchall()
-            conn.close()
-            assert rows[0] == ("usEquity", "US Equity", 0, 55.0)
-            assert rows[3] == ("safeNet", "Safe Net", 3, 27.0)
         finally:
             db.unlink(missing_ok=True)
 

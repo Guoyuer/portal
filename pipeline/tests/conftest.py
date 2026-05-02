@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from etl.db import _INDEXES, _TABLES, _VIEWS, init_db
+from etl.db import _INDEXES, _TABLES, init_db
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -46,8 +46,6 @@ def in_memory_db() -> Iterator[sqlite3.Connection]:
     conn = sqlite3.connect(":memory:")
     conn.executescript(_TABLES)
     conn.executescript(_INDEXES)
-    for view_sql in _VIEWS.values():
-        conn.execute(view_sql)
     conn.commit()
     try:
         yield conn

@@ -21,7 +21,7 @@ The dashboard data is effectively a read-only snapshot after each ETL run. That 
 
 ## Proposed Architecture
 
-Replace D1 with versioned JSON snapshots stored in Cloudflare R2, while keeping a thin Worker as the private API facade for manifest resolution, R2 object streaming, cache/error handling, Cloudflare Access, and API compatibility.
+Replace D1 with versioned JSON snapshots stored in Cloudflare R2, while keeping a thin Worker as the private API facade for manifest resolution, R2 object streaming, no-store/error headers, Cloudflare Access, and API compatibility.
 
 ```text
 Raw data
@@ -171,7 +171,7 @@ The reason is not merely same-origin access. The Worker keeps the production con
 - Cloudflare Access/auth stays at the API boundary.
 - The frontend uses `/api/timeline`, `/api/econ`, and lazy `/api/prices`.
 - Manifest lookup stays server-side instead of leaking object paths into the browser.
-- Cache headers, missing-object errors, and stale-manifest errors are handled in one place.
+- No-store headers, missing-object errors, and stale-manifest errors are handled in one place.
 - Rollback can be controlled through the manifest or Worker config without changing frontend code.
 - The public endpoint can switch from D1 to R2 without changing the frontend.
 
@@ -204,20 +204,20 @@ These are non-negotiable. Implementation is allowed to be simple, but it must pr
 
 The exporter does not dump the SQLite database. It materializes the exact API payloads that the Worker currently assembles from D1.
 
-Local `timemachine.db` already contains the camelCase projection views from `pipeline/etl/db.py::_VIEWS`; `init_db()` creates those views for local SQLite, and `worker/schema.sql` mirrors them into D1. The exporter should open the local DB read-only, query those views, and write endpoint-shaped JSON.
+Local `timemachine.db` contains snake_case base tables. The exporter opens the DB read-only, runs explicit projection queries with camelCase aliases, and writes endpoint-shaped JSON. Keeping the projection in the exporter avoids carrying a vestigial SQLite view layer after D1 is gone.
 
 `timeline.json` is assembled as:
 
 ```text
-daily                 = SELECT * FROM v_daily
-dailyTickers          = SELECT * FROM v_daily_tickers
-fidelityTxns          = SELECT * FROM v_fidelity_txns
-qianjiTxns            = SELECT * FROM v_qianji_txns
-robinhoodTxns         = SELECT * FROM v_robinhood_txns
-empowerContributions  = SELECT * FROM v_empower_contributions
-categories            = SELECT * FROM v_categories
-market                = { indices: SELECT * FROM v_market_indices }
-holdingsDetail        = SELECT * FROM v_holdings_detail
+daily                 = SELECT date, total, us_equity AS usEquity, ...
+dailyTickers          = SELECT date, ticker, cost_basis AS costBasis, ...
+fidelityTxns          = SELECT run_date AS runDate, action_type AS actionType, ...
+qianjiTxns            = SELECT is_retirement AS isRetirement, account_to AS accountTo, ...
+robinhoodTxns         = SELECT txn_date AS txnDate, action_kind AS actionKind, ...
+empowerContributions  = SELECT date, amount, ticker, cusip
+categories            = SELECT display_order AS displayOrder, target_pct AS targetPct, ...
+market                = { indices: SELECT month_return AS monthReturn, ... }
+holdingsDetail        = SELECT month_return AS monthReturn, start_value AS startValue, ...
 syncMeta              = { backend: "r2", version, last_sync: generatedAt }
 errors                = {}
 ```
@@ -228,7 +228,7 @@ Minimum timeline gates:
 
 - `daily` must be non-empty.
 - `categories` must be non-empty.
-- all expected view queries must succeed.
+- all expected projection queries must succeed.
 - output must parse with `TimelineDataSchema`.
 - `syncMeta` must remain a `Record<string, string>` to match the current schema.
 - migration parity may normalize `syncMeta` because D1 and R2 publish metadata differ; financial data sections must match exactly.
@@ -237,8 +237,8 @@ Minimum timeline gates:
 
 ```text
 generatedAt = manifest.generatedAt
-snapshot    = object from SELECT key, value FROM v_econ_snapshot
-series      = object from SELECT key, points FROM v_econ_series_grouped
+snapshot    = object from SELECT latest value per key FROM econ_series
+series      = object from SELECT key, json_group_array(...) FROM econ_series GROUP BY key
 ```
 
 Keep `series[key]` as the SQLite JSON string produced by `json_group_array`, matching the current API. The frontend `EconDataSchema` already accepts and parses that string. Migration parity may normalize `generatedAt`; values inside `snapshot` and `series` must match exactly.
@@ -257,7 +257,7 @@ snapshots/<version>/prices.json
       transactions = SELECT run_date AS runDate, action_type AS actionType, quantity, price, amount
                      FROM fidelity_transactions
                      WHERE symbol = :symbol
-                     ORDER BY id
+                     ORDER BY run_date, action_type, amount, quantity, price
     }
   }
 ```
@@ -343,7 +343,7 @@ Suggested implementation components:
 ```text
 pipeline/scripts/r2_artifacts.py
   subcommands:
-    export   -- read SQLite views, write JSON files, write manifest, write export summary
+    export   -- read SQLite tables, project API shape, write JSON files, manifest, summary
     verify   -- row-count check, sha256/bytes check, latest-date check, schema check, optional baseline diff
     publish  -- upload objects, read back and verify, upload manifest last
     capture-baseline -- capture current D1 API payloads for migration-only parity
@@ -360,7 +360,7 @@ pipeline/migration-baseline/
   compared by r2_artifacts.py verify --baseline, then deleted after cutover confidence
 
 worker/src/index.ts
-  does:   route, manifest lookup, R2 get, stream endpoint artifacts, cache/error headers
+  does:   route, manifest lookup, R2 get, stream endpoint artifacts, no-store/error headers
   does not: SQL, JSON reshape, business compute, runtime Zod
 
 pipeline/scripts/run_automation.py
@@ -385,18 +385,18 @@ During the transition, the D1-backed Worker can keep `/api/prices/:symbol` as a 
 Required behavior:
 
 - Strip the optional `/api` prefix exactly as today.
-- Fetch `manifest.json` for timeline/econ/prices; cache it briefly.
+- Fetch `manifest.json` for timeline/econ/prices on each request.
 - Stream endpoint artifact object bodies directly.
 - For `/prices`, stream the manifest-listed `prices.json` object. Do not parse the bundle in the Worker just to pick one ticker.
 - If a manifest-referenced object is missing, return an explicit error.
 - If an R2 read fails transiently, return an explicit 5xx. A single same-request retry is acceptable, but do not fall back to a previous manifest or older object.
-- Preserve current cache TTL intent: timeline around 60s, econ around 600s, prices around 300s unless implementation finds a better existing constant.
+- Return `Cache-Control: no-store` so a manifest flip is not masked by stale Worker or browser cache entries.
 - Return explicit errors for missing manifest, missing referenced object, or malformed route.
 - Do not parse endpoint JSON on the hot path.
 
 ### Cache strategy
 
-Cache `manifest.json` only briefly in the Worker, for example with a 30s in-memory TTL. Preserve today's endpoint TTL intent (`timeline` ~60s, `econ` ~600s, `prices` ~300s). Defer ETag/304 support to v2.
+Do not cache endpoint artifacts in the Worker in v1. R2 reads are cheap at personal-dashboard scale, and bypassing cache keeps manifest flips immediately observable. Defer ETag/304 support to v2.
 
 ### Publication pipeline
 
@@ -434,34 +434,33 @@ The migration is acceptable only if each current production-data guarantee is pr
 
 | Guarantee | Current D1 path | B2 requirement |
 | --- | --- | --- |
-| Historical drift detection | `verify_vs_prod.py` checks row counts, `computed_daily` replacement range, and sampled historical `daily_close` values | migration cutover uses canonical baseline-vs-R2 payload parity; steady-state publish uses SQLite-view row counts, schema parse, bytes, and hashes before manifest switch |
-| Shortfall guard | local row counts must not be unexpectedly below prod for destructive sync scopes | export-summary row counts must match SQLite source views before upload and before manifest switch |
+| Historical drift detection | `verify_vs_prod.py` checks row counts, `computed_daily` replacement range, and sampled historical `daily_close` values | migration cutover uses canonical baseline-vs-R2 payload parity; steady-state publish uses SQLite table row counts, schema parse, bytes, and hashes before manifest switch |
+| Shortfall guard | local row counts must not be unexpectedly below prod for destructive sync scopes | export-summary row counts must match SQLite source tables before upload and before manifest switch |
 | Blast radius | destructive sync is bounded by table/window policy | existing snapshot remains active until a complete new snapshot is verified |
 | Publish boundary | main D1 file import has failed-execution rollback, but publication is still a mutable DB operation | manifest-last pointer switch; old snapshots remain addressable |
-| Schema/view drift | generated D1 schema/views plus tests | exporter reads SQLite views; JSON parses with frontend Zod; export summary stores counts and manifest stores object hashes |
+| Schema/view drift | generated D1 schema/views plus tests | exporter owns the API projection; JSON parses with frontend Zod; export summary stores counts and manifest stores object hashes |
 | Local build correctness | L1/L2 regression gates | same L1/L2 gates before export |
 
 The important distinction: R2 does not automatically make data correct. B2 is stronger only because the publication unit becomes a validated artifact set. A minimal R2 upload without manifest, row counts, hashes, and parity gates would be a correctness regression.
 
 ### Migration-only parity export
 
-Add an exporter that reads the same SQLite views used by D1:
+Add an exporter that reads SQLite base tables through explicit projection queries:
 
 ```sql
-SELECT * FROM v_daily;
-SELECT * FROM v_daily_tickers;
-SELECT * FROM v_fidelity_txns;
-SELECT * FROM v_qianji_txns;
-SELECT * FROM v_robinhood_txns;
-SELECT * FROM v_empower_contributions;
-SELECT * FROM v_categories;
-SELECT * FROM v_market_indices;
-SELECT * FROM v_holdings_detail;
-SELECT key, points FROM v_econ_series_grouped;
-SELECT key, value FROM v_econ_snapshot;
+SELECT date, total, us_equity AS usEquity FROM computed_daily ORDER BY date;
+SELECT date, ticker, cost_basis AS costBasis FROM computed_daily_tickers ORDER BY date, value DESC;
+SELECT run_date AS runDate, action_type AS actionType FROM fidelity_transactions ORDER BY runDate, symbol, actionType, amount, quantity, price;
+SELECT is_retirement AS isRetirement, account_to AS accountTo FROM qianji_transactions ORDER BY date;
+SELECT txn_date AS txnDate, action_kind AS actionKind FROM robinhood_transactions ORDER BY txnDate;
+SELECT display_order AS displayOrder, target_pct AS targetPct FROM categories ORDER BY display_order;
+SELECT month_return AS monthReturn, ytd_return AS ytdReturn FROM computed_market_indices ORDER BY ticker;
+SELECT month_return AS monthReturn, start_value AS startValue FROM computed_holdings_detail ORDER BY month_return DESC;
+SELECT key, json_group_array(json_object('date', date, 'value', value)) AS points FROM econ_series GROUP BY key;
+SELECT key, value FROM econ_series WHERE date = (SELECT MAX(date) ...);
 ```
 
-This avoids re-implementing the API shape in Python from raw tables.
+This keeps the API shape in one Python exporter instead of splitting it across SQLite views and Worker code.
 
 The exporter is part of the migration and the future R2 publish pipeline. The D1 baseline directory is temporary: keep it only until cutover confidence is established.
 
@@ -472,7 +471,7 @@ Before upload:
 - `timeline.json` parses with the existing frontend Zod schema.
 - `econ.json` parses with the existing frontend Zod schema.
 - `prices.json` parses with `TickerPricesBundleSchema`, and every entry parses with `TickerPriceResponseSchema`.
-- `reports/export-summary.json` row counts match SQLite source views.
+- `reports/export-summary.json` row counts match SQLite source tables.
 - latest date matches `MAX(date)` from `computed_daily`.
 - manifest hashes match local files.
 
@@ -646,17 +645,17 @@ Net should still shrink, but the main win is correctness and mental-model simpli
 - R2 has no multi-object transaction, so manifest-last publication is mandatory.
 - Need migration-only parity tests before removing D1.
 - Lose convenient production SQL querying. This is acceptable if local SQLite remains the debugging/query surface and production only serves fixed dashboard read models.
-- If Worker caches the manifest longer than endpoint TTLs, users may see stale data longer than intended.
+- If endpoint responses are cached, users may see stale data after a manifest flip.
 - If exporter diverges from old D1 view semantics, data bugs can be introduced.
 - Price publisher must not turn versioned price snapshots into full-history Yahoo refetches.
 
 Mitigations:
 
-- read SQLite views rather than raw tables during export
+- keep the API projection in one exporter module rather than split across SQLite views and Worker code
 - full canonical baseline/R2 payload diff before cutover
 - manifest hash and export-summary row-count verification
 - fail publication if any referenced artifact is missing, empty, unparsable, or count-mismatched
-- manifest cache no longer than endpoint TTL, immutable snapshot cache
+- no Worker endpoint cache; artifacts are validated before the manifest flips
 - keep the previous D1-backed Worker deployment and untouched D1 database only during the short emergency rollback window
 - date-keyed price merge with schema/hash validation; carry forward active rows and fetch only the missing/revision window
 
@@ -669,7 +668,7 @@ The recommended target state is:
 ```text
 SQLite = build database + local SQL/debug surface
 R2     = production serving artifact store
-Worker = thin private API facade for manifest/R2/cache/auth
+Worker = thin private API facade for manifest/R2/auth
 ```
 
 This is the only path in this note that reduces complexity while making the overall production data publication model stronger than today. The reason is not that R2 is inherently safer than D1; the reason is that B2 replaces mutable table sync with validated artifact publication.
@@ -678,7 +677,7 @@ Keep the plan narrow:
 
 ```text
 Do:
-  - export JSON from SQLite views
+  - export JSON from SQLite tables with explicit API-shape aliases
   - validate JSON with existing schemas
   - write object sha256 hashes into manifest
   - write row counts into export-summary.json

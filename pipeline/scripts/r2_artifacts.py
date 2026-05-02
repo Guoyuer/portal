@@ -158,6 +158,86 @@ def _row_count(conn: sqlite3.Connection, table_or_view: str) -> int:
     return int(_scalar(conn, f"SELECT COUNT(*) FROM {table_or_view}") or 0)  # noqa: S608
 
 
+_DAILY_SQL = """
+SELECT date, total, us_equity AS usEquity, non_us_equity AS nonUsEquity,
+  crypto, safe_net AS safeNet, liabilities
+FROM computed_daily
+ORDER BY date
+"""
+
+_DAILY_TICKERS_SQL = """
+SELECT date, ticker, value, category, subtype,
+  cost_basis AS costBasis, gain_loss AS gainLoss, gain_loss_pct AS gainLossPct
+FROM computed_daily_tickers
+ORDER BY date, value DESC
+"""
+
+_FIDELITY_TXNS_SQL = """
+SELECT run_date AS runDate, action_type AS actionType, symbol, amount,
+  quantity, price
+FROM fidelity_transactions
+ORDER BY runDate, symbol, actionType, amount, quantity, price
+"""
+
+_QIANJI_TXNS_SQL = """
+SELECT date, type, category, amount,
+  is_retirement AS isRetirement,
+  account_to AS accountTo
+FROM qianji_transactions
+ORDER BY date
+"""
+
+_ROBINHOOD_TXNS_SQL = """
+SELECT txn_date AS txnDate, action, action_kind AS actionKind,
+  ticker, quantity, amount_usd AS amountUsd,
+  raw_description AS rawDescription
+FROM robinhood_transactions
+ORDER BY txnDate
+"""
+
+_EMPOWER_CONTRIBUTIONS_SQL = """
+SELECT date, amount, ticker, cusip
+FROM empower_contributions
+ORDER BY date
+"""
+
+_CATEGORIES_SQL = """
+SELECT key, name,
+  display_order AS displayOrder,
+  target_pct AS targetPct
+FROM categories
+ORDER BY display_order
+"""
+
+_MARKET_INDICES_SQL = """
+SELECT ticker, name, current, month_return AS monthReturn,
+  ytd_return AS ytdReturn, high_52w AS high52w, low_52w AS low52w, sparkline
+FROM computed_market_indices
+ORDER BY ticker
+"""
+
+_HOLDINGS_DETAIL_SQL = """
+SELECT ticker, month_return AS monthReturn, start_value AS startValue,
+  end_value AS endValue, high_52w AS high52w, low_52w AS low52w, vs_high AS vsHigh
+FROM computed_holdings_detail
+ORDER BY month_return DESC
+"""
+
+_ECON_SNAPSHOT_SQL = """
+SELECT key, value
+FROM econ_series t1
+WHERE date = (SELECT MAX(date) FROM econ_series t2 WHERE t2.key = t1.key)
+"""
+
+_ECON_SERIES_GROUPED_SQL = """
+SELECT key,
+  json_group_array(json_object('date', date, 'value', value)) AS points
+FROM (SELECT key, date, value FROM econ_series ORDER BY key, date)
+GROUP BY key
+ORDER BY key
+"""
+
+
 def _price_symbols(conn: sqlite3.Connection) -> list[str]:
     rows = conn.execute(
         """
@@ -171,29 +251,26 @@ def _price_symbols(conn: sqlite3.Connection) -> list[str]:
 
 
 def _build_timeline(conn: sqlite3.Connection, *, version: str, generated_at: str) -> JsonDict:
-    daily = _rows(conn, "SELECT * FROM v_daily")
-    categories = _rows(conn, "SELECT * FROM v_categories")
+    daily = _rows(conn, _DAILY_SQL)
+    categories = _rows(conn, _CATEGORIES_SQL)
     if not daily:
-        msg = "v_daily is empty; refusing to export timeline.json"
+        msg = "computed_daily is empty; refusing to export timeline.json"
         raise RuntimeError(msg)
     if not categories:
-        msg = "v_categories is empty; refusing to export timeline.json"
+        msg = "categories is empty; refusing to export timeline.json"
         raise RuntimeError(msg)
 
     latest_date = str(daily[-1]["date"])
     return {
         "daily": daily,
-        "dailyTickers": _rows(conn, "SELECT * FROM v_daily_tickers"),
-        "fidelityTxns": _rows(
-            conn,
-            "SELECT * FROM v_fidelity_txns ORDER BY runDate, symbol, actionType, amount, quantity, price",
-        ),
-        "qianjiTxns": _rows(conn, "SELECT * FROM v_qianji_txns"),
-        "robinhoodTxns": _rows(conn, "SELECT * FROM v_robinhood_txns"),
-        "empowerContributions": _rows(conn, "SELECT * FROM v_empower_contributions"),
+        "dailyTickers": _rows(conn, _DAILY_TICKERS_SQL),
+        "fidelityTxns": _rows(conn, _FIDELITY_TXNS_SQL),
+        "qianjiTxns": _rows(conn, _QIANJI_TXNS_SQL),
+        "robinhoodTxns": _rows(conn, _ROBINHOOD_TXNS_SQL),
+        "empowerContributions": _rows(conn, _EMPOWER_CONTRIBUTIONS_SQL),
         "categories": categories,
-        "market": {"indices": _rows(conn, "SELECT * FROM v_market_indices")},
-        "holdingsDetail": _rows(conn, "SELECT * FROM v_holdings_detail"),
+        "market": {"indices": _rows(conn, _MARKET_INDICES_SQL)},
+        "holdingsDetail": _rows(conn, _HOLDINGS_DETAIL_SQL),
         "syncMeta": {
             "backend": "r2",
             "version": version,
@@ -207,11 +284,11 @@ def _build_timeline(conn: sqlite3.Connection, *, version: str, generated_at: str
 def _build_econ(conn: sqlite3.Connection, *, generated_at: str) -> JsonDict:
     snapshot = {
         str(row["key"]): row["value"]
-        for row in _rows(conn, "SELECT key, value FROM v_econ_snapshot")
+        for row in _rows(conn, _ECON_SNAPSHOT_SQL)
     }
     series = {
         str(row["key"]): row["points"]
-        for row in _rows(conn, "SELECT key, points FROM v_econ_series_grouped")
+        for row in _rows(conn, _ECON_SERIES_GROUPED_SQL)
     }
     return {"generatedAt": generated_at, "snapshot": snapshot, "series": series}
 
@@ -252,17 +329,17 @@ def _build_prices_bundle(conn: sqlite3.Connection) -> tuple[JsonDict, JsonDict]:
 
 def _sqlite_row_counts(conn: sqlite3.Connection) -> JsonDict:
     return {
-        "daily": _row_count(conn, "v_daily"),
-        "dailyTickers": _row_count(conn, "v_daily_tickers"),
-        "fidelityTxns": _row_count(conn, "v_fidelity_txns"),
-        "qianjiTxns": _row_count(conn, "v_qianji_txns"),
-        "robinhoodTxns": _row_count(conn, "v_robinhood_txns"),
-        "empowerContributions": _row_count(conn, "v_empower_contributions"),
-        "categories": _row_count(conn, "v_categories"),
-        "marketIndices": _row_count(conn, "v_market_indices"),
-        "holdingsDetail": _row_count(conn, "v_holdings_detail"),
-        "econSeries": _row_count(conn, "v_econ_series_grouped"),
-        "econSnapshot": _row_count(conn, "v_econ_snapshot"),
+        "daily": _row_count(conn, "computed_daily"),
+        "dailyTickers": _row_count(conn, "computed_daily_tickers"),
+        "fidelityTxns": _row_count(conn, "fidelity_transactions"),
+        "qianjiTxns": _row_count(conn, "qianji_transactions"),
+        "robinhoodTxns": _row_count(conn, "robinhood_transactions"),
+        "empowerContributions": _row_count(conn, "empower_contributions"),
+        "categories": _row_count(conn, "categories"),
+        "marketIndices": _row_count(conn, "computed_market_indices"),
+        "holdingsDetail": _row_count(conn, "computed_holdings_detail"),
+        "econSeries": int(_scalar(conn, "SELECT COUNT(DISTINCT key) FROM econ_series") or 0),
+        "econSnapshot": int(_scalar(conn, "SELECT COUNT(DISTINCT key) FROM econ_series") or 0),
     }
 
 
