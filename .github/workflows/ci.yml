@@ -126,7 +126,7 @@ jobs:
       - name: Worker typecheck
         if: needs.detect.outputs.frontend == 'true' || github.event_name == 'push'
         working-directory: worker
-        run: npx tsc --noEmit
+        run: npx tsc -p tsconfig.json --noEmit
       - name: Coverage report to PR
         if: needs.detect.outputs.frontend == 'true' && github.event_name == 'pull_request'
         uses: davelosert/vitest-coverage-report-action@v2
