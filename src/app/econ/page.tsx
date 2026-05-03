@@ -7,7 +7,6 @@ import { EconDataSchema, type EconData, type EconPoint } from "@/lib/schemas";
 import { ECON_FORMATTERS } from "@/lib/format/econ-formatters";
 import { fmtDateMedium } from "@/lib/format/format";
 import { ECON_LINE_COLORS } from "@/lib/format/chart-colors";
-import { Button } from "@/components/ui/button";
 import { SectionHeader, SectionBody } from "@/components/finance/section";
 import { MacroCards } from "@/components/econ/macro-cards";
 import { TimeSeriesChart, type LineConfig } from "@/components/econ/time-series-chart";
@@ -86,7 +85,13 @@ export default function EconPage() {
     return (
       <div className="max-w-5xl mx-auto py-20 text-center">
         <p className="text-red-500 mb-4">{error ?? "No data"}</p>
-        <Button onClick={fetchData} variant="outline">Retry</Button>
+        <button
+          type="button"
+          onClick={fetchData}
+          className="rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm font-medium transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+        >
+          Retry
+        </button>
       </div>
     );
   }
