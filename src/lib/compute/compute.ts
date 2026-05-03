@@ -143,6 +143,8 @@ export interface InvestmentTxn {
   ticker: string;
   actionType: InvestmentActionType;
   amount: number;
+  quantity?: number;
+  price?: number;
 }
 
 export function normalizeInvestmentTxns(
@@ -161,16 +163,21 @@ export function normalizeInvestmentTxns(
       ticker: f.symbol,
       actionType: f.actionType,
       amount: f.amount,
+      quantity: f.quantity,
+      price: f.price,
     });
   }
   for (const r of robinhood) {
     if (!isInvestmentAction(r.actionKind)) continue;
+    const absQty = Math.abs(r.quantity);
     out.push({
       source: "robinhood",
       date: r.txnDate,
       ticker: r.ticker,
       actionType: r.actionKind,
       amount: r.amountUsd,
+      quantity: r.quantity,
+      price: absQty > 0 ? Math.abs(r.amountUsd) / absQty : 0,
     });
   }
   for (const e of empower) {
@@ -180,6 +187,8 @@ export function normalizeInvestmentTxns(
       ticker: e.ticker,
       actionType: "contribution",
       amount: e.amount,
+      quantity: 0,
+      price: 0,
     });
   }
   return out;

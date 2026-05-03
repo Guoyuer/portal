@@ -5,6 +5,7 @@
 // group to surface net exposure change (vs. noise from ticker swaps).
 
 import type { FidelityTxn, DailyTicker } from "@/lib/schemas";
+import type { SourceKind } from "@/lib/compute/computed-types";
 import { groupOfTicker } from "@/lib/data/equivalent-groups";
 import { parseLocalDate } from "@/lib/format/format";
 
@@ -36,25 +37,55 @@ export type GroupNetEntry = {
   breakdown: { symbol: string; signed: number }[];
 };
 
-type Real = { date: string; ts: number; symbol: string; side: "buy" | "sell"; amount: number };
+export type GroupTxnInput =
+  | Pick<FidelityTxn, "runDate" | "actionType" | "symbol" | "amount">
+  | {
+      source?: SourceKind;
+      date: string;
+      actionType: string;
+      ticker: string;
+      amount: number;
+    };
 
-function extractGroupTxns(txns: FidelityTxn[]): Map<string, Real[]> {
+type Real = {
+  date: string;
+  ts: number;
+  symbol: string;
+  side: "buy" | "sell";
+  amount: number;
+};
+
+function normalizeGroupTxn(t: GroupTxnInput): { date: string; symbol: string; source: SourceKind } {
+  return "runDate" in t
+    ? { date: t.runDate, symbol: t.symbol, source: "fidelity" }
+    : { date: t.date, symbol: t.ticker, source: t.source ?? "fidelity" };
+}
+
+function groupNetSide(actionType: string): "buy" | "sell" | null {
+  if (actionType === "sell") return "sell";
+  if (actionType === "buy" || actionType === "contribution") return "buy";
+  return null;
+}
+
+function extractGroupTxns(txns: GroupTxnInput[]): Map<string, Real[]> {
   const byGroup = new Map<string, Real[]>();
   for (const t of txns) {
-    if (classifyTxn(t) !== "REAL") continue;
-    const groupKey = groupOfTicker(t.symbol);
+    const side = groupNetSide(t.actionType);
+    if (!side) continue;
+    const { date, symbol, source } = normalizeGroupTxn(t);
+    const groupKey = groupOfTicker(symbol);
     if (!groupKey) continue;
-    const side: "buy" | "sell" = t.actionType === "sell" ? "sell" : "buy";
+    const bucketKey = `${groupKey}\u0000${source}`;
     const entry: Real = {
-      date: t.runDate,
-      ts: parseLocalDate(t.runDate).getTime(),
-      symbol: t.symbol,
+      date,
+      ts: parseLocalDate(date).getTime(),
+      symbol,
       side,
       amount: Math.abs(t.amount),
     };
-    const arr = byGroup.get(groupKey);
+    const arr = byGroup.get(bucketKey);
     if (arr) arr.push(entry);
-    else byGroup.set(groupKey, [entry]);
+    else byGroup.set(bucketKey, [entry]);
   }
   return byGroup;
 }
@@ -91,22 +122,42 @@ function aggregateCluster(cluster: Real[]): GroupNetEntry | null {
 }
 
 export function groupNetByDate(
-  txns: FidelityTxn[],
+  txns: GroupTxnInput[],
 ): Map<string, Map<string, GroupNetEntry>> {
   const byGroup = extractGroupTxns(txns);
   const result = new Map<string, Map<string, GroupNetEntry>>();
 
-  for (const [groupKey, groupTxns] of byGroup) {
+  for (const [bucketKey, groupTxns] of byGroup) {
+    const [groupKey] = bucketKey.split("\u0000");
     const clusters = clusterByWindow(groupTxns);
-    const byDate = new Map<string, GroupNetEntry>();
+    const byDate = result.get(groupKey) ?? new Map<string, GroupNetEntry>();
     for (const cluster of clusters) {
       const entry = aggregateCluster(cluster);
-      if (entry) byDate.set(entry.date, entry);
+      if (entry) addEntryByDate(byDate, entry);
     }
     if (byDate.size > 0) result.set(groupKey, byDate);
   }
 
   return result;
+}
+
+function signedNet(entry: GroupNetEntry): number {
+  return entry.side === "sell" ? entry.net : -entry.net;
+}
+
+function addEntryByDate(byDate: Map<string, GroupNetEntry>, entry: GroupNetEntry): void {
+  const existing = byDate.get(entry.date);
+  const net = (existing ? signedNet(existing) : 0) + signedNet(entry);
+  if (Math.abs(net) < THRESHOLD_USD) {
+    byDate.delete(entry.date);
+    return;
+  }
+  byDate.set(entry.date, {
+    date: entry.date,
+    side: net > 0 ? "sell" : "buy",
+    net: Math.abs(net),
+    breakdown: existing ? [...existing.breakdown, ...entry.breakdown] : entry.breakdown,
+  });
 }
 
 // ── Group value series (for the header total-holdings display) ───────────

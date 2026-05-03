@@ -79,6 +79,24 @@ const EMPTY_BUNDLE: ComputedBundle = {
 
 type WindowSlice = Pick<ComputedBundle, "cashflow" | "activity" | "groupedActivity" | "crossCheck">;
 
+type PreparedBundleData = Pick<
+  ComputedBundle,
+  | "chartDaily"
+  | "dailyTickers"
+  | "qianjiTxns"
+  | "fidelityTxns"
+  | "robinhoodTxns"
+  | "empowerContributions"
+  | "investmentTxns"
+  | "categories"
+  | "market"
+  | "holdingsDetail"
+  | "syncMeta"
+> & {
+  tickerIndex: ReturnType<typeof buildTickerIndex>;
+  dateIndex: ReturnType<typeof buildDateIndex>;
+};
+
 const EMPTY_WINDOW: WindowSlice = {
   cashflow: null,
   activity: null,
@@ -88,17 +106,77 @@ const EMPTY_WINDOW: WindowSlice = {
 
 /** Window-gated computes collapse to one branch instead of per-field ternaries. */
 function computeWindow(
-  data: TimelineData,
-  investmentTxns: InvestmentTxn[],
+  prepared: PreparedBundleData,
   startDate: string | null,
   snapshotDate: string | null,
 ): WindowSlice {
   if (!startDate || !snapshotDate) return EMPTY_WINDOW;
   return {
-    cashflow: computeCashflow(data.qianjiTxns, startDate, snapshotDate),
-    activity: computeActivity(investmentTxns, startDate, snapshotDate),
-    groupedActivity: computeGroupedActivity(investmentTxns, startDate, snapshotDate),
-    crossCheck: computeCrossCheck(investmentTxns, data.qianjiTxns, startDate, snapshotDate),
+    cashflow: computeCashflow(prepared.qianjiTxns, startDate, snapshotDate),
+    activity: computeActivity(prepared.investmentTxns, startDate, snapshotDate),
+    groupedActivity: computeGroupedActivity(prepared.investmentTxns, startDate, snapshotDate),
+    crossCheck: computeCrossCheck(prepared.investmentTxns, prepared.qianjiTxns, startDate, snapshotDate),
+  };
+}
+
+export function prepareBundleData(data: TimelineData): PreparedBundleData {
+  return {
+    chartDaily: data.daily,
+    dailyTickers: data.dailyTickers,
+    qianjiTxns: data.qianjiTxns,
+    fidelityTxns: data.fidelityTxns,
+    robinhoodTxns: data.robinhoodTxns,
+    empowerContributions: data.empowerContributions,
+    investmentTxns: normalizeInvestmentTxns(
+      data.fidelityTxns,
+      data.robinhoodTxns,
+      data.empowerContributions,
+    ),
+    categories: data.categories,
+    market: data.market,
+    holdingsDetail: data.holdingsDetail,
+    syncMeta: data.syncMeta,
+    tickerIndex: buildTickerIndex(data.dailyTickers),
+    dateIndex: buildDateIndex(data.daily),
+  };
+}
+
+export function computeWindowBundle(
+  prepared: PreparedBundleData,
+  brushStart: number,
+  brushEnd: number,
+): ComputedBundle {
+  const snapshot = prepared.chartDaily[brushEnd] ?? null;
+  const startDate = prepared.chartDaily[brushStart]?.date ?? null;
+  const snapshotDate = snapshot?.date ?? null;
+  const allocation = snapshotDate
+    ? computeAllocation(
+        prepared.chartDaily,
+        prepared.tickerIndex,
+        prepared.dateIndex,
+        snapshotDate,
+        prepared.categories,
+      )
+    : null;
+
+  return {
+    chartDaily: prepared.chartDaily,
+    dailyTickers: prepared.dailyTickers,
+    qianjiTxns: prepared.qianjiTxns,
+    fidelityTxns: prepared.fidelityTxns,
+    robinhoodTxns: prepared.robinhoodTxns,
+    empowerContributions: prepared.empowerContributions,
+    investmentTxns: prepared.investmentTxns,
+    categories: prepared.categories,
+    snapshot,
+    startDate,
+    snapshotDate,
+    allocation,
+    ...computeWindow(prepared, startDate, snapshotDate),
+    monthlyFlows: computeMonthlyFlows(prepared.qianjiTxns, startDate, snapshotDate),
+    market: prepared.market,
+    holdingsDetail: prepared.holdingsDetail,
+    syncMeta: prepared.syncMeta,
   };
 }
 
@@ -112,41 +190,5 @@ export function computeBundle(
 ): ComputedBundle {
   if (!data) return EMPTY_BUNDLE;
 
-  const investmentTxns = normalizeInvestmentTxns(
-    data.fidelityTxns,
-    data.robinhoodTxns,
-    data.empowerContributions,
-  );
-  const snapshot = data.daily[brushEnd] ?? null;
-  const startDate = data.daily[brushStart]?.date ?? null;
-  const snapshotDate = snapshot?.date ?? null;
-  const allocation = snapshotDate
-    ? computeAllocation(
-        data.daily,
-        buildTickerIndex(data.dailyTickers),
-        buildDateIndex(data.daily),
-        snapshotDate,
-        data.categories,
-      )
-    : null;
-
-  return {
-    chartDaily: data.daily,
-    dailyTickers: data.dailyTickers,
-    qianjiTxns: data.qianjiTxns,
-    fidelityTxns: data.fidelityTxns,
-    robinhoodTxns: data.robinhoodTxns,
-    empowerContributions: data.empowerContributions,
-    investmentTxns,
-    categories: data.categories,
-    snapshot,
-    startDate,
-    snapshotDate,
-    allocation,
-    ...computeWindow(data, investmentTxns, startDate, snapshotDate),
-    monthlyFlows: computeMonthlyFlows(data.qianjiTxns, startDate, snapshotDate),
-    market: data.market,
-    holdingsDetail: data.holdingsDetail,
-    syncMeta: data.syncMeta,
-  };
+  return computeWindowBundle(prepareBundleData(data), brushStart, brushEnd);
 }

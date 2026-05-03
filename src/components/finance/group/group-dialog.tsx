@@ -10,8 +10,9 @@ import { ChartDialog } from "../charts/chart-dialog";
 import { buildGroupValueSeries, groupNetByDate } from "@/lib/data/group-aggregation";
 import { EQUIVALENT_GROUPS } from "@/lib/data/equivalent-groups";
 import { fmtCurrency, fmtPct } from "@/lib/format/format";
-import type { DailyTicker, FidelityTxn } from "@/lib/schemas";
+import type { DailyTicker } from "@/lib/schemas";
 import type { TickerTxn } from "@/lib/schemas";
+import type { InvestmentTxn } from "@/lib/compute/compute";
 import { TransactionTable } from "../transaction-table";
 import { MarkerHoverPanel } from "../charts/marker-hover-panel";
 import { useIsDark } from "@/lib/hooks/use-is-dark";
@@ -23,23 +24,24 @@ type EquivalentGroup = (typeof EQUIVALENT_GROUPS)[string];
 type GroupChartDialogProps = {
   groupKey: string;
   dailyTickers: DailyTicker[];
-  fidelityTxns: FidelityTxn[];
+  investmentTxns: InvestmentTxn[];
   startDate?: string;
   endDate?: string;
   onClose: () => void;
   onSelectTicker?: (symbol: string) => void;
 };
 
-// ── Adapter: FidelityTxn rows → TickerTxn (shapes are identical) ──
-function fidelityTxnsToTickerTxns(txns: FidelityTxn[], tickers: string[]): TickerTxn[] {
+// ── Adapter: normalized investment rows → chart-dialog transaction rows ──
+function investmentTxnsToTickerTxns(txns: InvestmentTxn[], tickers: string[]): TickerTxn[] {
   const set = new Set(tickers);
   return txns
-    .filter((t) => set.has(t.symbol))
+    .filter((t) => set.has(t.ticker))
+    .filter((t) => t.actionType === "buy" || t.actionType === "sell" || t.actionType === "reinvestment" || t.actionType === "contribution")
     .map((t) => ({
-      runDate: t.runDate,
+      runDate: t.date,
       actionType: t.actionType,
-      quantity: t.quantity,
-      price: t.price,
+      quantity: t.quantity ?? 0,
+      price: t.price ?? 0,
       amount: t.amount,
     }));
 }
@@ -58,7 +60,7 @@ function GroupChartDialogContent({
   groupKey,
   group,
   dailyTickers,
-  fidelityTxns,
+  investmentTxns,
   startDate,
   endDate,
   onClose,
@@ -68,17 +70,17 @@ function GroupChartDialogContent({
   const [selected, setSelected] = useState<Selection | null>(null);
   const { hover, onEnter, onMove, onLeave } = useHoverState();
 
-  // Fetch proxy ticker price series (transactions field ignored — group markers
-  // come from fidelityTxns aggregated across all group members)
-  const { data: proxyData, error: proxyError } = useTickerData(group.representative);
+  // Fetch proxy ticker price series. The group markers below come from the
+  // same normalized investment transactions that power grouped activity rows.
+  const proxy = useTickerData(group.representative);
 
   const valueSeries = buildGroupValueSeries(dailyTickers, group.tickers)
     .filter((p) => (!startDate || p.date >= startDate) && (!endDate || p.date <= endDate));
   const latestValue = valueSeries[valueSeries.length - 1];
 
-  const markers = groupNetByDate(fidelityTxns).get(groupKey) ?? new Map();
+  const markers = groupNetByDate(investmentTxns).get(groupKey) ?? new Map();
 
-  const sorted = fidelityTxnsToTickerTxns(fidelityTxns, group.tickers)
+  const sorted = investmentTxnsToTickerTxns(investmentTxns, group.tickers)
     .sort((a, b) => b.runDate.localeCompare(a.runDate));
 
   const header = (
@@ -118,24 +120,31 @@ function GroupChartDialogContent({
 
   // Build chart data once proxy prices are available
   const chartContent = (() => {
-    if (proxyError) {
+    if (proxy.status === "error") {
       return (
         <p className="text-sm text-red-400 py-4 px-4">
-          Failed to load proxy price chart: {proxyError}
+          Failed to load proxy price chart: {proxy.error}
         </p>
       );
     }
-    if (!proxyData) {
+    if (proxy.status === "loading") {
       return (
         <p className="text-sm text-muted-foreground py-4 px-4 animate-pulse">
           Loading {group.representative} price...
         </p>
       );
     }
+    if (proxy.status === "pseudo" || proxy.status === "missing" || proxy.status === "empty") {
+      return (
+        <p className="text-sm text-muted-foreground py-4 px-4">
+          No price data for {group.representative}
+        </p>
+      );
+    }
     // Filter price series to brush range
     const filteredPrices = (startDate || endDate)
-      ? proxyData.filter((p) => (!startDate || p.date >= startDate) && (!endDate || p.date <= endDate))
-      : proxyData;
+      ? proxy.data.filter((p) => (!startDate || p.date >= startDate) && (!endDate || p.date <= endDate))
+      : proxy.data;
 
     if (filteredPrices.length === 0) {
       return (

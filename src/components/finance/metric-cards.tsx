@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useEffect } from "react";
+import { useId } from "react";
 import type { ApiCategory, ApiTicker } from "@/lib/compute/computed-types";
 import { fmtCurrency, fmtCurrencyShort } from "@/lib/format/format";
 import { SAVINGS_RATE_GOOD, SAVINGS_RATE_WARNING } from "@/lib/format/thresholds";
@@ -57,7 +57,7 @@ function SavingsRateCard({
           <span className="text-[10px] font-normal text-muted-foreground ml-1">take-home</span>
         </p>
       </div>
-      <svg width={RING_SIZE} height={RING_SIZE} className="flex-shrink-0 -rotate-90">
+      <svg data-testid="savings-rate-ring" width={RING_SIZE} height={RING_SIZE} className="flex-shrink-0 -rotate-90">
         {/* Background track */}
         <circle
           cx={RING_SIZE / 2} cy={RING_SIZE / 2} r={RING_R}
@@ -112,17 +112,7 @@ export function MetricCards({
   const safeNetValue = categories.find((c) => c.name === "Safe Net")?.value ?? 0;
   const investmentValue = total - safeNetValue;
   const invPct = netWorth > 0 ? (investmentValue / netWorth) * 100 : 0;
-
-  // Measure content height for smooth transition
-  const contentRef = useRef<HTMLDivElement>(null);
-  const [contentH, setContentH] = useState(0);
-
-  useEffect(() => {
-    if (!contentRef.current) return;
-    const ro = new ResizeObserver(([entry]) => setContentH(entry.contentRect.height));
-    ro.observe(contentRef.current);
-    return () => ro.disconnect();
-  }, []);
+  const allocationContentId = useId();
 
   return (
     <div className="space-y-4">
@@ -133,6 +123,7 @@ export function MetricCards({
           className="w-full p-4 text-left cursor-pointer"
           onClick={onAllocationToggle}
           aria-expanded={allocationOpen}
+          aria-controls={allocationContentId}
           aria-label={allocationOpen ? "Hide allocation breakdown" : "Show allocation breakdown"}
         >
           <div className="flex items-baseline justify-between">
@@ -174,21 +165,20 @@ export function MetricCards({
 
         {/* Expandable allocation content — inside the same glass card */}
         <div
-          className="transition-[height,opacity] duration-500 ease-[cubic-bezier(0.33,1,0.68,1)]"
+          id={allocationContentId}
+          aria-hidden={!allocationOpen}
+          inert={!allocationOpen}
+          className="grid overflow-hidden transition-[grid-template-rows,opacity] duration-500 ease-[cubic-bezier(0.33,1,0.68,1)]"
           style={{
-            height: allocationOpen ? contentH : 0,
+            gridTemplateRows: allocationOpen ? "1fr" : "0fr",
             opacity: allocationOpen ? 1 : 0,
           }}
         >
-          <div ref={contentRef}>
-            {allocationOpen && (
-              <>
-                <div className="mx-4 h-px bg-gradient-to-r from-transparent via-foreground/10 to-transparent" />
-                <div className="p-4 pt-3">
-                  <CategorySummary categories={categories} tickers={tickers} total={total} title="Allocation" embedded colorByName={colorByName} />
-                </div>
-              </>
-            )}
+          <div className="min-h-0 overflow-hidden">
+            <div className="mx-4 h-px bg-gradient-to-r from-transparent via-foreground/10 to-transparent" />
+            <div className="p-4 pt-3">
+              <CategorySummary categories={categories} tickers={tickers} total={total} title="Allocation" embedded colorByName={colorByName} />
+            </div>
           </div>
         </div>
       </div>

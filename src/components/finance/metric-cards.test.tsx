@@ -68,7 +68,7 @@ describe("MetricCards", () => {
     expect(screen.getByText("35%")).toBeTruthy();
     expect(screen.getAllByText(/take-home/).length).toBeGreaterThanOrEqual(1);
     // Gross (42%) only appears in the SVG <title> tooltip, not as visible text
-    const tooltip = document.querySelector("title");
+    const tooltip = screen.getByTestId("savings-rate-ring").querySelector("title");
     expect(tooltip?.textContent).toContain("42%");
     expect(tooltip?.textContent).toContain("35%");
   });
