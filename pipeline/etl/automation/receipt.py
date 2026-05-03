@@ -3,8 +3,8 @@
 The email is an operator notification, not a correctness gate. Correctness is
 handled by R2 artifact verification, manifest hashes, row counts, Zod parsing,
 and automation logs. This module formats only the summary fields useful in an
-inbox: row-count deltas, latest net worth, published artifact version, warnings,
-duration, and failure stage.
+inbox: latest net worth, published artifact version, warnings, duration, and
+failure stage.
 """
 from __future__ import annotations
 
@@ -17,19 +17,6 @@ from pathlib import Path
 from typing import Any
 
 from ..db import get_readonly_connection
-
-_ROW_TABLES: dict[str, str] = {
-    "daily": "computed_daily",
-    "dailyTickers": "computed_daily_tickers",
-    "fidelityTxns": "fidelity_transactions",
-    "qianjiTxns": "qianji_transactions",
-    "robinhoodTxns": "robinhood_transactions",
-    "empowerContributions": "empower_contributions",
-    "dailyClose": "daily_close",
-    "econSeries": "econ_series",
-    "marketIndices": "computed_market_indices",
-    "holdingsDetail": "computed_holdings_detail",
-}
 
 _EXIT_GATE_NAMES: dict[int, str] = {
     1: "build",
@@ -47,7 +34,6 @@ class NetWorthPoint:
 
 @dataclass(frozen=True)
 class SyncSnapshot:
-    row_counts: dict[str, int] = field(default_factory=dict)
     net_worth: NetWorthPoint | None = None
 
 
@@ -58,7 +44,6 @@ class PublishSummary:
     latest_date: str
     total_bytes: int
     object_count: int
-    row_counts: dict[str, int]
     price_symbols: int
     price_rows: int
     price_transaction_rows: int
@@ -68,21 +53,6 @@ class PublishSummary:
 class SyncReceipt:
     before: SyncSnapshot = field(default_factory=SyncSnapshot)
     after: SyncSnapshot | None = None
-
-    @property
-    def row_deltas(self) -> list[tuple[str, int, int, int]]:
-        if self.after is None:
-            return []
-        keys = sorted(set(self.before.row_counts) | set(self.after.row_counts))
-        return [
-            (
-                key,
-                self.before.row_counts.get(key, 0),
-                self.after.row_counts.get(key, 0),
-                self.after.row_counts.get(key, 0) - self.before.row_counts.get(key, 0),
-            )
-            for key in keys
-        ]
 
     @property
     def net_worth_delta(self) -> float | None:
@@ -99,14 +69,10 @@ def capture(db_path: Path) -> SyncSnapshot:
 
     conn = get_readonly_connection(db_path)
     try:
-        row_counts = {
-            label: _count_rows(conn, table)
-            for label, table in _ROW_TABLES.items()
-        }
         nw = _latest_net_worth(conn)
     finally:
         conn.close()
-    return SyncSnapshot(row_counts=row_counts, net_worth=nw)
+    return SyncSnapshot(net_worth=nw)
 
 
 def load_publish_summary(path: Path) -> PublishSummary | None:
@@ -154,13 +120,6 @@ def format_text(receipt: SyncReceipt, context: Mapping[str, Any]) -> str:
 
     lines.append("Snapshot")
     _append_net_worth(lines, receipt)
-    changed = [row for row in receipt.row_deltas if row[3] != 0]
-    if changed:
-        lines.append("  Row count changes:")
-        for name, before, after, delta in changed:
-            lines.append(f"    {name}: {before:,} -> {after:,} ({_fmt_int_delta(delta)})")
-    else:
-        lines.append("  Row count changes: none")
     lines.append("")
 
     warnings = list(context.get("warnings") or [])
@@ -200,18 +159,7 @@ def build_subject(
         bits.append(publish_summary.latest_date)
     if receipt.net_worth_delta is not None:
         bits.append(f"nw {_fmt_delta(receipt.net_worth_delta)}")
-    changed_rows = sum(abs(delta) for _, _, _, delta in receipt.row_deltas if delta != 0)
-    if changed_rows:
-        bits.append(f"{changed_rows:,} row delta")
     return "[Portal Sync] OK" if not bits else "[Portal Sync] OK - " + ", ".join(bits)
-
-
-def _count_rows(conn: sqlite3.Connection, table: str) -> int:
-    try:
-        row = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
-    except sqlite3.OperationalError:
-        return 0
-    return int(row[0]) if row else 0
 
 
 def _latest_net_worth(conn: sqlite3.Connection) -> NetWorthPoint | None:
@@ -230,9 +178,6 @@ def _publish_summary_from_mapping(raw: Mapping[str, Any]) -> PublishSummary:
     price_counts = raw.get("priceRowCounts")
     if not isinstance(price_counts, dict):
         price_counts = {}
-    row_counts = raw.get("rowCounts")
-    if not isinstance(row_counts, dict):
-        row_counts = {}
     source = raw.get("source")
     if not isinstance(source, dict):
         source = {}
@@ -242,7 +187,6 @@ def _publish_summary_from_mapping(raw: Mapping[str, Any]) -> PublishSummary:
         latest_date=str(source.get("latestDate") or ""),
         total_bytes=int(raw.get("totalBytes") or 0),
         object_count=int(raw.get("objectCount") or 0),
-        row_counts={str(k): int(v) for k, v in row_counts.items()},
         price_symbols=len(price_counts),
         price_rows=sum(int(v.get("priceRows") or 0) for v in price_counts.values() if isinstance(v, dict)),
         price_transaction_rows=sum(
@@ -288,10 +232,6 @@ def _fmt_delta(v: float) -> str:
     if v >= 0:
         return f"+${v:,.2f}"
     return f"-${abs(v):,.2f}"
-
-
-def _fmt_int_delta(v: int) -> str:
-    return f"+{v:,}" if v >= 0 else f"{v:,}"
 
 
 def _fmt_bytes(v: int) -> str:
