@@ -7,7 +7,7 @@ import pytest
 
 from etl.db import init_db
 from etl.parsing import parse_us_date
-from etl.sources.fidelity.parse import _ingest_one_csv
+from etl.sources.fidelity.parse import _ingest_one_csv, ingest_csvs
 from tests.unit.sources.conftest import ROW_AAPL as _ROW_AAPL
 from tests.unit.sources.conftest import ROW_EFT as _ROW_EFT
 from tests.unit.sources.conftest import ROW_GLDM as _ROW_GLDM
@@ -85,16 +85,8 @@ class TestIngestFidelity:
             assert iso_re.match(rd), f"Non-ISO run_date in DB: {rd!r}"
 
 
-class TestIngestFidelityRangeReplace:
-    """Range-replace semantics for _ingest_one_csv.
-
-    Each Fidelity CSV export is an authoritative snapshot of its date range.
-    Re-ingesting a CSV replaces any existing rows in that range with the new
-    CSV's rows — no row-level dedup, because intra-day duplicate trades are
-    legitimate and CSV alone cannot distinguish them from literal duplicates.
-    Share-count correctness is verified out-of-band via
-    ``scripts/verify_positions.py`` against Fidelity's Portfolio_Positions CSV.
-    """
+class TestIngestFidelityCanonical:
+    """Canonical ingest semantics for overlapping Fidelity CSV exports."""
 
     @pytest.fixture()
     def db_path(self, empty_db: Path) -> Path:
@@ -110,34 +102,52 @@ class TestIngestFidelityRangeReplace:
         conn.close()
         assert rows == count1
 
-    def test_subset_csv_replaces_range(self, db_path: Path, tmp_path: Path) -> None:
-        """A newer CSV covering the same date range supersedes the older CSV within that range.
-
-        Fidelity's CSV export is authoritative for its range. If a re-export drops a row,
-        the current truth is "that row no longer exists in Fidelity's records" — the DB
-        must reflect this, not cling to stale data. Share-count divergence would be caught
-        by verify_positions.py against the latest Portfolio_Positions snapshot.
-        """
+    def test_subset_csv_does_not_delete_rows_observed_elsewhere(self, db_path: Path, tmp_path: Path) -> None:
         full_csv = _write_csv(tmp_path / "full.csv", [_ROW_AAPL, _ROW_GLDM, _ROW_EFT])
         subset_csv = _write_csv(tmp_path / "subset.csv", [_ROW_AAPL, _ROW_GLDM])
 
-        _ingest_one_csv(db_path, full_csv)
-        _ingest_one_csv(db_path, subset_csv)
+        ingest_csvs(db_path, [full_csv, subset_csv])
 
         conn = sqlite3.connect(str(db_path))
         count = conn.execute("SELECT COUNT(*) FROM fidelity_transactions").fetchone()[0]
         symbols = {r[0] for r in conn.execute("SELECT symbol FROM fidelity_transactions")}
         conn.close()
 
-        assert count == 2, "subset CSV is the latest authoritative snapshot for its range"
-        assert symbols == {"AAPL", "GLDM"}
+        assert count == 3
+        assert symbols == {"", "AAPL", "GLDM"}
+
+    def test_partial_boundary_overlap_keeps_missing_mar_reinvestment(self, db_path: Path, tmp_path: Path) -> None:
+        mar_reinvest = (
+            '09/30/2025,"Taxable","Z29133576","REINVESTMENT MARRIOTT INTERNATIONAL INC (MAR) (Margin)",'
+            'MAR,"MARRIOTT INTERNATIONAL",Margin,0,,USD,270.67,0.015,0,,,,-4.06,09/30/2025'
+        )
+        mar_dividend = (
+            '09/30/2025,"Taxable","Z29133576","DIVIDEND RECEIVED MARRIOTT INTERNATIONAL INC (MAR) (Margin)",'
+            'MAR,"MARRIOTT INTERNATIONAL",Margin,0,,USD,,0.000,0,,,,4.06,09/30/2025'
+        )
+        vlglt_reinvest = (
+            '09/30/2025,"Taxable","Z29133576","REINVESTMENT VANGUARD LONG TERM TREASURY ETF (VGLT) (Cash)",'
+            'VGLT,"VANGUARD LONG TERM TREASURY ETF",Cash,0,,USD,55.00,0.100,0,,,,-5.50,09/30/2025'
+        )
+        quarter_csv = _write_csv(tmp_path / "quarter.csv", [mar_reinvest, mar_dividend])
+        partial_overlap_csv = _write_csv(tmp_path / "partial.csv", [vlglt_reinvest])
+
+        ingest_csvs(db_path, [quarter_csv, partial_overlap_csv])
+
+        conn = sqlite3.connect(str(db_path))
+        rows = conn.execute(
+            "SELECT action_kind, quantity, amount FROM fidelity_transactions "
+            "WHERE symbol = 'MAR' AND run_date = '2025-09-30' ORDER BY action_kind"
+        ).fetchall()
+        conn.close()
+        assert rows == [("dividend", 0.0, 4.06), ("reinvestment", 0.015, -4.06)]
 
     def test_intra_day_duplicate_trades_preserved(self, db_path: Path, tmp_path: Path) -> None:
         """Two identical CSV rows (same date/action/symbol/qty/price/amount) represent two
         real trades and must both be ingested. Row-level dedup would silently erase one."""
         csv = _write_csv(tmp_path / "dup.csv", [_ROW_AAPL, _ROW_AAPL])
 
-        _ingest_one_csv(db_path, csv)
+        ingest_csvs(db_path, [csv])
 
         conn = sqlite3.connect(str(db_path))
         aapl_rows = conn.execute(
@@ -157,8 +167,7 @@ class TestIngestFidelityRangeReplace:
         csv_apr = _write_csv(tmp_path / "apr.csv", [row_apr])
         csv_may = _write_csv(tmp_path / "may.csv", [row_may])
 
-        _ingest_one_csv(db_path, csv_apr)
-        _ingest_one_csv(db_path, csv_may)
+        ingest_csvs(db_path, [csv_apr, csv_may])
 
         conn = sqlite3.connect(str(db_path))
         dates = sorted(r[0] for r in conn.execute("SELECT run_date FROM fidelity_transactions"))

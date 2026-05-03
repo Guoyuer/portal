@@ -5,18 +5,19 @@ Owns:
     ``ACT_*`` labels for the ``action_type`` column → normalized
     :class:`ActionKind` for the ``action_kind`` column).
   - Header detection + chronological ordering (``_csv_earliest_date``).
-  - Per-file range-replace ingest (:func:`_ingest_one_csv`).
+  - Canonical ingest across overlapping downloaded CSV exports.
 """
 from __future__ import annotations
 
 import csv
 import logging
 import re
+from collections import Counter
+from collections.abc import Iterable
 from pathlib import Path
 
 from etl.db import get_connection
 from etl.parsing import STRICT_US_DATE_RE, parse_us_date
-from etl.sources._ingest import range_replace_insert
 from etl.sources._types import ActionKind
 from etl.types import (
     ACT_BUY,
@@ -42,6 +43,7 @@ from etl.types import parse_currency as _parse_float
 log = logging.getLogger(__name__)
 
 TABLE = "fidelity_transactions"
+FidelityTxnRow = tuple[str, str, str, str, str, str, str, float, float, float]
 
 
 # ── Action classification ───────────────────────────────────────────────────
@@ -157,25 +159,8 @@ def _csv_earliest_date(path: Path) -> str:
 # ── DB ingest ──────────────────────────────────────────────────────────────
 
 
-def _ingest_one_csv(db_path: Path, csv_path: Path) -> int:
-    """Ingest one Fidelity CSV, replacing overlapping date ranges.
-
-    Each Fidelity CSV export is an authoritative snapshot of its own date
-    range, so a new CSV's contents supersede any existing rows in that range.
-    We DELETE rows whose ``run_date`` falls within this CSV's min/max and
-    then INSERT every parsed row. No row-level dedup: two legitimate trades
-    with identical
-    ``(run_date, action, symbol, quantity, price, amount)`` are
-    indistinguishable from CSV alone and preserving both matches reality
-    better than collapsing them. Use ``scripts/verify_positions.py``
-    against a ``Portfolio_Positions_*.csv`` snapshot to confirm
-    share-count invariants.
-
-    Dates are normalized from Fidelity's ``MM/DD/YYYY`` to ISO ``YYYY-MM-DD``
-    at write time so the database only ever carries ISO dates.
-
-    Returns the total row count in ``fidelity_transactions`` after ingestion.
-    """
+def _parse_csv_rows(csv_path: Path) -> list[FidelityTxnRow]:
+    """Parse one Fidelity CSV into normalized transaction rows."""
     text = csv_path.read_text(encoding="utf-8-sig")
     lines = text.splitlines()
 
@@ -190,7 +175,7 @@ def _ingest_one_csv(db_path: Path, csv_path: Path) -> int:
         raise ValueError(msg)
 
     reader = csv.DictReader(lines[header_idx:])
-    rows: list[tuple[str, str, str, str, str, str, str, float, float, float]] = []
+    rows: list[FidelityTxnRow] = []
 
     # DictReader consumes the header, so the first data row is file
     # line header_idx + 2.
@@ -221,21 +206,49 @@ def _ingest_one_csv(db_path: Path, csv_path: Path) -> int:
             _parse_float(record.get("Amount", "")),
         ))
 
+    return rows
+
+
+def _canonical_rows(csv_paths: Iterable[Path]) -> list[FidelityTxnRow]:
+    """Merge CSV rows while dropping duplicate observations across files."""
+    rows: list[FidelityTxnRow] = []
+    seen: set[tuple[FidelityTxnRow, int]] = set()
+    for csv_path in csv_paths:
+        occurrences: Counter[FidelityTxnRow] = Counter()
+        for row in _parse_csv_rows(csv_path):
+            occurrences[row] += 1
+            token = (row, occurrences[row])
+            if token in seen:
+                continue
+            seen.add(token)
+            rows.append(row)
+    return rows
+
+
+def ingest_csvs(db_path: Path, csv_paths: Iterable[Path]) -> int:
+    """Rebuild Fidelity transactions from the canonical union of CSV exports.
+
+    Fidelity history exports can overlap and be partial on boundary dates.
+    Treating each CSV as authoritative for its whole min/max range can delete
+    valid rows from another export. The safer invariant is to retain every row
+    observed in any export, while de-duplicating repeated observations across
+    files. Same-file duplicate rows are preserved because Fidelity can emit
+    indistinguishable legitimate trades.
+    """
+    ordered_csvs = sorted(csv_paths, key=lambda path: (_csv_earliest_date(path), path.name))
+    rows = _canonical_rows(ordered_csvs)
+
     conn = get_connection(db_path)
     try:
-        range_replace_insert(
-            conn,
-            table=TABLE,
-            date_col="run_date",
-            rows=rows,
-            date_idx=0,
-            insert_sql=(
+        conn.execute(f"DELETE FROM {TABLE}")  # noqa: S608 — TABLE is a module-level constant
+        if rows:
+            conn.executemany(
                 f"INSERT INTO {TABLE} "  # noqa: S608 — TABLE is a module-level constant
                 "(run_date, account_number, action, action_type, action_kind, "
                 "symbol, lot_type, quantity, price, amount) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-            ),
-        )
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                rows,
+            )
         conn.commit()
 
         count: int = conn.execute(
@@ -245,3 +258,12 @@ def _ingest_one_csv(db_path: Path, csv_path: Path) -> int:
         conn.close()
 
     return count
+
+
+def _ingest_one_csv(db_path: Path, csv_path: Path) -> int:
+    """Replace Fidelity transactions with a single parsed CSV.
+
+    Kept for ``--csv`` and parser tests. Production ingest uses
+    :func:`ingest_csvs` across every ``Accounts_History*.csv`` export.
+    """
+    return ingest_csvs(db_path, [csv_path])

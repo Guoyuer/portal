@@ -17,14 +17,13 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
 from typing import cast
 
 import pandas as pd
 
 from ._category_totals import accumulate_category_totals
-from .db import get_readonly_connection
 from .prices import load_cny_rates, load_prices
 from .qianji import qianji_balances_at
 from .sources import PriceContext, positions_at_all
@@ -42,21 +41,6 @@ _FIDELITY_SUPERSEDED_QJ_ACCOUNTS = frozenset({
     "Roth IRA",
     "Fidelity Cash Management",
 })
-
-
-# ── Qianji transaction dates ───────────────────────────────────────────────
-
-
-def _qianji_transaction_dates(db_path: Path) -> list[date]:
-    """Return sorted unique dates of Qianji transactions."""
-    if not db_path.exists():
-        return []
-    conn = get_readonly_connection(db_path)
-    dates: set[date] = set()
-    for (ts,) in conn.execute("SELECT time FROM user_bill WHERE status = 1"):
-        dates.add(datetime.fromtimestamp(ts, UTC).date())
-    conn.close()
-    return sorted(dates)
 
 
 def _find_price_date(prices: pd.DataFrame, target: date) -> date:
@@ -307,10 +291,10 @@ def compute_daily_allocation(
 ) -> list[AllocationRow]:
     """Compute daily allocation from start to end.
 
-    Orchestrates per-day valuation. The math is in ``step_one_day``; this
-    function just decides when to re-run the Qianji replay to keep
-    ``QianjiBalanceCache`` current. Every source module self-manages its replay
-    inside its ``positions_at`` function; none needs state here.
+    Orchestrates per-day valuation. The math is in ``step_one_day``. Qianji is
+    replayed for each trading day so its local-day cutoff remains the single
+    source of truth; every investment source self-manages its replay inside its
+    ``positions_at`` function.
 
     Args:
         db_path: Path to timemachine.db (prices + CNY rates).
@@ -324,12 +308,8 @@ def compute_daily_allocation(
     """
     sources = _build_sources(db_path, qj_db, config)
 
-    qj_txn_dates = set(_qianji_transaction_dates(qj_db))
-
     results: list[AllocationRow] = []
     state = QianjiBalanceCache()
-    last_qj_replay: date | None = None
-    qj_replayed = False
 
     current = start
     while current <= end:
@@ -337,14 +317,7 @@ def compute_daily_allocation(
             current += timedelta(days=1)
             continue
 
-        # Replay Qianji only when new balances exist in the window.
-        needs_qj = not qj_replayed or any(
-            d > (last_qj_replay or date.min) and d <= current for d in qj_txn_dates
-        )
-        if needs_qj:
-            state.qj_balances = qianji_balances_at(qj_db, current).balances
-            last_qj_replay = current
-            qj_replayed = True
+        state.qj_balances = qianji_balances_at(qj_db, current).balances
 
         results.append(step_one_day(state, sources, current))
         current += timedelta(days=1)

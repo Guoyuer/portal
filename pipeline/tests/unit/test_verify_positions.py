@@ -20,7 +20,7 @@ from scripts import verify_positions  # noqa: E402
 
 def _write_csv(path: Path, rows: list[dict[str, str]]) -> None:
     """Write a minimal Fidelity positions CSV with the columns we read."""
-    fields = ["Account Number", "Symbol", "Description", "Quantity", "Current Value"]
+    fields = ["Account Number", "Symbol", "Description", "Quantity", "Last Price", "Current Value"]
     with open(path, "w", newline="", encoding="utf-8-sig") as f:
         w = csv.DictWriter(f, fieldnames=fields)
         w.writeheader()
@@ -166,42 +166,58 @@ class TestMainIntegration:
         assert "PASS" in out
         assert "2026-04-07" in out
 
-    def test_mismatch_beyond_tolerance_fails(self, tmp_path: Path, empty_db: Path, monkeypatch, capsys) -> None:
+    def test_mismatch_beyond_dollar_tolerance_fails(
+        self, tmp_path: Path, empty_db: Path, monkeypatch, capsys,
+    ) -> None:
         _seed_db(empty_db, [
             ("2026-01-05", "Z001", "YOU BOUGHT VOO", "VOO", "Cash", 10.0, -4500.0),
         ])
         csv_path = tmp_path / "Portfolio_Positions_Apr-07-2026.csv"
         _write_csv(csv_path, [
-            {"Account Number": "Z001", "Symbol": "VOO", "Quantity": "10.5"},  # 0.5 off
+            {"Account Number": "Z001", "Symbol": "VOO", "Quantity": "10.5", "Last Price": "100"},
         ])
-        rc = self._run(csv_path, empty_db, monkeypatch, extra_args=("--tolerance", "0.05"))
+        rc = self._run(csv_path, empty_db, monkeypatch)
         assert rc == 1
         out = capsys.readouterr().out
         assert "FAIL" in out
         assert "1 mismatch" in out
+        assert "dollar" in out
 
-    def test_tolerance_boundary_pass(self, tmp_path: Path, empty_db: Path, monkeypatch) -> None:
-        """Diff of 0.04 with tolerance 0.05 => pass."""
+    def test_share_diff_passes_when_dollar_diff_is_small(
+        self, tmp_path: Path, empty_db: Path, monkeypatch,
+    ) -> None:
         _seed_db(empty_db, [
             ("2026-01-05", "Z001", "YOU BOUGHT VOO", "VOO", "Cash", 10.0, -4500.0),
         ])
         csv_path = tmp_path / "Portfolio_Positions_Apr-07-2026.csv"
         _write_csv(csv_path, [
-            {"Account Number": "Z001", "Symbol": "VOO", "Quantity": "10.04"},
+            {"Account Number": "Z001", "Symbol": "VOO", "Quantity": "10.004", "Last Price": "100"},
         ])
-        rc = self._run(csv_path, empty_db, monkeypatch, extra_args=("--tolerance", "0.05"))
+        rc = self._run(csv_path, empty_db, monkeypatch)
         assert rc == 0
 
-    def test_tolerance_boundary_fail(self, tmp_path: Path, empty_db: Path, monkeypatch) -> None:
-        """Diff of 0.06 with tolerance 0.05 => fail."""
+    def test_small_share_diff_fails_when_dollar_diff_is_material(
+        self, tmp_path: Path, empty_db: Path, monkeypatch,
+    ) -> None:
+        _seed_db(empty_db, [
+            ("2026-01-05", "Z001", "YOU BOUGHT MAR", "MAR", "Cash", 6.091, -1470.63),
+        ])
+        csv_path = tmp_path / "Portfolio_Positions_Apr-07-2026.csv"
+        _write_csv(csv_path, [
+            {"Account Number": "Z001", "Symbol": "MAR", "Quantity": "6.106", "Last Price": "354.97"},
+        ])
+        rc = self._run(csv_path, empty_db, monkeypatch)
+        assert rc == 1
+
+    def test_share_tolerance_fallback_when_no_price(self, tmp_path: Path, empty_db: Path, monkeypatch) -> None:
         _seed_db(empty_db, [
             ("2026-01-05", "Z001", "YOU BOUGHT VOO", "VOO", "Cash", 10.0, -4500.0),
         ])
         csv_path = tmp_path / "Portfolio_Positions_Apr-07-2026.csv"
         _write_csv(csv_path, [
-            {"Account Number": "Z001", "Symbol": "VOO", "Quantity": "10.06"},
+            {"Account Number": "Z001", "Symbol": "VOO", "Quantity": "10.002"},
         ])
-        rc = self._run(csv_path, empty_db, monkeypatch, extra_args=("--tolerance", "0.05"))
+        rc = self._run(csv_path, empty_db, monkeypatch)
         assert rc == 1
 
     def test_csv_only_keys_are_informational(self, tmp_path: Path, empty_db: Path, monkeypatch, capsys) -> None:
