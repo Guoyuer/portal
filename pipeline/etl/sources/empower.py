@@ -21,8 +21,7 @@ from pathlib import Path
 import pandas as pd
 
 from etl.db import get_connection
-from etl.sources import PositionRow, PriceContext
-from etl.sources._types import resolve_downloads_dir
+from etl.sources._types import PositionRow, PriceContext, resolve_downloads_dir
 from etl.types import RawConfig
 
 # ── CUSIP → config ticker → proxy ticker mapping ───────────────────────────

@@ -5,24 +5,24 @@ Architecture rule: all source-specific logic lives in its own module under
 ``ingest(db_path, config)``, ``positions_at(db_path, as_of, prices, config)``,
 ``produces_positions(config)`` — and this package composes them.
 
-Modules are the identifier (no enum / protocol / class ceremony). The lazy
+Modules are the identifier (no enum / protocol / class ceremony). The explicit
 ``SOURCES`` registry drives ``positions_at_all`` (production uses per-source
 ``.ingest()`` calls directly from ``scripts/build_timemachine_db.py``);
-adding a new source is one import line here.
+adding a new source is one import plus one list entry here.
 
 Shared types (``ActionKind``, ``PositionRow``, ``PriceContext``,
-``InvestmentSource`` Protocol) live in :mod:`etl.sources._types` so consumers
-can import them without triggering the full registry load.
+``InvestmentSource`` Protocol) live in :mod:`etl.sources._types`; concrete
+source modules import that file directly, and this package re-exports the
+types for public callers.
 """
 from __future__ import annotations
 
 from datetime import date
 from pathlib import Path
-from types import ModuleType
-from typing import TYPE_CHECKING
 
 from etl.types import RawConfig
 
+from . import empower, fidelity, robinhood
 from ._types import ActionKind, InvestmentSource, PositionRow, PriceContext
 
 __all__ = [
@@ -34,31 +34,10 @@ __all__ = [
     "positions_at_all",
 ]
 
-if TYPE_CHECKING:
-    SOURCES: list[ModuleType]
-
 
 # ── Ordered source list ─────────────────────────────────────────────────────
 
-_SOURCE_CACHE: list[ModuleType] | None = None
-
-
-def _sources() -> list[ModuleType]:
-    from . import empower, fidelity, robinhood
-    return [fidelity, robinhood, empower]
-
-
-def _get_sources() -> list[ModuleType]:
-    global _SOURCE_CACHE
-    if _SOURCE_CACHE is None:
-        _SOURCE_CACHE = _sources()
-    return _SOURCE_CACHE
-
-
-def __getattr__(name: str) -> object:
-    if name == "SOURCES":
-        return _get_sources()
-    raise AttributeError(name)
+SOURCES: list[InvestmentSource] = [fidelity, robinhood, empower]
 
 
 # ── Top-level composition ──────────────────────────────────────────────────
@@ -72,7 +51,7 @@ def positions_at_all(
 ) -> list[PositionRow]:
     """Flatten ``positions_at`` across every enabled source."""
     rows: list[PositionRow] = []
-    for mod in _get_sources():
+    for mod in SOURCES:
         if mod.produces_positions(config):
             rows.extend(mod.positions_at(db_path, as_of, prices, config))
     return rows
