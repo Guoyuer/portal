@@ -31,7 +31,7 @@ import {
   type InvestmentTxn,
 } from "@/lib/compute/compute";
 
-export interface ComputedBundle {
+interface ComputedBundle {
   chartDaily: DailyPoint[];
   dailyTickers: DailyTicker[];
   qianjiTxns: QianjiTxn[];

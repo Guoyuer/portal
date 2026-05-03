@@ -202,7 +202,7 @@ export interface UnmatchedItem {
   amount: number;
 }
 
-export interface SourceCrossCheck {
+interface SourceCrossCheck {
   matched: number;
   total: number;
   unmatched: UnmatchedItem[];

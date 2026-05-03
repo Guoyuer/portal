@@ -4,8 +4,8 @@ Complements the example-based tests in ``test_replay_primitive.py`` by
 generating random transaction sequences via ``hypothesis`` and asserting
 universal invariants of the replay state machine.
 
-Tiered per docs/TODO.md T3 — focused on the invariants most likely to
-surface regressions when ``replay.py`` is modified (sign convention,
+Focused on the invariants most likely to surface regressions when
+``replay.py`` is modified (sign convention,
 non-negative cost basis, and split/reinvestment qty conservation — the
 trickiest code path because DISTRIBUTION is qty-only while REINVESTMENT
 adds to cost).

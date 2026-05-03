@@ -128,6 +128,19 @@ Routes strip optional `/api` so the same code serves `workers.dev`, local `wrang
 
 `publish` verifies locally first, enforces a single-publisher lock, refuses to overwrite existing remote snapshot objects, uploads snapshot objects, readback-checks hashes, then publishes `manifest.json` last.
 
+### Load-Bearing Boundaries
+
+Do not simplify these without redesigning the data-publication correctness model:
+
+- `manifest.json` hash and byte descriptors
+- remote upload readback verification
+- single-publisher lock
+- frontend Zod runtime parse
+- publish-time Zod artifact validation
+- local SQLite `timemachine.db`
+- Worker fail-closed behavior for missing or invalid artifacts
+- per-symbol transactions inside `prices.json`
+
 ## Accessibility
 
 Chart colors use the Okabe-Ito colorblind-friendly palette. Categorical encodings are paired with text/letters/shapes; color alone is insufficient.
