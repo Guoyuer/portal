@@ -4,14 +4,12 @@ from __future__ import annotations
 
 import json
 import sqlite3
-import tempfile
 from contextlib import closing
 from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
 
-from etl.db import init_db
 from etl.qianji import (
     ingest_qianji_transactions,
     parse_qj_amount,
@@ -54,6 +52,14 @@ def _rows(db_path: Path, sql: str) -> list[tuple]:
 
 def _scalar(db_path: Path, sql: str) -> object:
     return _rows(db_path, sql)[0][0]
+
+
+def _flag_for(db_path: Path) -> int:
+    return _scalar(db_path, "SELECT is_retirement FROM qianji_transactions")  # type: ignore[return-value]
+
+
+def _row_for(db_path: Path) -> tuple:
+    return _rows(db_path, "SELECT type, account_to FROM qianji_transactions")[0]
 
 
 class TestParseQjAmount:
@@ -408,115 +414,93 @@ class TestLoadBalances:
 # ── ingest_qianji_transactions — DB writes ────────────────────────────────────
 
 
-def _fresh_db() -> Path:
-    tmp = Path(tempfile.mktemp(suffix=".db"))
-    init_db(tmp)
-    return tmp
+def _record_dict(
+    *,
+    date_: str = "2026-01-01",
+    type_: str = "income",
+    category: str = "Salary",
+    amount: float = 1000.0,
+    account_from: str = "",
+    account_to: str = "",
+    note: str = "",
+) -> dict:
+    return {
+        "date": date_, "type": type_, "category": category, "amount": amount,
+        "account_from": account_from, "account_to": account_to, "note": note,
+    }
 
 
 class TestIngestQianjiTransactions:
-    @pytest.fixture()
-    def db_path(self, empty_db: Path) -> Path:
-        return empty_db
-
-    def test_ingest_records(self, db_path: Path) -> None:
+    def test_ingest_records(self, empty_db: Path) -> None:
         records = [
-            {"date": "2025-03-01", "type": "income", "category": "Salary", "amount": 5000.0, "account_from": "Checking", "note": ""},
-            {"date": "2025-03-05", "type": "expense", "category": "Rent", "amount": 1500.0, "account_from": "Checking", "note": ""},
+            _record_dict(date_="2025-03-01", category="Salary", amount=5000.0, account_from="Checking"),
+            _record_dict(date_="2025-03-05", type_="expense", category="Rent", amount=1500.0, account_from="Checking"),
         ]
-        count = ingest_qianji_transactions(db_path, records)
-        assert count == 2
+        assert ingest_qianji_transactions(empty_db, records) == 2
 
-    def test_clears_and_replaces(self, db_path: Path) -> None:
-        records = [{"date": "2025-03-01", "type": "income", "category": "Salary", "amount": 5000.0, "account_from": "Checking", "note": ""}]
-        ingest_qianji_transactions(db_path, records)
-        new_records = [{"date": "2025-04-01", "type": "expense", "category": "Food", "amount": 100.0, "account_from": "Checking", "note": ""}]
-        count = ingest_qianji_transactions(db_path, new_records)
-        assert count == 1  # old rows cleared
+    def test_clears_and_replaces(self, empty_db: Path) -> None:
+        ingest_qianji_transactions(empty_db, [_record_dict(date_="2025-03-01", amount=5000.0, account_from="Checking")])
+        new = [_record_dict(date_="2025-04-01", type_="expense", category="Food", amount=100.0, account_from="Checking")]
+        # Re-ingest must wipe prior rows.
+        assert ingest_qianji_transactions(empty_db, new) == 1
 
-    def test_empty_records(self, db_path: Path) -> None:
-        count = ingest_qianji_transactions(db_path, [])
-        assert count == 0
+    def test_empty_records(self, empty_db: Path) -> None:
+        assert ingest_qianji_transactions(empty_db, []) == 0
 
 
 # ── Retirement flag — ingest_qianji_transactions ──────────────────────────────
 
 
+_SAMPLE_RETIREMENT_RECORDS = [
+    _record_dict(date_="2026-01-28", category="Salary", amount=8000),
+    _record_dict(date_="2026-01-28", category="401K", amount=1600),
+    _record_dict(date_="2026-01-10", type_="expense", category="Rent", amount=2000),
+]
+
+
 class TestIsRetirementFlag:
-    def _sample_records(self) -> list[dict]:
-        return [
-            {"date": "2026-01-28", "type": "income", "category": "Salary", "amount": 8000,
-             "account_from": "", "note": ""},
-            {"date": "2026-01-28", "type": "income", "category": "401K", "amount": 1600,
-             "account_from": "", "note": ""},
-            {"date": "2026-01-10", "type": "expense", "category": "Rent", "amount": 2000,
-             "account_from": "", "note": ""},
-        ]
-
-    def test_default_config_matches_401k_income(self) -> None:
+    def test_default_config_matches_401k_income(self, empty_db: Path) -> None:
         """'401K' is the user's retirement income category — flag should be set."""
-        db = _fresh_db()
-        try:
-            ingest_qianji_transactions(
-                db,
-                self._sample_records(),
-                retirement_categories=["401K", "401k Match"],
-            )
-            conn = sqlite3.connect(db)
-            rows = conn.execute(
-                "SELECT category, type, is_retirement FROM qianji_transactions ORDER BY date, category"
-            ).fetchall()
-            conn.close()
-            assert ("401K", "income", 1) in rows
-            assert ("Salary", "income", 0) in rows
-            assert ("Rent", "expense", 0) in rows
-        finally:
-            db.unlink(missing_ok=True)
+        ingest_qianji_transactions(
+            empty_db, _SAMPLE_RETIREMENT_RECORDS,
+            retirement_categories=["401K", "401k Match"],
+        )
+        rows = _rows(
+            empty_db,
+            "SELECT category, type, is_retirement FROM qianji_transactions ORDER BY date, category",
+        )
+        assert ("401K", "income", 1) in rows
+        assert ("Salary", "income", 0) in rows
+        assert ("Rent", "expense", 0) in rows
 
-    def test_retirement_expense_not_flagged(self) -> None:
-        """Flag only applies to income type — an expense in the list is not retirement."""
-        db = _fresh_db()
-        try:
-            records = [
-                {"date": "2026-01-01", "type": "expense", "category": "401K", "amount": 100,
-                 "account_from": "", "note": ""},
-            ]
-            ingest_qianji_transactions(db, records, retirement_categories=["401K"])
-            conn = sqlite3.connect(db)
-            flag = conn.execute("SELECT is_retirement FROM qianji_transactions").fetchone()[0]
-            conn.close()
-            assert flag == 0
-        finally:
-            db.unlink(missing_ok=True)
+    @pytest.mark.parametrize(
+        ("record", "retirement_categories", "expected_flag"),
+        [
+            pytest.param(
+                _record_dict(type_="expense", category="401K", amount=100),
+                ["401K"], 0,
+                id="expense-not-flagged-even-if-category-matches",
+            ),
+            pytest.param(
+                _record_dict(category="401k", amount=1000),
+                ["401K"], 0,
+                id="case-sensitive-mismatch",
+            ),
+        ],
+    )
+    def test_single_record_flag(
+        self,
+        empty_db: Path,
+        record: dict,
+        retirement_categories: list[str],
+        expected_flag: int,
+    ) -> None:
+        ingest_qianji_transactions(empty_db, [record], retirement_categories=retirement_categories)
+        assert _flag_for(empty_db) == expected_flag
 
-    def test_empty_retirement_list_flags_nothing(self) -> None:
-        db = _fresh_db()
-        try:
-            ingest_qianji_transactions(db, self._sample_records(), retirement_categories=[])
-            conn = sqlite3.connect(db)
-            count = conn.execute(
-                "SELECT COUNT(*) FROM qianji_transactions WHERE is_retirement = 1"
-            ).fetchone()[0]
-            conn.close()
-            assert count == 0
-        finally:
-            db.unlink(missing_ok=True)
-
-    def test_case_sensitive_match(self) -> None:
-        """Category matching is exact (case-sensitive) — '401k' will not match '401K'."""
-        db = _fresh_db()
-        try:
-            records = [
-                {"date": "2026-01-01", "type": "income", "category": "401k",
-                 "amount": 1000, "account_from": "", "note": ""},
-            ]
-            ingest_qianji_transactions(db, records, retirement_categories=["401K"])
-            conn = sqlite3.connect(db)
-            flag = conn.execute("SELECT is_retirement FROM qianji_transactions").fetchone()[0]
-            conn.close()
-            assert flag == 0
-        finally:
-            db.unlink(missing_ok=True)
+    def test_empty_retirement_list_flags_nothing(self, empty_db: Path) -> None:
+        ingest_qianji_transactions(empty_db, _SAMPLE_RETIREMENT_RECORDS, retirement_categories=[])
+        assert _scalar(empty_db, "SELECT COUNT(*) FROM qianji_transactions WHERE is_retirement = 1") == 0
 
 
 class TestAccountToNormalization:
@@ -529,55 +513,29 @@ class TestAccountToNormalization:
     have to know Qianji's per-type direction quirk.
     """
 
-    def test_transfer_uses_account_to(self) -> None:
-        db = _fresh_db()
-        try:
-            records = [
-                {"date": "2026-01-01", "type": "transfer", "category": "", "amount": 1000,
-                 "account_from": "Chase Debit", "account_to": "Fidelity taxable", "note": ""},
-            ]
-            ingest_qianji_transactions(db, records)
-            conn = sqlite3.connect(db)
-            row = conn.execute(
-                "SELECT type, account_to FROM qianji_transactions"
-            ).fetchone()
-            conn.close()
-            assert row == ("transfer", "Fidelity taxable")
-        finally:
-            db.unlink(missing_ok=True)
-
-    def test_income_uses_account_from_as_destination(self) -> None:
-        """Qianji stores direct-deposit income's receiving account in fromact."""
-        db = _fresh_db()
-        try:
-            records = [
-                {"date": "2026-01-01", "type": "income", "category": "Salary", "amount": 3000,
-                 "account_from": "Fidelity taxable", "account_to": "", "note": ""},
-            ]
-            ingest_qianji_transactions(db, records)
-            conn = sqlite3.connect(db)
-            row = conn.execute(
-                "SELECT type, account_to FROM qianji_transactions"
-            ).fetchone()
-            conn.close()
-            assert row == ("income", "Fidelity taxable")
-        finally:
-            db.unlink(missing_ok=True)
-
-    def test_expense_account_to_defaults_to_empty(self) -> None:
-        """Expenses have no destination — column stays empty."""
-        db = _fresh_db()
-        try:
-            records = [
-                {"date": "2026-01-01", "type": "expense", "category": "Rent", "amount": 2000,
-                 "account_from": "Chase Debit", "account_to": "", "note": ""},
-            ]
-            ingest_qianji_transactions(db, records)
-            conn = sqlite3.connect(db)
-            row = conn.execute(
-                "SELECT type, account_to FROM qianji_transactions"
-            ).fetchone()
-            conn.close()
-            assert row == ("expense", "")
-        finally:
-            db.unlink(missing_ok=True)
+    @pytest.mark.parametrize(
+        ("record", "expected"),
+        [
+            pytest.param(
+                _record_dict(type_="transfer", category="", amount=1000,
+                             account_from="Chase Debit", account_to="Fidelity taxable"),
+                ("transfer", "Fidelity taxable"),
+                id="transfer-uses-account-to",
+            ),
+            pytest.param(
+                _record_dict(type_="income", category="Salary", amount=3000,
+                             account_from="Fidelity taxable"),
+                ("income", "Fidelity taxable"),
+                id="income-uses-account-from-as-destination",
+            ),
+            pytest.param(
+                _record_dict(type_="expense", category="Rent", amount=2000,
+                             account_from="Chase Debit"),
+                ("expense", ""),
+                id="expense-account-to-defaults-to-empty",
+            ),
+        ],
+    )
+    def test_destination_account(self, empty_db: Path, record: dict, expected: tuple) -> None:
+        ingest_qianji_transactions(empty_db, [record])
+        assert _row_for(empty_db) == expected
