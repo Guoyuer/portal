@@ -22,6 +22,7 @@ from etl.prices import (  # noqa: E402
     fetch_and_store_prices,
     load_cny_rates,
     load_prices,
+    refresh_window_start,
 )
 from etl.sources import ActionKind  # noqa: E402
 
@@ -213,13 +214,18 @@ class TestHistoricalImmutabilityCnyRates:
         self, empty_db: Path,
     ) -> None:
         db_path = empty_db
-        _seed_prices(db_path, [("CNY=X", "2026-04-10", 7.20)])
+        _seed_prices(db_path, [
+            ("CNY=X", "2023-03-13", 6.90),
+            ("CNY=X", "2026-04-10", 7.20),
+        ])
+        end = date(2026, 4, 12)
 
         with patch("etl.prices.fetch.yf.download") as mock_dl:
             mock_dl.return_value = _cny_df([("2026-04-10", 7.25)])
-            fetch_and_store_cny_rates(db_path, date(2023, 3, 13), date(2026, 4, 12))
+            fetch_and_store_cny_rates(db_path, date(2023, 3, 13), end)
 
         assert _close(db_path, "CNY=X", "2026-04-10") == pytest.approx(7.20)
+        assert date.fromisoformat(mock_dl.call_args.kwargs["start"]) == refresh_window_start(end)
 
 
 class TestHistoricalImmutabilityPrices:
@@ -447,10 +453,10 @@ class TestSplitCrossValidation:
         )
 
 
-# ── Incremental fetch regression ───────────────────────────────────────────
+# ── Cached fetch regression ────────────────────────────────────────────────
 
 
-class TestIncrementalFetch:
+class TestCachedFetch:
     def test_cached_lo_after_global_start_does_not_trigger_full_batch(
         self, empty_db: Path,
     ) -> None:

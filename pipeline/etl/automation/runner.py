@@ -1,4 +1,4 @@
-"""Orchestration state machine: detect → build → verify → publish R2.
+"""Orchestration state machine: detect → build → export → publish R2.
 
 The :class:`Runner` collaborates with the helper modules under
 ``etl.automation.*`` but owns all the control flow: graded exit codes,
@@ -10,8 +10,8 @@ CLI parsing is here too because the script-side entry point shrinks to
 Exit-code taxonomy (constants live in :mod:`etl.automation._constants`):
     0 — ok, or no changes detected (both normal outcomes for cron)
     1 — build failed
-    2 — artifact verification failed (do NOT publish)
-    3 — R2 publish failed
+    2 — export or dry-run artifact verification failed (do NOT publish)
+    3 — R2 publish failed (publish verifies locally before upload)
     4 — verify_positions failed (replay disagrees with Fidelity snapshot)
 """
 from __future__ import annotations
@@ -246,7 +246,7 @@ class Runner:
             else:
                 log.info("[3] No new Portfolio_Positions CSV — skipping ground-truth check")
 
-        # [4] Export + verify endpoint-shaped R2 artifacts.
+        # [4] Export endpoint-shaped R2 artifacts.
         log.info("[4] Exporting R2 artifacts...")
         rc = run_python_script(SCRIPTS_DIR / "r2_artifacts.py", "export")
         if rc != 0:
@@ -254,22 +254,20 @@ class Runner:
                 log, "EXPORT", rc, EXIT_PARITY_FAIL, "r2_artifacts.py export",
                 email_config, snapshot_before, db_path, log_file,
             )
-
-        log.info("[5] Verifying R2 artifacts...")
-        rc = run_python_script(SCRIPTS_DIR / "r2_artifacts.py", "verify")
-        if rc != 0:
-            return self._report_stage_failure(
-                log, "ARTIFACT VERIFY", rc, EXIT_PARITY_FAIL, "r2_artifacts.py verify",
-                email_config, snapshot_before, db_path, log_file,
-            )
         publish_summary = load_publish_summary(_artifact_summary_path())
 
-        # [6] Publish (skipped in dry-run)
         if self.args.dry_run:
+            log.info("[5] Verifying R2 artifacts...")
+            rc = run_python_script(SCRIPTS_DIR / "r2_artifacts.py", "verify")
+            if rc != 0:
+                return self._report_stage_failure(
+                    log, "ARTIFACT VERIFY", rc, EXIT_PARITY_FAIL, "r2_artifacts.py verify",
+                    email_config, snapshot_before, db_path, log_file,
+                )
             log.info("[6] Dry run — skipping R2 publish")
         else:
             mode = "--local" if self.args.local else "--remote"
-            log.info("[6] Publishing R2 artifacts (%s)...", mode)
+            log.info("[5] Publishing R2 artifacts (%s)...", mode)
             rc = run_python_script(SCRIPTS_DIR / "r2_artifacts.py", "publish", mode)
             if rc != 0:
                 return self._report_stage_failure(

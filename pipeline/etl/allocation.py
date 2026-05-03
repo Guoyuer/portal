@@ -117,8 +117,11 @@ def _add_qianji_balances(
     assets: Mapping[str, AssetInfo],
     cny_rate: float,
     skip_accounts: frozenset[str],
+    warning_keys: set[tuple[str, str]] | None = None,
 ) -> None:
     """Map Qianji balances to tickers. Every unmapped account (CNY or USD) warns and is excluded."""
+    if warning_keys is None:
+        warning_keys = set()
     for qj_acct, bal in qj_balances.items():
         if qj_acct in skip_accounts or abs(bal) < 0.01:
             continue
@@ -132,11 +135,14 @@ def _add_qianji_balances(
         if ticker and ticker in assets:
             ticker_values[ticker] = ticker_values.get(ticker, 0) + usd_val
         else:
-            log.warning(
-                "Qianji account %r (%s %.2f → $%.2f USD) has no ticker_map entry "
-                "(add a mapping under config.json → ticker_map.<account>) — excluded from allocation",
-                qj_acct, curr, bal, usd_val,
-            )
+            token = ("qianji_unmapped", qj_acct)
+            if token not in warning_keys:
+                warning_keys.add(token)
+                log.warning(
+                    "Qianji account %r (%s %.2f → $%.2f USD) has no ticker_map entry "
+                    "(add a mapping under config.json → ticker_map.<account>) — excluded from allocation",
+                    qj_acct, curr, bal, usd_val,
+                )
 
 
 # ── Pure per-day step ──────────────────────────────────────────────────────
@@ -161,6 +167,7 @@ class AllocationSources:
     skip_qj_accounts: frozenset[str]
     db_path: Path
     source_config: RawConfig = field(default_factory=lambda: cast(RawConfig, {}))
+    warning_keys: set[tuple[str, str]] = field(default_factory=set)
 
 
 def step_one_day(
@@ -182,7 +189,12 @@ def step_one_day(
     cost_basis_by_ticker: dict[str, float] = {}
 
     # ── Aggregate every source module via the uniform composition API. ──
-    ctx = PriceContext(prices=sources.prices, price_date=price_date, mf_price_date=mf_price_date)
+    ctx = PriceContext(
+        prices=sources.prices,
+        price_date=price_date,
+        mf_price_date=mf_price_date,
+        warning_keys=sources.warning_keys,
+    )
     for row in positions_at_all(sources.db_path, current, ctx, sources.source_config):
         ticker_values[row.ticker] = ticker_values.get(row.ticker, 0.0) + row.value_usd
         if row.cost_basis_usd is not None:
@@ -193,6 +205,7 @@ def step_one_day(
     _add_qianji_balances(
         ticker_values, qj_balances, sources.qianji_currencies,
         sources.ticker_map, sources.assets, cny_rate, sources.skip_qj_accounts,
+        sources.warning_keys,
     )
 
     return _build_allocation_row(current, ticker_values, sources.assets, cost_basis_by_ticker)
