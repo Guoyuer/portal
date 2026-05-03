@@ -1,7 +1,7 @@
 # Portal TODO
 
-**Updated:** 2026-05-02 after the R2 migration, daily email simplification,
-and near-term cleanup pass.
+**Updated:** 2026-05-03 after the Fidelity/Qianji correctness audit and
+historical rebaseline experiment.
 
 Keep this file active-only. Completed refactor notes, historical decision logs,
 and superseded plans live in git history unless a current doc still needs the
@@ -11,12 +11,14 @@ conclusion.
 
 - Merge PR #309 once CI stays green; it compresses duplicate tests plus the
   first build/R2 artifact dedup pass.
+- Merge the Fidelity/Qianji correctness fix before any historical data
+  rebaseline. See `docs/HISTORICAL_REBASELINE_REPORT_2026-05-03.md`.
+- Treat full historical recompute as an explicit data migration, not a normal
+  simplification. Require a drift report and latest Fidelity positions pass
+  before publishing.
 - Keep `scripts/validate_api_zod.ts live` unless it becomes noisy. It duplicates
   publish-time Zod validation, but gives clearer failures in the real-worker
   workflow.
-- Keep the explicit automation `export -> verify -> publish` chain unless
-  runtime becomes annoying. `publish` verifies again, but the separate stage is
-  useful for dry-run behavior and failure attribution.
 
 ## Product Ideas
 
