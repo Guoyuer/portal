@@ -157,6 +157,15 @@ insertions / 269 deletions (`-115 diff LOC`, plus lockfile churn). Physical
 maintenance surface drops by 109 LOC before this note; with the note included,
 current maintenance surface is 247 files / 25,653 physical LOC.
 
+Source-test DB helper follow-up: Robinhood, Empower, and Fidelity ingest tests
+now reuse shared `db_rows` / `db_value` helpers plus the existing `empty_db`
+fixture instead of repeating `tmp_path / "tm.db"`, `init_db`, raw
+`sqlite3.connect`, and manual close blocks. Fidelity date parsing cases were
+also table-driven. Implementation diff effect: 4 maintained files, 134
+insertions / 248 deletions (`-114 diff LOC`). Physical maintenance surface
+drops by 111 LOC before this note; with the note included, current maintenance
+surface is 247 files / 25,550 physical LOC.
+
 ### Wave 1: Safe Deletions and Test Compression
 
 Targets:

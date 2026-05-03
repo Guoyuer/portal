@@ -25,6 +25,18 @@ def connected_db(db_path: Path) -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
+def db_rows(db_path: Path, sql: str, params: tuple[Any, ...] = ()) -> list[tuple[Any, ...]]:
+    """Fetch rows from a schema-initialized test DB."""
+    with connected_db(db_path) as conn:
+        return conn.execute(sql, params).fetchall()
+
+
+def db_value(db_path: Path, sql: str, params: tuple[Any, ...] = ()) -> Any:
+    """Fetch the first column of the first row from a test DB query."""
+    rows = db_rows(db_path, sql, params)
+    return rows[0][0] if rows else None
+
+
 # ── Row-level inserters ─────────────────────────────────────────────────
 
 
