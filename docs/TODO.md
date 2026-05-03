@@ -1,12 +1,15 @@
 # Portal TODO
 
-**Updated:** 2026-05-02 after the R2 migration and daily email simplification.
+**Updated:** 2026-05-02 after the R2 migration, daily email simplification,
+and near-term cleanup pass.
 
 Keep this file active-only. Completed refactor notes, historical decision logs,
 and superseded plans live under `docs/archive/`.
 
 ## Near-Term Cleanup
 
+- Fix the existing pytest `ResourceWarning` noise from replay property tests so
+  full pipeline test output stays signal-heavy.
 - Keep `scripts/validate_live_api_zod.ts` unless it becomes noisy. It duplicates
   publish-time Zod validation, but gives clearer failures in the real-worker
   workflow.

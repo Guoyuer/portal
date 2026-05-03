@@ -157,6 +157,7 @@ portal/
 │   ├── tests/
 │   └── tools/gen_zod.py
 ├── e2e/                         # Playwright tests
+├── docs/                        # current docs + archive index
 └── .github/workflows/           # CI, Pages deploy, fixture real-worker e2e
 ```
 

@@ -14,8 +14,8 @@ import {
 import { TickerChart, TickerDialogOnly } from "./ticker/ticker-chart";
 import { GroupChartDialog } from "./group/group-dialog";
 import { SourceBadge, type SourceKind } from "./source-badge";
-import type { ActivityTicker } from "@/lib/compute/compute";
-import type { DailyTicker, FidelityTxn } from "@/lib/schemas";
+import type { ActivityTicker, InvestmentTxn } from "@/lib/compute/compute";
+import type { DailyTicker } from "@/lib/schemas";
 
 const ACTIVITY_TOP_SYMBOLS = 5;
 
@@ -126,7 +126,7 @@ export function TickerTable({
   endDate,
   countLabel = "Trades",
   dailyTickers,
-  fidelityTxns,
+  investmentTxns,
 }: {
   title: string;
   data: ActivityTicker[];
@@ -134,7 +134,7 @@ export function TickerTable({
   endDate?: string;
   countLabel?: string;
   dailyTickers?: DailyTicker[];
-  fidelityTxns?: FidelityTxn[];
+  investmentTxns?: InvestmentTxn[];
 }) {
   const [expanded, setExpanded] = useState<string | null>(null);
   // A group dialog and a ticker dialog are mutually exclusive — modeling
@@ -191,11 +191,11 @@ export function TickerTable({
           )}
         </TableBody>
       </Table>
-      {dialog?.kind === "group" && dailyTickers && fidelityTxns && (
+      {dialog?.kind === "group" && dailyTickers && investmentTxns && (
         <GroupChartDialog
           groupKey={dialog.key}
           dailyTickers={dailyTickers}
-          fidelityTxns={fidelityTxns}
+          investmentTxns={investmentTxns}
           startDate={startDate}
           endDate={endDate}
           onClose={() => setDialog(null)}

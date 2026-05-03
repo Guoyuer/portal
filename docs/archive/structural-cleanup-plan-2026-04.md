@@ -87,20 +87,19 @@ If these layers are wanted later (integration against real D1, e2e that exercise
 
 ## 3. Screenshot utility scripts scattered at repo root
 
-**Problem**: Three screenshot utility scripts with inconsistent placement:
+**Problem**: Screenshot utility scripts had inconsistent placement:
 
 ```
 screenshot-cashflow.mjs       ← repo root (tracked)
 screenshot-market.mjs          ← repo root (tracked)
-scripts/screenshot-review.js  ← scripts/ subdir (tracked)
 ```
 
-**Proposed**: Move the two `.mjs` files into `scripts/`:
+**Proposed**: Move the two `.mjs` files into `scripts/` and keep screenshot
+review on the manual Playwright workflow:
 
 ```
 scripts/screenshot-cashflow.mjs
 scripts/screenshot-market.mjs
-scripts/screenshot-review.js
 ```
 
 If any `package.json` script references them, update those paths.

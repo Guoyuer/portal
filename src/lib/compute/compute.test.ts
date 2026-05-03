@@ -261,8 +261,8 @@ describe("normalizeInvestmentTxns", () => {
     ];
     const out = normalizeInvestmentTxns(f, [], []);
     expect(out).toEqual([
-      { source: "fidelity", date: "2026-01-10", ticker: "VTI", actionType: "buy",  amount: -500 },
-      { source: "fidelity", date: "2026-01-11", ticker: "GS",  actionType: "sell", amount:  600 },
+      { source: "fidelity", date: "2026-01-10", ticker: "VTI", actionType: "buy",  amount: -500, quantity: 2, price: 250 },
+      { source: "fidelity", date: "2026-01-11", ticker: "GS",  actionType: "sell", amount:  600, quantity: 2, price: 250 },
     ]);
   });
 
@@ -276,6 +276,7 @@ describe("normalizeInvestmentTxns", () => {
     expect(out).toHaveLength(2);
     expect(out.every((t) => t.source === "robinhood")).toBe(true);
     expect(out.map((t) => t.actionType)).toEqual(["buy", "deposit"]);
+    expect(out[0]).toMatchObject({ quantity: 1, price: 200 });
   });
 
   it("maps all Empower contributions to actionType='contribution'", () => {
@@ -285,8 +286,8 @@ describe("normalizeInvestmentTxns", () => {
     ];
     const out = normalizeInvestmentTxns([], [], e);
     expect(out).toEqual([
-      { source: "401k", date: "2026-01-15", ticker: "401k sp500", actionType: "contribution", amount: 450 },
-      { source: "401k", date: "2026-01-15", ticker: "401k tech",  actionType: "contribution", amount: 90  },
+      { source: "401k", date: "2026-01-15", ticker: "401k sp500", actionType: "contribution", amount: 450, quantity: 0, price: 0 },
+      { source: "401k", date: "2026-01-15", ticker: "401k tech",  actionType: "contribution", amount: 90,  quantity: 0, price: 0 },
     ]);
   });
 });

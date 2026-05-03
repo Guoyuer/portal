@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { groupTickers } from "./category-summary";
+import { groupTickers } from "./category-summary-model";
 import type { ApiTicker } from "@/lib/compute/computed-types";
 import { mkApiTicker as mkTicker, mkApiCategory as mkCategory } from "@/test/factories";
 

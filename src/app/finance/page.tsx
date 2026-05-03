@@ -67,14 +67,14 @@ function ActivityContent({
   startDate,
   snapshotDate,
   dailyTickers,
-  fidelityTxns,
+  investmentTxns,
 }: {
   activity: ReturnType<typeof useBundle>["activity"];
   groupedActivity: GroupedActivityResponse | null;
   startDate: string | null;
   snapshotDate: string | null;
   dailyTickers: ReturnType<typeof useBundle>["dailyTickers"];
-  fidelityTxns: ReturnType<typeof useBundle>["fidelityTxns"];
+  investmentTxns: ReturnType<typeof useBundle>["investmentTxns"];
 }) {
   const [grouped, setGrouped] = useState(true);
 
@@ -98,9 +98,9 @@ function ActivityContent({
         </label>
       </div>
       <div className="grid md:grid-cols-2 gap-6">
-        <TickerTable title="Buys by Symbol" data={buysBySymbol} startDate={startDate ?? undefined} endDate={snapshotDate ?? undefined} dailyTickers={dailyTickers} fidelityTxns={fidelityTxns} />
-        <TickerTable title="Sells by Symbol" data={sellsBySymbol} startDate={startDate ?? undefined} endDate={snapshotDate ?? undefined} dailyTickers={dailyTickers} fidelityTxns={fidelityTxns} />
-        <TickerTable title="Dividends by Symbol" data={dividendsBySymbol} startDate={startDate ?? undefined} endDate={snapshotDate ?? undefined} countLabel="Payments" dailyTickers={dailyTickers} fidelityTxns={fidelityTxns} />
+        <TickerTable title="Buys by Symbol" data={buysBySymbol} startDate={startDate ?? undefined} endDate={snapshotDate ?? undefined} dailyTickers={dailyTickers} investmentTxns={investmentTxns} />
+        <TickerTable title="Sells by Symbol" data={sellsBySymbol} startDate={startDate ?? undefined} endDate={snapshotDate ?? undefined} dailyTickers={dailyTickers} investmentTxns={investmentTxns} />
+        <TickerTable title="Dividends by Symbol" data={dividendsBySymbol} startDate={startDate ?? undefined} endDate={snapshotDate ?? undefined} countLabel="Payments" dailyTickers={dailyTickers} investmentTxns={investmentTxns} />
       </div>
     </SectionBody>
   );
@@ -140,7 +140,7 @@ export default function FinancePage() {
     categories, chartDaily, monthlyFlows,
     syncMeta,
     brushStart, brushEnd, defaultStartIndex, defaultEndIndex, onBrushChange,
-    dailyTickers, fidelityTxns,
+    dailyTickers, investmentTxns,
   } = tl;
   const colorByName = catColorByName(categories);
   const cfState = cashflowState(cashflow);
@@ -208,7 +208,7 @@ export default function FinancePage() {
           {crossCheck && !crossCheck.ok && unmatchedExpanded && (
             <UnmatchedPanel items={crossCheck.allUnmatched} />
           )}
-          <ActivityContent activity={activity} groupedActivity={groupedActivity} startDate={startDate} snapshotDate={snapshotDate} dailyTickers={dailyTickers} fidelityTxns={fidelityTxns} />
+          <ActivityContent activity={activity} groupedActivity={groupedActivity} startDate={startDate} snapshotDate={snapshotDate} dailyTickers={dailyTickers} investmentTxns={investmentTxns} />
         </section>
       </ErrorBoundary>
 

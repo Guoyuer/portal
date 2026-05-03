@@ -5,7 +5,7 @@ import { render, screen, cleanup } from "@testing-library/react";
 import { GroupChartDialog } from "./group-dialog";
 import { TransactionTable } from "../transaction-table";
 import { MarkerHoverPanel } from "../charts/marker-hover-panel";
-import type { FidelityTxn } from "@/lib/schemas";
+import type { InvestmentTxn } from "@/lib/compute/compute";
 import type { Selection } from "../ticker/ticker-markers";
 
 const matchMediaStub = (q: string) => ({
@@ -23,6 +23,8 @@ const matchMediaStub = (q: string) => ({
 // Return a minimal resolved state with a few price points.
 vi.mock("./ticker-chart", () => ({
   useTickerData: () => ({
+    status: "data",
+    symbol: "VOO",
     data: [
       { date: "2025-01-02", ts: Date.parse("2025-01-02"), close: 500 },
       { date: "2025-01-03", ts: Date.parse("2025-01-03"), close: 505 },
@@ -44,61 +46,65 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function makeTxn(symbol: string, runDate: string, actionType = "buy"): FidelityTxn {
-  return { runDate, actionType, symbol, amount: -1000, quantity: 5, price: 200 };
+function makeTxn(ticker: string, date: string, actionType: InvestmentTxn["actionType"] = "buy", source: InvestmentTxn["source"] = "fidelity"): InvestmentTxn {
+  return { source, date, actionType, ticker, amount: -1000, quantity: 5, price: 200 };
+}
+
+function renderGroupDialog(overrides: Partial<Parameters<typeof GroupChartDialog>[0]> = {}) {
+  return render(
+    <GroupChartDialog
+      groupKey="sp500"
+      dailyTickers={[]}
+      investmentTxns={[]}
+      onClose={() => {}}
+      {...overrides}
+    />,
+  );
 }
 
 // ── GroupChartDialog integration tests ──────────────────────────────────
 
 describe("GroupChartDialog", () => {
   it("renders group display name + constituent tickers", () => {
-    render(
-      <GroupChartDialog
-        groupKey="sp500"
-        dailyTickers={[]}
-        fidelityTxns={[]}
-        onClose={() => {}}
-      />,
-    );
+    renderGroupDialog();
     expect(screen.getByText("S&P 500")).toBeTruthy();
     expect(screen.getByText(/VOO.*IVV.*SPY/)).toBeTruthy();
   });
 
   it("renders Holdings label (not 'value') when daily data present", () => {
-    render(
-      <GroupChartDialog
-        groupKey="sp500"
-        dailyTickers={[
-          { date: "2025-01-02", ticker: "VOO", value: 10000, category: "", subtype: "", costBasis: 0, gainLoss: 0, gainLossPct: 0 },
-        ]}
-        fidelityTxns={[]}
-        onClose={() => {}}
-      />,
-    );
+    renderGroupDialog({
+      dailyTickers: [
+        { date: "2025-01-02", ticker: "VOO", value: 10000, category: "", subtype: "", costBasis: 0, gainLoss: 0, gainLossPct: 0 },
+      ],
+    });
     expect(screen.getByText(/Holdings/)).toBeTruthy();
   });
 
   it("transaction table shows only rows for group-member tickers", () => {
-    const txns: FidelityTxn[] = [
+    const txns: InvestmentTxn[] = [
       makeTxn("VOO", "2025-01-10"),
       makeTxn("QQQ", "2025-01-11"),   // not in sp500 group
       makeTxn("IVV", "2025-01-12"),
       makeTxn("AMZN", "2025-01-13"), // not in sp500 group
     ];
-    render(
-      <GroupChartDialog
-        groupKey="sp500"
-        dailyTickers={[]}
-        fidelityTxns={txns}
-        onClose={() => {}}
-      />,
-    );
+    renderGroupDialog({ investmentTxns: txns });
     // VOO and IVV should appear in the table
     expect(screen.getAllByText("Jan 10, 2025").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("Jan 12, 2025").length).toBeGreaterThanOrEqual(1);
     // QQQ and AMZN dates should NOT appear
     expect(screen.queryByText("Jan 11, 2025")).toBeNull();
     expect(screen.queryByText("Jan 13, 2025")).toBeNull();
+  });
+
+  it("shows normalized 401k group-member transactions in the detail table", () => {
+    renderGroupDialog({
+      investmentTxns: [
+        makeTxn("401k sp500", "2025-02-14", "contribution", "401k"),
+        makeTxn("QQQ", "2025-02-15", "buy", "fidelity"),
+      ],
+    });
+    expect(screen.getAllByText("Feb 14, 2025").length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText("Feb 15, 2025")).toBeNull();
   });
 });
 
