@@ -16,6 +16,8 @@ implementation guidance unless a current doc links to them for context.
   testing, rollback, and failure handling.
 - [`automation-setup.md`](automation-setup.md) - Windows Task Scheduler setup
   for unattended local sync and publish.
+- [`maintenance-simplification.md`](maintenance-simplification.md) - candidate
+  plan for reducing maintenance LOC, duplicate concepts, and mental load.
 - [`TODO.md`](TODO.md) - active near-term cleanup and product ideas only.
 
 ## Archive

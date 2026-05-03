@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 import sqlite3
 import tempfile
-from datetime import UTC, datetime
+from contextlib import closing
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
@@ -25,75 +26,62 @@ def _extra(ss: str, sv: float, ts: str | None, tv: float, bs: str, bv: float) ->
     return json.dumps({"curr": {"ss": ss, "sv": sv, "ts": ts, "tv": tv, "bs": bs, "bv": bv}})
 
 
+def _record(
+    *,
+    date_: str = "2026-01-01",
+    type_: str = "income",
+    category: str = "Salary",
+    amount: float = 100.0,
+    account_from: str = "",
+    account_to: str = "",
+    note: str = "",
+) -> dict:
+    return {
+        "date": date_,
+        "type": type_,
+        "category": category,
+        "amount": amount,
+        "account_from": account_from,
+        "account_to": account_to,
+        "note": note,
+    }
+
+
+def _rows(db_path: Path, sql: str) -> list[tuple]:
+    with closing(sqlite3.connect(db_path)) as conn:
+        return conn.execute(sql).fetchall()
+
+
+def _scalar(db_path: Path, sql: str) -> object:
+    return _rows(db_path, sql)[0][0]
+
+
 class TestParseQjAmount:
-    def test_null_string_returns_money(self):
-        assert parse_qj_amount(100.0, "null") == 100.0
-
-    def test_none_returns_money(self):
-        assert parse_qj_amount(100.0, None) == 100.0
-
-    def test_cny_expense_uses_bv(self):
-        """CNY expense with ts=None: money=2590.52 (CNY), bv=358.0 (USD)."""
-        extra = _extra("CNY", 2590.52, None, 0.0, "USD", 358.0)
-        assert parse_qj_amount(2590.52, extra) == 358.0
-
-    def test_cny_to_usd_transfer_uses_bv(self):
-        """CNY→USD transfer: money=5000 (CNY), bv=692 (USD)."""
-        extra = _extra("CNY", 5000.0, "USD", 692.0, "USD", 692.0)
-        assert parse_qj_amount(5000.0, extra) == 692.0
-
-    def test_cny_to_cny_transfer_bv_converted(self):
-        """CNY→CNY transfer where bv has USD conversion (bv != sv)."""
-        extra = _extra("CNY", 10000.0, "CNY", 10000.0, "USD", 1385.0)
-        assert parse_qj_amount(10000.0, extra) == 1385.0
-
-    def test_cny_to_cny_transfer_bv_equals_sv(self):
-        """CNY→CNY transfer where bv == sv (no conversion happened).
-
-        Should fall back to money since bv == sv means no real conversion.
-        """
-        extra = _extra("CNY", 7000.0, "CNY", 7000.0, "USD", 7000.0)
-        # bv == sv → no conversion detected → fallback to money
-        assert parse_qj_amount(7000.0, extra) == 7000.0
-
-    def test_usd_source_falls_back_to_money(self):
-        """USD→CNY transfer: ss=USD, code should use money directly."""
-        extra = _extra("USD", 2000.0, "CNY", 14366.0, "USD", 2000.0)
-        assert parse_qj_amount(2000.0, extra) == 2000.0
-
-    def test_malformed_json_returns_money(self):
-        assert parse_qj_amount(50.0, "not json") == 50.0
-
-    def test_extra_without_curr_returns_money(self):
-        assert parse_qj_amount(50.0, json.dumps({"tags": None})) == 50.0
-
-    def test_bv_none_returns_money(self):
-        extra = json.dumps({"curr": {"ss": "CNY", "sv": 100.0, "bs": "USD", "bv": None}})
-        assert parse_qj_amount(100.0, extra) == 100.0
-
-    def test_curr_not_dict_returns_money(self):
-        """curr present but not a dict (e.g. int, list)."""
-        assert parse_qj_amount(50.0, json.dumps({"curr": 123})) == 50.0
-        assert parse_qj_amount(50.0, json.dumps({"curr": ["CNY"]})) == 50.0
-
-    def test_curr_missing_fields_returns_money(self):
-        """curr dict but missing required fields."""
-        assert parse_qj_amount(50.0, json.dumps({"curr": {"ss": "CNY"}})) == 50.0
-        assert parse_qj_amount(50.0, json.dumps({"curr": {"ss": "CNY", "bs": "USD"}})) == 50.0
-        assert parse_qj_amount(50.0, json.dumps({"curr": {"ss": "CNY", "bs": "USD", "bv": 7.0}})) == 50.0
-
-    def test_ss_equals_bs_returns_money(self):
-        """Same source and base currency — no conversion needed."""
-        extra = _extra("USD", 100.0, None, 0.0, "USD", 100.0)
-        assert parse_qj_amount(100.0, extra) == 100.0
-
-    def test_bv_sv_within_tolerance_returns_money(self):
-        """bv and sv differ by less than tolerance — treat as unconverted."""
-        extra = _extra("CNY", 100.0, None, 0.0, "USD", 100.005)
-        assert parse_qj_amount(100.0, extra) == 100.0
-
-    def test_empty_string_returns_money(self):
-        assert parse_qj_amount(50.0, "") == 50.0
+    @pytest.mark.parametrize(
+        ("money", "extra", "expected"),
+        [
+            pytest.param(100.0, "null", 100.0, id="null-string"),
+            pytest.param(100.0, None, 100.0, id="none"),
+            pytest.param(2590.52, _extra("CNY", 2590.52, None, 0.0, "USD", 358.0), 358.0, id="cny-expense-bv"),
+            pytest.param(5000.0, _extra("CNY", 5000.0, "USD", 692.0, "USD", 692.0), 692.0, id="cny-usd-transfer"),
+            pytest.param(10000.0, _extra("CNY", 10000.0, "CNY", 10000.0, "USD", 1385.0), 1385.0, id="cny-cny-bv"),
+            pytest.param(7000.0, _extra("CNY", 7000.0, "CNY", 7000.0, "USD", 7000.0), 7000.0, id="cny-cny-unconverted"),
+            pytest.param(2000.0, _extra("USD", 2000.0, "CNY", 14366.0, "USD", 2000.0), 2000.0, id="usd-source"),
+            pytest.param(50.0, "not json", 50.0, id="malformed-json"),
+            pytest.param(50.0, json.dumps({"tags": None}), 50.0, id="missing-curr"),
+            pytest.param(100.0, json.dumps({"curr": {"ss": "CNY", "sv": 100.0, "bs": "USD", "bv": None}}), 100.0, id="bv-none"),
+            pytest.param(50.0, json.dumps({"curr": 123}), 50.0, id="curr-int"),
+            pytest.param(50.0, json.dumps({"curr": ["CNY"]}), 50.0, id="curr-list"),
+            pytest.param(50.0, json.dumps({"curr": {"ss": "CNY"}}), 50.0, id="curr-missing-bs"),
+            pytest.param(50.0, json.dumps({"curr": {"ss": "CNY", "bs": "USD"}}), 50.0, id="curr-missing-bv"),
+            pytest.param(50.0, json.dumps({"curr": {"ss": "CNY", "bs": "USD", "bv": 7.0}}), 50.0, id="curr-missing-sv"),
+            pytest.param(100.0, _extra("USD", 100.0, None, 0.0, "USD", 100.0), 100.0, id="same-currency"),
+            pytest.param(100.0, _extra("CNY", 100.0, None, 0.0, "USD", 100.005), 100.0, id="bv-sv-tolerance"),
+            pytest.param(50.0, "", 50.0, id="empty-string"),
+        ],
+    )
+    def test_amount_parser_cases(self, money: float, extra: str | None, expected: float) -> None:
+        assert parse_qj_amount(money, extra) == expected
 
     # ── Unconverted-label data quirk ─────────────────────────────────────
     # Qianji sometimes labels ``bs`` as the base currency (USD) but never
@@ -101,27 +89,47 @@ class TestParseQjAmount:
     # When the user supplies a live CNY rate and the source is CNY,
     # ``parse_qj_amount`` converts ``money`` (source CNY) to USD.
 
-    def test_unconverted_cny_to_usd_with_rate_converts(self):
-        """ss=CNY bs=USD bv==sv=5000 — with rate, convert money/rate."""
-        extra = _extra("CNY", 5000.0, None, 0.0, "USD", 5000.0)
-        # 5000 CNY / 7.0 ≈ 714.2857
-        assert parse_qj_amount(5000.0, extra, cny_rate=7.0) == pytest.approx(714.2857, rel=1e-3)
-
-    def test_unconverted_cny_to_usd_without_rate_returns_money(self):
-        """Same quirk but no rate → logs warning, falls back to money unchanged."""
-        extra = _extra("CNY", 5000.0, None, 0.0, "USD", 5000.0)
-        # No rate → stays at 5000 (the old, wrong-but-safe behavior)
-        assert parse_qj_amount(5000.0, extra) == 5000.0
-
-    def test_unconverted_non_cny_quirk_with_rate_returns_money(self):
-        """Rate is CNY-specific — EUR→USD quirk with rate still falls back."""
-        extra = _extra("EUR", 100.0, None, 0.0, "USD", 100.0)
-        assert parse_qj_amount(100.0, extra, cny_rate=7.0) == 100.0
-
-    def test_unconverted_quirk_zero_rate_returns_money(self):
-        """cny_rate=0 is falsy → skip conversion (division would blow up)."""
-        extra = _extra("CNY", 5000.0, None, 0.0, "USD", 5000.0)
-        assert parse_qj_amount(5000.0, extra, cny_rate=0.0) == 5000.0
+    @pytest.mark.parametrize(
+        ("money", "extra", "cny_rate", "expected"),
+        [
+            pytest.param(
+                5000.0,
+                _extra("CNY", 5000.0, None, 0.0, "USD", 5000.0),
+                7.0,
+                pytest.approx(714.2857, rel=1e-3),
+                id="cny-rate-converts",
+            ),
+            pytest.param(
+                5000.0,
+                _extra("CNY", 5000.0, None, 0.0, "USD", 5000.0),
+                None,
+                5000.0,
+                id="cny-no-rate",
+            ),
+            pytest.param(
+                100.0,
+                _extra("EUR", 100.0, None, 0.0, "USD", 100.0),
+                7.0,
+                100.0,
+                id="non-cny-rate-ignored",
+            ),
+            pytest.param(
+                5000.0,
+                _extra("CNY", 5000.0, None, 0.0, "USD", 5000.0),
+                0.0,
+                5000.0,
+                id="zero-rate",
+            ),
+        ],
+    )
+    def test_unconverted_label_quirks(
+        self,
+        money: float,
+        extra: str,
+        cny_rate: float | None,
+        expected: object,
+    ) -> None:
+        assert parse_qj_amount(money, extra, cny_rate=cny_rate) == expected
 
     # ── Historical-rate lookup (per-bill-date) ───────────────────────────
     # The live-rate fallback used to revalue every quirk bill every build
@@ -132,12 +140,11 @@ class TestParseQjAmount:
 
     def test_unconverted_cny_uses_historical_rate_when_bill_date_provided(self):
         """With bill_date + historical_cny_rates, use that date's rate."""
-        from datetime import date as _date
         extra = _extra("CNY", 7000.0, None, 0.0, "USD", 7000.0)
-        rates = {_date(2024, 5, 18): 7.2345, _date(2026, 4, 18): 6.8164}
+        rates = {date(2024, 5, 18): 7.2345, date(2026, 4, 18): 6.8164}
         # Bill is on 2024-05-18 → uses 7.2345, NOT today's 6.8164
         assert parse_qj_amount(
-            7000.0, extra, bill_date=_date(2024, 5, 18), historical_cny_rates=rates,
+            7000.0, extra, bill_date=date(2024, 5, 18), historical_cny_rates=rates,
         ) == pytest.approx(7000.0 / 7.2345, rel=1e-6)
 
     def test_unconverted_cny_stable_across_live_rate_changes(self):
@@ -148,9 +155,8 @@ class TestParseQjAmount:
         historical bill. This eliminates the need for a cross-run stable
         identity (source_id) in the reporting snapshot.
         """
-        from datetime import date as _date
         extra = _extra("CNY", 7000.0, None, 0.0, "USD", 7000.0)
-        bill_date = _date(2024, 5, 18)
+        bill_date = date(2024, 5, 18)
         historical = {bill_date: 7.2345}
 
         # Today's live rate fluctuates; history is fixed.
@@ -165,10 +171,9 @@ class TestParseQjAmount:
         """Qianji bills are timestamped to wall-clock; yfinance only has
         weekday close rates. For a Saturday bill, fall back to Friday's rate.
         """
-        from datetime import date as _date
         extra = _extra("CNY", 1000.0, None, 0.0, "USD", 1000.0)
-        friday = _date(2024, 5, 17)  # 2024-05-18 is a Saturday
-        saturday = _date(2024, 5, 18)
+        friday = date(2024, 5, 17)  # 2024-05-18 is a Saturday
+        saturday = date(2024, 5, 18)
         rates = {friday: 7.2345}  # only Friday present
         result = parse_qj_amount(
             1000.0, extra, bill_date=saturday, historical_cny_rates=rates,
@@ -177,12 +182,11 @@ class TestParseQjAmount:
 
     def test_unconverted_cny_falls_back_to_scalar_when_no_historical_match(self):
         """If historical_cny_rates has no rate near bill_date, use scalar fallback."""
-        from datetime import date as _date
         extra = _extra("CNY", 5000.0, None, 0.0, "USD", 5000.0)
         # Empty historical dict + bill_date → scalar rate used
         result = parse_qj_amount(
             5000.0, extra, cny_rate=7.0,
-            bill_date=_date(2024, 5, 18), historical_cny_rates={},
+            bill_date=date(2024, 5, 18), historical_cny_rates={},
         )
         assert result == pytest.approx(5000.0 / 7.0, rel=1e-6)
 
@@ -200,37 +204,42 @@ class TestParseQjAmount:
 class TestParseQjTargetAmount:
     """Target-currency parser: returns tv for cross-currency transfers, else money."""
 
-    def test_no_extra(self) -> None:
-        assert parse_qj_target_amount(100.0, None) == 100.0
-        assert parse_qj_target_amount(100.0, "null") == 100.0
-
-    def test_invalid_json(self) -> None:
-        assert parse_qj_target_amount(100.0, "not json") == 100.0
-
-    def test_same_currency(self) -> None:
-        """Same source/target currency returns original money."""
-        extra = '{"curr": {"ss": "USD", "ts": "USD", "tv": 100}}'
-        assert parse_qj_target_amount(100.0, extra) == 100.0
-
-    def test_cross_currency(self) -> None:
-        """Cross-currency returns tv from extra."""
-        extra = '{"curr": {"ss": "USD", "ts": "CNY", "tv": 723.5}}'
-        assert parse_qj_target_amount(100.0, extra) == 723.5
-
-    def test_missing_curr_key(self) -> None:
-        extra = '{"other": "data"}'
-        assert parse_qj_target_amount(100.0, extra) == 100.0
-
-    def test_tv_zero_returns_money(self) -> None:
-        """tv <= 0 should fall back to money."""
-        extra = '{"curr": {"ss": "USD", "ts": "CNY", "tv": 0}}'
-        assert parse_qj_target_amount(100.0, extra) == 100.0
+    @pytest.mark.parametrize(
+        ("extra", "expected"),
+        [
+            pytest.param(None, 100.0, id="none"),
+            pytest.param("null", 100.0, id="null"),
+            pytest.param("not json", 100.0, id="invalid-json"),
+            pytest.param('{"curr": {"ss": "USD", "ts": "USD", "tv": 100}}', 100.0, id="same-currency"),
+            pytest.param('{"curr": {"ss": "USD", "ts": "CNY", "tv": 723.5}}', 723.5, id="cross-currency"),
+            pytest.param('{"other": "data"}', 100.0, id="missing-curr"),
+            pytest.param('{"curr": {"ss": "USD", "ts": "CNY", "tv": 0}}', 100.0, id="tv-zero"),
+        ],
+    )
+    def test_target_amount_cases(self, extra: str | None, expected: float) -> None:
+        assert parse_qj_target_amount(100.0, extra) == expected
 
 
 # ── _load_records ─────────────────────────────────────────────────────────────
 
 
-def _make_db(conn: sqlite3.Connection, bills: list[tuple], categories: list[tuple] | None = None):
+def _bill(
+    id_: int,
+    type_: int = 0,
+    money: float = 10.0,
+    fromact: str | None = "A",
+    targetact: str | None = None,
+    remark: str | None = None,
+    ts: int | None = None,
+    cateid: int | None = None,
+    extra: str = "null",
+    status: int = 1,
+) -> tuple:
+    timestamp = ts if ts is not None else int(datetime(2025, 1, 1, tzinfo=UTC).timestamp())
+    return (id_, type_, money, fromact, targetact, remark, timestamp, cateid, extra, status)
+
+
+def _make_db(conn: sqlite3.Connection, bills: list[tuple], categories: list[tuple] | None = None) -> None:
     """Create user_bill and category tables with test data."""
     conn.execute(
         "CREATE TABLE category (id INTEGER PRIMARY KEY, name TEXT)"
@@ -243,20 +252,33 @@ def _make_db(conn: sqlite3.Connection, bills: list[tuple], categories: list[tupl
     )
     for cat_id, cat_name in (categories or []):
         conn.execute("INSERT INTO category VALUES (?, ?)", (cat_id, cat_name))
-    for bill in bills:
-        conn.execute(
-            "INSERT INTO user_bill (id, type, money, fromact, targetact, remark, time, cateid, extra, status) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            bill,
-        )
+    conn.executemany(
+        "INSERT INTO user_bill (id, type, money, fromact, targetact, remark, time, cateid, extra, status) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        bills,
+    )
+
+
+def _records_for(
+    bills: list[tuple],
+    categories: list[tuple] | None = None,
+    **kwargs: object,
+) -> list[dict]:
+    conn = sqlite3.connect(":memory:")
+    try:
+        _make_db(conn, bills, categories)
+        return _load_records(conn, **kwargs)
+    finally:
+        conn.close()
 
 
 class TestLoadRecords:
     def test_basic_expense(self):
-        conn = sqlite3.connect(":memory:")
         ts = int(datetime(2025, 1, 15, 12, 0, tzinfo=UTC).timestamp())
-        _make_db(conn, [(1, 0, 50.0, "Chase Debit", None, "lunch", ts, 10, "null", 1)], [(10, "Food")])
-        records = _load_records(conn)
+        records = _records_for(
+            [_bill(1, money=50.0, fromact="Chase Debit", remark="lunch", ts=ts, cateid=10)],
+            [(10, "Food")],
+        )
         assert len(records) == 1
         r = records[0]
         assert r["type"] == "expense"
@@ -267,10 +289,7 @@ class TestLoadRecords:
         assert r["note"] == "lunch"
 
     def test_null_fields_become_empty_string(self):
-        conn = sqlite3.connect(":memory:")
-        ts = int(datetime(2025, 1, 1, tzinfo=UTC).timestamp())
-        _make_db(conn, [(1, 0, 10.0, None, None, None, ts, None, "null", 1)])
-        records = _load_records(conn)
+        records = _records_for([_bill(1, fromact=None)])
         r = records[0]
         assert r["account_from"] == ""
         assert r["account_to"] == ""
@@ -278,45 +297,33 @@ class TestLoadRecords:
         assert r["category"] == ""
 
     def test_unknown_type_skipped(self):
-        conn = sqlite3.connect(":memory:")
-        ts = int(datetime(2025, 1, 1, tzinfo=UTC).timestamp())
-        _make_db(conn, [
-            (1, 0, 10.0, "A", None, None, ts, None, "null", 1),  # expense
-            (2, 99, 20.0, "B", None, None, ts, None, "null", 1),  # unknown
+        records = _records_for([
+            _bill(1, type_=0, fromact="A"),
+            _bill(2, type_=99, money=20.0, fromact="B"),
         ])
-        records = _load_records(conn)
         assert len(records) == 1
         assert records[0]["id"] == "1"
 
     def test_all_four_types(self):
-        conn = sqlite3.connect(":memory:")
-        ts = int(datetime(2025, 1, 1, tzinfo=UTC).timestamp())
-        _make_db(conn, [
-            (1, 0, 10.0, "A", None, None, ts, None, "null", 1),
-            (2, 1, 20.0, "A", None, None, ts, None, "null", 1),
-            (3, 2, 30.0, "A", "B", None, ts, None, "null", 1),
-            (4, 3, 40.0, "A", None, None, ts, None, "null", 1),
+        records = _records_for([
+            _bill(1, type_=0, money=10.0),
+            _bill(2, type_=1, money=20.0),
+            _bill(3, type_=2, money=30.0, targetact="B"),
+            _bill(4, type_=3, money=40.0),
         ])
-        records = _load_records(conn)
         types = [r["type"] for r in records]
         assert types == ["expense", "income", "transfer", "repayment"]
 
     def test_cny_amount_converted(self):
-        conn = sqlite3.connect(":memory:")
-        ts = int(datetime(2025, 1, 1, tzinfo=UTC).timestamp())
         extra = _extra("CNY", 1000.0, None, 0.0, "USD", 139.0)
-        _make_db(conn, [(1, 0, 1000.0, "Alipay", None, None, ts, None, extra, 1)])
-        records = _load_records(conn)
+        records = _records_for([_bill(1, money=1000.0, fromact="Alipay", extra=extra)])
         assert records[0]["amount"] == 139.0
 
     def test_inactive_bills_excluded(self):
-        conn = sqlite3.connect(":memory:")
-        ts = int(datetime(2025, 1, 1, tzinfo=UTC).timestamp())
-        _make_db(conn, [
-            (1, 0, 10.0, "A", None, "active", ts, None, "null", 1),
-            (2, 0, 20.0, "A", None, "deleted", ts, None, "null", 0),
+        records = _records_for([
+            _bill(1, remark="active"),
+            _bill(2, money=20.0, remark="deleted", status=0),
         ])
-        records = _load_records(conn)
         assert len(records) == 1
         assert records[0]["note"] == "active"
 
@@ -326,31 +333,27 @@ class TestLoadRecords:
         Without this hook, cross-currency expenses in that shape bypass the
         rate entirely and inflate the USD cashflow figure by ~7×.
         """
-        conn = sqlite3.connect(":memory:")
-        ts = int(datetime(2025, 1, 1, tzinfo=UTC).timestamp())
         extra = _extra("CNY", 5000.0, None, 0.0, "USD", 5000.0)  # quirk
-        _make_db(conn, [(1, 0, 5000.0, "Alipay", None, None, ts, None, extra, 1)])
+        bills = [_bill(1, money=5000.0, fromact="Alipay", extra=extra)]
         # Without rate: warn + fall back to money (5000).
-        assert _load_records(conn)[0]["amount"] == 5000.0
+        assert _records_for(bills)[0]["amount"] == 5000.0
         # With rate: convert 5000 CNY / 7.0 ≈ 714.29.
-        assert _load_records(conn, cny_rate=7.0)[0]["amount"] == pytest.approx(714.2857, rel=1e-3)
+        assert _records_for(bills, cny_rate=7.0)[0]["amount"] == pytest.approx(714.2857, rel=1e-3)
 
     def test_balance_adjustment_rows_skipped(self):
         """Manual reconciliation rows (remark 'Balance adjustment(X ~ Y)'
         or short 'adjust') are not real cashflow — they should be dropped
         at ingest so expense/income aggregates aren't inflated.
         """
-        conn = sqlite3.connect(":memory:")
         ts = int(datetime(2025, 1, 15, 12, 0, tzinfo=UTC).timestamp())
-        _make_db(conn, [
-            (1, 0, 10.0, "A", None, "groceries", ts, None, "null", 1),
-            (2, 0, 500.0, "A", None, "Balance adjustment(29,338.34 ~ 25,524.00)", ts, None, "null", 1),
-            (3, 0, 6.0, "A", None, "adjust", ts, None, "null", 1),
-            (4, 0, 7.0, "A", None, "ADJUST", ts, None, "null", 1),         # case-insensitive
-            (5, 0, 8.0, "A", None, "  balance adjustment (y~x)", ts, None, "null", 1),  # leading space
-            (6, 0, 9.0, "A", None, "maladjusted dinner", ts, None, "null", 1),  # word-boundary: NOT a match
+        records = _records_for([
+            _bill(1, remark="groceries", ts=ts),
+            _bill(2, money=500.0, remark="Balance adjustment(29,338.34 ~ 25,524.00)", ts=ts),
+            _bill(3, money=6.0, remark="adjust", ts=ts),
+            _bill(4, money=7.0, remark="ADJUST", ts=ts),
+            _bill(5, money=8.0, remark="  balance adjustment (y~x)", ts=ts),
+            _bill(6, money=9.0, remark="maladjusted dinner", ts=ts),
         ])
-        records = _load_records(conn)
         notes = [r["note"] for r in records]
         assert "groceries" in notes
         assert "maladjusted dinner" in notes  # substring "adjust" but not a prefix → kept
@@ -366,11 +369,9 @@ class TestLoadRecords:
         in PT it stays on the 9th. The pipeline must pick PT so daily
         cashflow matches the user's experience.
         """
-        conn = sqlite3.connect(":memory:")
         # 2026-04-10 06:30 UTC == 2026-04-09 23:30 PT (PDT, UTC-7)
         ts = int(datetime(2026, 4, 10, 6, 30, tzinfo=UTC).timestamp())
-        _make_db(conn, [(1, 0, 15.0, "A", None, "late-night snack", ts, None, "null", 1)])
-        records = _load_records(conn)
+        records = _records_for([_bill(1, money=15.0, remark="late-night snack", ts=ts)])
         # In PT this is 2026-04-09, not 2026-04-10 (as UTC would say)
         assert records[0]["date"].startswith("2026-04-09")
 
@@ -378,30 +379,29 @@ class TestLoadRecords:
 # ── _load_balances ────────────────────────────────────────────────────────────
 
 
+def _balances_for(rows: list[tuple[str, float, str | None, int]]) -> dict[str, tuple[float, str]]:
+    conn = sqlite3.connect(":memory:")
+    try:
+        conn.execute("CREATE TABLE user_asset (name TEXT, money NUMBER, currency TEXT, status INTEGER)")
+        conn.executemany("INSERT INTO user_asset VALUES (?, ?, ?, ?)", rows)
+        return _load_balances(conn)
+    finally:
+        conn.close()
+
+
 class TestLoadBalances:
     def test_active_accounts_only(self):
-        conn = sqlite3.connect(":memory:")
-        conn.execute("CREATE TABLE user_asset (name TEXT, money NUMBER, currency TEXT, status INTEGER)")
-        conn.execute("INSERT INTO user_asset VALUES ('Chase', 5000, 'USD', 0)")
-        conn.execute("INSERT INTO user_asset VALUES ('Closed', 0, 'USD', 2)")
-        balances = _load_balances(conn)
+        balances = _balances_for([("Chase", 5000, "USD", 0), ("Closed", 0, "USD", 2)])
         assert "Chase" in balances
         assert "Closed" not in balances
 
     def test_returns_balance_and_currency(self):
-        conn = sqlite3.connect(":memory:")
-        conn.execute("CREATE TABLE user_asset (name TEXT, money NUMBER, currency TEXT, status INTEGER)")
-        conn.execute("INSERT INTO user_asset VALUES ('Chase', 5000.50, 'USD', 0)")
-        conn.execute("INSERT INTO user_asset VALUES ('Alipay', 70000, 'CNY', 0)")
-        balances = _load_balances(conn)
+        balances = _balances_for([("Chase", 5000.50, "USD", 0), ("Alipay", 70000, "CNY", 0)])
         assert balances["Chase"] == (5000.50, "USD")
         assert balances["Alipay"] == (70000, "CNY")
 
     def test_null_currency_defaults_to_usd(self):
-        conn = sqlite3.connect(":memory:")
-        conn.execute("CREATE TABLE user_asset (name TEXT, money NUMBER, currency TEXT, status INTEGER)")
-        conn.execute("INSERT INTO user_asset VALUES ('Old', 100, NULL, 0)")
-        balances = _load_balances(conn)
+        balances = _balances_for([("Old", 100, None, 0)])
         assert balances["Old"] == (100, "USD")
 
 

@@ -68,7 +68,7 @@ cd worker && npx wrangler dev --local
 cd worker && npx wrangler deploy
 
 # Python pipeline
-cd pipeline && .venv/Scripts/python.exe -m pytest -q
+cd pipeline && .venv/Scripts/python.exe -m pytest -q -n 4
 cd pipeline && .venv/Scripts/python.exe -m mypy etl/ --strict --ignore-missing-imports
 cd pipeline && .venv/Scripts/python.exe -m ruff check .
 
@@ -98,6 +98,7 @@ cd worker && npx wrangler dev --local
 npm install
 cd pipeline && python -m venv .venv
 cd pipeline && .venv/Scripts/python.exe -m pip install -r requirements.txt
+cd pipeline && .venv/Scripts/python.exe -m pip install pytest pytest-cov pytest-xdist mypy ruff hypothesis
 cd worker && npm install
 ```
 
@@ -167,7 +168,7 @@ portal/
 2. Worker: configure `worker/wrangler.toml` binding `PORTAL_DATA` to `portal-data`, then deploy `portal-api`.
 3. Pages: set `NEXT_PUBLIC_TIMELINE_URL=https://portal.guoyuer.com/api`.
 4. Access: protect `portal.guoyuer.com/*` with the Google allow-list.
-5. Pipeline: copy `pipeline/config.example.json` to `pipeline/config.json`; configure `pipeline/.env` for optional SMTP/FRED settings.
+5. Pipeline: copy `pipeline/config.example.json` to `pipeline/config.json`, add every held ticker/account mapping, and configure `pipeline/.env` for optional SMTP/FRED settings.
 6. First publish: build SQLite, export/verify artifacts, publish to remote R2, then deploy the Worker.
 
 ## Notes

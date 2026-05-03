@@ -66,10 +66,12 @@ def _silence_logs(caplog):
     # Clear handlers attached by setup_logging() in prior tests.
     for h in list(logging.getLogger().handlers):
         logging.getLogger().removeHandler(h)
+        h.close()
     caplog.set_level(logging.INFO)
     yield
     for h in list(logging.getLogger().handlers):
         logging.getLogger().removeHandler(h)
+        h.close()
 
 
 # ── changes_detected() ────────────────────────────────────────────────────────
@@ -750,96 +752,49 @@ class TestEmailNotifications:
 
 class TestExtractValidationWarnings:
     def setup_method(self) -> None:
-        # Start each test with an empty capture buffer so "buffer-primary"
-        # and "log-file-fallback" paths are both exercised cleanly.
         runner._reset_script_output_buffer()
 
     def teardown_method(self) -> None:
         runner._reset_script_output_buffer()
 
-    def test_returns_empty_when_log_missing(self, tmp_path):
-        assert notify.extract_validation_warnings(tmp_path / "nope.log") == []
+    def test_returns_empty_without_buffer(self):
+        assert notify.extract_validation_warnings() == []
 
-    def test_parses_warning_lines(self, tmp_path):
-        log = tmp_path / "sync.log"
-        log.write_text(
-            "2026-04-12 INFO [2] build\n"
-            "2026-04-12 WARNING: day_over_day 2023-07-04 -> 2023-07-05: 15.7% change\n"
-            "2026-04-12 INFO done\n"
-            "2026-04-12 WARNING date_gaps 8-day gap between dates\n",
-            encoding="utf-8",
-        )
-        warnings = notify.extract_validation_warnings(log)
+    def test_parses_warning_lines(self):
+        warnings = notify.extract_validation_warnings([
+            "2026-04-12 INFO [2] build",
+            "2026-04-12 WARNING: day_over_day 2023-07-04 -> 2023-07-05: 15.7% change",
+            "2026-04-12 INFO done",
+            "2026-04-12 WARNING date_gaps 8-day gap between dates",
+        ])
         assert len(warnings) == 2
         assert "15.7%" in warnings[0]
         assert "date_gaps" in warnings[1]
 
-    def test_skips_healthcheck_failures(self, tmp_path):
-        log = tmp_path / "sync.log"
-        log.write_text(
-            "2026-04-12 WARNING: healthcheck ping failed (ignored): network down\n",
-            encoding="utf-8",
-        )
-        assert notify.extract_validation_warnings(log) == []
+    def test_skips_healthcheck_failures(self):
+        assert notify.extract_validation_warnings([
+            "2026-04-12 WARNING: healthcheck ping failed (ignored): network down",
+        ]) == []
 
-    # PR-S8 Bug 1 regression: per-run scoping + dedup
-    def test_extract_warnings_per_run_scope_from_log_banner(self, tmp_path):
-        """Log file containing 2 runs' worth of WARNINGs → only the current
-        (second) run's warnings are returned by the banner-scoped parser.
-
-        This covers the case where the in-memory capture buffer is empty
-        (e.g. a wrapper tool re-reads the log file directly); the function
-        should still scope to the *last* banner.
-        """
-        banner = "=" * 60
-        log = tmp_path / "sync-2026-04-12.log"
-        log.write_text(
-            # ── First run (stale, should be ignored) ──
-            f"2026-04-12T08:00:00 {banner}\n"
-            "2026-04-12T08:00:00   Portal Sync\n"
-            f"2026-04-12T08:00:00 {banner}\n"
-            "2026-04-12T08:00:01 WARNING: OLD_RUN day_over_day 2020-01-01 -> 2020-01-02: 99.9% change\n"
-            "2026-04-12T08:00:02 INFO done\n"
-            # ── Second run (current) ──
-            f"2026-04-12T12:00:00 {banner}\n"
-            "2026-04-12T12:00:00   Portal Sync\n"
-            f"2026-04-12T12:00:00 {banner}\n"
-            "2026-04-12T12:00:01 WARNING: CURRENT day_over_day 2023-07-04 -> 2023-07-05: 15.7% change\n",
-            encoding="utf-8",
-        )
-        warnings = notify.extract_validation_warnings(log)
-        assert len(warnings) == 1
-        assert "CURRENT" in warnings[0]
-        assert "OLD_RUN" not in warnings[0]
-
-    def test_extract_warnings_dedup(self, tmp_path):
+    def test_extract_warnings_dedup(self):
         """Exact-duplicate WARNING lines within the current run collapse to one."""
-        log = tmp_path / "sync.log"
-        log.write_text(
-            "2026-04-12T12:00:01 WARNING: day_over_day 2023-07-04 -> 2023-07-05: 15.7% change\n"
-            "2026-04-12T12:00:02 WARNING: day_over_day 2023-07-04 -> 2023-07-05: 15.7% change\n"
-            "2026-04-12T12:00:03 WARNING: day_over_day 2023-07-04 -> 2023-07-05: 15.7% change\n",
-            encoding="utf-8",
-        )
-        warnings = notify.extract_validation_warnings(log)
+        warnings = notify.extract_validation_warnings([
+            "2026-04-12T12:00:01 WARNING: day_over_day 2023-07-04 -> 2023-07-05: 15.7% change",
+            "2026-04-12T12:00:02 WARNING: day_over_day 2023-07-04 -> 2023-07-05: 15.7% change",
+            "2026-04-12T12:00:03 WARNING: day_over_day 2023-07-04 -> 2023-07-05: 15.7% change",
+        ])
         assert len(warnings) == 1
         assert "15.7%" in warnings[0]
 
-    def test_extract_warnings_uses_capture_buffer_when_available(self):
-        """In-memory capture buffer is preferred over the log file (which may
-        contain warnings from older runs on the same day)."""
-        # Simulate what run_python_script would append across one run, then
-        # read the buffer and pass it to the extractor.
+    def test_extract_warnings_uses_capture_buffer(self):
+        """Simulate run_python_script appending output during one run."""
         runner._SCRIPT_OUTPUT_BUFFER.extend([
             "2026-04-12T12:00:00 INFO [2] build",
             "2026-04-12T12:00:01 WARNING: day_over_day 2023-07-04 -> 2023-07-05: 15.7% change",
             "2026-04-12T12:00:01 WARNING: day_over_day 2023-07-04 -> 2023-07-05: 15.7% change",
             "2026-04-12T12:00:02 INFO done",
         ])
-        # log_file is ignored when the buffer is populated.
-        warnings = notify.extract_validation_warnings(
-            log_file=None, buffer=runner.get_script_output_buffer(),
-        )
+        warnings = notify.extract_validation_warnings(runner.get_script_output_buffer())
         assert len(warnings) == 1  # deduped
         assert "15.7%" in warnings[0]
 

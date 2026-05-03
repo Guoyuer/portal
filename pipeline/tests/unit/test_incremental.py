@@ -213,6 +213,7 @@ class TestBuildRefreshWindowOrchestration:
             return []
 
         monkeypatch.setattr(build_mod, "compute_daily_allocation", _fake_compute)
+        monkeypatch.setattr(build_mod, "load_all_from_db", lambda *a, **kw: [])
         monkeypatch.setattr(build_mod, "precompute_market", lambda _p: None)
         monkeypatch.setattr(build_mod, "precompute_holdings_detail", lambda _p: None)
 
@@ -253,6 +254,7 @@ class TestBuildRefreshWindowOrchestration:
                                 "crypto": 5500, "safe_net": 22000, "liabilities": 0,
                                 "tickers": [],
                             }])
+        monkeypatch.setattr(build_mod, "load_all_from_db", lambda *a, **kw: [])
         monkeypatch.setattr(build_mod, "precompute_market", lambda _p: None)
         monkeypatch.setattr(build_mod, "precompute_holdings_detail", lambda _p: None)
 

@@ -5,20 +5,14 @@ Runner` logs a loud warning at startup when the URL is unset but doesn't
 fail — automation still runs. :func:`ping_healthcheck` itself stays tolerant
 too: unset URL silently no-ops, network errors logged + swallowed.
 
-Email is opt-in: set ``PORTAL_SMTP_USER`` + ``PORTAL_SMTP_PASSWORD``. A no-
-change run is silently successful; failures and successful publish attempts
+Email is opt-in: set ``PORTAL_SMTP_USER`` + ``PORTAL_SMTP_PASSWORD``. A
+no-change run is silently successful; failures and successful publish attempts
 send a compact receipt. SMTP errors are logged and swallowed too.
-
-The :func:`extract_validation_warnings` helper reads the per-run subprocess
-capture buffer (populated by :func:`etl.automation.runner.run_python_script`)
-and falls back to parsing the per-day log file's most recent banner block. See
-PR-S8 Bug 1 for the scoping rationale.
 """
 from __future__ import annotations
 
 import logging
 import os
-import re
 import smtplib
 import urllib.error
 import urllib.request
@@ -32,7 +26,6 @@ from etl.automation.receipt import (
     SyncReceipt,
     SyncSnapshot,
     build_subject,
-    diff,
     format_html,
     format_text,
 )
@@ -119,65 +112,25 @@ def ping_healthcheck(suffix: str = "") -> None:
 # ── Email reporting ──────────────────────────────────────────────────────────
 
 def _parse_warnings_from_lines(lines: list[str]) -> list[str]:
-    """Extract ``validate_build`` WARNING messages from an iterable of log lines.
-
-    Matches lines containing ``"WARNING"`` followed by a colon or space. Skips
-    healthcheck noise and de-duplicates exact repeats while preserving order
-    (defense in depth: even if a caller passes a multi-run buffer, repeated
-    warnings collapse to one entry).
-    """
+    """Extract WARNING messages, skipping healthcheck noise and duplicates."""
     warnings: list[str] = []
+    seen: set[str] = set()
     for line in lines:
-        m = re.search(r"WARNING[: ]\s*(.+)", line)
-        if not m:
+        msg = ""
+        for marker in ("WARNING:", "WARNING "):
+            if marker in line:
+                msg = line.split(marker, 1)[1].strip()
+                break
+        if not msg or "healthcheck ping failed" in msg or msg in seen:
             continue
-        msg = m.group(1).strip()
-        if not msg or "healthcheck ping failed" in msg:
-            continue
+        seen.add(msg)
         warnings.append(msg)
-    # dict.fromkeys preserves first-seen order while dropping duplicates.
-    return list(dict.fromkeys(warnings))
+    return warnings
 
 
-def extract_validation_warnings(
-    log_file: Path | None = None,
-    *,
-    buffer: list[str] | None = None,
-) -> list[str]:
-    """Return validation WARNINGs captured from this run.
-
-    Primary source is the subprocess capture ``buffer`` (typically obtained
-    from :func:`etl.automation.runner.get_script_output_buffer`), which
-    guarantees scoping to the CURRENT ``main()`` invocation. If that buffer is
-    empty or not provided, falls back to parsing the tail of ``log_file``
-    starting from the most recent ``"=" * 60`` banner — which matches the
-    "Portal Sync" opening block emitted at each run.
-
-    This two-tier approach keeps warnings from prior runs on the same day
-    (the per-day log file is append-only) from leaking into the email body.
-    """
-    if buffer:
-        return _parse_warnings_from_lines(buffer)
-
-    if log_file is None or not log_file.exists():
-        return []
-    try:
-        with log_file.open("r", encoding="utf-8", errors="replace") as fh:
-            all_lines = fh.readlines()
-    except OSError:
-        return []
-
-    # Find the start of the *current* run: the last "============" banner. The
-    # orchestrator writes three banner lines ("=" * 60, "Portal Sync", "=" * 60)
-    # at the top of each main() run; slicing from the last banner onward gives
-    # us only the current run's output.
-    banner = "=" * 60
-    last_banner_idx = -1
-    for i, line in enumerate(all_lines):
-        if banner in line:
-            last_banner_idx = i
-    tail = all_lines[last_banner_idx:] if last_banner_idx >= 0 else all_lines
-    return _parse_warnings_from_lines([ln.rstrip("\n") for ln in tail])
+def extract_validation_warnings(buffer: list[str] | None = None) -> list[str]:
+    """Return validation WARNINGs captured from this run's subprocess output."""
+    return _parse_warnings_from_lines(buffer or [])
 
 
 def _fmt_duration(seconds: float) -> str:
@@ -243,11 +196,7 @@ def send_report_email(
     if config is None:
         return
 
-    if snapshot_after is not None:
-        receipt = diff(snapshot_before, snapshot_after)
-    else:
-        receipt = SyncReceipt()
-
+    receipt = SyncReceipt(before=snapshot_before, after=snapshot_after)
     context = _build_context(
         exit_code,
         log_file,

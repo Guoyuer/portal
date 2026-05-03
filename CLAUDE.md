@@ -21,7 +21,7 @@ cd worker && npx wrangler deploy                    # deploy portal-api
 bash worker/dev-remote.sh                           # --remote through CF Access when needed
 
 # Python pipeline
-cd pipeline && .venv/Scripts/python.exe -m pytest -q
+cd pipeline && .venv/Scripts/python.exe -m pytest -q -n 4
 cd pipeline && .venv/Scripts/python.exe -m mypy etl/ --strict --ignore-missing-imports
 cd pipeline && .venv/Scripts/python.exe -m ruff check .
 

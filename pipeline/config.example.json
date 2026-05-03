@@ -13,270 +13,7 @@
       "category": "US Equity",
       "subtype": "broad"
     },
-    "SCHD": {
-      "category": "US Equity",
-      "subtype": "broad"
-    },
-    "FSSNX": {
-      "category": "US Equity",
-      "subtype": "broad"
-    },
-    "UNH": {
-      "category": "US Equity",
-      "subtype": "broad"
-    },
-    "MAR": {
-      "category": "US Equity",
-      "subtype": "broad"
-    },
-    "Robinhood": {
-      "category": "US Equity",
-      "subtype": "broad"
-    },
-    "QQQM": {
-      "category": "US Equity",
-      "subtype": "growth"
-    },
-    "401k tech": {
-      "category": "US Equity",
-      "subtype": "growth"
-    },
-    "NVDA": {
-      "category": "US Equity",
-      "subtype": "growth"
-    },
-    "AMD": {
-      "category": "US Equity",
-      "subtype": "growth"
-    },
-    "QCOM": {
-      "category": "US Equity",
-      "subtype": "growth"
-    },
-    "ARM": {
-      "category": "US Equity",
-      "subtype": "growth"
-    },
-    "AAPL": {
-      "category": "US Equity",
-      "subtype": "growth"
-    },
-    "META": {
-      "category": "US Equity",
-      "subtype": "growth"
-    },
-    "GOOGL": {
-      "category": "US Equity",
-      "subtype": "growth"
-    },
-    "NFLX": {
-      "category": "US Equity",
-      "subtype": "growth"
-    },
-    "ORCL": {
-      "category": "US Equity",
-      "subtype": "growth"
-    },
-    "DUOL": {
-      "category": "US Equity",
-      "subtype": "growth"
-    },
-    "MSFT": {
-      "category": "US Equity",
-      "subtype": "growth"
-    },
-    "QQQ": {
-      "category": "US Equity",
-      "subtype": "growth"
-    },
-    "AVGO": {
-      "category": "US Equity",
-      "subtype": "growth"
-    },
-    "TSLA": {
-      "category": "US Equity",
-      "subtype": "growth"
-    },
-    "INTC": {
-      "category": "US Equity",
-      "subtype": "growth"
-    },
-    "CRWD": {
-      "category": "US Equity",
-      "subtype": "growth"
-    },
-    "CRWV": {
-      "category": "US Equity",
-      "subtype": "growth"
-    },
-    "SMCI": {
-      "category": "US Equity",
-      "subtype": "growth"
-    },
-    "ADBE": {
-      "category": "US Equity",
-      "subtype": "growth"
-    },
-    "ADI": {
-      "category": "US Equity",
-      "subtype": "growth"
-    },
-    "AMZN": {
-      "category": "US Equity",
-      "subtype": "growth"
-    },
-    "HOOD": {
-      "category": "US Equity",
-      "subtype": "growth"
-    },
-    "SVIX": {
-      "category": "US Equity",
-      "subtype": "growth"
-    },
-    "AI": {
-      "category": "US Equity",
-      "subtype": "growth"
-    },
-    "U": {
-      "category": "US Equity",
-      "subtype": "growth"
-    },
-    "GS": {
-      "category": "US Equity",
-      "subtype": "broad"
-    },
-    "JPM": {
-      "category": "US Equity",
-      "subtype": "broad"
-    },
-    "GM": {
-      "category": "US Equity",
-      "subtype": "broad"
-    },
-    "KO": {
-      "category": "US Equity",
-      "subtype": "broad"
-    },
-    "ELV": {
-      "category": "US Equity",
-      "subtype": "broad"
-    },
-    "CVS": {
-      "category": "US Equity",
-      "subtype": "broad"
-    },
-    "AAL": {
-      "category": "US Equity",
-      "subtype": "broad"
-    },
-    "MO": {
-      "category": "US Equity",
-      "subtype": "broad"
-    },
-    "NKE": {
-      "category": "US Equity",
-      "subtype": "broad"
-    },
-    "PYPL": {
-      "category": "US Equity",
-      "subtype": "broad"
-    },
-    "UBER": {
-      "category": "US Equity",
-      "subtype": "broad"
-    },
-    "DLB": {
-      "category": "US Equity",
-      "subtype": "broad"
-    },
-    "T": {
-      "category": "US Equity",
-      "subtype": "broad"
-    },
-    "F": {
-      "category": "US Equity",
-      "subtype": "broad"
-    },
-    "FIG": {
-      "category": "US Equity",
-      "subtype": "broad"
-    },
-    "LOGI": {
-      "category": "US Equity",
-      "subtype": "broad"
-    },
-    "STUB": {
-      "category": "US Equity",
-      "subtype": "broad"
-    },
-    "MRNA": {
-      "category": "US Equity",
-      "subtype": "broad"
-    },
-    "AVB": {
-      "category": "US Equity",
-      "subtype": "broad"
-    },
-    "XLF": {
-      "category": "US Equity",
-      "subtype": "broad"
-    },
-    "JEPI": {
-      "category": "US Equity",
-      "subtype": "broad"
-    },
-    "JEPQ": {
-      "category": "US Equity",
-      "subtype": "broad"
-    },
-    "ICLN": {
-      "category": "US Equity",
-      "subtype": "broad"
-    },
-    "SONY": {
-      "category": "Non-US Equity",
-      "subtype": "broad"
-    },
-    "HESAY": {
-      "category": "Non-US Equity",
-      "subtype": "broad"
-    },
-    "BTI": {
-      "category": "Non-US Equity",
-      "subtype": "broad"
-    },
-    "NVO": {
-      "category": "Non-US Equity",
-      "subtype": "broad"
-    },
-    "TCEHY": {
-      "category": "Non-US Equity",
-      "subtype": "broad"
-    },
-    "JD": {
-      "category": "Non-US Equity",
-      "subtype": "broad"
-    },
-    "PDD": {
-      "category": "Non-US Equity",
-      "subtype": "broad"
-    },
-    "BABA": {
-      "category": "Non-US Equity",
-      "subtype": "broad"
-    },
-    "GLD": {
-      "category": "Safe Net"
-    },
     "VXUS": {
-      "category": "Non-US Equity",
-      "subtype": "broad"
-    },
-    "VWO": {
-      "category": "Non-US Equity",
-      "subtype": "broad"
-    },
-    "FTIHX": {
       "category": "Non-US Equity",
       "subtype": "broad"
     },
@@ -284,89 +21,36 @@
       "category": "Non-US Equity",
       "subtype": "broad"
     },
-    "LVMUY": {
-      "category": "Non-US Equity",
-      "subtype": "broad"
-    },
-    "Alipay Funds": {
-      "category": "Non-US Equity",
-      "subtype": "broad"
-    },
-    "Managed Fund": {
-      "category": "Non-US Equity",
-      "subtype": "broad"
-    },
-    "TSM": {
-      "category": "Non-US Equity",
-      "subtype": "growth"
-    },
-    "ASML": {
-      "category": "Non-US Equity",
-      "subtype": "growth"
-    },
-    "EDU": {
-      "category": "Non-US Equity",
-      "subtype": "growth"
-    },
     "FBTC": {
       "category": "Crypto"
     },
-    "ETH": {
-      "category": "Crypto"
-    },
-    "FETH": {
-      "category": "Crypto"
-    },
-    "GLDM": {
-      "category": "Safe Net"
-    },
-    "VTEB": {
-      "category": "Safe Net"
-    },
-    "FNJHX": {
-      "category": "Safe Net"
-    },
     "SGOV": {
-      "category": "Safe Net"
-    },
-    "FDRXX": {
-      "category": "Safe Net"
-    },
-    "SPAXX": {
       "category": "Safe Net"
     },
     "FZFXX": {
       "category": "Safe Net"
     },
-    "VGLT": {
+    "SPAXX": {
+      "category": "Safe Net"
+    },
+    "FDRXX": {
       "category": "Safe Net"
     },
     "Debit Cash": {
       "category": "Safe Net"
     },
-    "I Bonds": {
-      "category": "Safe Net"
-    },
     "CNY Cash": {
-      "category": "Safe Net"
-    },
-    "Gift Card": {
       "category": "Safe Net"
     },
     "Cash": {
       "category": "Safe Net"
     },
-    "Amex HYSA": {
-      "category": "Safe Net"
-    },
-    "Amex Saving": {
-      "category": "Safe Net"
-    },
-    "USDC": {
-      "category": "Safe Net"
-    },
     "T-Bills": {
       "category": "Safe Net"
+    },
+    "Robinhood": {
+      "category": "US Equity",
+      "subtype": "broad"
     }
   },
   "target_weights": {
@@ -396,9 +80,7 @@
     ],
     "cny": [
       "Bank Card",
-      "WeChat Pay",
-      "Alipay Funds",
-      "Managed Fund"
+      "WeChat Pay"
     ],
     "credit": [
       "Visa Card",
@@ -406,24 +88,23 @@
     ],
     "ticker_map": {
       "Checking Account": "Debit Cash",
-      "I bond": "I Bonds",
-      "Robinhood": "Robinhood",
-      "Alipay Funds": "Alipay Funds",
-      "Managed Fund": "Managed Fund",
-      "Gift Card": "Gift Card",
-      "Cash": "Cash",
-      "Amex HYSA": "Amex HYSA",
-      "Amex Saving": "Amex Saving",
-      "USDC": "USDC",
-      "HYSA": "Amex HYSA",
-      "Debit": "Debit Cash",
       "Bank Card": "CNY Cash",
-      "WeChat Pay": "CNY Cash"
+      "WeChat Pay": "CNY Cash",
+      "Cash": "Cash",
+      "Robinhood": "Robinhood"
     }
   },
   "fidelity_accounts": {
-    "Z29133576": "FZFXX",
-    "238986483": "FDRXX",
-    "Z29276228": "SPAXX"
+    "BROKERAGE_ACCOUNT_NUMBER": "FZFXX",
+    "IRA_ACCOUNT_NUMBER": "SPAXX"
+  },
+  "mutual_funds": [
+    "FXAIX",
+    "FSSNX",
+    "FNJHX",
+    "FTIHX"
+  ],
+  "empower_cusip_map": {
+    "EXAMPLE_CUSIP": "401k sp500"
   }
 }

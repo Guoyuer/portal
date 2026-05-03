@@ -34,6 +34,7 @@ _DEFAULT_ARTIFACT_DIR = _PROJECT_DIR / "artifacts" / "r2"
 _LOCK_PATH = _PROJECT_DIR / "data" / ".r2-publisher.lock"
 _BUCKET_NAME = "portal-data"
 _CONTENT_TYPE_JSON = "application/json"
+_ENDPOINTS = ("timeline", "econ", "prices")
 
 sys.path.insert(0, str(_PROJECT_DIR))
 import etl.dotenv_loader  # noqa: F401  (side effect: load pipeline/.env)
@@ -129,6 +130,20 @@ def _descriptor(key: str, path: Path, payload: object) -> JsonDict:
 
 def _artifact_path(artifact_dir: Path, key: str) -> Path:
     return artifact_dir / Path(*key.split("/"))
+
+
+def _snapshot_descriptor(
+    *,
+    version: str,
+    snapshot_dir: Path,
+    endpoint: str,
+    payload: object,
+) -> JsonDict:
+    return _descriptor(
+        f"snapshots/{version}/{endpoint}.json",
+        snapshot_dir / f"{endpoint}.json",
+        payload,
+    )
 
 
 # ── SQLite shape loaders ───────────────────────────────────────────────────
@@ -411,25 +426,17 @@ def export_artifacts(
         timeline = _build_timeline(conn, version=version, generated_at=generated_at)
         econ = _build_econ(conn, generated_at=generated_at)
 
-        objects = {
-            "timeline": _descriptor(
-                f"snapshots/{version}/timeline.json",
-                snapshot_dir / "timeline.json",
-                timeline,
-            ),
-            "econ": _descriptor(
-                f"snapshots/{version}/econ.json",
-                snapshot_dir / "econ.json",
-                econ,
-            ),
-        }
-
         prices, price_row_counts = _build_prices_bundle(conn)
-        objects["prices"] = _descriptor(
-            f"snapshots/{version}/prices.json",
-            snapshot_dir / "prices.json",
-            prices,
-        )
+        endpoint_payloads = {"timeline": timeline, "econ": econ, "prices": prices}
+        objects = {
+            endpoint: _snapshot_descriptor(
+                version=version,
+                snapshot_dir=snapshot_dir,
+                endpoint=endpoint,
+                payload=endpoint_payloads[endpoint],
+            )
+            for endpoint in _ENDPOINTS
+        }
 
         row_counts = _sqlite_row_counts(conn)
         json_counts = _json_row_counts(timeline, econ)
@@ -529,7 +536,8 @@ def _run_schema_check(artifact_dir: Path) -> None:
     cmd = [
         npx,
         "tsx",
-        "scripts/validate_r2_artifacts_zod.ts",
+        "scripts/validate_api_zod.ts",
+        "artifacts",
         str(artifact_dir),
     ]
     result = subprocess.run(cmd, cwd=str(_REPO_DIR), capture_output=True, text=True)  # noqa: S603
@@ -556,9 +564,8 @@ def verify_artifacts(
         raise RuntimeError(msg)
     manifest = _read_json(manifest_path)
 
-    _verify_descriptor(artifact_dir, "timeline", manifest["objects"]["timeline"])
-    _verify_descriptor(artifact_dir, "econ", manifest["objects"]["econ"])
-    _verify_descriptor(artifact_dir, "prices", manifest["objects"]["prices"])
+    for endpoint in _ENDPOINTS:
+        _verify_descriptor(artifact_dir, endpoint, manifest["objects"][endpoint])
 
     _verify_row_counts(artifact_dir, db_path, manifest)
     if schema:

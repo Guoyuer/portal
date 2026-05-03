@@ -8,9 +8,7 @@ and superseded plans live under `docs/archive/`.
 
 ## Near-Term Cleanup
 
-- Fix the existing pytest `ResourceWarning` noise from replay property tests so
-  full pipeline test output stays signal-heavy.
-- Keep `scripts/validate_live_api_zod.ts` unless it becomes noisy. It duplicates
+- Keep `scripts/validate_api_zod.ts live` unless it becomes noisy. It duplicates
   publish-time Zod validation, but gives clearer failures in the real-worker
   workflow.
 - Keep the explicit automation `export -> verify -> publish` chain unless

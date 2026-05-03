@@ -60,6 +60,7 @@ def setup_logging(log_dir: Path) -> Path:
     # Clear any prior handlers so repeated invocations don't stack duplicates.
     for h in list(root.handlers):
         root.removeHandler(h)
+        h.close()
     root.setLevel(logging.INFO)
 
     fmt = logging.Formatter("%(asctime)s %(message)s", datefmt="%Y-%m-%dT%H:%M:%S")
@@ -292,9 +293,7 @@ class Runner:
         notify.send_report_email(
             email_config, log, snapshot_before, capture(db_path),
             EXIT_OK, log_file,
-            validation_warnings=notify.extract_validation_warnings(
-                log_file, buffer=get_script_output_buffer(),
-            ),
+            validation_warnings=notify.extract_validation_warnings(get_script_output_buffer()),
             started_at=self.started_at,
             publish_summary=publish_summary,
             publish_mode="local" if self.args.local else "remote",
@@ -329,9 +328,7 @@ class Runner:
             email_config, log, snapshot_before, capture(db_path),
             exit_code, log_file,
             error=f"{script_name} exited with code {rc}",
-            validation_warnings=notify.extract_validation_warnings(
-                log_file, buffer=get_script_output_buffer(),
-            ),
+            validation_warnings=notify.extract_validation_warnings(get_script_output_buffer()),
             started_at=self.started_at,
             publish_summary=publish_summary,
             publish_mode=publish_mode,

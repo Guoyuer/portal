@@ -10,7 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "validate:api": "tsx scripts/validate_live_api_zod.ts"
+    "validate:api": "tsx scripts/validate_api_zod.ts live"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.0",
