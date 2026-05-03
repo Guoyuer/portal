@@ -50,8 +50,11 @@ The publish step runs `r2_artifacts.py publish --remote`, which verifies locally
 ## Local R2 Test
 
 ```powershell
-bash pipeline/scripts/seed_local_r2_from_fixtures.sh
-cd worker
+cd C:\Users\guoyu\Projects\portal\pipeline
+.venv\Scripts\python.exe scripts\build_timemachine_db.py
+.venv\Scripts\python.exe scripts\r2_artifacts.py export
+.venv\Scripts\python.exe scripts\r2_artifacts.py publish --local
+cd ..\worker
 npx wrangler dev --local --port 8787
 ```
 
