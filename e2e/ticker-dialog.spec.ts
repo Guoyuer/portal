@@ -1,6 +1,5 @@
 /**
- * CI version of the ticker-dialog interaction specs (promoted from e2e/manual/).
- * Runs against the mock API fixture and the static build — see playwright.config.ts.
+ * Ticker-dialog interaction specs against the mock API fixture and static build.
  */
 import { test, expect, Page, Locator } from "@playwright/test";
 

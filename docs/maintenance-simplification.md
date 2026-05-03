@@ -13,19 +13,19 @@ golden regression fixture:
 
 | Area | Files | LOC | Share |
 | --- | ---: | ---: | ---: |
-| pipeline tests | 50 | 7,611 | 27.5% |
-| frontend app/lib | 62 | 5,818 | 21.0% |
-| pipeline etl | 42 | 5,704 | 20.6% |
-| frontend tests | 32 | 2,928 | 10.6% |
-| pipeline scripts/tools | 9 | 1,332 | 4.8% |
+| pipeline tests | 50 | 7,611 | 27.8% |
+| frontend app/lib | 62 | 5,818 | 21.3% |
+| pipeline etl | 42 | 5,704 | 20.9% |
+| frontend tests | 32 | 2,928 | 10.7% |
+| pipeline scripts/tools | 9 | 1,332 | 4.9% |
 | root/config/misc | 35 | 1,269 | 4.6% |
-| e2e tests | 12 | 1,204 | 4.4% |
-| pipeline fixtures | 11 | 783 | 2.8% |
-| docs current | 6 | 426 | 1.5% |
+| e2e tests | 8 | 888 | 3.2% |
+| pipeline fixtures | 11 | 783 | 2.9% |
+| docs current | 6 | 426 | 1.6% |
 | CI | 3 | 306 | 1.1% |
 | worker source | 3 | 275 | 1.0% |
 
-Total: 265 files / 27.7k physical LOC after the first simplification PR
+Total: 261 files / 27.3k physical LOC after the manual-e2e deletion pass
 candidate, excluding the same generated/archive/fixture surfaces.
 
 Use the same exclusion rule when reporting future LOC deltas:
@@ -78,7 +78,7 @@ deleting flows, narrowing outputs, and using table-driven tests.
 | S7 | Finance UI tables | Reuse table row/header helpers across allocation, ticker, transaction, and group tables where markup is identical. | -100 to -250 | Medium | Small win. Avoid a generic mega-table abstraction. |
 | S8 | R2 artifact script | Extract endpoint descriptor metadata once: path, schema name, row-count key, and validation summary. Share it across export, verify, summary, and Zod smoke helpers. | Partial | Medium | Endpoint write/descriptor verification is deduped; row-count metadata can still be consolidated later. |
 | S9 | Validation CLIs | Merge old artifact/live Zod scripts behind one small `validate_api_zod.ts` CLI with `live` and `artifacts` modes. | Done | Low | Keep the real-worker failure messages readable. |
-| S10 | Manual e2e paths | Consolidate `e2e/manual/*` and manual Playwright config into one documented smoke/perf command. | -100 to -300 | Low | Good if these are rarely run. Keep the main mock e2e suite unchanged. |
+| S10 | Manual e2e paths | Consolidate `e2e/manual/*` and manual Playwright config into one documented smoke/perf command. | Done | Low | Removed the manual screenshot/perf specs and config; mock e2e, real-worker e2e, and ticker cluster unit coverage remain. |
 | S11 | Config example | Shrink `pipeline/config.example.json` to a minimal template with representative assets and all supported config keys. | Done | Low-Medium | Add every real held ticker to private `config.json`; unknown holdings still fail closed. |
 | S12 | Docs archive | Move `docs/archive/` to a branch/wiki or keep only an archive index plus the few decision records still referenced. | Raw -8k to -10k | Low | Does not change runtime maintenance, but reduces search noise and repo scale. |
 | S13 | Qianji legacy fallback | Review old CNY and category fallback logic; delete branches covered by newer source invariants. | -80 to -180 | Medium | Only after regression fixtures prove old exports do not need them. |
@@ -91,7 +91,8 @@ deleting flows, narrowing outputs, and using table-driven tests.
 Initial execution pass completed: S1 receipt-state simplification, S2
 buffer-only warning capture, S4 selected Python test compression, S5 compute
 test compression, S9 CLI merge, S11 config template shrink, ResourceWarning
-cleanup, pytest xdist enablement, and part of S8 endpoint descriptor dedup.
+cleanup, pytest xdist enablement, S10 manual-e2e deletion, and part of S8
+endpoint descriptor dedup.
 
 ### Wave 1: Safe Deletions and Test Compression
 
@@ -122,7 +123,6 @@ Targets:
 
 - S6 ticker/group chart shell dedup, or cut low-value group drilldown paths.
 - S7 finance table helper reuse.
-- S10 manual e2e consolidation.
 - S12 archive externalization.
 - S13 Qianji legacy branch review.
 
