@@ -593,27 +593,11 @@ describe("computeGroupedActivity", () => {
       mkInvestmentTxn({ source: "fidelity", actionType: "buy",  ticker: "NVDA", amount: 2000 }),
     ];
     const act = computeJanGroupedActivity(txns);
-    // SPY (sell 1000) folds into S&P 500 sell; VOO (buy 500) folds into S&P 500 buy
     expect(act.sellsBySymbol).toContainEqual(expect.objectContaining({ ticker: "S&P 500", count: 1, total: 1000, isGroup: true, groupKey: "sp500" }));
     expect(act.buysBySymbol).toContainEqual(expect.objectContaining({ ticker: "S&P 500", count: 1, total: 500, isGroup: true, groupKey: "sp500" }));
     expect(act.buysBySymbol).toContainEqual(expect.objectContaining({ ticker: "NVDA", count: 1, total: 2000, isGroup: false }));
-    // Individual tickers are hidden
     expect(act.sellsBySymbol.find(r => r.ticker === "SPY")).toBeUndefined();
     expect(act.buysBySymbol.find(r => r.ticker === "VOO")).toBeUndefined();
-  });
-
-  it("groups S&P 500 tickers into one group row per side", () => {
-    const txns: InvestmentTxn[] = [
-      mkInvestmentTxn({ source: "fidelity", actionType: "sell", ticker: "SPY", amount: -1000 }),
-      mkInvestmentTxn({ source: "fidelity", actionType: "buy",  ticker: "VOO", amount:  1000 }),
-    ];
-    const act = computeJanGroupedActivity(txns);
-    // Both SPY and VOO belong to sp500 group — individual tickers folded
-    expect(act.sellsBySymbol.find(r => r.ticker === "SPY")).toBeUndefined();
-    expect(act.buysBySymbol.find(r => r.ticker === "VOO")).toBeUndefined();
-    // Group rows appear for each side
-    expect(act.sellsBySymbol).toContainEqual(expect.objectContaining({ ticker: "S&P 500", isGroup: true, groupKey: "sp500" }));
-    expect(act.buysBySymbol).toContainEqual(expect.objectContaining({ ticker: "S&P 500", isGroup: true, groupKey: "sp500" }));
   });
 
   it("dividends remain per-ticker (not grouped)", () => {

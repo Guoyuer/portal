@@ -9,6 +9,9 @@ conclusion.
 
 ## Near-Term Cleanup
 
+- Compress the next four duplicate-heavy test surfaces in one PR:
+  `pipeline/tests/unit/test_build_orchestration.py`, Qianji unit tests,
+  `e2e/finance.spec.ts`, and `src/lib/compute/compute.test.ts`.
 - Keep `scripts/validate_api_zod.ts live` unless it becomes noisy. It duplicates
   publish-time Zod validation, but gives clearer failures in the real-worker
   workflow.

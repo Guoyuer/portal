@@ -7,25 +7,25 @@ stays active-only.
 
 ## Baseline
 
-Raw tracked repo size is about 266 files / 42.0k physical LOC. The maintenance
+Raw tracked repo size is about 266 files / 41.7k physical LOC. The maintenance
 surface below excludes lockfiles, `docs/archive/`, generated Zod, and the
 golden regression fixture:
 
 | Area | Files | LOC | Share |
 | --- | ---: | ---: | ---: |
-| pipeline tests | 50 | 7,175 | 26.7% |
-| frontend app/lib | 64 | 6,004 | 22.3% |
-| pipeline etl | 42 | 5,704 | 21.2% |
-| frontend tests | 30 | 2,729 | 10.1% |
+| pipeline tests | 50 | 7,001 | 26.3% |
+| frontend app/lib | 64 | 6,004 | 22.6% |
+| pipeline etl | 42 | 5,704 | 21.4% |
+| frontend tests | 30 | 2,714 | 10.2% |
 | pipeline scripts/tools | 9 | 1,332 | 5.0% |
 | root/config/misc | 36 | 1,317 | 4.9% |
-| e2e tests | 6 | 809 | 3.0% |
 | pipeline fixtures | 11 | 783 | 2.9% |
-| docs current | 6 | 426 | 1.6% |
+| e2e tests | 6 | 706 | 2.7% |
+| docs current | 6 | 435 | 1.6% |
 | CI | 4 | 337 | 1.3% |
 | worker source | 3 | 275 | 1.0% |
 
-Total: 261 files / 26.9k physical LOC after the duplicate-test compression,
+Total: 261 files / 26.6k physical LOC after the duplicate-test compression,
 excluding the same generated/archive/fixture surfaces.
 
 Use the same exclusion rule when reporting future LOC deltas:
@@ -100,6 +100,13 @@ refresh-window assertion, no-position CSV publish vs all-ok publish, and basic
 allocation vs categorization). Redundant long-form test prose was also removed.
 Net effect: 3 test files, 86 insertions / 403 deletions (`-317 LOC`), with the
 Python gate still passing at 522 tests and 94.88% ETL coverage.
+
+Second S4 follow-up: build orchestration, Qianji, finance e2e, and compute tests
+were compressed in one pass. The main duplicate coverage removed was replay
+case scaffolding, repeated CNY-rate fallback tests, overlapping finance smoke
+assertions, and one redundant grouped-activity compute case. Net effect: 6 files,
+203 insertions / 534 deletions (`-331 LOC`), with targeted Python tests,
+`finance.spec.ts`, frontend coverage, and the full Python gate passing.
 
 ### Wave 1: Safe Deletions and Test Compression
 

@@ -1,4 +1,4 @@
-"""Unit tests for qianji_db ingest — parse_qj_amount, parse_qj_target_amount, _load_records, _load_balances, ingest_qianji_transactions."""
+"""Unit tests for Qianji ingest."""
 
 from __future__ import annotations
 
@@ -89,12 +89,6 @@ class TestParseQjAmount:
     def test_amount_parser_cases(self, money: float, extra: str | None, expected: float) -> None:
         assert parse_qj_amount(money, extra) == expected
 
-    # ── Unconverted-label data quirk ─────────────────────────────────────
-    # Qianji sometimes labels ``bs`` as the base currency (USD) but never
-    # actually runs the conversion, producing ``ss != bs but bv == sv``.
-    # When the user supplies a live CNY rate and the source is CNY,
-    # ``parse_qj_amount`` converts ``money`` (source CNY) to USD.
-
     @pytest.mark.parametrize(
         ("money", "extra", "cny_rate", "expected"),
         [
@@ -137,35 +131,11 @@ class TestParseQjAmount:
     ) -> None:
         assert parse_qj_amount(money, extra, cny_rate=cny_rate) == expected
 
-    # ── Historical-rate lookup (per-bill-date) ───────────────────────────
-    # The live-rate fallback used to revalue every quirk bill every build
-    # with today's rate, which caused the USD amount to drift from run to run
-    # and surfaced as "ghost adds" in the publish receipt. The right rate for
-    # a 2024 bill is the 2024 rate — look it up by bill_date in a dict of
-    # historical rates (loaded from ``daily_close WHERE symbol='CNY=X'``).
-
-    def test_unconverted_cny_uses_historical_rate_when_bill_date_provided(self):
-        """With bill_date + historical_cny_rates, use that date's rate."""
-        extra = _extra("CNY", 7000.0, None, 0.0, "USD", 7000.0)
-        rates = {date(2024, 5, 18): 7.2345, date(2026, 4, 18): 6.8164}
-        # Bill is on 2024-05-18 → uses 7.2345, NOT today's 6.8164
-        assert parse_qj_amount(
-            7000.0, extra, bill_date=date(2024, 5, 18), historical_cny_rates=rates,
-        ) == pytest.approx(7000.0 / 7.2345, rel=1e-6)
-
-    def test_unconverted_cny_stable_across_live_rate_changes(self):
-        """A 2024 bill's USD amount must NOT drift when today's FX rate moves.
-
-        Regression guard for the root CNY bug — tomorrow's run with a new
-        live rate must still compute the same USD as today's run for a
-        historical bill. This eliminates the need for a cross-run stable
-        identity (source_id) in the reporting snapshot.
-        """
+    def test_unconverted_cny_uses_historical_rate_over_live_rate(self):
         extra = _extra("CNY", 7000.0, None, 0.0, "USD", 7000.0)
         bill_date = date(2024, 5, 18)
-        historical = {bill_date: 7.2345}
+        historical = {bill_date: 7.2345, date(2026, 4, 18): 6.8164}
 
-        # Today's live rate fluctuates; history is fixed.
         run1 = parse_qj_amount(7000.0, extra, cny_rate=6.8164,
                                bill_date=bill_date, historical_cny_rates=historical)
         run2 = parse_qj_amount(7000.0, extra, cny_rate=6.9003,
@@ -173,43 +143,32 @@ class TestParseQjAmount:
         assert run1 == run2
         assert run1 == pytest.approx(7000.0 / 7.2345, rel=1e-6)
 
-    def test_unconverted_cny_walks_back_to_last_weekday_rate(self):
-        """Qianji bills are timestamped to wall-clock; yfinance only has
-        weekday close rates. For a Saturday bill, fall back to Friday's rate.
-        """
-        extra = _extra("CNY", 1000.0, None, 0.0, "USD", 1000.0)
-        friday = date(2024, 5, 17)  # 2024-05-18 is a Saturday
-        saturday = date(2024, 5, 18)
-        rates = {friday: 7.2345}  # only Friday present
-        result = parse_qj_amount(
-            1000.0, extra, bill_date=saturday, historical_cny_rates=rates,
-        )
-        assert result == pytest.approx(1000.0 / 7.2345, rel=1e-6)
-
-    def test_unconverted_cny_falls_back_to_scalar_when_no_historical_match(self):
-        """If historical_cny_rates has no rate near bill_date, use scalar fallback."""
-        extra = _extra("CNY", 5000.0, None, 0.0, "USD", 5000.0)
-        # Empty historical dict + bill_date → scalar rate used
-        result = parse_qj_amount(
-            5000.0, extra, cny_rate=7.0,
-            bill_date=date(2024, 5, 18), historical_cny_rates={},
-        )
-        assert result == pytest.approx(5000.0 / 7.0, rel=1e-6)
-
-    def test_unconverted_cny_no_bill_date_preserves_scalar_path(self):
-        """Legacy calls without bill_date still use scalar rate (backcompat)."""
-        extra = _extra("CNY", 5000.0, None, 0.0, "USD", 5000.0)
-        assert parse_qj_amount(5000.0, extra, cny_rate=7.0) == pytest.approx(
-            5000.0 / 7.0, rel=1e-6,
-        )
+    @pytest.mark.parametrize(
+        ("amount", "bill_date", "historical", "cny_rate", "expected_rate"),
+        [
+            (1000.0, date(2024, 5, 18), {date(2024, 5, 17): 7.2345}, None, 7.2345),
+            (5000.0, date(2024, 5, 18), {}, 7.0, 7.0),
+            (5000.0, None, {}, 7.0, 7.0),
+        ],
+    )
+    def test_unconverted_cny_rate_fallbacks(
+        self,
+        amount: float,
+        bill_date: date | None,
+        historical: dict[date, float],
+        cny_rate: float | None,
+        expected_rate: float,
+    ) -> None:
+        extra = _extra("CNY", amount, None, 0.0, "USD", amount)
+        assert parse_qj_amount(
+            amount, extra, cny_rate=cny_rate, bill_date=bill_date, historical_cny_rates=historical,
+        ) == pytest.approx(amount / expected_rate, rel=1e-6)
 
 
 # ── parse_qj_target_amount ────────────────────────────────────────────────────
 
 
 class TestParseQjTargetAmount:
-    """Target-currency parser: returns tv for cross-currency transfers, else money."""
-
     @pytest.mark.parametrize(
         ("extra", "expected"),
         [
@@ -246,7 +205,6 @@ def _bill(
 
 
 def _make_db(conn: sqlite3.Connection, bills: list[tuple], categories: list[tuple] | None = None) -> None:
-    """Create user_bill and category tables with test data."""
     conn.execute(
         "CREATE TABLE category (id INTEGER PRIMARY KEY, name TEXT)"
     )
@@ -334,23 +292,12 @@ class TestLoadRecords:
         assert records[0]["note"] == "active"
 
     def test_cny_rate_passed_through_to_parse_qj_amount(self):
-        """`_load_records` must thread cny_rate into parse_qj_amount so the
-        unconverted-label data quirk (ss=CNY bs=USD bv==sv) gets converted.
-        Without this hook, cross-currency expenses in that shape bypass the
-        rate entirely and inflate the USD cashflow figure by ~7×.
-        """
-        extra = _extra("CNY", 5000.0, None, 0.0, "USD", 5000.0)  # quirk
+        extra = _extra("CNY", 5000.0, None, 0.0, "USD", 5000.0)
         bills = [_bill(1, money=5000.0, fromact="Alipay", extra=extra)]
-        # Without rate: warn + fall back to money (5000).
         assert _records_for(bills)[0]["amount"] == 5000.0
-        # With rate: convert 5000 CNY / 7.0 ≈ 714.29.
         assert _records_for(bills, cny_rate=7.0)[0]["amount"] == pytest.approx(714.2857, rel=1e-3)
 
     def test_balance_adjustment_rows_skipped(self):
-        """Manual reconciliation rows (remark 'Balance adjustment(X ~ Y)'
-        or short 'adjust') are not real cashflow — they should be dropped
-        at ingest so expense/income aggregates aren't inflated.
-        """
         ts = int(datetime(2025, 1, 15, 12, 0, tzinfo=UTC).timestamp())
         records = _records_for([
             _bill(1, remark="groceries", ts=ts),
@@ -362,23 +309,13 @@ class TestLoadRecords:
         ])
         notes = [r["note"] for r in records]
         assert "groceries" in notes
-        assert "maladjusted dinner" in notes  # substring "adjust" but not a prefix → kept
-        # All balance-adjustment forms filtered out
+        assert "maladjusted dinner" in notes
         assert not any("adjustment" in n.lower() or n.lower().strip() == "adjust" for n in notes)
         assert len(records) == 2
 
     def test_date_truncation_uses_user_timezone(self):
-        """Bills are attributed to the user's wall-clock day, not UTC.
-
-        A bill logged at 23:30 PT on 2026-04-09 has Unix ts corresponding
-        to 06:30 UTC on 2026-04-10 — in UTC it'd roll to the next day,
-        in PT it stays on the 9th. The pipeline must pick PT so daily
-        cashflow matches the user's experience.
-        """
-        # 2026-04-10 06:30 UTC == 2026-04-09 23:30 PT (PDT, UTC-7)
         ts = int(datetime(2026, 4, 10, 6, 30, tzinfo=UTC).timestamp())
         records = _records_for([_bill(1, money=15.0, remark="late-night snack", ts=ts)])
-        # In PT this is 2026-04-09, not 2026-04-10 (as UTC would say)
         assert records[0]["date"].startswith("2026-04-09")
 
 
@@ -396,19 +333,18 @@ def _balances_for(rows: list[tuple[str, float, str | None, int]]) -> dict[str, t
 
 
 class TestLoadBalances:
-    def test_active_accounts_only(self):
-        balances = _balances_for([("Chase", 5000, "USD", 0), ("Closed", 0, "USD", 2)])
-        assert "Chase" in balances
-        assert "Closed" not in balances
-
-    def test_returns_balance_and_currency(self):
-        balances = _balances_for([("Chase", 5000.50, "USD", 0), ("Alipay", 70000, "CNY", 0)])
+    def test_loads_active_balances_and_currencies(self):
+        balances = _balances_for([
+            ("Chase", 5000.50, "USD", 0),
+            ("Alipay", 70000, "CNY", 0),
+            ("Old", 100, None, 0),
+            ("Closed", 0, "USD", 2),
+        ])
         assert balances["Chase"] == (5000.50, "USD")
         assert balances["Alipay"] == (70000, "CNY")
-
-    def test_null_currency_defaults_to_usd(self):
-        balances = _balances_for([("Old", 100, None, 0)])
         assert balances["Old"] == (100, "USD")
+        assert "Chase" in balances
+        assert "Closed" not in balances
 
 
 # ── ingest_qianji_transactions — DB writes ────────────────────────────────────
@@ -441,7 +377,6 @@ class TestIngestQianjiTransactions:
     def test_clears_and_replaces(self, empty_db: Path) -> None:
         ingest_qianji_transactions(empty_db, [_record_dict(date_="2025-03-01", amount=5000.0, account_from="Checking")])
         new = [_record_dict(date_="2025-04-01", type_="expense", category="Food", amount=100.0, account_from="Checking")]
-        # Re-ingest must wipe prior rows.
         assert ingest_qianji_transactions(empty_db, new) == 1
 
     def test_empty_records(self, empty_db: Path) -> None:
@@ -460,7 +395,6 @@ _SAMPLE_RETIREMENT_RECORDS = [
 
 class TestIsRetirementFlag:
     def test_default_config_matches_401k_income(self, empty_db: Path) -> None:
-        """'401K' is the user's retirement income category — flag should be set."""
         ingest_qianji_transactions(
             empty_db, _SAMPLE_RETIREMENT_RECORDS,
             retirement_categories=["401K", "401k Match"],
@@ -504,15 +438,6 @@ class TestIsRetirementFlag:
 
 
 class TestAccountToNormalization:
-    """The ingest layer stores a *semantic* destination account in the
-    ``account_to`` column: the account that received money. For transfers
-    that's ``targetact`` (QianjiRecord.account_to). For income, Qianji
-    stores the receiving account in ``fromact`` (see etl/qianji/balances:
-    type=1 does ``balances[fromact] += money``), so we normalize to surface
-    that as the destination too — the frontend's Fidelity cross-check shouldn't
-    have to know Qianji's per-type direction quirk.
-    """
-
     @pytest.mark.parametrize(
         ("record", "expected"),
         [
