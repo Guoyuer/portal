@@ -71,7 +71,6 @@ class BuildPaths:
     data_dir: Path
     config: Path
     downloads: Path
-    csv: Path | None
 
     @property
     def db_path(self) -> Path:
@@ -81,7 +80,6 @@ class BuildPaths:
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="Build the timemachine SQLite database")
-    parser.add_argument("--csv", type=Path, help="Path to a specific Fidelity CSV file")
     parser.add_argument("--no-validate", action="store_true", help="Skip post-build validation")
     parser.add_argument("--data-dir", type=Path, default=None, help="Override data directory (default: pipeline/data/)")
     parser.add_argument("--config", type=Path, default=None, help="Override config.json path")
@@ -92,11 +90,6 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Read prices from this CSV instead of Yahoo. "
              "CSV columns: date (YYYY-MM-DD) + one column per ticker. For test fixtures only.",
-    )
-    parser.add_argument(
-        "--dry-run-market",
-        action="store_true",
-        help="Skip Yahoo market-index fetches (used with --prices-from-csv for offline regression fixtures).",
     )
     parser.add_argument(
         "--as-of",
@@ -116,7 +109,6 @@ def _resolve_paths(args: argparse.Namespace) -> BuildPaths:
         data_dir=data_dir,
         config=config,
         downloads=downloads,
-        csv=args.csv,
     )
 
 
@@ -165,15 +157,7 @@ def _load_config(path: Path) -> RawConfig:
 
 
 def _ingest_fidelity_csvs(paths: BuildPaths) -> None:
-    """Ingest one selected Fidelity CSV or all downloads."""
-    if paths.csv is not None:
-        if not paths.csv.exists():
-            print(f"  ERROR: --csv file not found: {paths.csv}")
-            sys.exit(1)
-        print(f"  Using single CSV: {paths.csv}")
-        fidelity_src.parse.ingest_csvs(paths.db_path, [paths.csv])
-        return
-
+    """Ingest every Fidelity CSV discovered in the downloads directory."""
     print(f"  Ingesting from {paths.downloads}...")
     fidelity_src.ingest(paths.db_path, {"fidelity_downloads": paths.downloads})
 
@@ -422,7 +406,7 @@ def _finalize_build_outputs(
     alloc: list[AllocationRow],
     *,
     no_validate: bool,
-    dry_run_market: bool,
+    skip_market_precompute: bool,
     qianji_verb: str,
 ) -> None:
     historical_cny = load_cny_rates(paths.db_path)
@@ -435,9 +419,9 @@ def _finalize_build_outputs(
     )
     print(f"  {qj_count} Qianji transactions {qianji_verb}")
 
-    if dry_run_market:
-        print("[M] Market precompute skipped (--dry-run-market)")
-        print("[H] Holdings detail precompute skipped (--dry-run-market)")
+    if skip_market_precompute:
+        print("[M] Market precompute skipped (--prices-from-csv)")
+        print("[H] Holdings detail precompute skipped (--prices-from-csv)")
     else:
         print("[M] Precomputing market data...")
         precompute_market(paths.db_path)
@@ -477,7 +461,7 @@ def _full_build(
     end: date,
     *,
     no_validate: bool = False,
-    dry_run_market: bool = False,
+    skip_market_precompute: bool = False,
 ) -> list[AllocationRow]:
     print("\n[5] Computing full allocation...")
     alloc = compute_daily_allocation(
@@ -503,7 +487,7 @@ def _full_build(
         config,
         alloc,
         no_validate=no_validate,
-        dry_run_market=dry_run_market,
+        skip_market_precompute=skip_market_precompute,
         qianji_verb="ingested",
     )
 
@@ -536,7 +520,7 @@ def _build_refresh_window(
     end: date,
     *,
     no_validate: bool = False,
-    dry_run_market: bool = False,
+    skip_market_precompute: bool = False,
 ) -> list[AllocationRow]:
     """Recompute the REFRESH_WINDOW_DAYS tail of ``computed_daily``, filling any
     historical gap beyond the tail. Delegates to ``_full_build`` when the DB
@@ -546,7 +530,7 @@ def _build_refresh_window(
         print("  No existing data — falling back to full build")
         return _full_build(
             paths, config, start, end,
-            no_validate=no_validate, dry_run_market=dry_run_market,
+            no_validate=no_validate, skip_market_precompute=skip_market_precompute,
         )
 
     inc_start = compute_inc_start(last, start, end)
@@ -570,7 +554,7 @@ def _build_refresh_window(
         config,
         alloc,
         no_validate=no_validate,
-        dry_run_market=dry_run_market,
+        skip_market_precompute=skip_market_precompute,
         qianji_verb="re-ingested",
     )
 
@@ -584,9 +568,8 @@ def build_timemachine_db(args: argparse.Namespace) -> int:
     """Run the full build pipeline. Returns the process exit code.
 
     The scripts-layer ``main()`` wraps this with argparse + ``sys.exit``, so
-    returning 0 for the happy path is sufficient; fatal errors raise
-    ``SystemExit`` via ``sys.exit(1)`` from the helpers (validation, missing
-    ``--csv``) the same way the original monolithic script did.
+    returning 0 for the happy path is sufficient; validation fatal errors
+    still raise ``SystemExit`` via ``sys.exit(1)``.
     """
     paths = _resolve_paths(args)
 
@@ -609,7 +592,7 @@ def build_timemachine_db(args: argparse.Namespace) -> int:
     _build_refresh_window(
         paths, config, start, end,
         no_validate=args.no_validate,
-        dry_run_market=args.dry_run_market,
+        skip_market_precompute=args.prices_from_csv is not None,
     )
 
     print("\n" + "=" * 60)

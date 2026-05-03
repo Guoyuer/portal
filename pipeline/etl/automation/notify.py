@@ -148,7 +148,6 @@ def _build_context(
     warnings: list[str] | None,
     started_at: datetime | None = None,
     publish_summary: PublishSummary | None = None,
-    publish_mode: str | None = None,
     dry_run: bool = False,
 ) -> dict[str, object]:
     """Assemble context consumed by format_text / format_html."""
@@ -163,7 +162,6 @@ def _build_context(
         "error": error,
         "warnings": warnings or [],
         "publish_summary": publish_summary,
-        "publish_mode": publish_mode,
         "dry_run": dry_run,
         "duration": duration,
     }
@@ -180,7 +178,6 @@ def send_report_email(
     validation_warnings: list[str] | None = None,
     started_at: datetime | None = None,
     publish_summary: PublishSummary | None = None,
-    publish_mode: str | None = None,
     dry_run: bool = False,
 ) -> None:
     """Build a compact publish receipt and send it.
@@ -204,7 +201,6 @@ def send_report_email(
         validation_warnings,
         started_at=started_at,
         publish_summary=publish_summary,
-        publish_mode=publish_mode,
         dry_run=dry_run,
     )
     subject = build_subject(receipt, exit_code, _STATUS_LABELS.get(exit_code), publish_summary)

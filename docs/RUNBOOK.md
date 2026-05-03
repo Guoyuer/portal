@@ -32,24 +32,18 @@ of these release orders:
 - or make the frontend schema temporarily accept both old and new shapes, deploy,
   publish the new artifact, then remove the compatibility branch
 
-Do not rely only on fresh local export tests for these changes. Also validate the
-currently active production payloads with the branch's frontend schemas:
+Do not deploy a stricter frontend schema while production still serves an older
+incompatible manifest. Validate the artifact set that will be served with the
+branch's frontend schemas before publishing or deploying:
 
 ```bash
-TIMELINE_URL=https://portal.guoyuer.com/api/timeline npm run validate:api
+cd pipeline
+.venv/Scripts/python.exe scripts/r2_artifacts.py export
+.venv/Scripts/python.exe scripts/r2_artifacts.py verify
 ```
 
-PowerShell:
-
-```powershell
-$env:TIMELINE_URL = "https://portal.guoyuer.com/api/timeline"
-cmd /c npm run validate:api
-Remove-Item Env:\TIMELINE_URL
-```
-
-The script checks `/timeline`, `/econ`, and `/prices`. It reads
-`worker/.env.access` automatically when Cloudflare Access service-token headers
-are needed.
+`verify` checks descriptor hashes, row counts, latest date, and frontend Zod
+schemas for `/timeline`, `/econ`, and `/prices`.
 
 ## Local Worker Test
 
@@ -130,11 +124,10 @@ Useful flags:
 
 - `--dry-run` - build, export, verify, skip publish
 - `--force` - bypass change detection
-- `--local` - publish to Wrangler local R2
 
 The marker file is updated only after a non-dry-run publish succeeds.
 
-## Regression Baselines
+## Regression Gate
 
 Fixture regression tests are offline:
 
@@ -143,13 +136,8 @@ cd pipeline
 .venv/Scripts/python.exe -m pytest tests/regression/ -v
 ```
 
-To intentionally refresh L1 hashes:
-
-```bash
-cd pipeline
-.venv/Scripts/python.exe scripts/refresh_l1_baseline_from_fixtures.py
-```
-
 ## Access Headers
 
-`worker/.env.access` is gitignored and may contain Cloudflare Access service-token credentials for remote endpoint smoke checks. Do not print it in logs. For normal local R2 testing it is not needed.
+`worker/.env.access` is gitignored and may contain Cloudflare Access
+service-token credentials for `worker/dev-remote.sh`. Do not print it in logs.
+For normal local R2 testing it is not needed.

@@ -17,11 +17,11 @@ or empty, a full build runs automatically. To force a clean rebuild, delete
 All orchestration logic lives in :mod:`etl.build`; this script is a thin
 ``argparse → build_timemachine_db`` entry point (mirrors the
 ``run_automation.py`` ↔ ``etl.automation.runner`` split) so external callers
-— Task Scheduler, regression fixtures, refresh scripts — have a stable CLI
+— Task Scheduler, automation, and regression fixtures — have a stable CLI
 surface.
 
 Usage:
-  python scripts/build_timemachine_db.py [--csv PATH] [--no-validate]
+  python scripts/build_timemachine_db.py
 """
 from __future__ import annotations
 

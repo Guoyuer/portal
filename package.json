@@ -9,8 +9,7 @@
     "lint": "eslint src e2e worker/src next.config.ts vitest.config.ts playwright.config.ts postcss.config.mjs eslint.config.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
-    "validate:api": "tsx scripts/validate_api_zod.ts live"
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.0",

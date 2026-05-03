@@ -14,9 +14,6 @@ conclusion.
   before publishing.
 - Keep incremental build semantics unless a full-build experiment proves the
   wall time and Yahoo call count are acceptable for routine automation.
-- Keep `scripts/validate_api_zod.ts live` unless it becomes noisy. It duplicates
-  publish-time Zod validation, but gives clearer failures against active
-  production payloads.
 
 ## Product Ideas
 

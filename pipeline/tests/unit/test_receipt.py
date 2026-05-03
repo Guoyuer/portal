@@ -12,7 +12,6 @@ from etl.automation.receipt import (
     SyncSnapshot,
     build_subject,
     capture,
-    diff,
     format_html,
     format_text,
     load_publish_summary,
@@ -79,14 +78,13 @@ def test_capture_missing_db_is_empty(tmp_path: Path) -> None:
     assert snap.net_worth is None
 
 
-def test_diff_reports_count_and_net_worth_deltas() -> None:
+def test_receipt_reports_count_deltas() -> None:
     before = SyncSnapshot(row_counts={"fidelityTxns": 1}, net_worth=None)
     after = SyncSnapshot(row_counts={"fidelityTxns": 3, "daily": 2}, net_worth=None)
 
-    cl = diff(before, after)
+    cl = SyncReceipt(before=before, after=after)
 
     assert cl.row_deltas == [("daily", 0, 2, 2), ("fidelityTxns", 1, 3, 2)]
-    assert cl.has_meaningful_changes() is True
 
 
 def test_load_publish_summary(tmp_path: Path) -> None:
@@ -123,18 +121,18 @@ def test_load_publish_summary(tmp_path: Path) -> None:
 
 
 def test_format_text_success_receipt() -> None:
-    cl = diff(
-        SyncSnapshot(
+    cl = SyncReceipt(
+        before=SyncSnapshot(
             row_counts={"fidelityTxns": 1},
             net_worth=NetWorthPoint("2026-04-30", 1000),
         ),
-        SyncSnapshot(
+        after=SyncSnapshot(
             row_counts={"fidelityTxns": 3},
             net_worth=NetWorthPoint("2026-05-01", 1100),
         ),
     )
 
-    body = format_text(cl, _ctx(publish_summary=_summary(), publish_mode="remote"))
+    body = format_text(cl, _ctx(publish_summary=_summary()))
 
     assert "Version: 2026-05-02T120000Z" in body
     assert "Latest date: 2026-05-01" in body
@@ -175,9 +173,9 @@ def test_format_html_escapes_text() -> None:
 
 
 def test_build_subject_success_and_failure() -> None:
-    cl = diff(
-        SyncSnapshot(row_counts={"daily": 1}, net_worth=NetWorthPoint("2026-04-30", 1000)),
-        SyncSnapshot(row_counts={"daily": 2}, net_worth=NetWorthPoint("2026-05-01", 1100)),
+    cl = SyncReceipt(
+        before=SyncSnapshot(row_counts={"daily": 1}, net_worth=NetWorthPoint("2026-04-30", 1000)),
+        after=SyncSnapshot(row_counts={"daily": 2}, net_worth=NetWorthPoint("2026-05-01", 1100)),
     )
     assert build_subject(cl, 0, publish_summary=_summary()) == (
         "[Portal Sync] OK - 2026-05-01, nw +$100.00, 1 row delta"

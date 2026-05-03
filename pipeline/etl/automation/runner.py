@@ -139,8 +139,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                    help="Skip change detection and always build + publish")
     p.add_argument("--dry-run", action="store_true",
                    help="Run build + artifact verification but skip the final publish")
-    p.add_argument("--local", action="store_true",
-                   help="Publish to local R2 instead of production R2")
     return p.parse_args(argv)
 
 
@@ -232,19 +230,18 @@ class Runner:
             )
 
         # [3] Optional Portfolio_Positions ground-truth gate.
-        if not self.args.local:
-            positions_csv = find_new_positions_csv(downloads, MARKER)
-            if positions_csv:
-                log.info("[3] Verifying share counts vs %s...", positions_csv.name)
-                rc = run_python_script(SCRIPTS_DIR / "verify_positions.py",
-                                       "--positions", str(positions_csv))
-                if rc != 0:
-                    return self._report_stage_failure(
-                        log, "POSITIONS CHECK", rc, EXIT_POSITIONS_FAIL, "verify_positions.py",
-                        email_config, snapshot_before, db_path, log_file,
-                    )
-            else:
-                log.info("[3] No new Portfolio_Positions CSV — skipping ground-truth check")
+        positions_csv = find_new_positions_csv(downloads, MARKER)
+        if positions_csv:
+            log.info("[3] Verifying share counts vs %s...", positions_csv.name)
+            rc = run_python_script(SCRIPTS_DIR / "verify_positions.py",
+                                   "--positions", str(positions_csv))
+            if rc != 0:
+                return self._report_stage_failure(
+                    log, "POSITIONS CHECK", rc, EXIT_POSITIONS_FAIL, "verify_positions.py",
+                    email_config, snapshot_before, db_path, log_file,
+                )
+        else:
+            log.info("[3] No new Portfolio_Positions CSV — skipping ground-truth check")
 
         # [4] Export endpoint-shaped R2 artifacts.
         log.info("[4] Exporting R2 artifacts...")
@@ -266,15 +263,13 @@ class Runner:
                 )
             log.info("[6] Dry run — skipping R2 publish")
         else:
-            mode = "--local" if self.args.local else "--remote"
-            log.info("[5] Publishing R2 artifacts (%s)...", mode)
-            rc = run_python_script(SCRIPTS_DIR / "r2_artifacts.py", "publish", mode)
+            log.info("[5] Publishing R2 artifacts (--remote)...")
+            rc = run_python_script(SCRIPTS_DIR / "r2_artifacts.py", "publish", "--remote")
             if rc != 0:
                 return self._report_stage_failure(
                     log, "PUBLISH", rc, EXIT_SYNC_FAIL, "r2_artifacts.py publish",
                     email_config, snapshot_before, db_path, log_file,
                     publish_summary=publish_summary,
-                    publish_mode="local" if self.args.local else "remote",
                 )
 
         # Success: update marker — but NOT in dry-run mode. Dry-run skipped the
@@ -294,7 +289,6 @@ class Runner:
             validation_warnings=notify.extract_validation_warnings(get_script_output_buffer()),
             started_at=self.started_at,
             publish_summary=publish_summary,
-            publish_mode="local" if self.args.local else "remote",
             dry_run=self.args.dry_run,
         )
         return EXIT_OK
@@ -311,7 +305,6 @@ class Runner:
         db_path: Path,
         log_file: Path,
         publish_summary: PublishSummary | None = None,
-        publish_mode: str | None = None,
     ) -> int:
         """Shared error-report path used by every stage in :meth:`run`.
 
@@ -329,6 +322,5 @@ class Runner:
             validation_warnings=notify.extract_validation_warnings(get_script_output_buffer()),
             started_at=self.started_at,
             publish_summary=publish_summary,
-            publish_mode=publish_mode,
         )
         return exit_code

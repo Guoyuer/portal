@@ -46,7 +46,8 @@ JsonDict = dict[str, Any]
 
 
 @contextmanager
-def _single_publisher_lock(lock_path: Path = _LOCK_PATH) -> Iterator[None]:
+def _single_publisher_lock(lock_path: Path | None = None) -> Iterator[None]:
+    lock_path = lock_path or _LOCK_PATH
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
@@ -123,27 +124,8 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _descriptor(key: str, path: Path, payload: object) -> JsonDict:
-    d = _write_json(path, payload)
-    return {"key": key, **d}
-
-
 def _artifact_path(artifact_dir: Path, key: str) -> Path:
     return artifact_dir / Path(*key.split("/"))
-
-
-def _snapshot_descriptor(
-    *,
-    version: str,
-    snapshot_dir: Path,
-    endpoint: str,
-    payload: object,
-) -> JsonDict:
-    return _descriptor(
-        f"snapshots/{version}/{endpoint}.json",
-        snapshot_dir / f"{endpoint}.json",
-        payload,
-    )
 
 
 # ── SQLite shape loaders ───────────────────────────────────────────────────
@@ -417,15 +399,13 @@ def export_artifacts(
 
         prices, price_row_counts = _build_prices_bundle(conn)
         endpoint_payloads = {"timeline": timeline, "econ": econ, "prices": prices}
-        objects = {
-            endpoint: _snapshot_descriptor(
-                version=version,
-                snapshot_dir=snapshot_dir,
-                endpoint=endpoint,
-                payload=endpoint_payloads[endpoint],
-            )
-            for endpoint in _ENDPOINTS
-        }
+        objects = {}
+        for endpoint in _ENDPOINTS:
+            key = f"snapshots/{version}/{endpoint}.json"
+            objects[endpoint] = {
+                "key": key,
+                **_write_json(snapshot_dir / f"{endpoint}.json", endpoint_payloads[endpoint]),
+            }
 
         row_counts = _sqlite_row_counts(conn)
         json_counts = _json_row_counts(timeline, econ)
@@ -516,11 +496,7 @@ def _verify_row_counts(artifact_dir: Path, db_path: Path, manifest: Mapping[str,
 
 
 def _run_schema_check(artifact_dir: Path) -> None:
-    npx = shutil.which("npx")
-    if npx is None:
-        msg = "npx not found; cannot run frontend Zod artifact validation"
-        raise RuntimeError(msg)
-    cmd = [npx, "tsx", "scripts/validate_api_zod.ts", "artifacts", str(artifact_dir)]
+    cmd = [_resolve_npx(), "tsx", "scripts/validate_api_zod.ts", str(artifact_dir)]
     result = subprocess.run(cmd, cwd=str(_REPO_DIR), capture_output=True, text=True)  # noqa: S603
     if result.returncode != 0:
         msg = (
@@ -537,7 +513,6 @@ def verify_artifacts(
     *,
     db_path: Path = _DEFAULT_DB_PATH,
     artifact_dir: Path = _DEFAULT_ARTIFACT_DIR,
-    schema: bool = True,
 ) -> JsonDict:
     manifest_path = artifact_dir / "manifest.json"
     if not manifest_path.exists():
@@ -549,8 +524,7 @@ def verify_artifacts(
         _verify_descriptor(artifact_dir, endpoint, manifest["objects"][endpoint])
 
     _verify_row_counts(artifact_dir, db_path, manifest)
-    if schema:
-        _run_schema_check(artifact_dir)
+    _run_schema_check(artifact_dir)
 
     print(f"R2 artifacts verified: version={manifest['version']} objects={len(manifest['objects'])}")
     return manifest
@@ -685,9 +659,8 @@ def publish_artifacts(
     db_path: Path = _DEFAULT_DB_PATH,
     artifact_dir: Path = _DEFAULT_ARTIFACT_DIR,
     remote: bool = False,
-    schema: bool = True,
 ) -> JsonDict:
-    manifest = verify_artifacts(db_path=db_path, artifact_dir=artifact_dir, schema=schema)
+    manifest = verify_artifacts(db_path=db_path, artifact_dir=artifact_dir)
     descriptors: list[Mapping[str, Any]] = list(manifest["objects"].values())
     with _single_publisher_lock():
         _publish_wrangler(artifact_dir, descriptors, remote=remote)
@@ -710,14 +683,12 @@ def _parse_args() -> argparse.Namespace:
     export_p.add_argument("--version", default=None, help="Snapshot version id; default is current UTC timestamp")
     export_p.add_argument("--generated-at", default=None, help="ISO timestamp for payload metadata")
 
-    verify_p = sub.add_parser("verify", help="Verify local artifact hashes, row counts, and Zod schemas")
-    verify_p.add_argument("--skip-schema", action="store_true", help="Skip frontend Zod validation")
+    sub.add_parser("verify", help="Verify local artifact hashes, row counts, and Zod schemas")
 
     publish_p = sub.add_parser("publish", help="Publish artifacts with manifest-last ordering")
     mode = publish_p.add_mutually_exclusive_group(required=True)
     mode.add_argument("--local", action="store_true", help="Publish to Wrangler local R2")
     mode.add_argument("--remote", action="store_true", help="Publish to production R2")
-    publish_p.add_argument("--skip-schema", action="store_true", help="Skip frontend Zod validation")
 
     return parser.parse_args()
 
@@ -737,14 +708,12 @@ def main() -> int:
             verify_artifacts(
                 db_path=args.db,
                 artifact_dir=args.artifact_dir,
-                schema=not args.skip_schema,
             )
         elif args.command == "publish":
             publish_artifacts(
                 db_path=args.db,
                 artifact_dir=args.artifact_dir,
                 remote=args.remote,
-                schema=not args.skip_schema,
             )
         else:  # pragma: no cover - argparse enforces choices
             msg = f"unknown command: {args.command}"

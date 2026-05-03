@@ -5,7 +5,6 @@
 import { useState } from "react";
 import { useHoverState } from "@/lib/hooks/use-hover-state";
 import { GroupChart, buildGroupChartData } from "./group-chart";
-import { priceMapFromSeries } from "@/lib/data/ticker-data";
 import { ChartDialog } from "../charts/chart-dialog";
 import { buildGroupValueSeries, groupNetByDate } from "@/lib/data/group-aggregation";
 import { EQUIVALENT_GROUPS } from "@/lib/data/equivalent-groups";
@@ -154,7 +153,7 @@ function GroupChartDialogContent({
       );
     }
 
-    const priceMap = priceMapFromSeries(filteredPrices);
+    const priceMap = new Map(filteredPrices.map((p) => [p.date, p.close]));
     const chartData = buildGroupChartData(priceMap, markers);
 
     return (

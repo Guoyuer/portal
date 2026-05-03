@@ -1,26 +1,11 @@
-// ── Transaction classifier + group aggregation (pure data layer) ────────
-// Classifies Fidelity transactions into a higher-level taxonomy so UI
-// code doesn't have to ad-hoc match action strings. `groupNetByDate`
-// consumes the taxonomy and clusters REAL txns within an equivalence
-// group to surface net exposure change (vs. noise from ticker swaps).
+// ── Group transaction aggregation (pure data layer) ─────────────────────
+// `groupNetByDate` clusters real buy/sell flows within an equivalence group
+// to surface net exposure change, filtering out ticker-swap noise.
 
-import type { FidelityTxn, DailyTicker } from "@/lib/schemas";
+import type { DailyTicker, FidelityTxn } from "@/lib/schemas";
 import type { SourceKind } from "@/lib/compute/computed-types";
 import { groupOfTicker } from "@/lib/data/equivalent-groups";
 import { parseLocalDate } from "@/lib/format/format";
-
-export type TxnType = "REAL" | "REINVEST" | "SPLIT" | "OTHER";
-
-export function classifyTxn(t: FidelityTxn): TxnType {
-  const a = t.actionType;
-  if (a === "buy" || a === "sell") return "REAL";
-  if (a === "reinvestment") return "REINVEST";
-  // Fidelity encodes splits as DISTRIBUTION with price=0 and qty≠0
-  if (a === "distribution" && t.price === 0 && t.quantity !== 0) return "SPLIT";
-  return "OTHER";
-}
-
-// ── Group net aggregation ────────────────────────────────────────────────
 
 const MS_PER_DAY = 86_400_000;
 // T+2 settlement window: a rebalance that executes Mon may settle Wed, so

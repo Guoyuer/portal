@@ -3,8 +3,8 @@ and assert that ``computed_daily`` + ``computed_daily_tickers`` match the
 committed golden JSON.
 
 Runs offline (no Yahoo fetches, no network, no wrangler) — the build
-reads prices from a committed CSV via ``--prices-from-csv`` and skips
-all market-index precompute via ``--dry-run-market``. The Qianji DB is
+reads prices from a committed CSV via ``--prices-from-csv``, which also
+skips market-index precompute. The Qianji DB is
 swapped in via the ``QIANJI_DB_PATH_OVERRIDE`` env var so the module-
 level default path never reaches the caller's home directory.
 
@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
@@ -40,6 +41,10 @@ DOWNLOAD_FIXTURES = [
 # clarity and is renamed on copy to match the production glob.
 ROBINHOOD_FIXTURE_SRC = "robinhood.csv"
 ROBINHOOD_FIXTURE_DST = "Robinhood_history.csv"
+EXCLUDED_COLUMNS = {
+    "computed_daily": frozenset({"created_at", "updated_at"}),
+    "computed_daily_tickers": frozenset({"created_at", "updated_at"}),
+}
 
 
 def _resolve_python() -> str:
@@ -60,8 +65,8 @@ def built_db(tmp_path_factory: pytest.TempPathFactory) -> Path:
     Copies the Fidelity / Empower / Robinhood fixtures into a scratch
     ``downloads/`` directory so production globs pick them up, points the
     Qianji DB loader at the fixture SQLite via the override env var, and
-    invokes ``build_timemachine_db.py`` with ``--prices-from-csv`` +
-    ``--dry-run-market`` so the run is fully offline.
+    invokes ``build_timemachine_db.py`` with ``--prices-from-csv`` so the
+    run is fully offline.
     """
     data_dir = tmp_path_factory.mktemp("regression")
     downloads = data_dir / "downloads"
@@ -87,7 +92,6 @@ def built_db(tmp_path_factory: pytest.TempPathFactory) -> Path:
             "--config", str(FIXTURE_DIR / "config.json"),
             "--downloads", str(downloads),
             "--prices-from-csv", str(FIXTURE_DIR / "prices.csv"),
-            "--dry-run-market",
             "--no-validate",
             "--as-of", "2026-04-14",
         ],
@@ -106,9 +110,22 @@ def built_db(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 def _load_table(db_path: Path, table: str) -> list[dict[str, object]]:
-    """Reuse the canonical dumper so the L2 test hashes the same way as L1."""
-    from _regression_util import dump_canonical
-    return json.loads(dump_canonical(db_path, table))
+    excluded = EXCLUDED_COLUMNS.get(table, frozenset())
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    try:
+        cols_meta = conn.execute(f"PRAGMA table_info({table})").fetchall()
+        cols = [c["name"] for c in cols_meta if c["name"] not in excluded]
+        pk_cols = [c["name"] for c in cols_meta if c["pk"] > 0] or cols
+        rows = conn.execute(
+            f"SELECT {', '.join(cols)} FROM {table} ORDER BY {', '.join(pk_cols)}"  # noqa: S608
+        ).fetchall()
+    finally:
+        conn.close()
+    return [
+        {c: (repr(row[c]) if isinstance(row[c], float) else row[c]) for c in cols}
+        for row in rows
+    ]
 
 
 def test_computed_daily_matches_golden(built_db: Path) -> None:

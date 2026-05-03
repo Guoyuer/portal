@@ -83,7 +83,6 @@ cd pipeline && .venv/Scripts/python.exe scripts/r2_artifacts.py publish --remote
 # Automated pipeline
 cd pipeline && .venv/Scripts/python.exe scripts/run_automation.py
 cd pipeline && .venv/Scripts/python.exe scripts/run_automation.py --dry-run
-cd pipeline && .venv/Scripts/python.exe scripts/run_automation.py --force --local
 
 # Local Worker against already-published local R2 artifacts
 cd worker && npx wrangler dev --local

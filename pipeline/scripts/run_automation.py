@@ -23,7 +23,6 @@ changes, and on every failure. Silent no-change runs never email. See
 CLI (mirrors the previous PS1 flags):
     --force     Skip change detection
     --dry-run   Run build + artifact verify but skip the publish step
-    --local     Publish to local R2 instead of production R2
 
 Environment variables:
     PORTAL_HEALTHCHECK_URL   Healthchecks.io base URL (recommended; see RUNBOOK §8)

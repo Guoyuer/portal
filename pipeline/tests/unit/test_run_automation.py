@@ -161,16 +161,15 @@ class TestParseArgs:
     @pytest.mark.parametrize(
         ("argv", "expected"),
         [
-            pytest.param([], (False, False, False), id="no-args"),
-            pytest.param(["--force"], (True, False, False), id="force"),
-            pytest.param(["--dry-run"], (False, True, False), id="dry-run"),
-            pytest.param(["--local"], (False, False, True), id="local"),
-            pytest.param(["--force", "--dry-run", "--local"], (True, True, True), id="combined"),
+            pytest.param([], (False, False), id="no-args"),
+            pytest.param(["--force"], (True, False), id="force"),
+            pytest.param(["--dry-run"], (False, True), id="dry-run"),
+            pytest.param(["--force", "--dry-run"], (True, True), id="combined"),
         ],
     )
-    def test_flag_parsing(self, argv: list[str], expected: tuple[bool, bool, bool]) -> None:
+    def test_flag_parsing(self, argv: list[str], expected: tuple[bool, bool]) -> None:
         ns = runner.parse_args(argv)
-        assert (ns.force, ns.dry_run, ns.local) == expected
+        assert (ns.force, ns.dry_run) == expected
 
     def test_unknown_flag_exits(self):
         with pytest.raises(SystemExit):
@@ -245,11 +244,6 @@ class TestExitCodeMapping:
                 id="sync-fail-after-publish-attempt",
             ),
             pytest.param(
-                ["--force", "--local"], [0, 0, 0], None,
-                EXIT_OK, [_BUILD, _R2, _R2], ("publish", "--local"),
-                id="local-publishes-to-local-r2",
-            ),
-            pytest.param(
                 ["--force", "--dry-run"], [0, 0, 0], None,
                 EXIT_OK, [_BUILD, _R2, _R2], ("verify",),
                 id="dry-run-skips-publish",
@@ -263,11 +257,6 @@ class TestExitCodeMapping:
                 ["--force"], [0, 1], ("Portfolio_Positions_Apr-07-2026.csv",),
                 EXIT_POSITIONS_FAIL, [_BUILD, _VERIFY_POS], None,
                 id="positions-fail-blocks-publish",
-            ),
-            pytest.param(
-                ["--force", "--local"], [0, 0, 0], ("Portfolio_Positions_Apr-07-2026.csv",),
-                EXIT_OK, [_BUILD, _R2, _R2], None,
-                id="local-skips-positions-gate",
             ),
         ],
     )

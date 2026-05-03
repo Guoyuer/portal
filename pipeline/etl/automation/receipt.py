@@ -92,19 +92,6 @@ class SyncReceipt:
             return None
         return after.value - before.value
 
-    def net_worth_delta_pct(self) -> float | None:
-        before = self.before.net_worth
-        after = self.after.net_worth if self.after else None
-        if before is None or before.value == 0 or after is None:
-            return None
-        return (after.value - before.value) / before.value * 100
-
-    def has_meaningful_changes(self) -> bool:
-        return bool(
-            any(delta != 0 for _, _, _, delta in self.row_deltas)
-            or (self.net_worth_delta is not None and abs(self.net_worth_delta) >= 0.01)
-        )
-
 
 def capture(db_path: Path) -> SyncSnapshot:
     if not db_path.exists():
@@ -120,10 +107,6 @@ def capture(db_path: Path) -> SyncSnapshot:
     finally:
         conn.close()
     return SyncSnapshot(row_counts=row_counts, net_worth=nw)
-
-
-def diff(before: SyncSnapshot, after: SyncSnapshot) -> SyncReceipt:
-    return SyncReceipt(before=before, after=after)
 
 
 def load_publish_summary(path: Path) -> PublishSummary | None:
@@ -152,8 +135,7 @@ def format_text(receipt: SyncReceipt, context: Mapping[str, Any]) -> str:
 
     summary = context.get("publish_summary")
     if isinstance(summary, PublishSummary):
-        publish_mode = str(context.get("publish_mode") or "?")
-        publish_status = "skipped (dry-run)" if context.get("dry_run") else publish_mode
+        publish_status = "skipped (dry-run)" if context.get("dry_run") else "remote"
         lines.extend([
             "Artifact",
             f"  Version: {summary.version}",
@@ -273,7 +255,11 @@ def _append_net_worth(lines: list[str], receipt: SyncReceipt) -> None:
     before = receipt.before.net_worth
     after = receipt.after.net_worth if receipt.after else None
     delta = receipt.net_worth_delta
-    pct = receipt.net_worth_delta_pct()
+    pct = (
+        None
+        if before is None or before.value == 0 or after is None
+        else (after.value - before.value) / before.value * 100
+    )
     if before is not None and after is not None and delta is not None:
         pct_text = f" / {pct:+.2f}%" if pct is not None else ""
         lines.append(

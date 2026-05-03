@@ -69,7 +69,8 @@ Ticker/group charts lazily load `/prices`, then select the ticker client-side. B
 detect changes -> build_timemachine_db.py -> optional verify_positions.py -> r2_artifacts.py export -> verify -> publish
 ```
 
-`--dry-run` stops before publish. `--local` publishes to Wrangler local R2 for local Worker/e2e testing.
+`--dry-run` stops before publish. Local Worker checks can use
+`r2_artifacts.py publish --local` directly after a local DB build.
 
 ## Correctness Gates
 
