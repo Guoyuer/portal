@@ -177,6 +177,13 @@ insertions / 58 deletions (`-25 diff LOC`). Active maintenance surface drops by
 140 LOC before this note; with the note included, current maintenance surface
 is 246 files / 25,420 physical LOC.
 
+Build-test DB helper follow-up: build orchestration and incremental tests now
+reuse the shared `connected_db`, `db_rows`, and `db_value` helpers instead of
+carrying local query helpers and repeated connection close blocks. Diff effect:
+2 files, 27 insertions / 59 deletions (`-32 diff LOC`). Physical maintenance
+surface drops by 28 LOC before this note; with the note included, current
+maintenance surface is 246 files / 25,398 physical LOC.
+
 ### Wave 1: Safe Deletions and Test Compression
 
 Targets:

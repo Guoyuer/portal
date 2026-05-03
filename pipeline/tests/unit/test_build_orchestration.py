@@ -10,9 +10,10 @@ from pathlib import Path
 import pytest
 
 from etl import build as build_mod
-from etl.db import get_connection, init_db
+from etl.db import init_db
 from etl.sources.empower import Contribution
 from etl.validate import CheckResult, Severity
+from tests.fixtures import connected_db, db_rows, db_value
 
 
 @pytest.fixture()
@@ -40,21 +41,10 @@ def _alloc_row(day: str = "2026-04-14", total: float = 100.0) -> build_mod.Alloc
     }
 
 
-def _rows(db_path: Path, sql: str) -> list[tuple[object, ...]]:
-    with closing(get_connection(db_path)) as conn:
-        return conn.execute(sql).fetchall()
-
-
-def _scalar(db_path: Path, sql: str) -> object:
-    with closing(get_connection(db_path)) as conn:
-        return conn.execute(sql).fetchone()[0]
-
-
 def _exec(db_path: Path, *sqls: str) -> None:
-    with closing(get_connection(db_path)) as conn:
+    with connected_db(db_path) as conn:
         for sql in sqls:
             conn.execute(sql)
-        conn.commit()
 
 
 def _seed_computed(db_path: Path, day: str = "2026-04-14", total: float = 1) -> None:
@@ -106,7 +96,7 @@ class TestLoadPricesFromCsv:
 
         build_mod._load_prices_from_csv(paths.db_path, price_csv)
 
-        assert _rows(
+        assert db_rows(
             paths.db_path,
             "SELECT symbol, date, close FROM daily_close ORDER BY symbol, date"
         ) == [("VOO", "2026-01-01", 100.5), ("VXUS", "2026-01-02", 55.0)]
@@ -118,7 +108,7 @@ class TestLoadPricesFromCsv:
 
         build_mod._load_prices_from_csv(paths.db_path, price_csv)
 
-        assert _scalar(paths.db_path, "SELECT COUNT(*) FROM daily_close") == 0
+        assert db_value(paths.db_path, "SELECT COUNT(*) FROM daily_close") == 0
 
 
 class TestConfigAndFidelityIngest:
@@ -148,7 +138,7 @@ class TestConfigAndFidelityIngest:
 
         build_mod._ingest_fidelity_csvs(paths)
 
-        assert _scalar(paths.db_path, "SELECT COUNT(*) FROM fidelity_transactions") == 1
+        assert db_value(paths.db_path, "SELECT COUNT(*) FROM fidelity_transactions") == 1
 
 
 class TestQianjiFallbackAndValidation:
@@ -429,8 +419,8 @@ class TestFullAndIncrementalBuild:
         )
 
         assert alloc == [_alloc_row()]
-        dates = _rows(paths.db_path, "SELECT date, total FROM computed_daily ORDER BY date")
-        tickers = _rows(paths.db_path, "SELECT ticker FROM computed_daily_tickers")
+        dates = db_rows(paths.db_path, "SELECT date, total FROM computed_daily ORDER BY date")
+        tickers = db_rows(paths.db_path, "SELECT ticker FROM computed_daily_tickers")
         assert dates == [("2026-04-14", 100.0)]
         assert tickers == [("VOO",)]
         assert ("qianji", ([{"id": "qj"}], ["401K"])) in calls
