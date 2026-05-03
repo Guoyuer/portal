@@ -1,6 +1,5 @@
 """Tests for Fidelity date parsing + canonical DB ingestion."""
 
-import sqlite3
 from pathlib import Path
 
 import pytest
@@ -8,6 +7,7 @@ import pytest
 from etl.db import init_db
 from etl.parsing import parse_us_date
 from etl.sources.fidelity.parse import ingest_csvs
+from tests.fixtures import db_rows, db_value
 from tests.unit.sources.conftest import ROW_AAPL as _ROW_AAPL
 from tests.unit.sources.conftest import ROW_EFT as _ROW_EFT
 from tests.unit.sources.conftest import ROW_GLDM as _ROW_GLDM
@@ -17,32 +17,26 @@ from tests.unit.sources.conftest import write_fidelity_csv as _write_csv
 class TestFidelityDateParse:
     """Tests for Fidelity's strict MM/DD/YYYY → ISO conversion via parse_us_date."""
 
-    def test_happy_path(self) -> None:
-        assert parse_us_date("01/15/2026", strict=True) == "2026-01-15"
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("01/15/2026", "2026-01-15"),
+            ("09/04/2026", "2026-09-04"),
+            ("12/31/2025", "2025-12-31"),
+        ],
+        ids=["happy-path", "leading-zeros", "end-of-year"],
+    )
+    def test_valid_dates(self, raw: str, expected: str) -> None:
+        assert parse_us_date(raw, strict=True) == expected
 
-    def test_preserves_leading_zeros(self) -> None:
-        assert parse_us_date("09/04/2026", strict=True) == "2026-09-04"
-
-    def test_end_of_year(self) -> None:
-        assert parse_us_date("12/31/2025", strict=True) == "2025-12-31"
-
-    def test_rejects_empty_string(self) -> None:
+    @pytest.mark.parametrize(
+        "raw",
+        ["", "1/15/2026", "2026-01-15", "abc"],
+        ids=["empty", "one-digit-month", "iso-date", "garbage"],
+    )
+    def test_rejects_invalid_dates(self, raw: str) -> None:
         with pytest.raises(ValueError, match="Invalid"):
-            parse_us_date("", strict=True)
-
-    def test_rejects_one_digit_month(self) -> None:
-        """Fidelity exports use zero-padded months; reject single digits."""
-        with pytest.raises(ValueError, match="Invalid"):
-            parse_us_date("1/15/2026", strict=True)
-
-    def test_rejects_iso_date(self) -> None:
-        """ISO format must be rejected at the Fidelity boundary."""
-        with pytest.raises(ValueError, match="Invalid"):
-            parse_us_date("2026-01-15", strict=True)
-
-    def test_rejects_garbage(self) -> None:
-        with pytest.raises(ValueError, match="Invalid"):
-            parse_us_date("abc", strict=True)
+            parse_us_date(raw, strict=True)
 
     def test_error_message_includes_row_context(self) -> None:
         with pytest.raises(ValueError, match=r"Accounts_History\.csv row 42"):
@@ -59,26 +53,18 @@ class TestIngestFidelity:
     def test_ingest_sample_csv(self, db_path: Path, history_sample_csv: Path) -> None:
         count = ingest_csvs(db_path, [history_sample_csv])
         assert count > 0
-        conn = sqlite3.connect(str(db_path))
-        rows = conn.execute("SELECT COUNT(*) FROM fidelity_transactions").fetchone()[0]
-        conn.close()
-        assert rows == count
+        assert db_value(db_path, "SELECT COUNT(*) FROM fidelity_transactions") == count
 
     def test_reingest_replaces_table(self, db_path: Path, history_sample_csv: Path) -> None:
         ingest_csvs(db_path, [history_sample_csv])
         count2 = ingest_csvs(db_path, [history_sample_csv])
-        conn = sqlite3.connect(str(db_path))
-        rows = conn.execute("SELECT COUNT(*) FROM fidelity_transactions").fetchone()[0]
-        conn.close()
-        assert rows == count2  # replaced, not doubled
+        assert db_value(db_path, "SELECT COUNT(*) FROM fidelity_transactions") == count2  # replaced, not doubled
 
     def test_run_dates_normalized_to_iso(self, db_path: Path, history_sample_csv: Path) -> None:
         """Run dates must be stored as ISO YYYY-MM-DD, not raw MM/DD/YYYY."""
         import re
         ingest_csvs(db_path, [history_sample_csv])
-        conn = sqlite3.connect(str(db_path))
-        run_dates = [r[0] for r in conn.execute("SELECT run_date FROM fidelity_transactions")]
-        conn.close()
+        run_dates = [r[0] for r in db_rows(db_path, "SELECT run_date FROM fidelity_transactions")]
         assert run_dates  # non-empty sanity check
         iso_re = re.compile(r"^\d{4}-\d{2}-\d{2}$")
         for rd in run_dates:
@@ -97,10 +83,7 @@ class TestIngestFidelityCanonical:
         count1 = ingest_csvs(db_path, [history_sample_csv])
         count2 = ingest_csvs(db_path, [history_sample_csv])
         assert count1 == count2
-        conn = sqlite3.connect(str(db_path))
-        rows = conn.execute("SELECT COUNT(*) FROM fidelity_transactions").fetchone()[0]
-        conn.close()
-        assert rows == count1
+        assert db_value(db_path, "SELECT COUNT(*) FROM fidelity_transactions") == count1
 
     def test_subset_csv_does_not_delete_rows_observed_elsewhere(self, db_path: Path, tmp_path: Path) -> None:
         full_csv = _write_csv(tmp_path / "full.csv", [_ROW_AAPL, _ROW_GLDM, _ROW_EFT])
@@ -108,10 +91,8 @@ class TestIngestFidelityCanonical:
 
         ingest_csvs(db_path, [full_csv, subset_csv])
 
-        conn = sqlite3.connect(str(db_path))
-        count = conn.execute("SELECT COUNT(*) FROM fidelity_transactions").fetchone()[0]
-        symbols = {r[0] for r in conn.execute("SELECT symbol FROM fidelity_transactions")}
-        conn.close()
+        count = db_value(db_path, "SELECT COUNT(*) FROM fidelity_transactions")
+        symbols = {r[0] for r in db_rows(db_path, "SELECT symbol FROM fidelity_transactions")}
 
         assert count == 3
         assert symbols == {"", "AAPL", "GLDM"}
@@ -134,12 +115,11 @@ class TestIngestFidelityCanonical:
 
         ingest_csvs(db_path, [quarter_csv, partial_overlap_csv])
 
-        conn = sqlite3.connect(str(db_path))
-        rows = conn.execute(
+        rows = db_rows(
+            db_path,
             "SELECT action_kind, quantity, amount FROM fidelity_transactions "
             "WHERE symbol = 'MAR' AND run_date = '2025-09-30' ORDER BY action_kind"
-        ).fetchall()
-        conn.close()
+        )
         assert rows == [("dividend", 0.0, 4.06), ("reinvestment", 0.015, -4.06)]
 
     def test_intra_day_duplicate_trades_preserved(self, db_path: Path, tmp_path: Path) -> None:
@@ -149,11 +129,10 @@ class TestIngestFidelityCanonical:
 
         ingest_csvs(db_path, [csv])
 
-        conn = sqlite3.connect(str(db_path))
-        aapl_rows = conn.execute(
+        aapl_rows = db_value(
+            db_path,
             "SELECT COUNT(*) FROM fidelity_transactions WHERE symbol='AAPL'"
-        ).fetchone()[0]
-        conn.close()
+        )
         assert aapl_rows == 2, "intra-day duplicate trades must both be stored"
 
     def test_different_date_csvs_coexist(self, db_path: Path, tmp_path: Path) -> None:
@@ -169,9 +148,7 @@ class TestIngestFidelityCanonical:
 
         ingest_csvs(db_path, [csv_apr, csv_may])
 
-        conn = sqlite3.connect(str(db_path))
-        dates = sorted(r[0] for r in conn.execute("SELECT run_date FROM fidelity_transactions"))
-        conn.close()
+        dates = sorted(r[0] for r in db_rows(db_path, "SELECT run_date FROM fidelity_transactions"))
         assert dates == ["2026-04-02", "2026-05-02"], "disjoint CSVs both survive"
 
     def test_init_db_is_idempotent(self, tmp_path: Path) -> None:
@@ -181,7 +158,4 @@ class TestIngestFidelityCanonical:
         init_db(db_path)
         init_db(db_path)
 
-        conn = sqlite3.connect(str(db_path))
-        rows = conn.execute("SELECT COUNT(*) FROM fidelity_transactions").fetchone()[0]
-        conn.close()
-        assert rows == 0
+        assert db_value(db_path, "SELECT COUNT(*) FROM fidelity_transactions") == 0
