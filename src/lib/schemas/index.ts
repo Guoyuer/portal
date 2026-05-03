@@ -1,6 +1,6 @@
 // ── Barrel: all Zod schemas + inferred types for API responses ───────────
-// Single source of truth for the Worker/client type contract. Import from
-// `@/lib/schemas` (client) or the relative `../../src/lib/schemas` (Worker).
+// Single source of truth for frontend validation of R2 artifact payloads.
+// Import from `@/lib/schemas` in client code and validation scripts.
 
 export {
   TimelineDataSchema,
@@ -25,7 +25,6 @@ export {
 } from "./econ";
 
 export {
-  TickerPriceResponseSchema,
   TickerPricesBundleSchema,
   type TickerPricePoint,
   type TickerPricesBundle,

@@ -9,7 +9,7 @@ import type { Cluster } from "@/lib/data/ticker-data";
 import type { HoverState } from "@/lib/hooks/use-hover-state";
 import { BUY_COLOR, SELL_COLOR } from "@/lib/format/chart-colors";
 
-export type MarkerProps = { cx?: number; cy?: number };
+type MarkerProps = { cx?: number; cy?: number };
 
 // ── Cluster markers (interactive when onSelect is provided) ─────────────
 
@@ -106,4 +106,3 @@ export function ReinvestMarker({ cx, cy }: MarkerProps) {
   if (cx == null || cy == null) return null;
   return <circle cx={cx} cy={cy} r={2.5} fill={BUY_COLOR} fillOpacity={0.4} />;
 }
-
