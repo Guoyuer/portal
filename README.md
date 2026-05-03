@@ -85,8 +85,7 @@ cd pipeline && .venv/Scripts/python.exe scripts/run_automation.py
 cd pipeline && .venv/Scripts/python.exe scripts/run_automation.py --dry-run
 cd pipeline && .venv/Scripts/python.exe scripts/run_automation.py --force --local
 
-# Local R2 fixture seed for Worker/e2e testing
-bash pipeline/scripts/seed_local_r2_from_fixtures.sh
+# Local Worker against already-published local R2 artifacts
 cd worker && npx wrangler dev --local
 ```
 
@@ -110,15 +109,24 @@ NEXT_PUBLIC_TIMELINE_URL=http://localhost:8787
 EOF
 ```
 
-3. Seed local R2 and run both servers:
+3. Publish local artifacts and run both servers:
 
 ```bash
-bash pipeline/scripts/seed_local_r2_from_fixtures.sh
+cd pipeline
+.venv/Scripts/python.exe scripts/build_timemachine_db.py
+.venv/Scripts/python.exe scripts/r2_artifacts.py export
+.venv/Scripts/python.exe scripts/r2_artifacts.py publish --local
+cd ..
+
+# Terminal 1
 cd worker && npx wrangler dev --local
+
+# Terminal 2
 npm run dev
 ```
 
-For real local data, run `build_timemachine_db.py`, then `r2_artifacts.py export`, `verify`, and `publish --local` instead of the fixture seed.
+`publish --local` runs artifact verification before writing to Wrangler's local
+R2 state.
 
 ## Type Contract
 
@@ -154,12 +162,11 @@ portal/
 │   │   ├── build_timemachine_db.py
 │   │   ├── r2_artifacts.py      # export / verify / publish
 │   │   ├── run_automation.py
-│   │   └── seed_local_r2_from_fixtures.sh
 │   ├── tests/
 │   └── tools/gen_zod.py
 ├── e2e/                         # Playwright tests
 ├── docs/                        # current docs + archive index
-└── .github/workflows/           # CI, Pages deploy, fixture real-worker e2e
+└── .github/workflows/           # CI and Pages deploy
 ```
 
 ## Setup

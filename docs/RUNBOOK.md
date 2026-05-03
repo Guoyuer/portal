@@ -54,8 +54,11 @@ are needed.
 ## Local Worker Test
 
 ```bash
-bash pipeline/scripts/seed_local_r2_from_fixtures.sh
-cd worker
+cd pipeline
+.venv/Scripts/python.exe scripts/build_timemachine_db.py
+.venv/Scripts/python.exe scripts/r2_artifacts.py export
+.venv/Scripts/python.exe scripts/r2_artifacts.py publish --local
+cd ../worker
 npx wrangler dev --local --port 8787
 ```
 
@@ -67,7 +70,8 @@ curl http://localhost:8787/api/econ
 curl http://localhost:8787/api/prices
 ```
 
-For real local data, replace the fixture seed with `r2_artifacts.py publish --local` after a local DB build.
+`publish --local` verifies artifacts before writing to Wrangler's local R2
+state.
 
 ## Artifact Verification Failure
 
@@ -145,8 +149,6 @@ To intentionally refresh L1 hashes:
 cd pipeline
 .venv/Scripts/python.exe scripts/refresh_l1_baseline_from_fixtures.py
 ```
-
-Attach the `baseline-refresh` label to a PR to run the CI refresh workflow.
 
 ## Access Headers
 

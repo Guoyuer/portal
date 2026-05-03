@@ -2,10 +2,6 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./e2e",
-  // real-worker.spec.ts assumes a live wrangler dev on :8787 seeded from L2
-  // fixtures — see playwright.config.real.ts + the e2e-real-worker.yml
-  // workflow; it would fail against the mock-API server this config boots.
-  testIgnore: [/real-worker\.spec\.ts$/],
   fullyParallel: true,
   retries: process.env.CI ? 1 : 0,
   workers: process.env.CI ? 2 : undefined,

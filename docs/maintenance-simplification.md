@@ -77,13 +77,13 @@ deleting flows, narrowing outputs, and using table-driven tests.
 | S6 | Ticker/group data | Deduplicate chart data-state helpers across ticker and group views. Keep source-specific transaction semantics outside the chart shell. | -150 to -400 | Medium | Worth doing only if the shared shell stays small and obvious. |
 | S7 | Finance UI tables | Reuse table row/header helpers across allocation, ticker, transaction, and group tables where markup is identical. | -100 to -250 | Medium | Small win. Avoid a generic mega-table abstraction. |
 | S8 | R2 artifact script | Extract endpoint descriptor metadata once: path, schema name, row-count key, and validation summary. Share it across export, verify, summary, and Zod smoke helpers. | Done | Medium | Endpoint descriptor and row-count metadata are now single-source; keep publish verification explicit. |
-| S9 | Validation CLIs | Merge old artifact/live Zod scripts behind one small `validate_api_zod.ts` CLI with `live` and `artifacts` modes. | Done | Low | Keep the real-worker failure messages readable. |
-| S10 | Manual e2e paths | Consolidate `e2e/manual/*` and manual Playwright config into one documented smoke/perf command. | Done | Low | Removed the manual screenshot/perf specs and config; mock e2e, real-worker e2e, and ticker cluster unit coverage remain. |
+| S9 | Validation CLIs | Merge old artifact/live Zod scripts behind one small `validate_api_zod.ts` CLI with `live` and `artifacts` modes. | Done | Low | Keep this for active production payload checks. |
+| S10 | Manual e2e paths | Consolidate `e2e/manual/*` and manual Playwright config into one documented smoke/perf command. | Done | Low | Removed the manual screenshot/perf specs, real-worker e2e, and extra config; mock e2e and unit coverage remain. |
 | S11 | Config example | Shrink `pipeline/config.example.json` to a minimal template with representative assets and all supported config keys. | Done | Low-Medium | Add every real held ticker to private `config.json`; unknown holdings still fail closed. |
 | S12 | Docs archive | Move `docs/archive/` to a branch/wiki or keep only an archive index plus the few decision records still referenced. | Done | Low | Historical notes were removed from the active tree; use git history for archaeology. |
 | S13 | Qianji legacy fallback | Review old CNY and category fallback logic; delete branches covered by newer source invariants. | -80 to -180 | Medium | Only after regression fixtures prove old exports do not need them. |
 | S14 | Source modules | Delete or merge tiny broker helpers that no longer have at least two live call sites. | Partial | Low-Medium | `_ingest.py` was removed after Fidelity moved to canonical ingest; keep broker parsing explicit and only share helpers that remove real duplication. |
-| S15 | CI workflows | Fold rare baseline refresh and real-worker workflows if they are not pulling their weight. | -50 to -150 | Low | Only if operational signal remains clear. CI LOC is already small. |
+| S15 | CI workflows | Fold rare baseline refresh and real-worker workflows if they are not pulling their weight. | Done | Low | Removed opt-in real-worker e2e and baseline-refresh automation; local commands remain for explicit checks. |
 | S16 | Worker | No meaningful LOC target. | 0 | Low | At 157 LOC, leave it boring and explicit. |
 
 ## Highest-Leverage Waves
@@ -114,6 +114,13 @@ were trimmed together. `_ingest.py` disappeared after it fell to one caller, and
 parameter tables or query helpers instead of copied test bodies. Net effect:
 8 files, 186 insertions / 313 deletions (`-127 LOC`), with targeted Python
 tests and Ruff passing before the broader gate.
+
+Aggressive CI/test-surface follow-up: opt-in real-worker e2e, the fixture local
+R2 seed script, the dedicated Playwright config/spec, and the label-driven
+baseline refresh workflow were deleted. Core coverage remains in artifact
+verification, Zod validation, Worker unit tests, mock Playwright e2e, and the
+offline regression fixture test. Net effect: 13 files, 40 insertions / 440
+deletions (`-400 LOC`) before validation.
 
 ### Wave 1: Safe Deletions and Test Compression
 

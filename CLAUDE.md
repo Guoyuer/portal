@@ -16,7 +16,7 @@ npm run test                                        # vitest run
 npx playwright test                                 # mock API e2e
 
 # Backend Worker
-cd worker && npx wrangler dev --local               # local R2, seed first
+cd worker && npx wrangler dev --local               # local R2; publish --local first
 cd worker && npx wrangler deploy                    # deploy portal-api
 bash worker/dev-remote.sh                           # --remote through CF Access when needed
 
@@ -45,9 +45,6 @@ cd pipeline && .venv/Scripts/python.exe scripts/refresh_l1_baseline_from_fixture
 cd pipeline && .venv/Scripts/python.exe scripts/run_automation.py
 cd pipeline && .venv/Scripts/python.exe scripts/run_automation.py --dry-run
 cd pipeline && .venv/Scripts/python.exe scripts/run_automation.py --force --local
-
-# Local R2 fixture seed
-bash pipeline/scripts/seed_local_r2_from_fixtures.sh
 ```
 
 **Git Bash / MSYS gotcha:** `NEXT_PUBLIC_*=/path npx next build` in Git Bash translates the value into `C:/Program Files/Git/path`. Prefix such commands with `MSYS_NO_PATHCONV=1` or run from CMD/PowerShell.
