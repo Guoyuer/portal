@@ -148,6 +148,15 @@ stage. Implementation effect: 3 files, 15 insertions / 97 deletions
 (`-82 LOC`); with this note included, current maintenance surface is 248 files /
 25,755 physical LOC under the same exclusions.
 
+UI/test surface follow-up: the single-use generic `Button` component and its
+two package dependencies were removed; the economy retry action now uses a
+local native button. `test_validate.py` also uses the existing DB context helper
+and table-driven enum coverage instead of repeated open/commit/close and issue
+filtering boilerplate. Implementation diff effect: 4 maintained files, 154
+insertions / 269 deletions (`-115 diff LOC`, plus lockfile churn). Physical
+maintenance surface drops by 109 LOC before this note; with the note included,
+current maintenance surface is 247 files / 25,653 physical LOC.
+
 ### Wave 1: Safe Deletions and Test Compression
 
 Targets:
