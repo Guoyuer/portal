@@ -69,7 +69,7 @@ deleting flows, narrowing outputs, and using table-driven tests.
 
 | Priority | Area | Candidate | Expected LOC | Risk | Recommendation |
 | --- | --- | --- | ---: | --- | --- |
-| S1 | Automation email | Simplify `receipt.py` and `notify.py`: keep text receipt as source of truth, make HTML a plain `<pre>`, reduce row-delta details, and report artifact summary first. | Done | Low | Receipt now derives from before/after snapshots; email formatting no longer models row deltas separately. |
+| S1 | Automation email | Simplify `receipt.py` and `notify.py`: keep text receipt as source of truth, make HTML a plain `<pre>`, remove DB row-delta details, and report artifact summary first. | Done | Low | Receipt now reports operator-level status only; row counts remain in artifact verification. |
 | S2 | Automation warning capture | Replace log-file fallback parsing with per-run subprocess buffer only, or keep fallback in tests only. | Done | Low | Runner passes the current subprocess buffer; old log-file parsing was removed. |
 | S3 | Build orchestration | Collapse repeated full/incremental tail logic in `build.py`, or remove incremental mode if full build stays fast enough. | Partial | Medium | Full and incremental now share finalization; do not delete incremental without build-time evidence. |
 | S4 | Test style | Convert large Python tests to builders and parametrized cases, especially prices, allocation, Qianji, build orchestration, and automation. | Partial | Low-Medium | Prices, allocation, automation, Qianji, receipt, and replay tests are compressed; build orchestration can still shrink later. |
@@ -139,6 +139,14 @@ fixture scaffolding, the explicit `--dry-run-market` fixture flag, and a
 one-call ticker price-map helper. Net effect: 37 files, 162 insertions / 711
 deletions (`-549 LOC`); current maintenance surface
 is 248 files / 25,820 physical LOC under the baseline exclusions above.
+
+Receipt surface follow-up: the automation email no longer models DB row-count
+deltas. Row counts are still emitted by `export-summary.json` and enforced by
+`r2_artifacts.py verify/publish`; the inbox receipt now stays at the operator
+level with artifact version, latest net worth, warnings, duration, and failure
+stage. Implementation effect: 3 files, 15 insertions / 97 deletions
+(`-82 LOC`); with this note included, current maintenance surface is 248 files /
+25,755 physical LOC under the same exclusions.
 
 ### Wave 1: Safe Deletions and Test Compression
 

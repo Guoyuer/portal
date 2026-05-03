@@ -24,7 +24,7 @@ from etl.automation import (  # noqa: E402
     runner,
 )
 from etl.automation._constants import _STATUS_LABELS  # noqa: E402
-from etl.automation.receipt import SyncSnapshot  # noqa: E402
+from etl.automation.receipt import NetWorthPoint, SyncSnapshot  # noqa: E402
 from scripts import run_automation  # noqa: E402
 
 
@@ -541,9 +541,9 @@ class TestEmailNotifications:
         assert len(sent) == 1
         assert sent[0]["subject"].startswith("[Portal Sync] OK")
 
-    def test_row_count_change_sends_email_summary(self, monkeypatch, tmp_path):
-        before = SyncSnapshot(row_counts={"fidelityTxns": 0})
-        after = SyncSnapshot(row_counts={"fidelityTxns": 1})
+    def test_net_worth_change_sends_email_summary(self, monkeypatch, tmp_path):
+        before = SyncSnapshot(net_worth=NetWorthPoint("2026-04-30", 1000))
+        after = SyncSnapshot(net_worth=NetWorthPoint("2026-05-01", 1100))
         rc, _, sent = self._invoke_with_email(
             ["--force"], [0, 0, 0, 0], monkeypatch, tmp_path,
             snapshot_before=before, snapshot_after=after,
@@ -551,7 +551,7 @@ class TestEmailNotifications:
         assert rc == EXIT_OK
         assert len(sent) == 1
         assert sent[0]["subject"].startswith("[Portal Sync] OK")
-        assert "fidelityTxns: 0 -> 1 (+1)" in sent[0]["text"]
+        assert "+$100.00" in sent[0]["text"]
 
     def test_build_failure_sends_email_with_exit_1(self, monkeypatch, tmp_path):
         rc, _, sent = self._invoke_with_email(
@@ -582,7 +582,7 @@ class TestEmailNotifications:
         rc, _, sent = self._invoke_with_email(
             ["--force"], [0, 0, 0, 0], monkeypatch, tmp_path,
             snapshot_before=SyncSnapshot(),
-            snapshot_after=SyncSnapshot(row_counts={"fidelityTxns": 1}),
+            snapshot_after=SyncSnapshot(),
             disable_email=True,
         )
         assert rc == EXIT_OK
@@ -594,7 +594,7 @@ class TestEmailNotifications:
         rc, _, sent = self._invoke_with_email(
             ["--force"], [0, 0, 0, 0], monkeypatch, tmp_path,
             snapshot_before=SyncSnapshot(),
-            snapshot_after=SyncSnapshot(row_counts={"fidelityTxns": 1}),
+            snapshot_after=SyncSnapshot(),
             send_side_effect=ConnectionRefusedError("smtp down"),
         )
         assert rc == EXIT_OK
