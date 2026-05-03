@@ -219,7 +219,7 @@ def get_readonly_connection(path: Path) -> sqlite3.Connection:
     return sqlite3.connect(f"file:{path}?mode=ro", uri=True)
 
 
-# ── Incremental build helpers for computed_daily ───────────────────────────
+# ── computed_daily helpers ─────────────────────────────────────────────────
 
 
 def get_last_computed_date(db_path: Path) -> date | None:
@@ -235,11 +235,9 @@ def get_last_computed_date(db_path: Path) -> date | None:
 def upsert_daily_rows(db_path: Path, rows: list[AllocationRow]) -> int:
     """Upsert rows into computed_daily + computed_daily_tickers.
 
-    Overwrites existing rows for the same date. Incremental builds recompute
-    the last REFRESH_WINDOW_DAYS days to pick up intraday price updates and
-    late Yahoo corrections, so duplicate dates must replace, not skip.
-    Child tickers for each replaced date are wiped first so a removed holding
-    doesn't leave an orphan row. Returns number of rows written.
+    Overwrites existing rows for the same date. Child tickers for each replaced
+    date are wiped first so a removed holding doesn't leave an orphan row.
+    Returns number of rows written.
     """
     if not rows:
         return 0

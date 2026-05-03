@@ -203,8 +203,9 @@ def positions_at(
                 cost_basis_usd=st.cost_basis_usd,
             ))
             continue
-        log.warning(
-            "No Robinhood price for %s on %s (holding %.3f shares) — excluded from allocation",
-            ticker, prices.price_date, st.quantity,
-        )
+        if prices.should_warn_once("robinhood_missing_price", ticker):
+            log.warning(
+                "No Robinhood price for %s on %s (holding %.3f shares) — excluded from allocation",
+                ticker, prices.price_date, st.quantity,
+            )
     return rows

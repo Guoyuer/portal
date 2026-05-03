@@ -8,7 +8,7 @@ mid-load).
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from enum import StrEnum
 from pathlib import Path
@@ -64,6 +64,7 @@ class PriceContext:
     prices: pd.DataFrame
     price_date: date
     mf_price_date: date
+    warning_keys: set[tuple[str, str]] = field(default_factory=set, compare=False, repr=False)
 
     def lookup(self, ticker: str, *, mutual_fund: bool = False) -> float | None:
         """Return the close price for ``ticker`` on the appropriate date, or None.
@@ -78,6 +79,14 @@ class PriceContext:
             if pd.notna(v):
                 return float(v)
         return None
+
+    def should_warn_once(self, kind: str, key: str) -> bool:
+        """Return True once per warning kind/key for this allocation compute."""
+        token = (kind, key)
+        if token in self.warning_keys:
+            return False
+        self.warning_keys.add(token)
+        return True
 
 
 @dataclass(frozen=True)

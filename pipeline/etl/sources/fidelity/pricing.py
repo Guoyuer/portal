@@ -86,10 +86,11 @@ def position_rows(
                 account=acct,
             ))
             continue
-        p_date = prices.mf_price_date if sym in mutual_fund_set else prices.price_date
-        log.warning(
-            "No price for %s on %s (holding %.3f shares) — excluded from allocation",
-            sym, p_date, qty,
-        )
+        if prices.should_warn_once("fidelity_missing_price", sym):
+            p_date = prices.mf_price_date if sym in mutual_fund_set else prices.price_date
+            log.warning(
+                "No price for %s on %s (holding %.3f shares) — excluded from allocation",
+                sym, p_date, qty,
+            )
 
     return rows

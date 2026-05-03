@@ -220,8 +220,8 @@ class TestExitCodeMapping:
         ("argv", "codes", "downloads_seed", "expected_rc", "expected_scripts", "expected_last_args"),
         [
             pytest.param(
-                ["--force"], [0, 0, 0, 0], None,
-                EXIT_OK, [_BUILD, _R2, _R2, _R2], ("publish", "--remote"),
+                ["--force"], [0, 0, 0], None,
+                EXIT_OK, [_BUILD, _R2, _R2], ("publish", "--remote"),
                 id="all-ok-publishes-remote",
             ),
             pytest.param(
@@ -235,18 +235,18 @@ class TestExitCodeMapping:
                 id="export-fail-stops-after-export",
             ),
             pytest.param(
-                ["--force"], [0, 0, 7], None,
+                ["--force", "--dry-run"], [0, 0, 7], None,
                 EXIT_PARITY_FAIL, [_BUILD, _R2, _R2], ("verify",),
-                id="verify-fail-stops-after-verify",
+                id="dry-run-verify-fail-stops-after-verify",
             ),
             pytest.param(
-                ["--force"], [0, 0, 0, 9], None,
-                EXIT_SYNC_FAIL, [_BUILD, _R2, _R2, _R2], None,
+                ["--force"], [0, 0, 9], None,
+                EXIT_SYNC_FAIL, [_BUILD, _R2, _R2], None,
                 id="sync-fail-after-publish-attempt",
             ),
             pytest.param(
-                ["--force", "--local"], [0, 0, 0, 0], None,
-                EXIT_OK, [_BUILD, _R2, _R2, _R2], ("publish", "--local"),
+                ["--force", "--local"], [0, 0, 0], None,
+                EXIT_OK, [_BUILD, _R2, _R2], ("publish", "--local"),
                 id="local-publishes-to-local-r2",
             ),
             pytest.param(
@@ -256,7 +256,7 @@ class TestExitCodeMapping:
             ),
             pytest.param(
                 ["--force"], [0, 0, 0, 0], ("Portfolio_Positions_Apr-07-2026.csv",),
-                EXIT_OK, [_BUILD, _VERIFY_POS, _R2, _R2, _R2], None,
+                EXIT_OK, [_BUILD, _VERIFY_POS, _R2, _R2], None,
                 id="positions-gate-runs-when-fresh-csv",
             ),
             pytest.param(
@@ -265,8 +265,8 @@ class TestExitCodeMapping:
                 id="positions-fail-blocks-publish",
             ),
             pytest.param(
-                ["--force", "--local"], [0, 0, 0, 0], ("Portfolio_Positions_Apr-07-2026.csv",),
-                EXIT_OK, [_BUILD, _R2, _R2, _R2], None,
+                ["--force", "--local"], [0, 0, 0], ("Portfolio_Positions_Apr-07-2026.csv",),
+                EXIT_OK, [_BUILD, _R2, _R2], None,
                 id="local-skips-positions-gate",
             ),
         ],

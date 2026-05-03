@@ -174,14 +174,19 @@ def fetch_and_store_cny_rates(db_path: Path, start: date, end: date) -> None:
     partial or wrong Yahoo response cannot corrupt already-captured history.
     """
     sym = "CNY=X"
-    refresh_cutoff_iso = refresh_window_start(end).isoformat()
     conn = get_connection(db_path)
     try:
-        print(f"Fetching USD/CNY rates {start} -> {end}...")
+        cached_lo, _cached_hi = _cached_range(conn, sym)
+        fetch_start = start
+        if cached_lo is not None and cached_lo <= start:
+            fetch_start = max(start, refresh_window_start(end))
+        refresh_cutoff_iso = refresh_window_start(end).isoformat()
+
+        print(f"Fetching USD/CNY rates {fetch_start} -> {end}...")
         try:
             df = yf.download(
                 sym,
-                start=start.isoformat(),
+                start=fetch_start.isoformat(),
                 end=(end + timedelta(days=1)).isoformat(),
                 auto_adjust=False,
                 progress=False,
