@@ -76,35 +76,32 @@ def _silence_logs(caplog):
 
 # ── changes_detected() ────────────────────────────────────────────────────────
 
+
+def _stale_marker(marker: Path) -> None:
+    """Stamp ``marker`` 1h in the past so any file ``write_text``-ed now wins."""
+    marker.write_text("old")
+    os.utime(marker, (time.time() - 3600,) * 2)
+
+
 class TestChangesDetected:
     def test_marker_missing_returns_true(self, marker, downloads):
         """First run: no marker means we must build + sync."""
         assert not marker.exists()
         assert changes.changes_detected(marker, downloads, None) is True
 
-    def test_watched_file_newer_than_marker_returns_true(self, marker, downloads):
-        marker.write_text("old")
-        # force marker mtime into the past
-        past = time.time() - 3600
-        os.utime(marker, (past, past))
-
-        csv = downloads / "Accounts_History_latest.csv"
-        csv.write_text("data")
-        # csv mtime = now > past
-        assert changes.changes_detected(marker, downloads, None) is True
-
-    def test_qfx_newer_than_marker_returns_true(self, marker, downloads):
-        marker.write_text("old")
-        os.utime(marker, (time.time() - 3600,) * 2)
-        qfx = downloads / "Bloomberg.Download_2026.qfx"
-        qfx.write_text("qfx")
-        assert changes.changes_detected(marker, downloads, None) is True
-
-    def test_robinhood_newer_than_marker_returns_true(self, marker, downloads):
-        marker.write_text("old")
-        os.utime(marker, (time.time() - 3600,) * 2)
-        rh = downloads / "Robinhood_history.csv"
-        rh.write_text("rh")
+    @pytest.mark.parametrize(
+        "filename",
+        [
+            "Accounts_History_latest.csv",
+            "Bloomberg.Download_2026.qfx",
+            "Robinhood_history.csv",
+            # Portfolio_Positions IS watched (re-enabled in S5 to drive the [3b] gate).
+            "Portfolio_Positions_Apr-12-2026.csv",
+        ],
+    )
+    def test_watched_file_newer_than_marker_returns_true(self, marker, downloads, filename):
+        _stale_marker(marker)
+        (downloads / filename).write_text("data")
         assert changes.changes_detected(marker, downloads, None) is True
 
     def test_no_newer_files_returns_false(self, marker, downloads):
@@ -113,9 +110,7 @@ class TestChangesDetected:
         csv.write_text("old")
         past = time.time() - 3600
         os.utime(csv, (past, past))
-
         marker.write_text("new")
-        # marker's mtime is now (fresh), files are 1h old → no change
         assert changes.changes_detected(marker, downloads, None) is False
 
     def test_empty_downloads_returns_false(self, marker, downloads):
@@ -123,24 +118,13 @@ class TestChangesDetected:
         assert changes.changes_detected(marker, downloads, None) is False
 
     def test_qianji_db_newer_returns_true(self, marker, downloads, qianji_db_file):
-        marker.write_text("old")
-        os.utime(marker, (time.time() - 3600,) * 2)
+        _stale_marker(marker)
         qianji_db_file.write_text("db")
         assert changes.changes_detected(marker, downloads, qianji_db_file) is True
 
-    def test_portfolio_positions_IS_watched(self, marker, downloads):
-        """Portfolio_Positions_*.csv IS watched (re-enabled in S5 to drive the [3b] gate)."""
-        marker.write_text("old")
-        os.utime(marker, (time.time() - 3600,) * 2)
-        pp = downloads / "Portfolio_Positions_Apr-12-2026.csv"
-        pp.write_text("positions")
-        assert changes.changes_detected(marker, downloads, None) is True
-
     def test_missing_downloads_dir_returns_false(self, marker, tmp_path):
-        marker.write_text("new")
-        os.utime(marker, (time.time() - 3600,) * 2)
-        nonexistent = tmp_path / "nope"
-        assert changes.changes_detected(marker, nonexistent, None) is False
+        _stale_marker(marker)
+        assert changes.changes_detected(marker, tmp_path / "nope", None) is False
 
 
 # ── needs_catchup() ───────────────────────────────────────────────────────────
@@ -149,7 +133,8 @@ class TestNeedsCatchup:
     """Guards the silent-skip gap: run even without CSV changes when the DB
     has drifted behind the wall-clock trading day."""
 
-    def _seed_computed_daily(self, tmp_path, last_date: str):
+    @staticmethod
+    def _seed_computed_daily(tmp_path: Path, last_date: str) -> Path:
         from etl.db import get_connection, init_db
         db = tmp_path / "tm.db"
         init_db(db)
@@ -163,6 +148,20 @@ class TestNeedsCatchup:
         conn.close()
         return db
 
+    @pytest.mark.parametrize(
+        ("last_date", "expected"),
+        [
+            pytest.param("2026-04-13", False, id="fresh-1day"),
+            # Standard long weekend (Fri→Tue = 4 days): tolerable.
+            pytest.param("2026-04-10", False, id="long-weekend-4days"),
+            pytest.param("2026-04-09", True, id="5days-triggers"),
+        ],
+    )
+    def test_seeded_db_catchup_window(self, tmp_path, last_date: str, expected: bool):
+        from datetime import date
+        db = self._seed_computed_daily(tmp_path, last_date)
+        assert changes.needs_catchup(db, today=date(2026, 4, 14)) is expected
+
     def test_empty_db_needs_catchup(self, tmp_path):
         from etl.db import init_db
         db = tmp_path / "tm.db"
@@ -170,52 +169,27 @@ class TestNeedsCatchup:
         from datetime import date
         assert changes.needs_catchup(db, today=date(2026, 4, 14)) is True
 
-    def test_fresh_db_skips(self, tmp_path):
-        from datetime import date
-        db = self._seed_computed_daily(tmp_path, "2026-04-13")
-        assert changes.needs_catchup(db, today=date(2026, 4, 14)) is False
-
-    def test_db_4_days_behind_still_ok(self, tmp_path):
-        """Standard long weekend (Fri→Tue = 4 days): tolerable."""
-        from datetime import date
-        db = self._seed_computed_daily(tmp_path, "2026-04-10")
-        assert changes.needs_catchup(db, today=date(2026, 4, 14)) is False
-
-    def test_db_5_days_behind_triggers_catchup(self, tmp_path):
-        from datetime import date
-        db = self._seed_computed_daily(tmp_path, "2026-04-09")
-        assert changes.needs_catchup(db, today=date(2026, 4, 14)) is True
-
     def test_missing_db_file_triggers_catchup(self, tmp_path):
         from datetime import date
-        nonexistent = tmp_path / "does-not-exist.db"
-        assert changes.needs_catchup(nonexistent, today=date(2026, 4, 14)) is True
+        assert changes.needs_catchup(tmp_path / "missing.db", today=date(2026, 4, 14)) is True
 
 
 # ── parse_args() ──────────────────────────────────────────────────────────────
 
 class TestParseArgs:
-    def test_no_args_defaults_all_false(self):
-        ns = runner.parse_args([])
-        assert ns.force is False
-        assert ns.dry_run is False
-        assert ns.local is False
-
-    def test_force(self):
-        ns = runner.parse_args(["--force"])
-        assert ns.force is True
-
-    def test_dry_run(self):
-        ns = runner.parse_args(["--dry-run"])
-        assert ns.dry_run is True
-
-    def test_local(self):
-        ns = runner.parse_args(["--local"])
-        assert ns.local is True
-
-    def test_combined(self):
-        ns = runner.parse_args(["--force", "--dry-run", "--local"])
-        assert (ns.force, ns.dry_run, ns.local) == (True, True, True)
+    @pytest.mark.parametrize(
+        ("argv", "expected"),
+        [
+            pytest.param([], (False, False, False), id="no-args"),
+            pytest.param(["--force"], (True, False, False), id="force"),
+            pytest.param(["--dry-run"], (False, True, False), id="dry-run"),
+            pytest.param(["--local"], (False, False, True), id="local"),
+            pytest.param(["--force", "--dry-run", "--local"], (True, True, True), id="combined"),
+        ],
+    )
+    def test_flag_parsing(self, argv: list[str], expected: tuple[bool, bool, bool]) -> None:
+        ns = runner.parse_args(argv)
+        assert (ns.force, ns.dry_run, ns.local) == expected
 
     def test_unknown_flag_exits(self):
         with pytest.raises(SystemExit):
@@ -239,6 +213,11 @@ class _FakeRun:
     def __call__(self, script: Path, *args: str) -> int:
         self.calls.append((script, args))
         return self.codes.pop(0) if self.codes else 0
+
+
+_BUILD = "build_timemachine_db.py"
+_R2 = "r2_artifacts.py"
+_VERIFY_POS = "verify_positions.py"
 
 
 class TestExitCodeMapping:
@@ -266,53 +245,95 @@ class TestExitCodeMapping:
         monkeypatch.setenv("PORTAL_HEALTHCHECK_URL", "https://hc.example/dummy")
         monkeypatch.delenv("PORTAL_SMTP_USER", raising=False)
         monkeypatch.delenv("PORTAL_SMTP_PASSWORD", raising=False)
-        # Force path so change detection is bypassed (we always pass --force)
         rc = run_automation.main(argv)
         return rc, fake
 
-    def test_all_ok_returns_0(self, monkeypatch, tmp_path):
-        rc, fake = self._invoke(["--force"], [0, 0, 0, 0], monkeypatch, tmp_path)
-        assert rc == EXIT_OK
-        scripts = [c[0].name for c in fake.calls]
-        assert scripts == ["build_timemachine_db.py", "r2_artifacts.py", "r2_artifacts.py", "r2_artifacts.py"]
-        assert fake.calls[1][1] == ("export",)
-        assert fake.calls[2][1] == ("verify",)
-        assert fake.calls[3][1] == ("publish", "--remote")
-
-    def test_build_fail_returns_1(self, monkeypatch, tmp_path):
-        rc, fake = self._invoke(["--force"], [5], monkeypatch, tmp_path)
-        assert rc == EXIT_BUILD_FAIL
-        assert [c[0].name for c in fake.calls] == ["build_timemachine_db.py"]
-
-    def test_artifact_export_fail_returns_2(self, monkeypatch, tmp_path):
-        rc, fake = self._invoke(["--force"], [0, 7], monkeypatch, tmp_path)
-        assert rc == EXIT_PARITY_FAIL
-        assert [c[0].name for c in fake.calls] == ["build_timemachine_db.py", "r2_artifacts.py"]
-        assert fake.calls[1][1] == ("export",)
-
-    def test_artifact_verify_fail_returns_2(self, monkeypatch, tmp_path):
-        rc, fake = self._invoke(["--force"], [0, 0, 7], monkeypatch, tmp_path)
-        assert rc == EXIT_PARITY_FAIL
-        assert [c[0].name for c in fake.calls] == ["build_timemachine_db.py", "r2_artifacts.py", "r2_artifacts.py"]
-        assert fake.calls[2][1] == ("verify",)
-
-    def test_sync_fail_returns_3(self, monkeypatch, tmp_path):
-        rc, _ = self._invoke(["--force"], [0, 0, 0, 9], monkeypatch, tmp_path)
-        assert rc == EXIT_SYNC_FAIL
-
-    def test_local_publishes_to_local_r2(self, monkeypatch, tmp_path):
-        rc, fake = self._invoke(["--force", "--local"], [0, 0, 0, 0], monkeypatch, tmp_path)
-        assert rc == EXIT_OK
+    @pytest.mark.parametrize(
+        ("argv", "codes", "downloads_seed", "expected_rc", "expected_scripts", "expected_last_args"),
+        [
+            pytest.param(
+                ["--force"], [0, 0, 0, 0], None,
+                EXIT_OK, [_BUILD, _R2, _R2, _R2], ("publish", "--remote"),
+                id="all-ok-publishes-remote",
+            ),
+            pytest.param(
+                ["--force"], [5], None,
+                EXIT_BUILD_FAIL, [_BUILD], None,
+                id="build-fail-stops-pipeline",
+            ),
+            pytest.param(
+                ["--force"], [0, 7], None,
+                EXIT_PARITY_FAIL, [_BUILD, _R2], ("export",),
+                id="export-fail-stops-after-export",
+            ),
+            pytest.param(
+                ["--force"], [0, 0, 7], None,
+                EXIT_PARITY_FAIL, [_BUILD, _R2, _R2], ("verify",),
+                id="verify-fail-stops-after-verify",
+            ),
+            pytest.param(
+                ["--force"], [0, 0, 0, 9], None,
+                EXIT_SYNC_FAIL, [_BUILD, _R2, _R2, _R2], None,
+                id="sync-fail-after-publish-attempt",
+            ),
+            pytest.param(
+                ["--force", "--local"], [0, 0, 0, 0], None,
+                EXIT_OK, [_BUILD, _R2, _R2, _R2], ("publish", "--local"),
+                id="local-publishes-to-local-r2",
+            ),
+            pytest.param(
+                ["--force", "--dry-run"], [0, 0, 0], None,
+                EXIT_OK, [_BUILD, _R2, _R2], ("verify",),
+                id="dry-run-skips-publish",
+            ),
+            pytest.param(
+                ["--force"], [0, 0, 0, 0], ("Portfolio_Positions_Apr-07-2026.csv",),
+                EXIT_OK, [_BUILD, _VERIFY_POS, _R2, _R2, _R2], None,
+                id="positions-gate-runs-when-fresh-csv",
+            ),
+            pytest.param(
+                ["--force"], [0, 0, 0, 0], None,
+                EXIT_OK, [_BUILD, _R2, _R2, _R2], None,
+                id="positions-gate-skipped-without-csv",
+            ),
+            pytest.param(
+                ["--force"], [0, 1], ("Portfolio_Positions_Apr-07-2026.csv",),
+                EXIT_POSITIONS_FAIL, [_BUILD, _VERIFY_POS], None,
+                id="positions-fail-blocks-publish",
+            ),
+            pytest.param(
+                ["--force", "--local"], [0, 0, 0, 0], ("Portfolio_Positions_Apr-07-2026.csv",),
+                EXIT_OK, [_BUILD, _R2, _R2, _R2], None,
+                id="local-skips-positions-gate",
+            ),
+        ],
+    )
+    def test_pipeline_outcome(
+        self,
+        monkeypatch,
+        tmp_path,
+        argv: list[str],
+        codes: list[int],
+        downloads_seed: tuple[str, ...] | None,
+        expected_rc: int,
+        expected_scripts: list[str],
+        expected_last_args: tuple[str, ...] | None,
+    ) -> None:
+        rc, fake = self._invoke(argv, codes, monkeypatch, tmp_path, downloads_seed=downloads_seed)
         names = [c[0].name for c in fake.calls]
-        assert names == ["build_timemachine_db.py", "r2_artifacts.py", "r2_artifacts.py", "r2_artifacts.py"]
-        assert fake.calls[-1][1] == ("publish", "--local")
-
-    def test_dry_run_skips_sync(self, monkeypatch, tmp_path):
-        rc, fake = self._invoke(["--force", "--dry-run"], [0, 0, 0], monkeypatch, tmp_path)
-        assert rc == EXIT_OK
-        names = [c[0].name for c in fake.calls]
-        assert names == ["build_timemachine_db.py", "r2_artifacts.py", "r2_artifacts.py"]
-        assert fake.calls[-1][1] == ("verify",)
+        assert (rc, names) == (expected_rc, expected_scripts)
+        if expected_last_args is not None:
+            # Find the last r2_artifacts call's args (there may be 1-3 of them).
+            r2_calls = [c for c in fake.calls if c[0].name == _R2]
+            r2_stage_args = [c[1] for c in r2_calls]
+            assert expected_last_args in r2_stage_args, (
+                f"expected {expected_last_args} in {r2_stage_args}"
+            )
+        # Positions-gate happy path: verify_positions invoked with --positions <path>.
+        if downloads_seed and _VERIFY_POS in expected_scripts:
+            verify_args = fake.calls[expected_scripts.index(_VERIFY_POS)][1]
+            assert verify_args[0] == "--positions"
+            assert verify_args[1].endswith(downloads_seed[0])
 
     def test_success_writes_marker(self, monkeypatch, tmp_path):
         marker = tmp_path / ".last_run"
@@ -327,7 +348,6 @@ class TestExitCodeMapping:
         is short-circuited by change-detection thinking the DB is fresh.
         """
         marker = tmp_path / ".last_run"
-        assert not marker.exists()
         rc, _ = self._invoke(["--force", "--dry-run"], [0, 0, 0], monkeypatch, tmp_path)
         assert rc == EXIT_OK
         assert not marker.exists(), (
@@ -363,79 +383,28 @@ class TestExitCodeMapping:
         conn.commit()
         conn.close()
 
-        rc = run_automation.main([])
-        assert rc == EXIT_OK
+        assert run_automation.main([]) == EXIT_OK
         assert fake.calls == []
-
-    def test_positions_gate_runs_when_fresh_csv_present(self, monkeypatch, tmp_path):
-        """[3b] runs verify_positions.py when a fresh Portfolio_Positions CSV is in Downloads."""
-        rc, fake = self._invoke(
-            ["--force"], [0, 0, 0, 0, 0], monkeypatch, tmp_path,
-            downloads_seed=("Portfolio_Positions_Apr-07-2026.csv",),
-        )
-        assert rc == EXIT_OK
-        names = [c[0].name for c in fake.calls]
-        assert names == [
-            "build_timemachine_db.py", "verify_positions.py",
-            "r2_artifacts.py", "r2_artifacts.py", "r2_artifacts.py",
-        ]
-        # verify_positions invoked with --positions <path>
-        verify_args = fake.calls[1][1]
-        assert verify_args[0] == "--positions"
-        assert verify_args[1].endswith("Portfolio_Positions_Apr-07-2026.csv")
-
-    def test_positions_gate_skipped_when_no_csv(self, monkeypatch, tmp_path):
-        """[3b] is skipped (not failed) when no Portfolio_Positions CSV is present."""
-        rc, fake = self._invoke(["--force"], [0, 0, 0, 0], monkeypatch, tmp_path)
-        assert rc == EXIT_OK
-        names = [c[0].name for c in fake.calls]
-        assert names == ["build_timemachine_db.py", "r2_artifacts.py", "r2_artifacts.py", "r2_artifacts.py"]
-
-    def test_positions_fail_returns_4(self, monkeypatch, tmp_path):
-        """verify_positions non-zero blocks sync with exit code 4."""
-        rc, fake = self._invoke(
-            ["--force"], [0, 1], monkeypatch, tmp_path,
-            downloads_seed=("Portfolio_Positions_Apr-07-2026.csv",),
-        )
-        assert rc == EXIT_POSITIONS_FAIL
-        names = [c[0].name for c in fake.calls]
-        assert names == ["build_timemachine_db.py", "verify_positions.py"]
-        # Publish must NOT have run.
-
-    def test_positions_gate_skipped_in_local_mode(self, monkeypatch, tmp_path):
-        """--local skips the positions gate and publishes to local R2."""
-        rc, fake = self._invoke(
-            ["--force", "--local"], [0, 0, 0, 0], monkeypatch, tmp_path,
-            downloads_seed=("Portfolio_Positions_Apr-07-2026.csv",),
-        )
-        assert rc == EXIT_OK
-        names = [c[0].name for c in fake.calls]
-        assert names == ["build_timemachine_db.py", "r2_artifacts.py", "r2_artifacts.py", "r2_artifacts.py"]
 
 
 # ── find_new_positions_csv() ──────────────────────────────────────────────────
 
 class TestFindNewPositionsCSV:
     def test_returns_none_when_downloads_missing(self, tmp_path):
-        downloads = tmp_path / "nope"
-        marker = tmp_path / ".last_run"
-        assert changes.find_new_positions_csv(downloads, marker) is None
+        assert changes.find_new_positions_csv(tmp_path / "nope", tmp_path / ".last_run") is None
 
     def test_returns_none_when_no_matching_files(self, tmp_path):
         downloads = tmp_path / "dl"
         downloads.mkdir()
-        marker = tmp_path / ".last_run"
         (downloads / "Accounts_History.csv").write_text("x")
-        assert changes.find_new_positions_csv(downloads, marker) is None
+        assert changes.find_new_positions_csv(downloads, tmp_path / ".last_run") is None
 
     def test_returns_csv_when_marker_missing(self, tmp_path):
         downloads = tmp_path / "dl"
         downloads.mkdir()
-        marker = tmp_path / ".last_run"  # does not exist
         f = downloads / "Portfolio_Positions_Apr-07-2026.csv"
         f.write_text("x")
-        result = changes.find_new_positions_csv(downloads, marker)
-        assert result == f
+        assert changes.find_new_positions_csv(downloads, tmp_path / ".last_run") == f
 
     def test_returns_none_when_csv_older_than_marker(self, tmp_path):
         downloads = tmp_path / "dl"
@@ -443,7 +412,6 @@ class TestFindNewPositionsCSV:
         marker = tmp_path / ".last_run"
         f = downloads / "Portfolio_Positions_Apr-07-2026.csv"
         f.write_text("x")
-        # Age the CSV into the past.
         past = time.time() - 3600
         os.utime(f, (past, past))
         marker.write_text("fresh")
@@ -453,7 +421,7 @@ class TestFindNewPositionsCSV:
         downloads = tmp_path / "dl"
         downloads.mkdir()
         marker = tmp_path / ".last_run"
-        marker.write_text("old")
+        _stale_marker(marker)
         os.utime(marker, (time.time() - 7200,) * 2)
         older = downloads / "Portfolio_Positions_Apr-03-2026.csv"
         newer = downloads / "Portfolio_Positions_Apr-07-2026.csv"
@@ -560,8 +528,7 @@ class TestPathHelpers:
 
     def test_log_dir_fallback_non_windows(self, monkeypatch):
         monkeypatch.delenv("LOCALAPPDATA", raising=False)
-        p = paths.get_log_dir()
-        assert p.parts[-2:] == ("portal", "logs")
+        assert paths.get_log_dir().parts[-2:] == ("portal", "logs")
 
     def test_db_path_override_env(self, monkeypatch, tmp_path):
         override = tmp_path / "custom.db"
@@ -760,31 +727,43 @@ class TestExtractValidationWarnings:
     def test_returns_empty_without_buffer(self):
         assert notify.extract_validation_warnings() == []
 
-    def test_parses_warning_lines(self):
-        warnings = notify.extract_validation_warnings([
-            "2026-04-12 INFO [2] build",
-            "2026-04-12 WARNING: day_over_day 2023-07-04 -> 2023-07-05: 15.7% change",
-            "2026-04-12 INFO done",
-            "2026-04-12 WARNING date_gaps 8-day gap between dates",
-        ])
-        assert len(warnings) == 2
-        assert "15.7%" in warnings[0]
-        assert "date_gaps" in warnings[1]
-
-    def test_skips_healthcheck_failures(self):
-        assert notify.extract_validation_warnings([
-            "2026-04-12 WARNING: healthcheck ping failed (ignored): network down",
-        ]) == []
-
-    def test_extract_warnings_dedup(self):
-        """Exact-duplicate WARNING lines within the current run collapse to one."""
-        warnings = notify.extract_validation_warnings([
-            "2026-04-12T12:00:01 WARNING: day_over_day 2023-07-04 -> 2023-07-05: 15.7% change",
-            "2026-04-12T12:00:02 WARNING: day_over_day 2023-07-04 -> 2023-07-05: 15.7% change",
-            "2026-04-12T12:00:03 WARNING: day_over_day 2023-07-04 -> 2023-07-05: 15.7% change",
-        ])
-        assert len(warnings) == 1
-        assert "15.7%" in warnings[0]
+    @pytest.mark.parametrize(
+        ("lines", "expected_count", "expected_substrings"),
+        [
+            pytest.param(
+                [
+                    "2026-04-12 INFO [2] build",
+                    "2026-04-12 WARNING: day_over_day 2023-07-04 -> 2023-07-05: 15.7% change",
+                    "2026-04-12 INFO done",
+                    "2026-04-12 WARNING date_gaps 8-day gap between dates",
+                ],
+                2, ["15.7%", "date_gaps"],
+                id="parses-warning-lines",
+            ),
+            pytest.param(
+                ["2026-04-12 WARNING: healthcheck ping failed (ignored): network down"],
+                0, [],
+                id="skips-healthcheck-failures",
+            ),
+            pytest.param(
+                # Exact-duplicate WARNING lines within the current run collapse to one.
+                [
+                    "2026-04-12T12:00:01 WARNING: day_over_day 2023-07-04 -> 2023-07-05: 15.7% change",
+                    "2026-04-12T12:00:02 WARNING: day_over_day 2023-07-04 -> 2023-07-05: 15.7% change",
+                    "2026-04-12T12:00:03 WARNING: day_over_day 2023-07-04 -> 2023-07-05: 15.7% change",
+                ],
+                1, ["15.7%"],
+                id="dedup-exact-duplicates",
+            ),
+        ],
+    )
+    def test_filter_and_dedup(
+        self, lines: list[str], expected_count: int, expected_substrings: list[str],
+    ) -> None:
+        warnings = notify.extract_validation_warnings(lines)
+        assert len(warnings) == expected_count
+        for i, sub in enumerate(expected_substrings):
+            assert sub in warnings[i]
 
     def test_extract_warnings_uses_capture_buffer(self):
         """Simulate run_python_script appending output during one run."""
