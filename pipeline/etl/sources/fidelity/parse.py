@@ -258,12 +258,3 @@ def ingest_csvs(db_path: Path, csv_paths: Iterable[Path]) -> int:
         conn.close()
 
     return count
-
-
-def _ingest_one_csv(db_path: Path, csv_path: Path) -> int:
-    """Replace Fidelity transactions with a single parsed CSV.
-
-    Kept for ``--csv`` and parser tests. Production ingest uses
-    :func:`ingest_csvs` across every ``Accounts_History*.csv`` export.
-    """
-    return ingest_csvs(db_path, [csv_path])

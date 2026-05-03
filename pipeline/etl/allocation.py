@@ -7,10 +7,9 @@ This module reconstructs historical asset allocation by combining:
   - Historical prices (from timemachine.db.daily_close)
   - Qianji account balances (from Qianji SQLite DB)
 
-The per-day math is isolated in ``step_one_day(state, sources, current)`` —
-a pure function with no I/O. ``compute_daily_allocation`` is the orchestrator
-that refreshes ``QianjiBalanceCache`` when Qianji transactions change, then delegates
-the valuation to ``step_one_day``.
+The per-day math is isolated in ``step_one_day(qj_balances, sources, current)``.
+``compute_daily_allocation`` is the orchestrator that replays Qianji for each
+trading day, then delegates the valuation to ``step_one_day``.
 """
 from __future__ import annotations
 
@@ -164,21 +163,8 @@ class AllocationSources:
     source_config: RawConfig = field(default_factory=lambda: cast(RawConfig, {}))
 
 
-@dataclass
-class QianjiBalanceCache:
-    """Qianji per-account balances reused across contiguous days.
-
-    ``compute_daily_allocation`` rebinds ``qj_balances`` only when Qianji
-    transactions fall into the current day's window; on other days the
-    cache is reused verbatim. Every investment source self-manages its
-    own replay — none of its state lives here.
-    """
-
-    qj_balances: dict[str, float] = field(default_factory=dict)
-
-
 def step_one_day(
-    state: QianjiBalanceCache,
+    qj_balances: dict[str, float],
     sources: AllocationSources,
     current: date,
 ) -> AllocationRow:
@@ -205,7 +191,7 @@ def step_one_day(
             )
 
     _add_qianji_balances(
-        ticker_values, state.qj_balances, sources.qianji_currencies,
+        ticker_values, qj_balances, sources.qianji_currencies,
         sources.ticker_map, sources.assets, cny_rate, sources.skip_qj_accounts,
     )
 
@@ -309,7 +295,6 @@ def compute_daily_allocation(
     sources = _build_sources(db_path, qj_db, config)
 
     results: list[AllocationRow] = []
-    state = QianjiBalanceCache()
 
     current = start
     while current <= end:
@@ -317,9 +302,8 @@ def compute_daily_allocation(
             current += timedelta(days=1)
             continue
 
-        state.qj_balances = qianji_balances_at(qj_db, current).balances
-
-        results.append(step_one_day(state, sources, current))
+        qj_balances = qianji_balances_at(qj_db, current).balances
+        results.append(step_one_day(qj_balances, sources, current))
         current += timedelta(days=1)
 
     return results

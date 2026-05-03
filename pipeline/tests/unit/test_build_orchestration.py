@@ -145,7 +145,7 @@ class TestConfigAndFidelityIngest:
             build_mod._ingest_fidelity_csvs(one_csv)
         assert exc.value.code == 1
 
-    def test_single_csv_uses_one_file_parser(
+    def test_single_csv_uses_canonical_ingest(
         self,
         paths: build_mod.BuildPaths,
         monkeypatch: pytest.MonkeyPatch,
@@ -154,17 +154,17 @@ class TestConfigAndFidelityIngest:
         csv_path = paths.data_dir / "one.csv"
         csv_path.write_text("Date,Action\n", encoding="utf-8")
         one_csv = build_mod.BuildPaths(paths.data_dir, paths.config, paths.downloads, csv_path)
-        captured: dict[str, Path] = {}
+        captured: dict[str, object] = {}
 
-        def fake_ingest_one(db_path: Path, selected_csv: Path) -> None:
+        def fake_ingest_csvs(db_path: Path, selected_csvs: list[Path]) -> None:
             captured["db"] = db_path
-            captured["csv"] = selected_csv
+            captured["csvs"] = selected_csvs
 
-        monkeypatch.setattr(build_mod.fidelity_src.parse, "_ingest_one_csv", fake_ingest_one)
+        monkeypatch.setattr(build_mod.fidelity_src.parse, "ingest_csvs", fake_ingest_csvs)
 
         build_mod._ingest_fidelity_csvs(one_csv)
 
-        assert captured == {"db": paths.db_path, "csv": csv_path}
+        assert captured == {"db": paths.db_path, "csvs": [csv_path]}
 
     def test_directory_ingest_reports_persisted_row_count(
         self,
