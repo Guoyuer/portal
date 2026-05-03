@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import sqlite3
 import uuid
+from contextlib import closing
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -43,21 +44,20 @@ def _make_db(tmp_path: Path) -> Path:
     would collide on the second example.
     """
     db = tmp_path / f"prop-{uuid.uuid4().hex}.db"
-    conn = sqlite3.connect(str(db))
-    conn.executescript(
-        """
-        CREATE TABLE prop_transactions (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
-            txn_date     TEXT NOT NULL,
-            action_kind  TEXT NOT NULL,
-            ticker       TEXT NOT NULL,
-            quantity     REAL NOT NULL,
-            amount_usd   REAL NOT NULL
-        );
-        """
-    )
-    conn.commit()
-    conn.close()
+    with closing(sqlite3.connect(str(db))) as conn:
+        conn.executescript(
+            """
+            CREATE TABLE prop_transactions (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                txn_date     TEXT NOT NULL,
+                action_kind  TEXT NOT NULL,
+                ticker       TEXT NOT NULL,
+                quantity     REAL NOT NULL,
+                amount_usd   REAL NOT NULL
+            );
+            """
+        )
+        conn.commit()
     return db
 
 

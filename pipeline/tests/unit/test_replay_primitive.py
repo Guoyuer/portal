@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from datetime import date
 from pathlib import Path
 
@@ -21,32 +22,31 @@ MINI_REPLAY = ReplayConfig(table="mini_transactions")
 def mini_db(tmp_path: Path) -> Path:
     """Create a tiny SQLite DB with a normalized transactions table."""
     db = tmp_path / "mini.db"
-    conn = sqlite3.connect(str(db))
-    conn.executescript(
-        """
-        CREATE TABLE mini_transactions (
-            id INTEGER PRIMARY KEY,
-            txn_date TEXT NOT NULL,
-            action_kind TEXT NOT NULL,
-            account TEXT,
-            ticker TEXT NOT NULL,
-            quantity REAL NOT NULL,
-            amount_usd REAL NOT NULL
-        );
-        """
-    )
-    conn.executemany(
-        "INSERT INTO mini_transactions (txn_date, action_kind, account, ticker, quantity, amount_usd) "
-        "VALUES (?,?,?,?,?,?)",
-        [
-            ("2024-01-02", ActionKind.BUY.value, "A1", "FOO", 10.0, -1000.0),
-            ("2024-01-03", ActionKind.BUY.value, "A1", "FOO", 5.0, -550.0),
-            ("2024-02-01", ActionKind.SELL.value, "A1", "FOO", -3.0, 330.0),
-            ("2024-03-01", ActionKind.DIVIDEND.value, "A1", "FOO", 0.0, 12.0),
-        ],
-    )
-    conn.commit()
-    conn.close()
+    with closing(sqlite3.connect(str(db))) as conn:
+        conn.executescript(
+            """
+            CREATE TABLE mini_transactions (
+                id INTEGER PRIMARY KEY,
+                txn_date TEXT NOT NULL,
+                action_kind TEXT NOT NULL,
+                account TEXT,
+                ticker TEXT NOT NULL,
+                quantity REAL NOT NULL,
+                amount_usd REAL NOT NULL
+            );
+            """
+        )
+        conn.executemany(
+            "INSERT INTO mini_transactions (txn_date, action_kind, account, ticker, quantity, amount_usd) "
+            "VALUES (?,?,?,?,?,?)",
+            [
+                ("2024-01-02", ActionKind.BUY.value, "A1", "FOO", 10.0, -1000.0),
+                ("2024-01-03", ActionKind.BUY.value, "A1", "FOO", 5.0, -550.0),
+                ("2024-02-01", ActionKind.SELL.value, "A1", "FOO", -3.0, 330.0),
+                ("2024-03-01", ActionKind.DIVIDEND.value, "A1", "FOO", 0.0, 12.0),
+            ],
+        )
+        conn.commit()
     return db
 
 
@@ -117,24 +117,25 @@ def fidelity_like_db(tmp_path: Path) -> Path:
     from ``_replay_fixtures`` can target it directly without branching.
     """
     db = tmp_path / "fid.db"
-    conn = sqlite3.connect(str(db))
-    conn.executescript(
-        """
-        CREATE TABLE fidelity_transactions (
-            id              INTEGER PRIMARY KEY AUTOINCREMENT,
-            run_date        TEXT NOT NULL,
-            account_number  TEXT NOT NULL,
-            action          TEXT NOT NULL,
-            action_type     TEXT NOT NULL DEFAULT '',
-            action_kind     TEXT NOT NULL,
-            symbol          TEXT NOT NULL,
-            lot_type        TEXT NOT NULL,
-            quantity        REAL NOT NULL,
-            price           REAL NOT NULL DEFAULT 0,
-            amount          REAL NOT NULL
-        );
-        """
-    )
+    with closing(sqlite3.connect(str(db))) as conn:
+        conn.executescript(
+            """
+            CREATE TABLE fidelity_transactions (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_date        TEXT NOT NULL,
+                account_number  TEXT NOT NULL,
+                action          TEXT NOT NULL,
+                action_type     TEXT NOT NULL DEFAULT '',
+                action_kind     TEXT NOT NULL,
+                symbol          TEXT NOT NULL,
+                lot_type        TEXT NOT NULL,
+                quantity        REAL NOT NULL,
+                price           REAL NOT NULL DEFAULT 0,
+                amount          REAL NOT NULL
+            );
+            """
+        )
+        conn.commit()
     return db
 
 

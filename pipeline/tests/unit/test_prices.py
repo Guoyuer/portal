@@ -1,6 +1,8 @@
 """Tests for prices.py: price loading, caching, and holding periods."""
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import closing, contextmanager
 from datetime import date
 from pathlib import Path
 from unittest.mock import patch
@@ -28,14 +30,36 @@ from etl.sources import ActionKind  # noqa: E402
 
 def _seed_prices(db_path: Path, records: list[tuple[str, str, float]]) -> None:
     """Insert (symbol, date, close) records into daily_close."""
-    conn = get_connection(db_path)
-    for sym, dt, close in records:
-        conn.execute(
+    with closing(get_connection(db_path)) as conn:
+        conn.executemany(
             "INSERT OR REPLACE INTO daily_close (symbol, date, close) VALUES (?, ?, ?)",
-            (sym, dt, close),
+            records,
         )
-    conn.commit()
-    conn.close()
+        conn.commit()
+
+
+def _close(db_path: Path, symbol: str, day: str) -> float:
+    with closing(get_connection(db_path)) as conn:
+        return conn.execute(
+            "SELECT close FROM daily_close WHERE symbol=? AND date=?",
+            (symbol, day),
+        ).fetchone()[0]
+
+
+@contextmanager
+def _patched_price_download(frame: pd.DataFrame) -> Iterator[object]:
+    with patch("etl.prices.fetch.yf.download") as mock_dl, \
+         patch("etl.prices.fetch._build_split_factors", return_value={}):
+        mock_dl.return_value = frame
+        yield mock_dl
+
+
+def _price_frame(data: dict[tuple[str, str], list[float]], days: list[str]) -> pd.DataFrame:
+    return pd.DataFrame(data, index=pd.to_datetime(days))
+
+
+def _txn(run_date: str, symbol: str, action_kind: ActionKind, quantity: float) -> tuple[str, str, str, float]:
+    return (run_date, symbol, action_kind.value, quantity)
 
 
 # ── load_prices ─────────────────────────────────────────────────────────────
@@ -129,57 +153,35 @@ class TestHoldingPeriodsCore:
     """Test the shared holding-period logic with pre-normalized tuples
     ``(run_date_iso, symbol, action_kind, qty)``."""
 
-    def test_buy_and_hold(self) -> None:
-        rows = [
-            ("2025-01-02", "VOO", ActionKind.BUY.value, 10.0),
-        ]
-        result = _holding_periods_from_action_kind_rows(rows)
-        assert result["VOO"] == (date(2025, 1, 2), None)
-
-    def test_buy_then_sell_to_zero(self) -> None:
-        rows = [
-            ("2025-01-02", "VOO", ActionKind.BUY.value, 10.0),
-            ("2025-03-15", "VOO", ActionKind.SELL.value, -10.0),
-        ]
-        result = _holding_periods_from_action_kind_rows(rows)
-        assert result["VOO"] == (date(2025, 1, 2), date(2025, 3, 15))
-
-    def test_money_market_excluded(self) -> None:
-        rows = [
-            ("2025-01-02", "SPAXX", ActionKind.REINVESTMENT.value, 100.0),
-        ]
-        result = _holding_periods_from_action_kind_rows(rows)
-        assert "SPAXX" not in result
-
-    def test_cusip_excluded(self) -> None:
-        rows = [
-            ("2025-01-02", "912796CR8", ActionKind.BUY.value, 5.0),
-        ]
-        result = _holding_periods_from_action_kind_rows(rows)
-        assert "912796CR8" not in result
-
-    def test_partial_sell_still_held(self) -> None:
-        rows = [
-            ("2025-01-02", "VOO", ActionKind.BUY.value, 10.0),
-            ("2025-03-15", "VOO", ActionKind.SELL.value, -4.0),
-        ]
-        result = _holding_periods_from_action_kind_rows(rows)
-        # Still held — end should be None
-        assert result["VOO"] == (date(2025, 1, 2), None)
-
-    def test_empty_rows(self) -> None:
-        result = _holding_periods_from_action_kind_rows([])
-        assert result == {}
-
-    def test_redemption_acts_as_sell(self) -> None:
-        """REDEMPTION (e.g. T-Bill payout) reduces qty without cost-basis
-        impact and counts as a position-affecting kind for holding periods."""
-        rows = [
-            ("2025-01-02", "SGOV", ActionKind.BUY.value, 1000.0),
-            ("2025-06-15", "SGOV", ActionKind.REDEMPTION.value, -1000.0),
-        ]
-        result = _holding_periods_from_action_kind_rows(rows)
-        assert result["SGOV"] == (date(2025, 1, 2), date(2025, 6, 15))
+    @pytest.mark.parametrize(
+        ("rows", "expected"),
+        [
+            pytest.param([_txn("2025-01-02", "VOO", ActionKind.BUY, 10.0)], {
+                "VOO": (date(2025, 1, 2), None),
+            }, id="buy-and-hold"),
+            pytest.param([
+                _txn("2025-01-02", "VOO", ActionKind.BUY, 10.0),
+                _txn("2025-03-15", "VOO", ActionKind.SELL, -10.0),
+            ], {"VOO": (date(2025, 1, 2), date(2025, 3, 15))}, id="sell-to-zero"),
+            pytest.param([
+                _txn("2025-01-02", "VOO", ActionKind.BUY, 10.0),
+                _txn("2025-03-15", "VOO", ActionKind.SELL, -4.0),
+            ], {"VOO": (date(2025, 1, 2), None)}, id="partial-sell-still-held"),
+            pytest.param([
+                _txn("2025-01-02", "SGOV", ActionKind.BUY, 1000.0),
+                _txn("2025-06-15", "SGOV", ActionKind.REDEMPTION, -1000.0),
+            ], {"SGOV": (date(2025, 1, 2), date(2025, 6, 15))}, id="redemption-closes"),
+            pytest.param([_txn("2025-01-02", "SPAXX", ActionKind.REINVESTMENT, 100.0)], {}, id="money-market"),
+            pytest.param([_txn("2025-01-02", "912796CR8", ActionKind.BUY, 5.0)], {}, id="cusip"),
+            pytest.param([], {}, id="empty"),
+        ],
+    )
+    def test_holding_periods(
+        self,
+        rows: list[tuple[str, str, str, float]],
+        expected: dict[str, tuple[date, date | None]],
+    ) -> None:
+        assert _holding_periods_from_action_kind_rows(rows) == expected
 
 
 # ── Invariant: historical daily_close rows are immutable ───────────────────
@@ -217,13 +219,7 @@ class TestHistoricalImmutabilityCnyRates:
             mock_dl.return_value = _cny_df([("2023-03-13", 99.0)])
             fetch_and_store_cny_rates(db_path, date(2023, 3, 13), date(2026, 4, 12))
 
-        # Historical row unchanged
-        conn = get_connection(db_path)
-        r = conn.execute(
-            "SELECT close FROM daily_close WHERE symbol='CNY=X' AND date='2023-03-13'",
-        ).fetchone()
-        conn.close()
-        assert r[0] == pytest.approx(6.9052)
+        assert _close(db_path, "CNY=X", "2023-03-13") == pytest.approx(6.9052)
 
     def test_historical_gap_filled_without_touching_existing(
         self, empty_db: Path,
@@ -242,16 +238,8 @@ class TestHistoricalImmutabilityCnyRates:
             ])
             fetch_and_store_cny_rates(db_path, date(2023, 3, 13), date(2026, 4, 12))
 
-        conn = get_connection(db_path)
-        existing = conn.execute(
-            "SELECT close FROM daily_close WHERE symbol='CNY=X' AND date='2023-07-05'",
-        ).fetchone()
-        gap = conn.execute(
-            "SELECT close FROM daily_close WHERE symbol='CNY=X' AND date='2023-03-13'",
-        ).fetchone()
-        conn.close()
-        assert existing[0] == pytest.approx(7.2135)  # preserved
-        assert gap[0] == pytest.approx(6.9052)       # filled
+        assert _close(db_path, "CNY=X", "2023-07-05") == pytest.approx(7.2135)
+        assert _close(db_path, "CNY=X", "2023-03-13") == pytest.approx(6.9052)
 
     def test_recent_row_NOT_refreshed(
         self, empty_db: Path,
@@ -271,12 +259,7 @@ class TestHistoricalImmutabilityCnyRates:
             mock_dl.return_value = _cny_df([("2026-04-10", 7.25)])  # Yahoo correction
             fetch_and_store_cny_rates(db_path, date(2023, 3, 13), date(2026, 4, 12))
 
-        conn = get_connection(db_path)
-        r = conn.execute(
-            "SELECT close FROM daily_close WHERE symbol='CNY=X' AND date='2026-04-10'",
-        ).fetchone()
-        conn.close()
-        assert r[0] == pytest.approx(7.20)  # first-capture value pinned
+        assert _close(db_path, "CNY=X", "2026-04-10") == pytest.approx(7.20)
 
 
 class TestHistoricalImmutabilityPrices:
@@ -290,12 +273,7 @@ class TestHistoricalImmutabilityPrices:
 
         # Open-ended holding period — the recent-window refresh always queues
         # a fetch, so yfinance.download will be called.
-        with patch("etl.prices.fetch.yf.download") as mock_dl, \
-             patch("etl.prices.fetch._build_split_factors", return_value={}):
-            mock_dl.return_value = pd.DataFrame(
-                {("Close", "VOO"): [999.0]},
-                index=pd.to_datetime(["2024-01-15"]),
-            )
+        with _patched_price_download(_price_frame({("Close", "VOO"): [999.0]}, ["2024-01-15"])) as mock_dl:
             fetch_and_store_prices(
                 db_path,
                 {"VOO": (date(2024, 1, 15), None)},  # still held → need_end = end
@@ -304,12 +282,7 @@ class TestHistoricalImmutabilityPrices:
             # Confirm fetch actually ran (otherwise the test is a no-op).
             assert mock_dl.called
 
-        conn = get_connection(db_path)
-        r = conn.execute(
-            "SELECT close FROM daily_close WHERE symbol='VOO' AND date='2024-01-15'",
-        ).fetchone()
-        conn.close()
-        assert r[0] == pytest.approx(440.50)  # historical value preserved
+        assert _close(db_path, "VOO", "2024-01-15") == pytest.approx(440.50)
 
 
 class TestFetchGateRefreshesRecentWindow:
@@ -329,12 +302,7 @@ class TestFetchGateRefreshesRecentWindow:
             ("VOO", "2026-04-11", 500.00),
         ])
 
-        with patch("etl.prices.fetch.yf.download") as mock_dl, \
-             patch("etl.prices.fetch._build_split_factors", return_value={}):
-            mock_dl.return_value = pd.DataFrame(
-                {("Close", "VOO"): [505.0]},
-                index=pd.to_datetime(["2026-04-12"]),
-            )
+        with _patched_price_download(_price_frame({("Close", "VOO"): [505.0]}, ["2026-04-12"])) as mock_dl:
             fetch_and_store_prices(
                 db_path,
                 {"VOO": (date(2024, 1, 15), None)},
@@ -353,12 +321,7 @@ class TestFetchGateRefreshesRecentWindow:
         ])
         end = date(2026, 4, 12)
 
-        with patch("etl.prices.fetch.yf.download") as mock_dl, \
-             patch("etl.prices.fetch._build_split_factors", return_value={}):
-            mock_dl.return_value = pd.DataFrame(
-                {("Close", "VOO"): [505.0]},
-                index=pd.to_datetime(["2026-04-12"]),
-            )
+        with _patched_price_download(_price_frame({("Close", "VOO"): [505.0]}, ["2026-04-12"])) as mock_dl:
             fetch_and_store_prices(db_path, {"VOO": (date(2024, 1, 15), None)}, end)
             assert mock_dl.called
             start_d = date.fromisoformat(mock_dl.call_args.kwargs["start"])
@@ -369,12 +332,7 @@ class TestFetchGateRefreshesRecentWindow:
         """New symbol with no cache → fetch full range from hp_start."""
         db_path = empty_db
 
-        with patch("etl.prices.fetch.yf.download") as mock_dl, \
-             patch("etl.prices.fetch._build_split_factors", return_value={}):
-            mock_dl.return_value = pd.DataFrame(
-                {("Close", "NEW"): [100.0]},
-                index=pd.to_datetime(["2026-04-12"]),
-            )
+        with _patched_price_download(_price_frame({("Close", "NEW"): [100.0]}, ["2026-04-12"])) as mock_dl:
             fetch_and_store_prices(
                 db_path, {"NEW": (date(2026, 4, 1), None)}, date(2026, 4, 12),
             )
@@ -392,46 +350,44 @@ def _seed_fidelity_txn(
     action_kind: str,
     quantity: float,
 ) -> None:
-    conn = get_connection(db_path)
-    conn.execute(
-        "INSERT INTO fidelity_transactions"
-        " (run_date, account_number, action, action_kind, symbol, quantity)"
-        " VALUES (?, ?, ?, ?, ?, ?)",
-        (run_date, "Z29", f"TEST {action_kind} ({symbol})", action_kind, symbol, quantity),
-    )
-    conn.commit()
-    conn.close()
+    with closing(get_connection(db_path)) as conn:
+        conn.execute(
+            "INSERT INTO fidelity_transactions"
+            " (run_date, account_number, action, action_kind, symbol, quantity)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (run_date, "Z29", f"TEST {action_kind} ({symbol})", action_kind, symbol, quantity),
+        )
+        conn.commit()
+
+
+def _validate_splits(
+    db_path: Path,
+    periods: dict[str, tuple[date, date | None]],
+    factors: dict[str, list[tuple[date, float]]],
+    *,
+    today: date = date(2024, 12, 1),
+) -> None:
+    with closing(get_connection(db_path)) as conn:
+        _validate_splits_against_transactions(conn, periods, factors, today=today)
 
 
 class TestReverseSplitFactor:
-    def test_no_splits(self) -> None:
-        assert _reverse_split_factor(date(2024, 1, 1), []) == 1.0
-
-    def test_forward_split_scales_pre_split_dates(self) -> None:
-        """A 3:1 forward split → pre-split Close × 3 recovers real market price."""
-        factors = [(date(2024, 10, 11), 3.0)]
-        assert _reverse_split_factor(date(2024, 10, 10), factors) == 3.0
-        assert _reverse_split_factor(date(2024, 10, 11), factors) == 1.0
-        assert _reverse_split_factor(date(2024, 10, 12), factors) == 1.0
-
-    def test_reverse_split_scales_pre_split_dates(self) -> None:
-        """A 1:10 reverse split (ratio=0.1) → pre-split Close × 0.1 recovers real price.
-
-        Yahoo pre-reverse-split Close is adjusted UP (to match post-split NAV);
-        multiplying by 0.1 brings it back down to the actual market price.
-        """
-        factors = [(date(2024, 6, 1), 0.1)]
-        assert _reverse_split_factor(date(2024, 5, 31), factors) == pytest.approx(0.1)
-        assert _reverse_split_factor(date(2024, 6, 1), factors) == 1.0
-
-    def test_multiple_splits_compound(self) -> None:
-        factors = [(date(2022, 1, 1), 2.0), (date(2024, 1, 1), 3.0)]
-        # Pre-both: factor = 2 × 3 = 6
-        assert _reverse_split_factor(date(2021, 12, 31), factors) == 6.0
-        # Between: factor = 3 only
-        assert _reverse_split_factor(date(2023, 6, 1), factors) == 3.0
-        # Post-both
-        assert _reverse_split_factor(date(2024, 1, 2), factors) == 1.0
+    @pytest.mark.parametrize(
+        ("target", "factors", "expected"),
+        [
+            (date(2024, 1, 1), [], 1.0),
+            (date(2024, 10, 10), [(date(2024, 10, 11), 3.0)], 3.0),
+            (date(2024, 10, 11), [(date(2024, 10, 11), 3.0)], 1.0),
+            (date(2024, 10, 12), [(date(2024, 10, 11), 3.0)], 1.0),
+            (date(2024, 5, 31), [(date(2024, 6, 1), 0.1)], 0.1),
+            (date(2024, 6, 1), [(date(2024, 6, 1), 0.1)], 1.0),
+            (date(2021, 12, 31), [(date(2022, 1, 1), 2.0), (date(2024, 1, 1), 3.0)], 6.0),
+            (date(2023, 6, 1), [(date(2022, 1, 1), 2.0), (date(2024, 1, 1), 3.0)], 3.0),
+            (date(2024, 1, 2), [(date(2022, 1, 1), 2.0), (date(2024, 1, 1), 3.0)], 1.0),
+        ],
+    )
+    def test_factor_for_date(self, target: date, factors: list[tuple[date, float]], expected: float) -> None:
+        assert _reverse_split_factor(target, factors) == pytest.approx(expected)
 
 
 class TestSplitCrossValidation:
@@ -443,16 +399,11 @@ class TestSplitCrossValidation:
         db_path = empty_db
         _seed_fidelity_txn(db_path, "2024-07-08", "SCHD", "buy", 27.022)
         _seed_fidelity_txn(db_path, "2024-10-11", "SCHD", "distribution", 54.044)
-        conn = get_connection(db_path)
-        try:
-            _validate_splits_against_transactions(
-                conn,
-                {"SCHD": (date(2024, 7, 8), None)},
-                {"SCHD": [(date(2024, 10, 11), 3.0)]},
-                today=date(2024, 12, 1),
-            )
-        finally:
-            conn.close()
+        _validate_splits(
+            db_path,
+            {"SCHD": (date(2024, 7, 8), None)},
+            {"SCHD": [(date(2024, 10, 11), 3.0)]},
+        )
 
     def test_missing_distribution_row_raises(self, empty_db: Path) -> None:
         """Yahoo knows about a split but Fidelity CSV has no DISTRIBUTION →
@@ -460,17 +411,12 @@ class TestSplitCrossValidation:
         db_path = empty_db
         _seed_fidelity_txn(db_path, "2024-07-08", "SCHD", "buy", 27.022)
         # No DISTRIBUTION row seeded.
-        conn = get_connection(db_path)
-        try:
-            with pytest.raises(SplitValidationError, match="SCHD"):
-                _validate_splits_against_transactions(
-                    conn,
-                    {"SCHD": (date(2024, 7, 8), None)},
-                    {"SCHD": [(date(2024, 10, 11), 3.0)]},
-                    today=date(2024, 12, 1),
-                )
-        finally:
-            conn.close()
+        with pytest.raises(SplitValidationError, match="SCHD"):
+            _validate_splits(
+                db_path,
+                {"SCHD": (date(2024, 7, 8), None)},
+                {"SCHD": [(date(2024, 10, 11), 3.0)]},
+            )
 
     def test_wrong_distribution_qty_raises(self, empty_db: Path) -> None:
         """DISTRIBUTION qty doesn't match Yahoo's ratio → data drift, fail."""
@@ -478,17 +424,12 @@ class TestSplitCrossValidation:
         _seed_fidelity_txn(db_path, "2024-07-08", "SCHD", "buy", 27.022)
         # Expected +54.044 for 3:1; seed only +20 (wrong).
         _seed_fidelity_txn(db_path, "2024-10-11", "SCHD", "distribution", 20.0)
-        conn = get_connection(db_path)
-        try:
-            with pytest.raises(SplitValidationError, match="SCHD.*expected.*54"):
-                _validate_splits_against_transactions(
-                    conn,
-                    {"SCHD": (date(2024, 7, 8), None)},
-                    {"SCHD": [(date(2024, 10, 11), 3.0)]},
-                    today=date(2024, 12, 1),
-                )
-        finally:
-            conn.close()
+        with pytest.raises(SplitValidationError, match="SCHD.*expected.*54"):
+            _validate_splits(
+                db_path,
+                {"SCHD": (date(2024, 7, 8), None)},
+                {"SCHD": [(date(2024, 10, 11), 3.0)]},
+            )
 
     def test_distribution_without_yahoo_split_raises(self, empty_db: Path) -> None:
         """Fidelity has a DISTRIBUTION (qty>0) but Yahoo reports no split on
@@ -497,33 +438,23 @@ class TestSplitCrossValidation:
         db_path = empty_db
         _seed_fidelity_txn(db_path, "2024-07-08", "SCHD", "buy", 27.022)
         _seed_fidelity_txn(db_path, "2024-10-11", "SCHD", "distribution", 54.044)
-        conn = get_connection(db_path)
-        try:
-            with pytest.raises(SplitValidationError, match="SCHD 2024-10-11"):
-                _validate_splits_against_transactions(
-                    conn,
-                    {"SCHD": (date(2024, 7, 8), None)},
-                    {},  # empty → simulates _build_split_factors silent failure
-                    today=date(2024, 12, 1),
-                )
-        finally:
-            conn.close()
+        with pytest.raises(SplitValidationError, match="SCHD 2024-10-11"):
+            _validate_splits(
+                db_path,
+                {"SCHD": (date(2024, 7, 8), None)},
+                {},  # empty → simulates _build_split_factors silent failure
+            )
 
     def test_split_outside_holding_period_ignored(self, empty_db: Path) -> None:
         """Bought AFTER the split date → no DISTRIBUTION expected, validation OK."""
         db_path = empty_db
         # User bought NVDA AFTER the 2024-06-10 split.
         _seed_fidelity_txn(db_path, "2024-11-27", "NVDA", "buy", 3.0)
-        conn = get_connection(db_path)
-        try:
-            _validate_splits_against_transactions(
-                conn,
-                {"NVDA": (date(2024, 11, 27), None)},
-                {"NVDA": [(date(2024, 6, 10), 10.0)]},
-                today=date(2024, 12, 1),
-            )
-        finally:
-            conn.close()
+        _validate_splits(
+            db_path,
+            {"NVDA": (date(2024, 11, 27), None)},
+            {"NVDA": [(date(2024, 6, 10), 10.0)]},
+        )
 
     def test_reverse_split_pair_passes(self, empty_db: Path) -> None:
         """Reverse 1:10 split (ratio=0.1) on 100 pre-split shares → Fidelity
@@ -538,16 +469,11 @@ class TestSplitCrossValidation:
         # Reverse split day: turn-in 100 old shares + receive 10 new.
         _seed_fidelity_txn(db_path, "2024-06-01", "BOGUS", "redemption", -100.0)
         _seed_fidelity_txn(db_path, "2024-06-01", "BOGUS", "distribution", 10.0)
-        conn = get_connection(db_path)
-        try:
-            _validate_splits_against_transactions(
-                conn,
-                {"BOGUS": (date(2023, 1, 15), None)},
-                {"BOGUS": [(date(2024, 6, 1), 0.1)]},
-                today=date(2024, 12, 1),
-            )
-        finally:
-            conn.close()
+        _validate_splits(
+            db_path,
+            {"BOGUS": (date(2023, 1, 15), None)},
+            {"BOGUS": [(date(2024, 6, 1), 0.1)]},
+        )
 
     def test_reverse_split_with_missing_redemption_raises(self, empty_db: Path) -> None:
         """Reverse split where only the DISTRIBUTION leg (+10) made it into the
@@ -557,17 +483,12 @@ class TestSplitCrossValidation:
         _seed_fidelity_txn(db_path, "2023-01-15", "BOGUS", "buy", 100.0)
         # Missing the REDEMPTION leg — only +10 distribution recorded.
         _seed_fidelity_txn(db_path, "2024-06-01", "BOGUS", "distribution", 10.0)
-        conn = get_connection(db_path)
-        try:
-            with pytest.raises(SplitValidationError, match="BOGUS.*expected.*-90"):
-                _validate_splits_against_transactions(
-                    conn,
-                    {"BOGUS": (date(2023, 1, 15), None)},
-                    {"BOGUS": [(date(2024, 6, 1), 0.1)]},
-                    today=date(2024, 12, 1),
-                )
-        finally:
-            conn.close()
+        with pytest.raises(SplitValidationError, match="BOGUS.*expected.*-90"):
+            _validate_splits(
+                db_path,
+                {"BOGUS": (date(2023, 1, 15), None)},
+                {"BOGUS": [(date(2024, 6, 1), 0.1)]},
+            )
 
     def test_multi_mismatch_report_includes_all(self, empty_db: Path) -> None:
         """Every mismatch is aggregated into a single error message so the
@@ -576,26 +497,21 @@ class TestSplitCrossValidation:
         _seed_fidelity_txn(db_path, "2024-07-08", "SCHD", "buy", 27.022)
         _seed_fidelity_txn(db_path, "2024-07-08", "AVGO", "buy", 1.007)
         # Neither DISTRIBUTION seeded → both directions fire.
-        conn = get_connection(db_path)
-        try:
-            with pytest.raises(SplitValidationError) as exc:
-                _validate_splits_against_transactions(
-                    conn,
-                    {
-                        "SCHD": (date(2024, 7, 8), None),
-                        "AVGO": (date(2024, 7, 8), None),
-                    },
-                    {
-                        "SCHD": [(date(2024, 10, 11), 3.0)],
-                        "AVGO": [(date(2024, 7, 15), 10.0)],
-                    },
-                    today=date(2024, 12, 1),
-                )
-            msg = str(exc.value)
-            assert "SCHD" in msg
-            assert "AVGO" in msg
-        finally:
-            conn.close()
+        with pytest.raises(SplitValidationError) as exc:
+            _validate_splits(
+                db_path,
+                {
+                    "SCHD": (date(2024, 7, 8), None),
+                    "AVGO": (date(2024, 7, 8), None),
+                },
+                {
+                    "SCHD": [(date(2024, 10, 11), 3.0)],
+                    "AVGO": [(date(2024, 7, 15), 10.0)],
+                },
+            )
+        msg = str(exc.value)
+        assert "SCHD" in msg
+        assert "AVGO" in msg
 
     def test_same_day_split_and_special_stock_distribution_reported(
         self, empty_db: Path,
@@ -620,29 +536,19 @@ class TestSplitCrossValidation:
         _seed_fidelity_txn(db_path, "2025-12-15", "VOO", "distribution", 100.0)
         # Same date, a separate special stock distribution → +5 shares.
         _seed_fidelity_txn(db_path, "2025-12-15", "VOO", "distribution", 5.0)
-        conn = get_connection(db_path)
-        try:
-            with pytest.raises(SplitValidationError) as exc:
-                _validate_splits_against_transactions(
-                    conn,
-                    {"VOO": (date(2025, 6, 10), None)},
-                    {"VOO": [(date(2025, 12, 15), 2.0)]},
-                    today=date(2026, 1, 1),
-                )
-            msg = str(exc.value)
-            # Direction 1 should NOT raise the underlying split-delta line
-            # (split is matched): the old "expected DISTRIBUTION+REDEMPTION
-            # net=... got=..." text must be absent.
-            assert "expected DISTRIBUTION+REDEMPTION net" not in msg
-            # Residual path surfaces the 5-share extra on the split date.
-            assert "VOO 2025-12-15" in msg
-            assert "split delta matched" in msg
-            assert "extra DISTRIBUTION qty+=5" in msg
-            # And nothing slipped through direction 2's "no matching Yahoo
-            # split" path — the date DID have a Yahoo entry.
-            assert "no matching Yahoo split" not in msg
-        finally:
-            conn.close()
+        with pytest.raises(SplitValidationError) as exc:
+            _validate_splits(
+                db_path,
+                {"VOO": (date(2025, 6, 10), None)},
+                {"VOO": [(date(2025, 12, 15), 2.0)]},
+                today=date(2026, 1, 1),
+            )
+        msg = str(exc.value)
+        assert "expected DISTRIBUTION+REDEMPTION net" not in msg
+        assert "VOO 2025-12-15" in msg
+        assert "split delta matched" in msg
+        assert "extra DISTRIBUTION qty+=5" in msg
+        assert "no matching Yahoo split" not in msg
 
     def test_same_day_split_matching_exactly_still_passes(
         self, empty_db: Path,
@@ -653,16 +559,12 @@ class TestSplitCrossValidation:
         db_path = empty_db
         _seed_fidelity_txn(db_path, "2025-06-10", "VOO", "buy", 100.0)
         _seed_fidelity_txn(db_path, "2025-12-15", "VOO", "distribution", 100.0)
-        conn = get_connection(db_path)
-        try:
-            _validate_splits_against_transactions(
-                conn,
-                {"VOO": (date(2025, 6, 10), None)},
-                {"VOO": [(date(2025, 12, 15), 2.0)]},
-                today=date(2026, 1, 1),
-            )
-        finally:
-            conn.close()
+        _validate_splits(
+            db_path,
+            {"VOO": (date(2025, 6, 10), None)},
+            {"VOO": [(date(2025, 12, 15), 2.0)]},
+            today=date(2026, 1, 1),
+        )
 
 
 # ── Incremental fetch regression ───────────────────────────────────────────
@@ -700,12 +602,9 @@ class TestIncrementalFetch:
         ])
         end = date(2026, 4, 12)
 
-        with patch("etl.prices.fetch.yf.download") as mock_dl, \
-             patch("etl.prices.fetch._build_split_factors", return_value={}):
-            mock_dl.return_value = pd.DataFrame(
-                {("Close", "VOO"): [505.0], ("Close", "FBTC"): [86.0]},
-                index=pd.to_datetime(["2026-04-12"]),
-            )
+        with _patched_price_download(
+            _price_frame({("Close", "VOO"): [505.0], ("Close", "FBTC"): [86.0]}, ["2026-04-12"])
+        ) as mock_dl:
             fetch_and_store_prices(
                 db_path,
                 {

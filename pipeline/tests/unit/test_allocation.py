@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 import sys
+from contextlib import closing
 from datetime import date
 from pathlib import Path
 from types import ModuleType
@@ -71,25 +72,7 @@ def _init_timemachine(db_path: Path) -> None:
 def _init_qianji(db_path: Path) -> None:
     """Create a minimal Qianji-format SQLite DB."""
     conn = sqlite3.connect(str(db_path))
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS user_asset (
-            name TEXT PRIMARY KEY,
-            money REAL NOT NULL,
-            currency TEXT DEFAULT 'USD',
-            status INTEGER DEFAULT 0
-        )
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS user_bill (
-            time INTEGER NOT NULL,
-            type INTEGER NOT NULL,
-            money REAL NOT NULL,
-            fromact TEXT DEFAULT '',
-            targetact TEXT DEFAULT '',
-            extra TEXT DEFAULT '',
-            status INTEGER DEFAULT 1
-        )
-    """)
+    _create_qianji_schema(conn)
     # Savings account with $5000
     conn.execute("INSERT INTO user_asset (name, money, currency) VALUES ('HYSA', 5000.0, 'USD')")
     # CNY account with 10000 CNY
@@ -121,6 +104,54 @@ def _make_config() -> dict:
     }
 
 
+def _create_qianji_schema(conn: sqlite3.Connection) -> None:
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS user_asset (
+            name TEXT PRIMARY KEY,
+            money REAL NOT NULL,
+            currency TEXT DEFAULT 'USD',
+            status INTEGER DEFAULT 0
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS user_bill (
+            time INTEGER NOT NULL,
+            type INTEGER NOT NULL,
+            money REAL NOT NULL,
+            fromact TEXT DEFAULT '',
+            targetact TEXT DEFAULT '',
+            extra TEXT DEFAULT '',
+            status INTEGER DEFAULT 1
+        )
+    """)
+
+
+@pytest.fixture()
+def allocation_paths(tmp_path: Path) -> tuple[Path, Path]:
+    db_path = tmp_path / "timemachine.db"
+    qj_path = tmp_path / "qianji.db"
+    _init_timemachine(db_path)
+    _init_qianji(qj_path)
+    return db_path, qj_path
+
+
+def _compute_allocation(
+    paths: tuple[Path, Path],
+    *,
+    config: dict | None = None,
+    start: date = date(2025, 1, 2),
+    end: date = date(2025, 1, 2),
+) -> list[dict]:
+    db_path, qj_path = paths
+    return compute_daily_allocation(
+        db_path=db_path,
+        qj_db=qj_path,
+        config=config or _make_config(),
+        start=start,
+        end=end,
+    )
+
+
 # ── _qianji_transaction_dates ──────────────────────────────────────────────
 
 
@@ -130,8 +161,13 @@ class TestQianjiTransactionDates:
         _init_qianji(db_path)
         conn = sqlite3.connect(str(db_path))
         # Jan 3 and Jan 2 (out of order)
-        conn.execute("INSERT INTO user_bill (time, type, money, fromact, status) VALUES (1735862400, 0, 10, 'HYSA', 1)")  # 2025-01-03
-        conn.execute("INSERT INTO user_bill (time, type, money, fromact, status) VALUES (1735776000, 0, 20, 'HYSA', 1)")  # 2025-01-02
+        conn.executemany(
+            "INSERT INTO user_bill (time, type, money, fromact, status) VALUES (?, 0, ?, 'HYSA', 1)",
+            [
+                (1735862400, 10),  # 2025-01-03
+                (1735776000, 20),  # 2025-01-02
+            ],
+        )
         conn.commit()
         conn.close()
         dates = _qianji_transaction_dates(db_path)
@@ -147,20 +183,9 @@ class TestQianjiTransactionDates:
 
 
 class TestComputeDailyAllocation:
-    def test_basic_allocation(self, tmp_path: Path) -> None:
+    def test_basic_allocation(self, allocation_paths: tuple[Path, Path]) -> None:
         """Computes values for Fidelity positions × prices."""
-        db_path = tmp_path / "timemachine.db"
-        qj_path = tmp_path / "qianji.db"
-        _init_timemachine(db_path)
-        _init_qianji(qj_path)
-
-        results = compute_daily_allocation(
-            db_path=db_path,
-            qj_db=qj_path,
-            config=_make_config(),
-            start=date(2025, 1, 2),
-            end=date(2025, 1, 2),
-        )
+        results = _compute_allocation(allocation_paths)
 
         assert len(results) == 1
         day = results[0]
@@ -173,21 +198,9 @@ class TestComputeDailyAllocation:
         assert isinstance(total, float)
         assert total > 0
 
-    def test_skips_weekends(self, tmp_path: Path) -> None:
+    def test_skips_weekends(self, allocation_paths: tuple[Path, Path]) -> None:
         """Weekends (Sat/Sun) are skipped."""
-        db_path = tmp_path / "timemachine.db"
-        qj_path = tmp_path / "qianji.db"
-        _init_timemachine(db_path)
-        _init_qianji(qj_path)
-
-        # Jan 4-5 2025 is Sat-Sun
-        results = compute_daily_allocation(
-            db_path=db_path,
-            qj_db=qj_path,
-            config=_make_config(),
-            start=date(2025, 1, 2),
-            end=date(2025, 1, 6),
-        )
+        results = _compute_allocation(allocation_paths, end=date(2025, 1, 6))
         result_dates = [r["date"] for r in results]
         assert "2025-01-04" not in result_dates  # Saturday
         assert "2025-01-05" not in result_dates  # Sunday
@@ -195,39 +208,17 @@ class TestComputeDailyAllocation:
         assert "2025-01-03" in result_dates
         assert "2025-01-06" in result_dates
 
-    def test_categorization(self, tmp_path: Path) -> None:
+    def test_categorization(self, allocation_paths: tuple[Path, Path]) -> None:
         """Tickers are categorized per config assets."""
-        db_path = tmp_path / "timemachine.db"
-        qj_path = tmp_path / "qianji.db"
-        _init_timemachine(db_path)
-        _init_qianji(qj_path)
-
-        results = compute_daily_allocation(
-            db_path=db_path,
-            qj_db=qj_path,
-            config=_make_config(),
-            start=date(2025, 1, 2),
-            end=date(2025, 1, 2),
-        )
+        results = _compute_allocation(allocation_paths)
         day = results[0]
         assert day["us_equity"] > 0  # VTI
         assert day["non_us_equity"] > 0  # VXUS
         assert day["safe_net"] > 0  # HYSA + CNY Cash
 
-    def test_ticker_detail(self, tmp_path: Path) -> None:
+    def test_ticker_detail(self, allocation_paths: tuple[Path, Path]) -> None:
         """Results include per-ticker detail with category and value."""
-        db_path = tmp_path / "timemachine.db"
-        qj_path = tmp_path / "qianji.db"
-        _init_timemachine(db_path)
-        _init_qianji(qj_path)
-
-        results = compute_daily_allocation(
-            db_path=db_path,
-            qj_db=qj_path,
-            config=_make_config(),
-            start=date(2025, 1, 2),
-            end=date(2025, 1, 2),
-        )
+        results = _compute_allocation(allocation_paths)
         tickers = results[0]["tickers"]
         ticker_names = {t["ticker"] for t in tickers}
         assert "VTI" in ticker_names
@@ -243,11 +234,8 @@ class TestComputeDailyAllocation:
         qj_path = tmp_path / "qianji.db"
 
         # Empty qianji DB (schema only, no accounts) so only Fidelity cash drives the result
-        qj_conn = sqlite3.connect(str(qj_path))
-        qj_conn.execute("CREATE TABLE user_asset (name TEXT PRIMARY KEY, money REAL, currency TEXT, status INTEGER DEFAULT 0)")
-        qj_conn.execute("CREATE TABLE user_bill (time INTEGER, type INTEGER, money REAL, fromact TEXT, targetact TEXT, extra TEXT, status INTEGER DEFAULT 1)")
-        qj_conn.commit()
-        qj_conn.close()
+        with closing(sqlite3.connect(str(qj_path))) as qj_conn:
+            _create_qianji_schema(qj_conn)
 
         # Seed a deposit in an UNKNOWN account number (not in fidelity_accounts)
         init_db(db_path)
@@ -271,22 +259,16 @@ class TestComputeDailyAllocation:
             "fidelity_accounts": {},  # empty → force fallback for all accounts
         }
 
-        results = compute_daily_allocation(
-            db_path=db_path, qj_db=qj_path, config=config,
-            start=date(2025, 1, 2), end=date(2025, 1, 2),
-        )
+        results = _compute_allocation((db_path, qj_path), config=config)
 
         assert len(results) == 1
         tickers = {t["ticker"]: t["value"] for t in results[0]["tickers"]}
         assert "FZFXX" in tickers
         assert tickers["FZFXX"] == 1000.0
 
-    def test_401k_values_included(self, tmp_path: Path) -> None:
+    def test_401k_values_included(self, allocation_paths: tuple[Path, Path]) -> None:
         """Empower 401k values (from empower_snapshots/empower_funds) are added to totals."""
-        db_path = tmp_path / "timemachine.db"
-        qj_path = tmp_path / "qianji.db"
-        _init_timemachine(db_path)
-        _init_qianji(qj_path)
+        db_path, _ = allocation_paths
 
         # Seed an Empower snapshot + fund row so :mod:`etl.sources.empower` picks it up.
         conn = sqlite3.connect(str(db_path))
@@ -305,30 +287,13 @@ class TestComputeDailyAllocation:
         config = _make_config()
         config["assets"]["401k sp500"] = {"category": "US Equity", "subtype": "retirement"}
 
-        results = compute_daily_allocation(
-            db_path=db_path,
-            qj_db=qj_path,
-            config=config,
-            start=date(2025, 1, 2),
-            end=date(2025, 1, 2),
-        )
+        results = _compute_allocation(allocation_paths, config=config)
         # 401k should add to US Equity
         assert results[0]["us_equity"] >= 50000
 
-    def test_cny_conversion(self, tmp_path: Path) -> None:
+    def test_cny_conversion(self, allocation_paths: tuple[Path, Path]) -> None:
         """CNY account balances are converted to USD at historical rate."""
-        db_path = tmp_path / "timemachine.db"
-        qj_path = tmp_path / "qianji.db"
-        _init_timemachine(db_path)
-        _init_qianji(qj_path)
-
-        results = compute_daily_allocation(
-            db_path=db_path,
-            qj_db=qj_path,
-            config=_make_config(),
-            start=date(2025, 1, 2),
-            end=date(2025, 1, 2),
-        )
+        results = _compute_allocation(allocation_paths)
         # Alipay: 10000 CNY / 7.25 ≈ 1379.31
         tickers = results[0]["tickers"]
         cny = next((t for t in tickers if t["ticker"] == "CNY Cash"), None)
@@ -342,50 +307,19 @@ class TestComputeDailyAllocation:
         _init_timemachine(db_path)
 
         # Create Qianji DB with a credit card (negative balance)
-        conn = sqlite3.connect(str(qj_path))
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS user_asset (
-                name TEXT PRIMARY KEY, money REAL NOT NULL,
-                currency TEXT DEFAULT 'USD', status INTEGER DEFAULT 0
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS user_bill (
-                time INTEGER, type INTEGER, money REAL,
-                fromact TEXT DEFAULT '', targetact TEXT DEFAULT '',
-                extra TEXT DEFAULT '', status INTEGER DEFAULT 1
-            )
-        """)
-        conn.execute("INSERT INTO user_asset (name, money, currency) VALUES ('Credit Card', -2000.0, 'USD')")
-        conn.commit()
-        conn.close()
+        with closing(sqlite3.connect(str(qj_path))) as conn:
+            _create_qianji_schema(conn)
+            conn.execute("INSERT INTO user_asset (name, money, currency) VALUES ('Credit Card', -2000.0, 'USD')")
 
         config = _make_config()
         config["qianji_accounts"]["credit"] = ["Credit Card"]
 
-        results = compute_daily_allocation(
-            db_path=db_path,
-            qj_db=qj_path,
-            config=config,
-            start=date(2025, 1, 2),
-            end=date(2025, 1, 2),
-        )
+        results = _compute_allocation((db_path, qj_path), config=config)
         assert results[0]["liabilities"] < 0
 
-    def test_empty_range(self, tmp_path: Path) -> None:
+    def test_empty_range(self, allocation_paths: tuple[Path, Path]) -> None:
         """Start after end returns empty results."""
-        db_path = tmp_path / "timemachine.db"
-        qj_path = tmp_path / "qianji.db"
-        _init_timemachine(db_path)
-        _init_qianji(qj_path)
-
-        results = compute_daily_allocation(
-            db_path=db_path,
-            qj_db=qj_path,
-            config=_make_config(),
-            start=date(2025, 1, 10),
-            end=date(2025, 1, 2),
-        )
+        results = _compute_allocation(allocation_paths, start=date(2025, 1, 10))
         assert results == []
 
     def test_no_qianji_db(self, tmp_path: Path) -> None:
@@ -405,20 +339,9 @@ class TestComputeDailyAllocation:
         # Still has Fidelity positions
         assert results[0]["us_equity"] > 0
 
-    def test_multiple_days_cached_replay(self, tmp_path: Path) -> None:
+    def test_multiple_days_cached_replay(self, allocation_paths: tuple[Path, Path]) -> None:
         """Multiple days reuse cached positions when no new transactions."""
-        db_path = tmp_path / "timemachine.db"
-        qj_path = tmp_path / "qianji.db"
-        _init_timemachine(db_path)
-        _init_qianji(qj_path)
-
-        results = compute_daily_allocation(
-            db_path=db_path,
-            qj_db=qj_path,
-            config=_make_config(),
-            start=date(2025, 1, 2),
-            end=date(2025, 1, 6),
-        )
+        results = _compute_allocation(allocation_paths, end=date(2025, 1, 6))
         # 3 trading days (Thu-Mon, skipping Sat-Sun)
         assert len(results) == 3
         # All should have same positions → similar totals
@@ -435,27 +358,17 @@ class TestFindPriceDate:
     def _prices(self, dates: list[str]) -> pd.DataFrame:
         return pd.DataFrame(index=pd.to_datetime(dates).date, data={"VOO": [100.0] * len(dates)})
 
-    def test_exact_match_returns_target(self) -> None:
-        prices = self._prices(["2025-01-02", "2025-01-03"])
-        assert _find_price_date(prices, date(2025, 1, 3)) == date(2025, 1, 3)
-
-    def test_walks_back_to_prior_trading_day(self) -> None:
-        # Saturday → walk back to Friday
-        prices = self._prices(["2025-01-03"])  # Friday
-        assert _find_price_date(prices, date(2025, 1, 4)) == date(2025, 1, 3)
-
-    def test_walks_across_weekend_to_prior_friday(self) -> None:
-        # Regression for the incremental-start bug: when compute range starts
-        # on a Saturday (inc_start = last_built + 1 = Fri + 1), Monday's
-        # mutual-fund T-1 lookup (Sunday) must still walk back to Friday.
-        prices = self._prices(["2026-04-10"])  # Friday
-        assert _find_price_date(prices, date(2026, 4, 12)) == date(2026, 4, 10)
-
-    def test_stops_at_earliest_when_target_before_data(self) -> None:
-        # Target precedes all available data → walk can't advance past target.
-        prices = self._prices(["2025-06-01"])
-        result = _find_price_date(prices, date(2025, 1, 5))
-        assert result == date(2025, 1, 5)  # no walk possible; caller will skip
+    @pytest.mark.parametrize(
+        ("price_dates", "target", "expected"),
+        [
+            pytest.param(["2025-01-02", "2025-01-03"], date(2025, 1, 3), date(2025, 1, 3), id="exact"),
+            pytest.param(["2025-01-03"], date(2025, 1, 4), date(2025, 1, 3), id="saturday-to-friday"),
+            pytest.param(["2026-04-10"], date(2026, 4, 12), date(2026, 4, 10), id="weekend-t-minus-one"),
+            pytest.param(["2025-06-01"], date(2025, 1, 5), date(2025, 1, 5), id="target-before-data"),
+        ],
+    )
+    def test_find_price_date(self, price_dates: list[str], target: date, expected: date) -> None:
+        assert _find_price_date(self._prices(price_dates), target) == expected
 
 
 # ── _categorize_ticker ──────────────────────────────────────────────────────
@@ -646,5 +559,3 @@ class TestBuildAllocationRow:
         )
         assert row["total"] == 5000.0  # liability NOT added to total
         assert row["liabilities"] == -1000.0
-
-

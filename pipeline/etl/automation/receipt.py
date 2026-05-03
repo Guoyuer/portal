@@ -1,8 +1,8 @@
-"""Small publish receipt used by automation emails.
+"""Small before/after receipt used by automation emails.
 
 The email is an operator notification, not a correctness gate. Correctness is
 handled by R2 artifact verification, manifest hashes, row counts, Zod parsing,
-and automation logs. This module keeps only the summary fields useful in an
+and automation logs. This module formats only the summary fields useful in an
 inbox: row-count deltas, latest net worth, published artifact version, warnings,
 duration, and failure stage.
 """
@@ -52,17 +52,6 @@ class SyncSnapshot:
 
 
 @dataclass(frozen=True)
-class RowDelta:
-    name: str
-    before: int
-    after: int
-
-    @property
-    def delta(self) -> int:
-        return self.after - self.before
-
-
-@dataclass(frozen=True)
 class PublishSummary:
     version: str
     generated_at: str
@@ -77,28 +66,42 @@ class PublishSummary:
 
 @dataclass
 class SyncReceipt:
-    row_deltas: list[RowDelta] = field(default_factory=list)
-    net_worth_before: float | None = None
-    net_worth_after: float | None = None
-    net_worth_before_date: str | None = None
-    net_worth_after_date: str | None = None
+    before: SyncSnapshot = field(default_factory=SyncSnapshot)
+    after: SyncSnapshot | None = None
+
+    @property
+    def row_deltas(self) -> list[tuple[str, int, int, int]]:
+        if self.after is None:
+            return []
+        keys = sorted(set(self.before.row_counts) | set(self.after.row_counts))
+        return [
+            (
+                key,
+                self.before.row_counts.get(key, 0),
+                self.after.row_counts.get(key, 0),
+                self.after.row_counts.get(key, 0) - self.before.row_counts.get(key, 0),
+            )
+            for key in keys
+        ]
 
     @property
     def net_worth_delta(self) -> float | None:
-        if self.net_worth_before is None or self.net_worth_after is None:
+        before = self.before.net_worth
+        after = self.after.net_worth if self.after else None
+        if before is None or after is None:
             return None
-        return self.net_worth_after - self.net_worth_before
+        return after.value - before.value
 
     def net_worth_delta_pct(self) -> float | None:
-        before = self.net_worth_before
-        after = self.net_worth_after
-        if before is None or before == 0 or after is None:
+        before = self.before.net_worth
+        after = self.after.net_worth if self.after else None
+        if before is None or before.value == 0 or after is None:
             return None
-        return (after - before) / before * 100
+        return (after.value - before.value) / before.value * 100
 
     def has_meaningful_changes(self) -> bool:
         return bool(
-            any(row.delta != 0 for row in self.row_deltas)
+            any(delta != 0 for _, _, _, delta in self.row_deltas)
             or (self.net_worth_delta is not None and abs(self.net_worth_delta) >= 0.01)
         )
 
@@ -120,18 +123,7 @@ def capture(db_path: Path) -> SyncSnapshot:
 
 
 def diff(before: SyncSnapshot, after: SyncSnapshot) -> SyncReceipt:
-    keys = sorted(set(before.row_counts) | set(after.row_counts))
-    row_deltas = [
-        RowDelta(name=key, before=before.row_counts.get(key, 0), after=after.row_counts.get(key, 0))
-        for key in keys
-    ]
-    return SyncReceipt(
-        row_deltas=row_deltas,
-        net_worth_before=before.net_worth.value if before.net_worth else None,
-        net_worth_after=after.net_worth.value if after.net_worth else None,
-        net_worth_before_date=before.net_worth.date if before.net_worth else None,
-        net_worth_after_date=after.net_worth.date if after.net_worth else None,
-    )
+    return SyncReceipt(before=before, after=after)
 
 
 def load_publish_summary(path: Path) -> PublishSummary | None:
@@ -180,11 +172,11 @@ def format_text(receipt: SyncReceipt, context: Mapping[str, Any]) -> str:
 
     lines.append("Snapshot")
     _append_net_worth(lines, receipt)
-    changed = [row for row in receipt.row_deltas if row.delta != 0]
+    changed = [row for row in receipt.row_deltas if row[3] != 0]
     if changed:
         lines.append("  Row count changes:")
-        for row in changed:
-            lines.append(f"    {row.name}: {row.before:,} -> {row.after:,} ({_fmt_int_delta(row.delta)})")
+        for name, before, after, delta in changed:
+            lines.append(f"    {name}: {before:,} -> {after:,} ({_fmt_int_delta(delta)})")
     else:
         lines.append("  Row count changes: none")
     lines.append("")
@@ -226,7 +218,7 @@ def build_subject(
         bits.append(publish_summary.latest_date)
     if receipt.net_worth_delta is not None:
         bits.append(f"nw {_fmt_delta(receipt.net_worth_delta)}")
-    changed_rows = sum(abs(row.delta) for row in receipt.row_deltas if row.delta != 0)
+    changed_rows = sum(abs(delta) for _, _, _, delta in receipt.row_deltas if delta != 0)
     if changed_rows:
         bits.append(f"{changed_rows:,} row delta")
     return "[Portal Sync] OK" if not bits else "[Portal Sync] OK - " + ", ".join(bits)
@@ -278,22 +270,20 @@ def _publish_summary_from_mapping(raw: Mapping[str, Any]) -> PublishSummary:
 
 
 def _append_net_worth(lines: list[str], receipt: SyncReceipt) -> None:
-    before = receipt.net_worth_before
-    after = receipt.net_worth_after
-    before_date = receipt.net_worth_before_date or "?"
-    after_date = receipt.net_worth_after_date or "?"
+    before = receipt.before.net_worth
+    after = receipt.after.net_worth if receipt.after else None
     delta = receipt.net_worth_delta
     pct = receipt.net_worth_delta_pct()
     if before is not None and after is not None and delta is not None:
         pct_text = f" / {pct:+.2f}%" if pct is not None else ""
         lines.append(
-            f"  Net worth: {before_date} {_fmt_money(before)} -> "
-            f"{after_date} {_fmt_money(after)} ({_fmt_delta(delta)}{pct_text})"
+            f"  Net worth: {before.date} {_fmt_money(before.value)} -> "
+            f"{after.date} {_fmt_money(after.value)} ({_fmt_delta(delta)}{pct_text})"
         )
     elif after is not None:
-        lines.append(f"  Net worth: {after_date} {_fmt_money(after)} (no prior snapshot)")
+        lines.append(f"  Net worth: {after.date} {_fmt_money(after.value)} (no prior snapshot)")
     elif before is not None:
-        lines.append(f"  Net worth: {before_date} {_fmt_money(before)} (no after snapshot)")
+        lines.append(f"  Net worth: {before.date} {_fmt_money(before.value)} (no after snapshot)")
     else:
         lines.append("  Net worth: unavailable")
 

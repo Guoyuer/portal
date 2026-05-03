@@ -6,8 +6,8 @@ import tempfile
 from pathlib import Path
 
 from etl.automation.receipt import (
+    NetWorthPoint,
     PublishSummary,
-    RowDelta,
     SyncReceipt,
     SyncSnapshot,
     build_subject,
@@ -85,10 +85,7 @@ def test_diff_reports_count_and_net_worth_deltas() -> None:
 
     cl = diff(before, after)
 
-    assert [(r.name, r.before, r.after, r.delta) for r in cl.row_deltas] == [
-        ("daily", 0, 2, 2),
-        ("fidelityTxns", 1, 3, 2),
-    ]
+    assert cl.row_deltas == [("daily", 0, 2, 2), ("fidelityTxns", 1, 3, 2)]
     assert cl.has_meaningful_changes() is True
 
 
@@ -126,12 +123,15 @@ def test_load_publish_summary(tmp_path: Path) -> None:
 
 
 def test_format_text_success_receipt() -> None:
-    cl = SyncReceipt(
-        row_deltas=[RowDelta("fidelityTxns", 1, 3)],
-        net_worth_before=1000,
-        net_worth_after=1100,
-        net_worth_before_date="2026-04-30",
-        net_worth_after_date="2026-05-01",
+    cl = diff(
+        SyncSnapshot(
+            row_counts={"fidelityTxns": 1},
+            net_worth=NetWorthPoint("2026-04-30", 1000),
+        ),
+        SyncSnapshot(
+            row_counts={"fidelityTxns": 3},
+            net_worth=NetWorthPoint("2026-05-01", 1100),
+        ),
     )
 
     body = format_text(cl, _ctx(publish_summary=_summary(), publish_mode="remote"))
@@ -175,7 +175,10 @@ def test_format_html_escapes_text() -> None:
 
 
 def test_build_subject_success_and_failure() -> None:
-    cl = SyncReceipt(row_deltas=[RowDelta("daily", 1, 2)], net_worth_before=1000, net_worth_after=1100)
+    cl = diff(
+        SyncSnapshot(row_counts={"daily": 1}, net_worth=NetWorthPoint("2026-04-30", 1000)),
+        SyncSnapshot(row_counts={"daily": 2}, net_worth=NetWorthPoint("2026-05-01", 1100)),
+    )
     assert build_subject(cl, 0, publish_summary=_summary()) == (
         "[Portal Sync] OK - 2026-05-01, nw +$100.00, 1 row delta"
     )

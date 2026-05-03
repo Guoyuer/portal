@@ -5,6 +5,7 @@ import {
   computeCashflow,
   computeActivity,
   computeCrossCheck,
+  computeGroupedActivity,
   computeMonthlyFlows,
   buildDateIndex,
   buildTickerIndex,
@@ -13,8 +14,55 @@ import {
   normalizeInvestmentTxns,
   type InvestmentTxn,
 } from "@/lib/compute/compute";
+import type { ApiTicker } from "@/lib/compute/computed-types";
 import { CAT_COLOR_BY_KEY } from "@/lib/format/chart-colors";
 import { CATEGORIES, mkDaily, mkDailyN, mkFidelityTxn, mkQianjiTxn, mkRobinhoodTxn, mkEmpowerContribution, mkInvestmentTxn } from "@/test/factories";
+
+const JAN_START = "2026-01-01";
+const JAN_END = "2026-01-31";
+const JAN_15 = "2026-01-15";
+
+type AllocationFixture = {
+  daily?: Parameters<typeof computeAllocation>[0];
+  tickerIdx?: Map<string, ApiTicker[]>;
+  date?: string;
+  categories?: CategoryMeta[];
+};
+
+function computeDefaultAllocation({
+  daily = [mkDaily()],
+  tickerIdx = new Map<string, ApiTicker[]>(),
+  date = JAN_15,
+  categories = CATEGORIES,
+}: AllocationFixture = {}) {
+  return computeAllocation(daily, tickerIdx, buildDateIndex(daily), date, categories);
+}
+
+const computeJanCashflow = (txns: QianjiTxn[]) => computeCashflow(txns, JAN_START, JAN_END);
+const computeJanActivity = (txns: InvestmentTxn[]) => computeActivity(txns, JAN_START, JAN_END);
+const computeJanGroupedActivity = (txns: InvestmentTxn[]) => computeGroupedActivity(txns, JAN_START, JAN_END);
+const computeJanCrossCheck = (investmentTxns: InvestmentTxn[], qianjiTxns: QianjiTxn[]) =>
+  computeCrossCheck(investmentTxns, qianjiTxns, JAN_START, JAN_END);
+
+function expectCashflowScalars(cf: ReturnType<typeof computeCashflow>, expected: Partial<ReturnType<typeof computeCashflow>>) {
+  expect(cf).toMatchObject(expected);
+}
+
+const mkDeposit = (overrides: Partial<InvestmentTxn> = {}): InvestmentTxn =>
+  mkInvestmentTxn({ actionType: "deposit", ticker: "", ...overrides });
+const mkTransfer = (overrides: Partial<QianjiTxn> = {}): QianjiTxn =>
+  mkQianjiTxn({ type: "transfer", ...overrides });
+const mkQianjiFloor = (overrides: Partial<QianjiTxn> = {}): QianjiTxn =>
+  mkQianjiTxn({ date: "2025-12-01", type: "expense", amount: 1, ...overrides });
+
+type CrossCheckExpected = Partial<Pick<ReturnType<typeof computeCrossCheck>, "ok" | "matchedCount" | "totalCount">> & {
+  allUnmatched?: number;
+};
+
+function expectCrossCheckTotals(cc: ReturnType<typeof computeCrossCheck>, { allUnmatched, ...expected }: CrossCheckExpected) {
+  expect(cc).toMatchObject(expected);
+  if (allUnmatched !== undefined) expect(cc.allUnmatched).toHaveLength(allUnmatched);
+}
 
 // ── buildDateIndex ──────────────────────────────────────────────────────
 
@@ -26,10 +74,6 @@ describe("buildDateIndex", () => {
     expect(idx.get("2026-01-02")).toBe(1);
     expect(idx.get("2026-01-03")).toBe(2);
     expect(idx.get("2026-01-04")).toBeUndefined();
-  });
-
-  it("returns empty map for empty array", () => {
-    expect(buildDateIndex([]).size).toBe(0);
   });
 });
 
@@ -47,20 +91,20 @@ describe("buildTickerIndex", () => {
     expect(idx.get("2026-01-02")).toHaveLength(1);
     expect(idx.get("2026-01-03")).toBeUndefined();
   });
+});
 
-  it("returns empty map for empty array", () => {
-    expect(buildTickerIndex([]).size).toBe(0);
-  });
+it.each([
+  ["date", () => buildDateIndex([])],
+  ["ticker", () => buildTickerIndex([])],
+])("returns empty %s map for empty array", (_name, buildIndex) => {
+  expect(buildIndex().size).toBe(0);
 });
 
 // ── computeAllocation ───────────────────────────────────────────────────
 
 describe("computeAllocation", () => {
   it("computes category percentages and deviation", () => {
-    const daily = [mkDaily()];
-    const dateIdx = buildDateIndex(daily);
-    const tickerIdx = new Map();
-    const result = computeAllocation(daily, tickerIdx, dateIdx, "2026-01-15", CATEGORIES);
+    const result = computeDefaultAllocation();
     expect(result).not.toBeNull();
     expect(result!.total).toBe(100000);
     expect(result!.netWorth).toBe(95000); // 100000 + (-5000)
@@ -71,15 +115,12 @@ describe("computeAllocation", () => {
   });
 
   it("returns null for unknown date", () => {
-    const daily = [mkDaily()];
-    const dateIdx = buildDateIndex(daily);
-    expect(computeAllocation(daily, new Map(), dateIdx, "2099-01-01", CATEGORIES)).toBeNull();
+    expect(computeDefaultAllocation({ date: "2099-01-01" })).toBeNull();
   });
 
   it("handles zero total without NaN", () => {
     const daily = [mkDaily({ total: 0, usEquity: 0, nonUsEquity: 0, crypto: 0, safeNet: 0 })];
-    const dateIdx = buildDateIndex(daily);
-    const result = computeAllocation(daily, new Map(), dateIdx, "2026-01-15", CATEGORIES);
+    const result = computeDefaultAllocation({ daily });
     expect(result).not.toBeNull();
     for (const cat of result!.categories) {
       expect(cat.pct).toBe(0);
@@ -88,24 +129,17 @@ describe("computeAllocation", () => {
   });
 
   it("includes tickers from ticker index", () => {
-    const daily = [mkDaily()];
-    const dateIdx = buildDateIndex(daily);
-    const tickerIdx = new Map([["2026-01-15", [{ ticker: "VTI", value: 55000, category: "US Equity", subtype: "broad", costBasis: 50000, gainLoss: 5000, gainLossPct: 10 }]]]);
-    const result = computeAllocation(daily, tickerIdx, dateIdx, "2026-01-15", CATEGORIES);
+    const tickerIdx = new Map<string, ApiTicker[]>([
+      [JAN_15, [{ ticker: "VTI", value: 55000, category: "US Equity", subtype: "broad", costBasis: 50000, gainLoss: 5000, gainLossPct: 10 }]],
+    ]);
+    const result = computeDefaultAllocation({ tickerIdx });
     expect(result!.tickers).toHaveLength(1);
     expect(result!.tickers[0].ticker).toBe("VTI");
   });
 
   it("honors custom target weights from bundle", () => {
-    const daily = [mkDaily()];
-    const dateIdx = buildDateIndex(daily);
-    const customCats: CategoryMeta[] = [
-      { key: "usEquity", name: "US Equity", displayOrder: 0, targetPct: 60 },
-      { key: "nonUsEquity", name: "Non-US Equity", displayOrder: 1, targetPct: 10 },
-      { key: "crypto", name: "Crypto", displayOrder: 2, targetPct: 5 },
-      { key: "safeNet", name: "Safe Net", displayOrder: 3, targetPct: 25 },
-    ];
-    const result = computeAllocation(daily, new Map(), dateIdx, "2026-01-15", customCats)!;
+    const customCats: CategoryMeta[] = CATEGORIES.map((cat, i) => ({ ...cat, targetPct: [60, 10, 5, 25][i] }));
+    const result = computeDefaultAllocation({ categories: customCats })!;
     expect(result.categories.find(c => c.name === "US Equity")!.target).toBe(60);
     // 55% actual vs 60% target → deviation -5
     expect(result.categories.find(c => c.name === "US Equity")!.deviation).toBe(-5);
@@ -137,86 +171,77 @@ describe("computeCashflow", () => {
       mkQianjiTxn({ type: "expense", category: "Rent", amount: 2000 }),
       mkQianjiTxn({ type: "expense", category: "Food", amount: 500 }),
     ];
-    const cf = computeCashflow(txns, "2026-01-01", "2026-01-31");
-    expect(cf.totalIncome).toBe(10000);
-    expect(cf.totalExpenses).toBe(2500);
-    expect(cf.netCashflow).toBe(7500);
+    const cf = computeJanCashflow(txns);
+    expectCashflowScalars(cf, { totalIncome: 10000, totalExpenses: 2500, netCashflow: 7500 });
     expect(cf.incomeItems).toHaveLength(1);
     expect(cf.incomeItems[0].count).toBe(2);
     expect(cf.expenseItems).toHaveLength(2);
   });
 
-  it("computes savings rate", () => {
-    const txns: QianjiTxn[] = [
-      mkQianjiTxn({ type: "income", amount: 10000 }),
-      mkQianjiTxn({ type: "expense", category: "Rent", amount: 7000 }),
-    ];
-    const cf = computeCashflow(txns, "2026-01-01", "2026-01-31");
-    expect(cf.savingsRate).toBe(30); // (10000-7000)/10000 * 100
+  it.each([
+    {
+      name: "computes savings rate",
+      txns: [
+        mkQianjiTxn({ type: "income", amount: 10000 }),
+        mkQianjiTxn({ type: "expense", category: "Rent", amount: 7000 }),
+      ],
+      expected: { savingsRate: 30 },
+    },
+    {
+      name: "returns 0 savings rate when no income",
+      txns: [mkQianjiTxn({ type: "expense", category: "Rent", amount: 1000 })],
+      expected: { savingsRate: 0, takehomeSavingsRate: 0 },
+    },
+    {
+      name: "deducts retirement-flagged income from take-home",
+      txns: [
+        mkQianjiTxn({ type: "income", category: "Salary", amount: 8000 }),
+        mkQianjiTxn({ type: "income", category: "Employer Retirement Match", amount: 2000, isRetirement: true }),
+        mkQianjiTxn({ type: "expense", category: "Rent", amount: 3000 }),
+      ],
+      expected: { totalIncome: 10000, takehomeSavingsRate: 62.5 },
+    },
+    {
+      name: "ignores retirement flag on expense rows",
+      txns: [
+        mkQianjiTxn({ type: "income", category: "Salary", amount: 10000 }),
+        mkQianjiTxn({ type: "expense", category: "Random", amount: 3000, isRetirement: true }),
+      ],
+      expected: { takehomeSavingsRate: 70 },
+    },
+    {
+      name: "does not match 401 via substring — only the flag counts",
+      txns: [
+        mkQianjiTxn({ type: "income", category: "401K", amount: 2000 }),
+        mkQianjiTxn({ type: "income", category: "Salary", amount: 8000 }),
+        mkQianjiTxn({ type: "expense", category: "Rent", amount: 3000 }),
+      ],
+      expected: { takehomeSavingsRate: 70 },
+    },
+  ])("$name", ({ txns, expected }) => {
+    expectCashflowScalars(computeJanCashflow(txns), expected);
   });
 
-  it("returns 0 savings rate when no income", () => {
-    const txns: QianjiTxn[] = [
-      mkQianjiTxn({ type: "expense", category: "Rent", amount: 1000 }),
-    ];
-    const cf = computeCashflow(txns, "2026-01-01", "2026-01-31");
-    expect(cf.savingsRate).toBe(0);
-    expect(cf.takehomeSavingsRate).toBe(0);
-  });
-
-  it("deducts retirement-flagged income from take-home", () => {
-    const txns: QianjiTxn[] = [
-      mkQianjiTxn({ type: "income", category: "Salary", amount: 8000 }),
-      mkQianjiTxn({ type: "income", category: "Employer Retirement Match", amount: 2000, isRetirement: true }),
-      mkQianjiTxn({ type: "expense", category: "Rent", amount: 3000 }),
-    ];
-    const cf = computeCashflow(txns, "2026-01-01", "2026-01-31");
-    expect(cf.totalIncome).toBe(10000);
-    // takehome = 10000 - 2000 = 8000; rate = (8000-3000)/8000 = 62.5%
-    expect(cf.takehomeSavingsRate).toBe(62.5);
-  });
-
-  it("ignores retirement flag on expense rows", () => {
-    const txns: QianjiTxn[] = [
-      mkQianjiTxn({ type: "income", category: "Salary", amount: 10000 }),
-      // isRetirement on an expense must not affect the income deduction
-      mkQianjiTxn({ type: "expense", category: "Random", amount: 3000, isRetirement: true }),
-    ];
-    const cf = computeCashflow(txns, "2026-01-01", "2026-01-31");
-    expect(cf.takehomeSavingsRate).toBe(70); // (10000-3000)/10000
-  });
-
-  it("does not match 401 via substring — only the flag counts", () => {
-    const txns: QianjiTxn[] = [
-      // Historic behavior relied on category name containing '401'.
-      // With the flag-based approach, an income tagged '401K' WITHOUT the
-      // isRetirement flag should be counted as take-home income.
-      mkQianjiTxn({ type: "income", category: "401K", amount: 2000 }),
-      mkQianjiTxn({ type: "income", category: "Salary", amount: 8000 }),
-      mkQianjiTxn({ type: "expense", category: "Rent", amount: 3000 }),
-    ];
-    const cf = computeCashflow(txns, "2026-01-01", "2026-01-31");
-    // No flag → includes '401K' in take-home: (10000-3000)/10000 = 70%
-    expect(cf.takehomeSavingsRate).toBe(70);
-  });
-
-  it("counts CC repayments", () => {
-    const txns: QianjiTxn[] = [
-      mkQianjiTxn({ type: "repayment", category: "CC", amount: 1500 }),
-      mkQianjiTxn({ type: "repayment", category: "CC", amount: 500 }),
-    ];
-    const cf = computeCashflow(txns, "2026-01-01", "2026-01-31");
-    expect(cf.ccPayments).toBe(2000);
-  });
-
-  it("filters by date range", () => {
-    const txns: QianjiTxn[] = [
-      mkQianjiTxn({ date: "2025-12-31", type: "income", amount: 999 }), // before
-      mkQianjiTxn({ date: "2026-01-15", type: "income", amount: 5000 }), // in range
-      mkQianjiTxn({ date: "2026-02-01", type: "income", amount: 999 }), // after
-    ];
-    const cf = computeCashflow(txns, "2026-01-01", "2026-01-31");
-    expect(cf.totalIncome).toBe(5000);
+  it.each([
+    {
+      name: "counts CC repayments",
+      txns: [
+        mkQianjiTxn({ type: "repayment", category: "CC", amount: 1500 }),
+        mkQianjiTxn({ type: "repayment", category: "CC", amount: 500 }),
+      ],
+      expected: { ccPayments: 2000 },
+    },
+    {
+      name: "filters by date range",
+      txns: [
+        mkQianjiTxn({ date: "2025-12-31", type: "income", amount: 999 }),
+        mkQianjiTxn({ date: JAN_15, type: "income", amount: 5000 }),
+        mkQianjiTxn({ date: "2026-02-01", type: "income", amount: 999 }),
+      ],
+      expected: { totalIncome: 5000 },
+    },
+  ])("$name", ({ txns, expected }) => {
+    expectCashflowScalars(computeJanCashflow(txns), expected);
   });
 
   it("sorts expense items by amount descending", () => {
@@ -225,7 +250,7 @@ describe("computeCashflow", () => {
       mkQianjiTxn({ type: "expense", category: "Rent", amount: 2000 }),
       mkQianjiTxn({ type: "expense", category: "Gas", amount: 500 }),
     ];
-    const cf = computeCashflow(txns, "2026-01-01", "2026-01-31");
+    const cf = computeJanCashflow(txns);
     expect(cf.expenseItems.map(e => e.category)).toEqual(["Rent", "Gas", "Food"]);
   });
 });
@@ -238,13 +263,13 @@ describe("cashflowState", () => {
   });
 
   it("returns empty when both totals are zero", () => {
-    const cf = computeCashflow([], "2026-01-01", "2026-01-31");
+    const cf = computeJanCashflow([]);
     expect(cashflowState(cf)).toEqual({ kind: "empty" });
   });
 
   it("returns data with the original cashflow attached when there is activity", () => {
     const txns: QianjiTxn[] = [mkQianjiTxn({ type: "income", amount: 100 })];
-    const cf = computeCashflow(txns, "2026-01-01", "2026-01-31");
+    const cf = computeJanCashflow(txns);
     const state = cashflowState(cf);
     expect(state.kind).toBe("data");
     if (state.kind === "data") expect(state.data).toBe(cf);
@@ -302,7 +327,7 @@ describe("computeActivity", () => {
       mkInvestmentTxn({ source: "fidelity", actionType: "sell",     ticker: "AAPL", amount: 2000  }),
       mkInvestmentTxn({ source: "fidelity", actionType: "dividend", ticker: "VTI",  amount: 50    }),
     ];
-    const act = computeActivity(txns, "2026-01-01", "2026-01-31");
+    const act = computeJanActivity(txns);
     expect(act.buysBySymbol).toHaveLength(1);
     expect(act.buysBySymbol[0]).toEqual({ ticker: "VTI", count: 2, total: 1500, isGroup: false, sources: ["fidelity"] });
     expect(act.sellsBySymbol).toHaveLength(1);
@@ -311,37 +336,41 @@ describe("computeActivity", () => {
     expect(act.dividendsBySymbol[0].total).toBe(50);
   });
 
-  it("counts reinvestment in both buys and dividends", () => {
-    const txns: InvestmentTxn[] = [
-      mkInvestmentTxn({ source: "fidelity", actionType: "reinvestment", ticker: "VTI", amount: -100 }),
-    ];
-    const act = computeActivity(txns, "2026-01-01", "2026-01-31");
-    expect(act.buysBySymbol).toHaveLength(1);
-    expect(act.buysBySymbol[0].total).toBe(100);
-    expect(act.dividendsBySymbol).toHaveLength(1);
-    expect(act.dividendsBySymbol[0].total).toBe(100);
-  });
-
-  it("skips transactions without ticker", () => {
-    const txns: InvestmentTxn[] = [
-      mkInvestmentTxn({ source: "fidelity", actionType: "buy", ticker: "", amount: -500 }),
-    ];
-    const act = computeActivity(txns, "2026-01-01", "2026-01-31");
-    expect(act.buysBySymbol).toHaveLength(0);
-  });
-
-  it("filters by date range", () => {
-    const txns: InvestmentTxn[] = [
-      mkInvestmentTxn({ source: "fidelity", date: "2025-12-31", actionType: "buy", ticker: "VTI", amount: -999 }),
-      mkInvestmentTxn({ source: "fidelity", date: "2026-01-15", actionType: "buy", ticker: "VTI", amount: -500 }),
-      mkInvestmentTxn({ source: "fidelity", date: "2026-02-01", actionType: "buy", ticker: "VTI", amount: -999 }),
-    ];
-    const act = computeActivity(txns, "2026-01-01", "2026-01-31");
-    expect(act.buysBySymbol[0].total).toBe(500);
+  it.each([
+    {
+      name: "counts reinvestment in both buys and dividends",
+      txns: [mkInvestmentTxn({ source: "fidelity", actionType: "reinvestment", ticker: "VTI", amount: -100 })],
+      assert: (act: ReturnType<typeof computeActivity>) => {
+        expect(act.buysBySymbol).toHaveLength(1);
+        expect(act.buysBySymbol[0].total).toBe(100);
+        expect(act.dividendsBySymbol).toHaveLength(1);
+        expect(act.dividendsBySymbol[0].total).toBe(100);
+      },
+    },
+    {
+      name: "skips transactions without ticker",
+      txns: [mkInvestmentTxn({ source: "fidelity", actionType: "buy", ticker: "", amount: -500 })],
+      assert: (act: ReturnType<typeof computeActivity>) => {
+        expect(act.buysBySymbol).toHaveLength(0);
+      },
+    },
+    {
+      name: "filters by date range",
+      txns: [
+        mkInvestmentTxn({ source: "fidelity", date: "2025-12-31", actionType: "buy", ticker: "VTI", amount: -999 }),
+        mkInvestmentTxn({ source: "fidelity", date: JAN_15, actionType: "buy", ticker: "VTI", amount: -500 }),
+        mkInvestmentTxn({ source: "fidelity", date: "2026-02-01", actionType: "buy", ticker: "VTI", amount: -999 }),
+      ],
+      assert: (act: ReturnType<typeof computeActivity>) => {
+        expect(act.buysBySymbol[0].total).toBe(500);
+      },
+    },
+  ])("$name", ({ txns, assert }) => {
+    assert(computeJanActivity(txns));
   });
 
   it("returns empty lists for no transactions", () => {
-    const act = computeActivity([], "2026-01-01", "2026-01-31");
+    const act = computeJanActivity([]);
     expect(act.buysBySymbol).toEqual([]);
     expect(act.sellsBySymbol).toEqual([]);
     expect(act.dividendsBySymbol).toEqual([]);
@@ -353,7 +382,7 @@ describe("computeActivity", () => {
       mkInvestmentTxn({ source: "401k",      actionType: "contribution", ticker: "401k sp500", amount:  450 }),
       mkInvestmentTxn({ source: "robinhood", actionType: "buy",          ticker: "AAPL",       amount: -200 }),
     ];
-    const a = computeActivity(txns, "2026-01-01", "2026-01-31");
+    const a = computeJanActivity(txns);
     const voo = a.buysBySymbol.find((r) => r.ticker === "VOO")!;
     expect(voo.sources).toEqual(["fidelity"]);
     const k401 = a.buysBySymbol.find((r) => r.ticker === "401k sp500")!;
@@ -366,144 +395,112 @@ describe("computeActivity", () => {
 // ── computeCrossCheck ───────────────────────────────────────────────────
 
 describe("computeCrossCheck", () => {
-  it("matches deposit to transfer within 7-day window", () => {
-    const txns: InvestmentTxn[] = [
-      mkInvestmentTxn({ source: "fidelity", actionType: "deposit", ticker: "", date: "2026-01-15", amount: 1000 }),
-    ];
-    const qTxns: QianjiTxn[] = [
-      mkQianjiTxn({ date: "2026-01-16", type: "transfer", amount: 1000 }),
-    ];
-    const cc = computeCrossCheck(txns, qTxns, "2026-01-01", "2026-01-31");
-    expect(cc.ok).toBe(true);
-    expect(cc.matchedCount).toBe(1);
-    expect(cc.totalCount).toBe(1);
-    expect(cc.perSource.fidelity.matched).toBe(1);
-  });
-
-  it("fails match when transfer is outside 7-day window", () => {
-    const txns: InvestmentTxn[] = [
-      mkInvestmentTxn({ source: "fidelity", actionType: "deposit", ticker: "", date: "2026-01-01", amount: 1000 }),
-    ];
-    const qTxns: QianjiTxn[] = [
-      mkQianjiTxn({ date: "2025-12-01", type: "expense", amount: 50 }), // anchor Qianji floor before deposit
-      mkQianjiTxn({ date: "2026-01-15", type: "transfer", amount: 1000 }), // 14 days after deposit
-    ];
-    const cc = computeCrossCheck(txns, qTxns, "2026-01-01", "2026-01-31");
-    expect(cc.ok).toBe(false);
-    expect(cc.matchedCount).toBe(0);
-    expect(cc.allUnmatched).toHaveLength(1);
-  });
-
-  it("fails match when amounts differ", () => {
-    const txns: InvestmentTxn[] = [
-      mkInvestmentTxn({ source: "fidelity", actionType: "deposit", ticker: "", date: "2026-01-15", amount: 1000 }),
-    ];
-    const qTxns: QianjiTxn[] = [
-      mkQianjiTxn({ date: "2026-01-15", type: "transfer", amount: 999.99 }),
-    ];
-    const cc = computeCrossCheck(txns, qTxns, "2026-01-01", "2026-01-31");
-    expect(cc.ok).toBe(false);
-    expect(cc.matchedCount).toBe(0);
+  it.each([
+    {
+      name: "matches deposit to transfer within 7-day window",
+      txns: [mkDeposit({ source: "fidelity", date: JAN_15, amount: 1000 })],
+      qTxns: [mkTransfer({ date: "2026-01-16", amount: 1000 })],
+      expected: { ok: true, matchedCount: 1, totalCount: 1 },
+      assert: (cc: ReturnType<typeof computeCrossCheck>) => {
+        expect(cc.perSource.fidelity.matched).toBe(1);
+      },
+    },
+    {
+      name: "fails match when transfer is outside 7-day window",
+      txns: [mkDeposit({ source: "fidelity", date: JAN_START, amount: 1000 })],
+      qTxns: [
+        mkQianjiFloor({ amount: 50 }),
+        mkTransfer({ date: JAN_15, amount: 1000 }),
+      ],
+      expected: { ok: false, matchedCount: 0, allUnmatched: 1 },
+    },
+    {
+      name: "fails match when amounts differ",
+      txns: [mkDeposit({ source: "fidelity", date: JAN_15, amount: 1000 })],
+      qTxns: [mkTransfer({ date: JAN_15, amount: 999.99 })],
+      expected: { ok: false, matchedCount: 0 },
+    },
+  ])("$name", ({ txns, qTxns, expected, assert }) => {
+    const cc = computeJanCrossCheck(txns, qTxns);
+    expectCrossCheckTotals(cc, expected);
+    assert?.(cc);
   });
 
   it("returns ok=false when no deposits exist", () => {
-    const cc = computeCrossCheck([], [], "2026-01-01", "2026-01-31");
-    expect(cc.ok).toBe(false);
-    expect(cc.totalCount).toBe(0);
+    const cc = computeJanCrossCheck([], []);
+    expectCrossCheckTotals(cc, { ok: false, totalCount: 0 });
   });
 
   it("does not reuse a transfer for two deposits", () => {
     const txns: InvestmentTxn[] = [
-      mkInvestmentTxn({ source: "fidelity", actionType: "deposit", ticker: "", date: "2026-01-10", amount: 500 }),
-      mkInvestmentTxn({ source: "fidelity", actionType: "deposit", ticker: "", date: "2026-01-11", amount: 500 }),
+      mkDeposit({ source: "fidelity", date: "2026-01-10", amount: 500 }),
+      mkDeposit({ source: "fidelity", date: "2026-01-11", amount: 500 }),
     ];
-    const qTxns: QianjiTxn[] = [
-      mkQianjiTxn({ date: "2026-01-10", type: "transfer", amount: 500 }),
-    ];
-    const cc = computeCrossCheck(txns, qTxns, "2026-01-01", "2026-01-31");
-    expect(cc.matchedCount).toBe(1);
-    expect(cc.totalCount).toBe(2);
-    expect(cc.ok).toBe(false);
+    const cc = computeJanCrossCheck(txns, [mkTransfer({ date: "2026-01-10", amount: 500 })]);
+    expectCrossCheckTotals(cc, { matchedCount: 1, totalCount: 2, ok: false });
   });
 
   it("excludes sub-dollar dust deposits (cash sweep / residual interest)", () => {
     const txns: InvestmentTxn[] = [
-      mkInvestmentTxn({ source: "fidelity", actionType: "deposit", ticker: "", date: "2026-01-15", amount: 0.03 }),
-      mkInvestmentTxn({ source: "fidelity", actionType: "deposit", ticker: "", date: "2026-01-15", amount: 0.33 }),
-      mkInvestmentTxn({ source: "fidelity", actionType: "deposit", ticker: "", date: "2026-01-15", amount: 1000 }),
+      mkDeposit({ source: "fidelity", date: JAN_15, amount: 0.03 }),
+      mkDeposit({ source: "fidelity", date: JAN_15, amount: 0.33 }),
+      mkDeposit({ source: "fidelity", date: JAN_15, amount: 1000 }),
     ];
     const qTxns: QianjiTxn[] = [
-      mkQianjiTxn({ date: "2025-12-01", type: "expense", amount: 50 }), // anchor Qianji floor
-      mkQianjiTxn({ date: "2026-01-15", type: "transfer", amount: 1000 }),
+      mkQianjiFloor({ amount: 50 }),
+      mkTransfer({ date: JAN_15, amount: 1000 }),
     ];
-    const cc = computeCrossCheck(txns, qTxns, "2026-01-01", "2026-01-31");
-    expect(cc.totalCount).toBe(1);
-    expect(cc.matchedCount).toBe(1);
-    expect(cc.ok).toBe(true);
+    expectCrossCheckTotals(computeJanCrossCheck(txns, qTxns), { totalCount: 1, matchedCount: 1, ok: true });
   });
 
   it("excludes deposits predating the earliest Qianji txn", () => {
     const txns: InvestmentTxn[] = [
-      mkInvestmentTxn({ source: "fidelity", actionType: "deposit", ticker: "", date: "2023-06-01", amount: 2000 }), // pre-Qianji
-      mkInvestmentTxn({ source: "fidelity", actionType: "deposit", ticker: "", date: "2026-01-15", amount: 1000 }),
+      mkDeposit({ source: "fidelity", date: "2023-06-01", amount: 2000 }),
+      mkDeposit({ source: "fidelity", date: JAN_15, amount: 1000 }),
     ];
     const qTxns: QianjiTxn[] = [
       mkQianjiTxn({ date: "2024-05-12", type: "expense", amount: 50 }), // establishes floor
-      mkQianjiTxn({ date: "2026-01-16", type: "transfer", amount: 1000 }),
+      mkTransfer({ date: "2026-01-16", amount: 1000 }),
     ];
-    const cc = computeCrossCheck(txns, qTxns, "2023-01-01", "2026-01-31");
-    expect(cc.totalCount).toBe(1);
-    expect(cc.matchedCount).toBe(1);
-    expect(cc.ok).toBe(true);
+    const cc = computeCrossCheck(txns, qTxns, "2023-01-01", JAN_END);
+    expectCrossCheckTotals(cc, { totalCount: 1, matchedCount: 1, ok: true });
   });
 
-  // Direct-to-Fidelity income (payroll direct deposit, rebate rewards) is
-  // logged as type=income with accountTo="Fidelity …" — not a transfer.
-  it("matches deposit to income record booked directly to Fidelity", () => {
-    const txns: InvestmentTxn[] = [
-      mkInvestmentTxn({ source: "fidelity", actionType: "deposit", ticker: "", date: "2026-01-15", amount: 3346.27 }),
-    ];
-    const qTxns: QianjiTxn[] = [
-      mkQianjiTxn({ date: "2026-01-15", type: "income", category: "Salary", amount: 3346.27, accountTo: "Fidelity taxable" }),
-    ];
-    const cc = computeCrossCheck(txns, qTxns, "2026-01-01", "2026-01-31");
-    expect(cc.ok).toBe(true);
-    expect(cc.matchedCount).toBe(1);
-  });
-
-  it("accountTo prefix match is case-insensitive", () => {
-    const txns: InvestmentTxn[] = [
-      mkInvestmentTxn({ source: "fidelity", actionType: "deposit", ticker: "", date: "2026-01-15", amount: 500 }),
-    ];
-    const qTxns: QianjiTxn[] = [
-      mkQianjiTxn({ date: "2026-01-15", type: "income", category: "Rewards", amount: 500, accountTo: "fidelity Roth IRA" }),
-    ];
-    const cc = computeCrossCheck(txns, qTxns, "2026-01-01", "2026-01-31");
-    expect(cc.matchedCount).toBe(1);
-  });
-
-  it("does not match income where accountTo is not Fidelity", () => {
-    const txns: InvestmentTxn[] = [
-      mkInvestmentTxn({ source: "fidelity", actionType: "deposit", ticker: "", date: "2026-01-15", amount: 1000 }),
-    ];
-    const qTxns: QianjiTxn[] = [
-      mkQianjiTxn({ date: "2025-12-01", type: "expense", amount: 50 }), // anchor Qianji floor
-      mkQianjiTxn({ date: "2026-01-15", type: "income", category: "Salary", amount: 1000, accountTo: "Chase Debit" }),
-    ];
-    const cc = computeCrossCheck(txns, qTxns, "2026-01-01", "2026-01-31");
-    expect(cc.matchedCount).toBe(0);
-    expect(cc.perSource.fidelity.unmatched).toHaveLength(1);
-  });
-
-  it("does not match income to Fidelity when amounts differ", () => {
-    const txns: InvestmentTxn[] = [
-      mkInvestmentTxn({ source: "fidelity", actionType: "deposit", ticker: "", date: "2026-01-15", amount: 1000 }),
-    ];
-    const qTxns: QianjiTxn[] = [
-      mkQianjiTxn({ date: "2026-01-15", type: "income", category: "Salary", amount: 999.99, accountTo: "Fidelity taxable" }),
-    ];
-    const cc = computeCrossCheck(txns, qTxns, "2026-01-01", "2026-01-31");
-    expect(cc.matchedCount).toBe(0);
+  it.each([
+    {
+      name: "matches deposit to income record booked directly to Fidelity",
+      txns: [mkDeposit({ source: "fidelity", date: JAN_15, amount: 3346.27 })],
+      qTxns: [mkQianjiTxn({ date: JAN_15, type: "income", category: "Salary", amount: 3346.27, accountTo: "Fidelity taxable" })],
+      expected: { ok: true, matchedCount: 1 },
+    },
+    {
+      name: "accountTo prefix match is case-insensitive",
+      txns: [mkDeposit({ source: "fidelity", date: JAN_15, amount: 500 })],
+      qTxns: [mkQianjiTxn({ date: JAN_15, type: "income", category: "Rewards", amount: 500, accountTo: "fidelity Roth IRA" })],
+      expected: { matchedCount: 1 },
+    },
+    {
+      name: "does not match income where accountTo is not Fidelity",
+      txns: [mkDeposit({ source: "fidelity", date: JAN_15, amount: 1000 })],
+      qTxns: [
+        mkQianjiFloor({ amount: 50 }),
+        mkQianjiTxn({ date: JAN_15, type: "income", category: "Salary", amount: 1000, accountTo: "Chase Debit" }),
+      ],
+      expected: { matchedCount: 0 },
+      assert: (cc: ReturnType<typeof computeCrossCheck>) => {
+        expect(cc.perSource.fidelity.unmatched).toHaveLength(1);
+      },
+    },
+    {
+      name: "does not match income to Fidelity when amounts differ",
+      txns: [mkDeposit({ source: "fidelity", date: JAN_15, amount: 1000 })],
+      qTxns: [mkQianjiTxn({ date: JAN_15, type: "income", category: "Salary", amount: 999.99, accountTo: "Fidelity taxable" })],
+      expected: { matchedCount: 0 },
+    },
+  ])("$name", ({ txns, qTxns, expected, assert }) => {
+    const cc = computeJanCrossCheck(txns, qTxns);
+    expectCrossCheckTotals(cc, expected);
+    assert?.(cc);
   });
 
   // Earliest-in-window matching is optimal on interval bipartite graphs.
@@ -512,19 +509,17 @@ describe("computeCrossCheck", () => {
   // now pair up cleanly.
   it("finds optimal matching where nearest-greedy would orphan", () => {
     const txns: InvestmentTxn[] = [
-      mkInvestmentTxn({ source: "fidelity", actionType: "deposit", ticker: "", date: "2026-01-05", amount: 500 }),
-      mkInvestmentTxn({ source: "fidelity", actionType: "deposit", ticker: "", date: "2026-01-10", amount: 500 }),
-      mkInvestmentTxn({ source: "fidelity", actionType: "deposit", ticker: "", date: "2026-01-11", amount: 500 }),
+      mkDeposit({ source: "fidelity", date: "2026-01-05", amount: 500 }),
+      mkDeposit({ source: "fidelity", date: "2026-01-10", amount: 500 }),
+      mkDeposit({ source: "fidelity", date: "2026-01-11", amount: 500 }),
     ];
     const qTxns: QianjiTxn[] = [
-      mkQianjiTxn({ date: "2026-01-03", type: "transfer", amount: 500 }),
-      mkQianjiTxn({ date: "2026-01-06", type: "transfer", amount: 500 }),
-      mkQianjiTxn({ date: "2026-01-09", type: "transfer", amount: 500 }),
+      mkTransfer({ date: "2026-01-03", amount: 500 }),
+      mkTransfer({ date: "2026-01-06", amount: 500 }),
+      mkTransfer({ date: "2026-01-09", amount: 500 }),
     ];
-    const cc = computeCrossCheck(txns, qTxns, "2026-01-01", "2026-01-31");
-    expect(cc.matchedCount).toBe(3);
-    expect(cc.totalCount).toBe(3);
-    expect(cc.ok).toBe(true);
+    const cc = computeJanCrossCheck(txns, qTxns);
+    expectCrossCheckTotals(cc, { matchedCount: 3, totalCount: 3, ok: true });
   });
 });
 
@@ -533,15 +528,15 @@ describe("computeCrossCheck", () => {
 describe("computeCrossCheck per-source", () => {
   it("invariant: matchedCount === perSource.fidelity.matched + perSource.robinhood.matched", () => {
     const txns: InvestmentTxn[] = [
-      mkInvestmentTxn({ source: "fidelity",  actionType: "deposit", ticker: "", date: "2026-01-10", amount: 500 }),
-      mkInvestmentTxn({ source: "robinhood", actionType: "deposit", ticker: "", date: "2026-01-12", amount: 200 }),
+      mkDeposit({ source: "fidelity", date: "2026-01-10", amount: 500 }),
+      mkDeposit({ source: "robinhood", date: "2026-01-12", amount: 200 }),
     ];
     const q: QianjiTxn[] = [
-      mkQianjiTxn({ date: "2025-12-01", type: "expense", amount: 1 }),  // anchor Qianji floor
-      mkQianjiTxn({ date: "2026-01-10", type: "transfer", amount: 500, accountTo: "Fidelity taxable" }),
-      mkQianjiTxn({ date: "2026-01-12", type: "transfer", amount: 200, accountTo: "Robinhood" }),
+      mkQianjiFloor(),
+      mkTransfer({ date: "2026-01-10", amount: 500, accountTo: "Fidelity taxable" }),
+      mkTransfer({ date: "2026-01-12", amount: 200, accountTo: "Robinhood" }),
     ];
-    const cc = computeCrossCheck(txns, q, "2026-01-01", "2026-01-31");
+    const cc = computeJanCrossCheck(txns, q);
     expect(cc.matchedCount).toBe(cc.perSource.fidelity.matched + cc.perSource.robinhood.matched);
     expect(cc.totalCount).toBe(cc.perSource.fidelity.total + cc.perSource.robinhood.total);
     expect(cc.ok).toBe(true);
@@ -549,31 +544,28 @@ describe("computeCrossCheck per-source", () => {
 
   it("ignores 401k contributions entirely (not part of UI cross-check)", () => {
     const txns: InvestmentTxn[] = [
-      mkInvestmentTxn({ source: "fidelity", actionType: "deposit", ticker: "", date: "2026-01-10", amount: 500 }),
+      mkDeposit({ source: "fidelity", date: "2026-01-10", amount: 500 }),
       // 401k contributions present but should NOT affect cross-check — pipeline handles QFX/Qianji reconcile at ingest
       mkInvestmentTxn({ source: "401k", actionType: "contribution", ticker: "401k sp500", date: "2026-01-15", amount: 450 }),
       mkInvestmentTxn({ source: "401k", actionType: "contribution", ticker: "401k tech",  date: "2026-01-15", amount: 90 }),
     ];
     const q: QianjiTxn[] = [
-      mkQianjiTxn({ date: "2025-12-01", type: "expense", amount: 1 }),
-      mkQianjiTxn({ date: "2026-01-10", type: "transfer", amount: 500, accountTo: "Fidelity taxable" }),
+      mkQianjiFloor(),
+      mkTransfer({ date: "2026-01-10", amount: 500, accountTo: "Fidelity taxable" }),
     ];
-    const cc = computeCrossCheck(txns, q, "2026-01-01", "2026-01-31");
-    expect(cc.totalCount).toBe(1);                          // only the Fidelity deposit
-    expect(cc.matchedCount).toBe(1);
+    const cc = computeJanCrossCheck(txns, q);
+    expectCrossCheckTotals(cc, { totalCount: 1, matchedCount: 1 }); // only the Fidelity deposit
     expect(cc.perSource).not.toHaveProperty("contribution");
     expect("401k" in cc.perSource).toBe(false);
   });
 
   it("Robinhood deposit matches only against Qianji with accountTo starting 'robinhood'", () => {
-    const txns: InvestmentTxn[] = [
-      mkInvestmentTxn({ source: "robinhood", actionType: "deposit", ticker: "", date: "2026-01-15", amount: 500 }),
-    ];
+    const txns: InvestmentTxn[] = [mkDeposit({ source: "robinhood", date: JAN_15, amount: 500 })];
     const q: QianjiTxn[] = [
-      mkQianjiTxn({ date: "2025-12-01", type: "expense", amount: 1 }),
-      mkQianjiTxn({ date: "2026-01-15", type: "income", amount: 500, accountTo: "Fidelity taxable" }),  // wrong account
+      mkQianjiFloor(),
+      mkQianjiTxn({ date: JAN_15, type: "income", amount: 500, accountTo: "Fidelity taxable" }), // wrong account
     ];
-    const cc = computeCrossCheck(txns, q, "2026-01-01", "2026-01-31");
+    const cc = computeJanCrossCheck(txns, q);
     expect(cc.perSource.robinhood.matched).toBe(0);
     expect(cc.perSource.robinhood.unmatched).toHaveLength(1);
     expect(cc.allUnmatched).toHaveLength(1);
@@ -582,24 +574,16 @@ describe("computeCrossCheck per-source", () => {
 
   it("surfaces unmatched items on allUnmatched (flat list for drawer)", () => {
     const txns: InvestmentTxn[] = [
-      mkInvestmentTxn({ source: "fidelity",  actionType: "deposit", ticker: "", date: "2026-01-10", amount: 999 }),
-      mkInvestmentTxn({ source: "robinhood", actionType: "deposit", ticker: "", date: "2026-01-12", amount: 200 }),
+      mkDeposit({ source: "fidelity", date: "2026-01-10", amount: 999 }),
+      mkDeposit({ source: "robinhood", date: "2026-01-12", amount: 200 }),
     ];
-    const q: QianjiTxn[] = [
-      mkQianjiTxn({ date: "2025-12-01", type: "expense", amount: 1 }),
-      // no matches
-    ];
-    const cc = computeCrossCheck(txns, q, "2026-01-01", "2026-01-31");
-    expect(cc.matchedCount).toBe(0);
-    expect(cc.totalCount).toBe(2);
-    expect(cc.allUnmatched).toHaveLength(2);
+    const cc = computeJanCrossCheck(txns, [mkQianjiFloor()]);
+    expectCrossCheckTotals(cc, { matchedCount: 0, totalCount: 2, allUnmatched: 2 });
     expect(cc.allUnmatched.map(u => u.source).sort()).toEqual(["fidelity", "robinhood"]);
   });
 });
 
 // ── computeGroupedActivity ──────────────────────────────────────────────
-
-import { computeGroupedActivity } from "./compute";
 
 describe("computeGroupedActivity", () => {
   it("folds group tickers into one row per side", () => {
@@ -608,7 +592,7 @@ describe("computeGroupedActivity", () => {
       mkInvestmentTxn({ source: "fidelity", actionType: "buy",  ticker: "VOO",  amount:  500 }),
       mkInvestmentTxn({ source: "fidelity", actionType: "buy",  ticker: "NVDA", amount: 2000 }),
     ];
-    const act = computeGroupedActivity(txns, "2026-01-01", "2026-01-31");
+    const act = computeJanGroupedActivity(txns);
     // SPY (sell 1000) folds into S&P 500 sell; VOO (buy 500) folds into S&P 500 buy
     expect(act.sellsBySymbol).toContainEqual(expect.objectContaining({ ticker: "S&P 500", count: 1, total: 1000, isGroup: true, groupKey: "sp500" }));
     expect(act.buysBySymbol).toContainEqual(expect.objectContaining({ ticker: "S&P 500", count: 1, total: 500, isGroup: true, groupKey: "sp500" }));
@@ -623,7 +607,7 @@ describe("computeGroupedActivity", () => {
       mkInvestmentTxn({ source: "fidelity", actionType: "sell", ticker: "SPY", amount: -1000 }),
       mkInvestmentTxn({ source: "fidelity", actionType: "buy",  ticker: "VOO", amount:  1000 }),
     ];
-    const act = computeGroupedActivity(txns, "2026-01-01", "2026-01-31");
+    const act = computeJanGroupedActivity(txns);
     // Both SPY and VOO belong to sp500 group — individual tickers folded
     expect(act.sellsBySymbol.find(r => r.ticker === "SPY")).toBeUndefined();
     expect(act.buysBySymbol.find(r => r.ticker === "VOO")).toBeUndefined();
@@ -637,7 +621,7 @@ describe("computeGroupedActivity", () => {
       mkInvestmentTxn({ source: "fidelity", actionType: "dividend", ticker: "VOO", amount: 10 }),
       mkInvestmentTxn({ source: "fidelity", actionType: "dividend", ticker: "SPY", amount: 5 }),
     ];
-    const act = computeGroupedActivity(txns, "2026-01-01", "2026-01-31");
+    const act = computeJanGroupedActivity(txns);
     expect(act.dividendsBySymbol.map(r => r.ticker).sort()).toEqual(["SPY", "VOO"]);
   });
 
@@ -647,7 +631,7 @@ describe("computeGroupedActivity", () => {
       mkInvestmentTxn({ source: "fidelity",  actionType: "buy",          ticker: "FXAIX",        amount: -100 }),
       mkInvestmentTxn({ source: "401k",      actionType: "contribution", ticker: "401k sp500",   amount:  450 }),
     ];
-    const g = computeGroupedActivity(txns, "2026-01-01", "2026-01-31");
+    const g = computeJanGroupedActivity(txns);
     const spRow = g.buysBySymbol.find((r) => r.ticker === "S&P 500")!;
     expect(spRow.isGroup).toBe(true);
     expect([...spRow.sources!].sort()).toEqual(["401k", "fidelity"]);
@@ -665,7 +649,7 @@ describe("computeMonthlyFlows", () => {
       mkQianjiTxn({ date: "2026-02-05", type: "income", amount: 5000 }),
       mkQianjiTxn({ date: "2026-02-20", type: "expense", category: "Rent", amount: 1500 }),
     ];
-    const flows = computeMonthlyFlows(txns, "2026-01-01", "2026-02-28");
+    const flows = computeMonthlyFlows(txns, JAN_START, "2026-02-28");
     expect(flows).toHaveLength(2);
     expect(flows[0].month).toBe("2026-01");
     expect(flows[0].income).toBe(5000);
@@ -679,34 +663,34 @@ describe("computeMonthlyFlows", () => {
     expect(computeMonthlyFlows([mkQianjiTxn()], null, "2026-12-31")).toEqual([]);
   });
 
-  it("returns empty for no transactions", () => {
-    expect(computeMonthlyFlows([], "2026-01-01", "2026-12-31")).toEqual([]);
-  });
-
   it("sorts months chronologically", () => {
     const txns: QianjiTxn[] = [
       mkQianjiTxn({ date: "2026-03-01", type: "income", amount: 100 }),
       mkQianjiTxn({ date: "2026-01-01", type: "income", amount: 100 }),
       mkQianjiTxn({ date: "2026-02-01", type: "income", amount: 100 }),
     ];
-    const flows = computeMonthlyFlows(txns, "2026-01-01", "2026-03-31");
+    const flows = computeMonthlyFlows(txns, JAN_START, "2026-03-31");
     expect(flows.map(f => f.month)).toEqual(["2026-01", "2026-02", "2026-03"]);
   });
 
-  it("drops months with no income (cannot compute savings rate)", () => {
-    const txns: QianjiTxn[] = [
-      mkQianjiTxn({ date: "2026-01-15", type: "expense", category: "Food", amount: 100 }),
-    ];
-    const flows = computeMonthlyFlows(txns, "2026-01-01", "2026-01-31");
-    expect(flows).toHaveLength(0);
-  });
-
-  it("ignores non-income/expense types", () => {
-    const txns: QianjiTxn[] = [
-      mkQianjiTxn({ date: "2026-01-15", type: "transfer", amount: 5000 }),
-      mkQianjiTxn({ date: "2026-01-15", type: "repayment", amount: 1000 }),
-    ];
-    const flows = computeMonthlyFlows(txns, "2026-01-01", "2026-01-31");
-    expect(flows).toHaveLength(0); // no income/expense → no months recorded
+  it.each([
+    { name: "returns empty for no transactions", txns: [], start: JAN_START, end: "2026-12-31" },
+    {
+      name: "drops months with no income (cannot compute savings rate)",
+      txns: [mkQianjiTxn({ date: JAN_15, type: "expense", category: "Food", amount: 100 })],
+      start: JAN_START,
+      end: JAN_END,
+    },
+    {
+      name: "ignores non-income/expense types",
+      txns: [
+        mkQianjiTxn({ date: JAN_15, type: "transfer", amount: 5000 }),
+        mkQianjiTxn({ date: JAN_15, type: "repayment", amount: 1000 }),
+      ],
+      start: JAN_START,
+      end: JAN_END,
+    },
+  ])("$name", ({ txns, start, end }) => {
+    expect(computeMonthlyFlows(txns, start, end)).toEqual([]);
   });
 });
