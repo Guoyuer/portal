@@ -71,12 +71,12 @@ deleting flows, narrowing outputs, and using table-driven tests.
 | --- | --- | --- | ---: | --- | --- |
 | S1 | Automation email | Simplify `receipt.py` and `notify.py`: keep text receipt as source of truth, make HTML a plain `<pre>`, reduce row-delta details, and report artifact summary first. | Done | Low | Receipt now derives from before/after snapshots; email formatting no longer models row deltas separately. |
 | S2 | Automation warning capture | Replace log-file fallback parsing with per-run subprocess buffer only, or keep fallback in tests only. | Done | Low | Runner passes the current subprocess buffer; old log-file parsing was removed. |
-| S3 | Build orchestration | Collapse repeated full/incremental tail logic in `build.py`, or remove incremental mode if full build stays fast enough. | -100 to -300 | Medium | Measure build time first. Keep incremental only if it buys real runtime. |
+| S3 | Build orchestration | Collapse repeated full/incremental tail logic in `build.py`, or remove incremental mode if full build stays fast enough. | Partial | Medium | Full and incremental now share finalization; do not delete incremental without build-time evidence. |
 | S4 | Test style | Convert large Python tests to builders and parametrized cases, especially prices, allocation, Qianji, build orchestration, and automation. | Partial | Low-Medium | Prices, allocation, automation, Qianji, receipt, and replay tests are compressed; build orchestration can still shrink later. |
 | S5 | Frontend compute tests | Compress repeated `compute.test.ts` scenarios with shared fixtures and table-driven expectation helpers. | Done | Low | Coverage retained with table-driven helpers and fewer repeated assertions. |
 | S6 | Ticker/group data | Deduplicate chart data-state helpers across ticker and group views. Keep source-specific transaction semantics outside the chart shell. | -150 to -400 | Medium | Worth doing only if the shared shell stays small and obvious. |
 | S7 | Finance UI tables | Reuse table row/header helpers across allocation, ticker, transaction, and group tables where markup is identical. | -100 to -250 | Medium | Small win. Avoid a generic mega-table abstraction. |
-| S8 | R2 artifact script | Extract endpoint descriptor metadata once: path, schema name, row-count key, and validation summary. Share it across export, verify, summary, and Zod smoke helpers. | Partial | Medium | Endpoint write/descriptor verification is deduped; row-count metadata can still be consolidated later. |
+| S8 | R2 artifact script | Extract endpoint descriptor metadata once: path, schema name, row-count key, and validation summary. Share it across export, verify, summary, and Zod smoke helpers. | Done | Medium | Endpoint descriptor and row-count metadata are now single-source; keep publish verification explicit. |
 | S9 | Validation CLIs | Merge old artifact/live Zod scripts behind one small `validate_api_zod.ts` CLI with `live` and `artifacts` modes. | Done | Low | Keep the real-worker failure messages readable. |
 | S10 | Manual e2e paths | Consolidate `e2e/manual/*` and manual Playwright config into one documented smoke/perf command. | Done | Low | Removed the manual screenshot/perf specs and config; mock e2e, real-worker e2e, and ticker cluster unit coverage remain. |
 | S11 | Config example | Shrink `pipeline/config.example.json` to a minimal template with representative assets and all supported config keys. | Done | Low-Medium | Add every real held ticker to private `config.json`; unknown holdings still fail closed. |
@@ -91,8 +91,8 @@ deleting flows, narrowing outputs, and using table-driven tests.
 Initial execution pass completed: S1 receipt-state simplification, S2
 buffer-only warning capture, S4 selected Python test compression, S5 compute
 test compression, S9 CLI merge, S11 config template shrink, ResourceWarning
-cleanup, pytest xdist enablement, S10 manual-e2e deletion, and part of S8
-endpoint descriptor dedup.
+cleanup, pytest xdist enablement, S10 manual-e2e deletion, S3 shared build
+finalization, and S8 endpoint/row-count metadata dedup.
 
 Latest S4 follow-up: prices/allocation/automation tests were pruned for true
 duplicate coverage (`existing CNY row` vs gap-fill, recent-window fetch vs

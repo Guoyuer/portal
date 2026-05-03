@@ -167,10 +167,6 @@ def _scalar(conn: sqlite3.Connection, sql: str) -> Any:
     return row[0] if row else None
 
 
-def _row_count(conn: sqlite3.Connection, table_or_view: str) -> int:
-    return int(_scalar(conn, f"SELECT COUNT(*) FROM {table_or_view}") or 0)  # noqa: S608
-
-
 def _json_array(raw: object, *, label: str) -> list[Any]:
     parsed = json.loads(str(raw))
     if not isinstance(parsed, list):
@@ -258,6 +254,20 @@ GROUP BY key
 ORDER BY key
 """
 
+_ROW_COUNT_SPECS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("daily", "SELECT COUNT(*) FROM computed_daily", ("timeline", "daily")),
+    ("dailyTickers", "SELECT COUNT(*) FROM computed_daily_tickers", ("timeline", "dailyTickers")),
+    ("fidelityTxns", "SELECT COUNT(*) FROM fidelity_transactions", ("timeline", "fidelityTxns")),
+    ("qianjiTxns", "SELECT COUNT(*) FROM qianji_transactions", ("timeline", "qianjiTxns")),
+    ("robinhoodTxns", "SELECT COUNT(*) FROM robinhood_transactions", ("timeline", "robinhoodTxns")),
+    ("empowerContributions", "SELECT COUNT(*) FROM empower_contributions", ("timeline", "empowerContributions")),
+    ("categories", "SELECT COUNT(*) FROM categories", ("timeline", "categories")),
+    ("marketIndices", "SELECT COUNT(*) FROM computed_market_indices", ("timeline", "market", "indices")),
+    ("holdingsDetail", "SELECT COUNT(*) FROM computed_holdings_detail", ("timeline", "holdingsDetail")),
+    ("econSeries", "SELECT COUNT(DISTINCT key) FROM econ_series", ("econ", "series")),
+    ("econSnapshot", "SELECT COUNT(DISTINCT key) FROM econ_series", ("econ", "snapshot")),
+)
+
 
 def _price_symbols(conn: sqlite3.Connection) -> list[str]:
     rows = conn.execute(
@@ -320,10 +330,7 @@ def _build_timeline(conn: sqlite3.Connection, *, version: str, generated_at: str
 
 
 def _build_econ(conn: sqlite3.Connection, *, generated_at: str) -> JsonDict:
-    snapshot = {
-        str(row["key"]): row["value"]
-        for row in _rows(conn, _ECON_SNAPSHOT_SQL)
-    }
+    snapshot = {str(row["key"]): row["value"] for row in _rows(conn, _ECON_SNAPSHOT_SQL)}
     series = {
         str(row["key"]): _json_array(row["points"], label=f"econ series {row['key']}")
         for row in _rows(conn, _ECON_SERIES_GROUPED_SQL)
@@ -358,43 +365,25 @@ def _build_prices_bundle(conn: sqlite3.Connection) -> tuple[JsonDict, JsonDict]:
     for symbol in _price_symbols(conn):
         payload = _build_price(conn, symbol)
         prices[symbol] = payload
-        row_counts[symbol] = {
-            "priceRows": len(payload["prices"]),
-            "transactionRows": len(payload["transactions"]),
-        }
+        row_counts[symbol] = {"priceRows": len(payload["prices"]), "transactionRows": len(payload["transactions"])}
     return prices, row_counts
 
 
 def _sqlite_row_counts(conn: sqlite3.Connection) -> JsonDict:
-    return {
-        "daily": _row_count(conn, "computed_daily"),
-        "dailyTickers": _row_count(conn, "computed_daily_tickers"),
-        "fidelityTxns": _row_count(conn, "fidelity_transactions"),
-        "qianjiTxns": _row_count(conn, "qianji_transactions"),
-        "robinhoodTxns": _row_count(conn, "robinhood_transactions"),
-        "empowerContributions": _row_count(conn, "empower_contributions"),
-        "categories": _row_count(conn, "categories"),
-        "marketIndices": _row_count(conn, "computed_market_indices"),
-        "holdingsDetail": _row_count(conn, "computed_holdings_detail"),
-        "econSeries": int(_scalar(conn, "SELECT COUNT(DISTINCT key) FROM econ_series") or 0),
-        "econSnapshot": int(_scalar(conn, "SELECT COUNT(DISTINCT key) FROM econ_series") or 0),
-    }
+    return {key: int(_scalar(conn, sql) or 0) for key, sql, _path in _ROW_COUNT_SPECS}
+
+
+def _json_count_at(payloads: Mapping[str, Any], path: tuple[str, ...]) -> int:
+    value: Any = payloads
+    for key in path:
+        value = value[key]
+    return len(value or [])
 
 
 def _json_row_counts(timeline: Mapping[str, Any], econ: Mapping[str, Any]) -> JsonDict:
-    market = timeline.get("market") or {}
     return {
-        "daily": len(timeline["daily"]),
-        "dailyTickers": len(timeline["dailyTickers"]),
-        "fidelityTxns": len(timeline["fidelityTxns"]),
-        "qianjiTxns": len(timeline["qianjiTxns"]),
-        "robinhoodTxns": len(timeline["robinhoodTxns"]),
-        "empowerContributions": len(timeline["empowerContributions"]),
-        "categories": len(timeline["categories"]),
-        "marketIndices": len(market.get("indices") or []),
-        "holdingsDetail": len(timeline["holdingsDetail"] or []),
-        "econSeries": len(econ["series"]),
-        "econSnapshot": len(econ["snapshot"]),
+        key: _json_count_at({"timeline": timeline, "econ": econ}, path)
+        for key, _sql, path in _ROW_COUNT_SPECS
     }
 
 
@@ -450,9 +439,7 @@ def export_artifacts(
             "source": {"gitCommit": _git_commit(), "latestDate": latest_date},
             "objects": objects,
         }
-        manifest_path = artifact_dir / "manifest.json"
-        manifest_path.parent.mkdir(parents=True, exist_ok=True)
-        manifest_path.write_bytes(_json_bytes(manifest))
+        _write_json(artifact_dir / "manifest.json", manifest)
 
         summary = {
             "version": version,
@@ -533,13 +520,7 @@ def _run_schema_check(artifact_dir: Path) -> None:
     if npx is None:
         msg = "npx not found; cannot run frontend Zod artifact validation"
         raise RuntimeError(msg)
-    cmd = [
-        npx,
-        "tsx",
-        "scripts/validate_api_zod.ts",
-        "artifacts",
-        str(artifact_dir),
-    ]
+    cmd = [npx, "tsx", "scripts/validate_api_zod.ts", "artifacts", str(artifact_dir)]
     result = subprocess.run(cmd, cwd=str(_REPO_DIR), capture_output=True, text=True)  # noqa: S603
     if result.returncode != 0:
         msg = (
@@ -571,10 +552,7 @@ def verify_artifacts(
     if schema:
         _run_schema_check(artifact_dir)
 
-    print(
-        "R2 artifacts verified: "
-        f"version={manifest['version']} objects={len(manifest['objects'])}"
-    )
+    print(f"R2 artifacts verified: version={manifest['version']} objects={len(manifest['objects'])}")
     return manifest
 
 
@@ -609,13 +587,19 @@ def _wrangler_detail(result: CompletedProcess[str]) -> str:
     return f"stderr:\n{result.stderr or '(empty)'}\nstdout:\n{result.stdout or '(empty)'}"
 
 
+def _r2_mode_flag(remote: bool) -> str:
+    return "--remote" if remote else "--local"
+
+
+def _get_wrangler_object(key: str, file_path: Path, *, remote: bool) -> CompletedProcess[str]:
+    return _run_wrangler_r2(["get", _remote_key(key), _r2_mode_flag(remote), f"--file={file_path}"])
+
+
 def _object_absent(key: str, *, remote: bool) -> bool:
     with tempfile.NamedTemporaryFile(delete=False) as tmp:
         tmp_path = Path(tmp.name)
     try:
-        result = _run_wrangler_r2(
-            ["get", _remote_key(key), "--remote" if remote else "--local", f"--file={tmp_path}"]
-        )
+        result = _get_wrangler_object(key, tmp_path, remote=remote)
         if result.returncode == 0:
             return False
         detail = (result.stderr + result.stdout).lower()
@@ -639,7 +623,7 @@ def _put_wrangler_object(key: str, file_path: Path, *, remote: bool) -> None:
         [
             "put",
             _remote_key(key),
-            "--remote" if remote else "--local",
+            _r2_mode_flag(remote),
             f"--file={file_path}",
             f"--content-type={_CONTENT_TYPE_JSON}",
         ]
@@ -653,9 +637,7 @@ def _readback_wrangler_object(key: str, descriptor: Mapping[str, Any], *, remote
     with tempfile.NamedTemporaryFile(delete=False) as tmp:
         tmp_path = Path(tmp.name)
     try:
-        result = _run_wrangler_r2(
-            ["get", _remote_key(key), "--remote" if remote else "--local", f"--file={tmp_path}"]
-        )
+        result = _get_wrangler_object(key, tmp_path, remote=remote)
         if result.returncode != 0:
             msg = f"wrangler r2 object get failed for {key}\n{_wrangler_detail(result)}"
             raise RuntimeError(msg)
@@ -665,20 +647,24 @@ def _readback_wrangler_object(key: str, descriptor: Mapping[str, Any], *, remote
         tmp_path.unlink(missing_ok=True)
 
 
+def _log_object_progress(prefix: str, idx: int, total: int, key: object) -> None:
+    if idx == 1 or idx == total or idx % 10 == 0:
+        print(f"{prefix} {idx}/{total}: {key}")
+
+
 def _publish_wrangler(artifact_dir: Path, descriptors: list[Mapping[str, Any]], *, remote: bool) -> None:
     mode = "remote" if remote else "local"
     total = len(descriptors)
     print(f"Checking {mode} R2 snapshot keys are absent: {total} objects")
     for idx, descriptor in enumerate(descriptors, start=1):
-        if idx == 1 or idx == total or idx % 10 == 0:
-            print(f"Checking R2 key {idx}/{total}: {descriptor['key']}")
-        _assert_snapshot_key_absent(str(descriptor["key"]), remote=remote)
+        key = str(descriptor["key"])
+        _log_object_progress("Checking R2 key", idx, total, key)
+        _assert_snapshot_key_absent(key, remote=remote)
 
     print(f"Uploading and verifying {mode} R2 snapshot objects: {total} objects")
     for idx, descriptor in enumerate(descriptors, start=1):
         key = str(descriptor["key"])
-        if idx == 1 or idx == total or idx % 10 == 0:
-            print(f"Publishing R2 object {idx}/{total}: {key}")
+        _log_object_progress("Publishing R2 object", idx, total, key)
         _put_wrangler_object(key, _artifact_path(artifact_dir, key), remote=remote)
         _readback_wrangler_object(key, descriptor, remote=remote)
 

@@ -124,12 +124,7 @@ def _resolve_paths(args: argparse.Namespace) -> BuildPaths:
 
 
 def _load_prices_from_csv(db_path: Path, csv_path: Path) -> None:
-    """Load prices from a CSV into daily_close, bypassing Yahoo.
-
-    CSV format: ``date`` column (YYYY-MM-DD) plus one column per ticker.
-    Empty cells are skipped. Used for offline regression fixtures — real builds
-    still fetch from Yahoo via :func:`fetch_and_store_prices`.
-    """
+    """Load offline regression prices from CSV into daily_close, bypassing Yahoo."""
     with csv_path.open(encoding="utf-8") as f:
         reader = csv.DictReader(f)
         rows = list(reader)
@@ -161,30 +156,16 @@ def _load_prices_from_csv(db_path: Path, csv_path: Path) -> None:
 
 
 def _load_config(path: Path) -> RawConfig:
-    """Parse config.json into a typed ``RawConfig`` TypedDict.
-
-    Validation is best-effort: TypedDict doesn't enforce structure at runtime,
-    but downstream typed access via ``.get()`` + TypedDict field types gives
-    mypy enough narrowing to drop the ``cast()`` calls that used to surround
-    every field read.
-    """
+    """Parse config.json into a typed ``RawConfig`` TypedDict."""
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         msg = f"Config root must be an object, got {type(data).__name__}"
         raise ValueError(msg)
-    # TypedDict is structural-only at runtime. Individual consumers read via
-    # `.get(...)` with their own defaults, so a missing key degrades
-    # gracefully — no central schema check runs.
     return cast(RawConfig, data)
 
 
 def _ingest_fidelity_csvs(paths: BuildPaths) -> None:
-    """Ingest all Fidelity CSVs via the :mod:`etl.sources.fidelity` module.
-
-    When ``--csv`` is supplied, only that single file is ingested — the
-    directory glob is skipped. Otherwise :func:`fidelity_src.ingest` runs its
-    own glob + chronological sort + range-replace.
-    """
+    """Ingest one selected Fidelity CSV or all downloads."""
     if paths.csv is not None:
         if not paths.csv.exists():
             print(f"  ERROR: --csv file not found: {paths.csv}")
@@ -205,14 +186,7 @@ def _ingest_fidelity_csvs(paths: BuildPaths) -> None:
 
 
 def _qianji_401k_fallback_contribs(last_qfx_date: date | None) -> list[Contribution]:
-    """Read Qianji 401k contributions made *after* the last QFX snapshot.
-
-    QFX carries per-fund CUSIPs, so contributions sourced from QFX know their
-    exact fund. Qianji only records a total amount — used as fallback for
-    periods without QFX coverage (e.g. pre the next quarterly export).
-    For Qianji fallback we split 50/50 between ``401k sp500`` and
-    ``401k ex-us`` (matches the user's current allocation).
-    """
+    """Split post-QFX Qianji 401k contribution totals 50/50 across proxy funds."""
     contribs: list[Contribution] = []
     if not last_qfx_date or not DEFAULT_QJ_DB.exists():
         return contribs
@@ -305,24 +279,21 @@ def _init_db_and_ingest_sources(
         empower_src.ingest_contributions(paths.db_path, fallback_contribs)
 
 
-def _last_empower_snapshot_date(db_path: Path) -> date | None:
-    """Return the most recent Empower snapshot date, or None if no snapshots exist."""
+def _empower_snapshot_date(db_path: Path, sql: str) -> date | None:
     conn = get_connection(db_path)
     try:
-        row = conn.execute("SELECT MAX(snapshot_date) FROM empower_snapshots").fetchone()
+        row = conn.execute(sql).fetchone()
     finally:
         conn.close()
     return date.fromisoformat(row[0]) if row and row[0] else None
+
+
+def _last_empower_snapshot_date(db_path: Path) -> date | None:
+    return _empower_snapshot_date(db_path, "SELECT MAX(snapshot_date) FROM empower_snapshots")
 
 
 def _first_empower_snapshot_date(db_path: Path) -> date | None:
-    """Return the earliest Empower snapshot date, or None if no snapshots exist."""
-    conn = get_connection(db_path)
-    try:
-        row = conn.execute("SELECT MIN(snapshot_date) FROM empower_snapshots").fetchone()
-    finally:
-        conn.close()
-    return date.fromisoformat(row[0]) if row and row[0] else None
+    return _empower_snapshot_date(db_path, "SELECT MIN(snapshot_date) FROM empower_snapshots")
 
 
 def _compute_holding_periods(
@@ -445,6 +416,42 @@ def _print_summary(alloc: list[AllocationRow]) -> None:
     print(f"  Latest:   {latest['date']}  ${latest['total']:,.0f}")
 
 
+def _finalize_build_outputs(
+    paths: BuildPaths,
+    config: RawConfig,
+    alloc: list[AllocationRow],
+    *,
+    no_validate: bool,
+    dry_run_market: bool,
+    qianji_verb: str,
+) -> None:
+    historical_cny = load_cny_rates(paths.db_path)
+    qianji_records = load_all_from_db(
+        DEFAULT_QJ_DB, historical_cny_rates=historical_cny,
+    )
+    retirement_cats = list(config.get("retirement_income_categories") or [])
+    qj_count = ingest_qianji_transactions(
+        paths.db_path, qianji_records, retirement_categories=retirement_cats,
+    )
+    print(f"  {qj_count} Qianji transactions {qianji_verb}")
+
+    if dry_run_market:
+        print("[M] Market precompute skipped (--dry-run-market)")
+        print("[H] Holdings detail precompute skipped (--dry-run-market)")
+    else:
+        print("[M] Precomputing market data...")
+        precompute_market(paths.db_path)
+        print("  Done")
+
+        print("[H] Precomputing holdings detail...")
+        precompute_holdings_detail(paths.db_path)
+        print("  Done")
+
+    _print_summary(alloc)
+    if not no_validate:
+        _run_validation(paths)
+
+
 # ── Full rebuild ────────────────────────────────────────────────────────────
 
 
@@ -491,38 +498,14 @@ def _full_build(
         conn.close()
     upsert_daily_rows(paths.db_path, alloc)
 
-    # Ingest Qianji transactions for /cashflow endpoint. Per-date historical
-    # CNY rates come from the daily_close table (symbol='CNY=X') so each
-    # quirk bill gets revalued at its own date's FX rate — stable across
-    # runs, unlike the old live-rate fallback which re-converted every run.
-    historical_cny = load_cny_rates(paths.db_path)
-    qianji_records = load_all_from_db(
-        DEFAULT_QJ_DB, historical_cny_rates=historical_cny,
+    _finalize_build_outputs(
+        paths,
+        config,
+        alloc,
+        no_validate=no_validate,
+        dry_run_market=dry_run_market,
+        qianji_verb="ingested",
     )
-    retirement_cats = list(config.get("retirement_income_categories") or [])
-    qj_count = ingest_qianji_transactions(
-        paths.db_path, qianji_records, retirement_categories=retirement_cats,
-    )
-    print(f"  {qj_count} Qianji transactions ingested")
-
-    if dry_run_market:
-        print("[M] Market precompute skipped (--dry-run-market)")
-        print("[H] Holdings detail precompute skipped (--dry-run-market)")
-    else:
-        # Precompute market index data
-        print("[M] Precomputing market data...")
-        precompute_market(paths.db_path)
-        print("  Done")
-
-        # Precompute holdings detail
-        print("[H] Precomputing holdings detail...")
-        precompute_holdings_detail(paths.db_path)
-        print("  Done")
-
-    _print_summary(alloc)
-
-    if not no_validate:
-        _run_validation(paths)
 
     return alloc
 
@@ -582,39 +565,14 @@ def _build_refresh_window(
         written = upsert_daily_rows(paths.db_path, alloc)
         print(f"  {written} rows written")
 
-    # ``qianji_transactions`` is a full snapshot of current Qianji state
-    # (DELETE+INSERT), not a time-range. Incremental runs must still
-    # re-ingest it or the /cashflow view drifts from reality whenever the
-    # user edits a bill in Qianji — or, as in the balance-adjustment and
-    # timezone fixes, whenever ingest logic itself changes.
-    historical_cny = load_cny_rates(paths.db_path)
-    qianji_records = load_all_from_db(
-        DEFAULT_QJ_DB, historical_cny_rates=historical_cny,
+    _finalize_build_outputs(
+        paths,
+        config,
+        alloc,
+        no_validate=no_validate,
+        dry_run_market=dry_run_market,
+        qianji_verb="re-ingested",
     )
-    retirement_cats = list(config.get("retirement_income_categories") or [])
-    qj_count = ingest_qianji_transactions(
-        paths.db_path, qianji_records, retirement_categories=retirement_cats,
-    )
-    print(f"  {qj_count} Qianji transactions re-ingested")
-
-    if dry_run_market:
-        print("[M] Market precompute skipped (--dry-run-market)")
-        print("[H] Holdings detail precompute skipped (--dry-run-market)")
-    else:
-        # Precompute market index data (always refresh on incremental)
-        print("[M] Precomputing market data...")
-        precompute_market(paths.db_path)
-        print("  Done")
-
-        # Precompute holdings detail (always refresh on incremental)
-        print("[H] Precomputing holdings detail...")
-        precompute_holdings_detail(paths.db_path)
-        print("  Done")
-
-    _print_summary(alloc)
-
-    if not no_validate:
-        _run_validation(paths)
 
     return alloc
 
