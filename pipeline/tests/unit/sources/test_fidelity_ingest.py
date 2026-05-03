@@ -1,4 +1,4 @@
-"""Tests for Fidelity date parsing + DB ingestion via _ingest_one_csv."""
+"""Tests for Fidelity date parsing + canonical DB ingestion."""
 
 import sqlite3
 from pathlib import Path
@@ -7,7 +7,7 @@ import pytest
 
 from etl.db import init_db
 from etl.parsing import parse_us_date
-from etl.sources.fidelity.parse import _ingest_one_csv, ingest_csvs
+from etl.sources.fidelity.parse import ingest_csvs
 from tests.unit.sources.conftest import ROW_AAPL as _ROW_AAPL
 from tests.unit.sources.conftest import ROW_EFT as _ROW_EFT
 from tests.unit.sources.conftest import ROW_GLDM as _ROW_GLDM
@@ -50,23 +50,23 @@ class TestFidelityDateParse:
 
 
 class TestIngestFidelity:
-    """Tests for _ingest_one_csv — CSV → timemachine.db row writes."""
+    """Tests for canonical CSV → timemachine.db row writes."""
 
     @pytest.fixture()
     def db_path(self, empty_db: Path) -> Path:
         return empty_db
 
     def test_ingest_sample_csv(self, db_path: Path, history_sample_csv: Path) -> None:
-        count = _ingest_one_csv(db_path, history_sample_csv)
+        count = ingest_csvs(db_path, [history_sample_csv])
         assert count > 0
         conn = sqlite3.connect(str(db_path))
         rows = conn.execute("SELECT COUNT(*) FROM fidelity_transactions").fetchone()[0]
         conn.close()
         assert rows == count
 
-    def test_overlap_replaces(self, db_path: Path, history_sample_csv: Path) -> None:
-        _ingest_one_csv(db_path, history_sample_csv)
-        count2 = _ingest_one_csv(db_path, history_sample_csv)
+    def test_reingest_replaces_table(self, db_path: Path, history_sample_csv: Path) -> None:
+        ingest_csvs(db_path, [history_sample_csv])
+        count2 = ingest_csvs(db_path, [history_sample_csv])
         conn = sqlite3.connect(str(db_path))
         rows = conn.execute("SELECT COUNT(*) FROM fidelity_transactions").fetchone()[0]
         conn.close()
@@ -75,7 +75,7 @@ class TestIngestFidelity:
     def test_run_dates_normalized_to_iso(self, db_path: Path, history_sample_csv: Path) -> None:
         """Run dates must be stored as ISO YYYY-MM-DD, not raw MM/DD/YYYY."""
         import re
-        _ingest_one_csv(db_path, history_sample_csv)
+        ingest_csvs(db_path, [history_sample_csv])
         conn = sqlite3.connect(str(db_path))
         run_dates = [r[0] for r in conn.execute("SELECT run_date FROM fidelity_transactions")]
         conn.close()
@@ -93,9 +93,9 @@ class TestIngestFidelityCanonical:
         return empty_db
 
     def test_same_csv_ingest_is_idempotent(self, db_path: Path, history_sample_csv: Path) -> None:
-        """Re-ingesting the same CSV produces the same row set — DELETE wipes the range, INSERT rebuilds it."""
-        count1 = _ingest_one_csv(db_path, history_sample_csv)
-        count2 = _ingest_one_csv(db_path, history_sample_csv)
+        """Re-ingesting the same CSV produces the same row set."""
+        count1 = ingest_csvs(db_path, [history_sample_csv])
+        count2 = ingest_csvs(db_path, [history_sample_csv])
         assert count1 == count2
         conn = sqlite3.connect(str(db_path))
         rows = conn.execute("SELECT COUNT(*) FROM fidelity_transactions").fetchone()[0]

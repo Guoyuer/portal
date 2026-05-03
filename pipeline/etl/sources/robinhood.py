@@ -88,7 +88,7 @@ def _csv_paths(config: RawConfig) -> list[Path]:
 
     Returns ``[]`` when the directory doesn't exist. Users without a Robinhood
     CSV see no rows; users with multiple exports (e.g. quarterly pulls) have
-    each CSV range-replace its own window, mirroring Fidelity's ingest.
+    each CSV range-replace its own window.
     """
     downloads = _downloads_dir(config)
     if not downloads.exists():
@@ -111,12 +111,11 @@ def ingest(db_path: Path, config: RawConfig) -> None:
     """Scan ``robinhood_downloads`` for ``Robinhood_history*.csv`` and ingest each.
 
     Each CSV is authoritative for its own date window via
-    :func:`_ingest_one_csv`'s range-replace (mirrors
-    :func:`etl.sources.fidelity.parse._ingest_one_csv`). Re-running the build
-    on the same set of CSVs yields bit-identical DB state. Legitimate same-
-    day duplicate trades are preserved — Robinhood CSVs do occasionally emit
-    two rows with identical date/ticker/action/qty/amount, and silently
-    collapsing one would understate positions.
+    :func:`_ingest_one_csv`'s range-replace. Re-running the build on the same
+    set of CSVs yields bit-identical DB state. Legitimate same-day duplicate
+    trades are preserved — Robinhood CSVs do occasionally emit two rows with
+    identical date/ticker/action/qty/amount, and silently collapsing one would
+    understate positions.
 
     If no CSV matches (user doesn't have Robinhood), this is a silent no-op.
     """
@@ -192,8 +191,7 @@ def positions_at(
     :class:`PositionState` into a :class:`PositionRow` by looking up
     today's close from :class:`PriceContext`.
 
-    Tickers with no price on ``price_date`` are logged and excluded —
-    mirroring Fidelity's behaviour.
+    Tickers with no price on ``price_date`` are logged and excluded.
     """
     del config  # Robinhood has no per-call config knobs.
     result = replay_transactions(db_path, ROBINHOOD_REPLAY, as_of)
