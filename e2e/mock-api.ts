@@ -41,6 +41,7 @@ function priceSeries(dates: string[], base: number, drift: number, vol: number):
 
 const ALL_DATES = tradingDays("2024-01-02", 600);
 const lastDate = ALL_DATES[ALL_DATES.length - 1];
+const generatedAt = `${lastDate}T12:00:00.000Z`;
 
 // ── Price histories per symbol ──────────────────────────────────────────
 
@@ -239,13 +240,13 @@ const TIMELINE = {
   categories,
   market,
   holdingsDetail,
-  syncMeta: { last_sync: new Date().toISOString(), last_date: lastDate },
+  syncMeta: { last_sync: generatedAt, last_date: lastDate },
 };
 
 // ── Econ ─────────────────────────────────────────────────────────────────
 
 const ECON = {
-  generatedAt: new Date().toISOString(),
+  generatedAt,
   snapshot: { fedFundsRate: 4.33, treasury10y: 4.25, treasury2y: 4.0, spread2s10s: 0.25, cpiYoy: 3.0, coreCpiYoy: 3.2, unemployment: 3.8, vix: 15.2, oilWti: 78.5 },
   series: {
     fedFundsRate: [{ date: "2024-01", value: 5.33 }, { date: "2024-06", value: 5.33 }, { date: "2025-01", value: 4.33 }],
