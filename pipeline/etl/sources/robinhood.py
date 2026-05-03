@@ -27,7 +27,6 @@ from pathlib import Path
 from etl.db import get_connection
 from etl.parsing import read_csv_rows
 from etl.replay import ReplayConfig, replay_transactions
-from etl.sources._ingest import range_replace_insert
 from etl.sources._types import ActionKind, PositionRow, PriceContext, resolve_downloads_dir
 from etl.types import RawConfig, parse_currency
 
@@ -157,22 +156,18 @@ def _ingest_one_csv(db_path: Path, csv_path: Path) -> None:
 
     conn = get_connection(db_path)
     try:
-        # Range-replace: wipe any existing rows in the CSV's window, then
-        # insert the fresh set. Protects against partial CSVs (e.g. a 3-
-        # month export later replaced by a 12-month export with updated
-        # back-fills) leaving stale rows behind.
-        range_replace_insert(
-            conn,
-            table=TABLE,
-            date_col="txn_date",
-            rows=rows,
-            date_idx=0,
-            insert_sql=(
+        if rows:
+            dates = [r[0] for r in rows]
+            conn.execute(
+                f"DELETE FROM {TABLE} WHERE txn_date BETWEEN ? AND ?",  # noqa: S608
+                (min(dates), max(dates)),
+            )
+            conn.executemany(
                 f"INSERT INTO {TABLE} "  # noqa: S608 — TABLE is a module-level constant
                 "(txn_date, action, action_kind, ticker, quantity, amount_usd, raw_description) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)"
-            ),
-        )
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                rows,
+            )
         conn.commit()
     finally:
         conn.close()

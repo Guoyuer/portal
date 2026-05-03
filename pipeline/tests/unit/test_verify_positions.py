@@ -55,92 +55,81 @@ def _seed_db(db_path: Path, txns: list[tuple[str, str, str, str, str, float, flo
 # ── parse_as_of_from_filename ────────────────────────────────────────────────
 
 class TestParseAsOfFromFilename:
-    def test_apr_07_2026(self) -> None:
-        assert verify_positions.parse_as_of_from_filename(
-            Path("Portfolio_Positions_Apr-07-2026.csv")
-        ) == date(2026, 4, 7)
-
-    def test_dec_31_2025(self) -> None:
-        assert verify_positions.parse_as_of_from_filename(
-            Path("Portfolio_Positions_Dec-31-2025.csv")
-        ) == date(2025, 12, 31)
-
-    def test_jan_01_1999(self) -> None:
-        assert verify_positions.parse_as_of_from_filename(
-            Path("Portfolio_Positions_Jan-01-1999.csv")
-        ) == date(1999, 1, 1)
-
-    def test_pattern_anywhere_in_path(self) -> None:
-        """Regex uses .search so parent dirs don't matter."""
-        assert verify_positions.parse_as_of_from_filename(
-            Path("/some/dir/Portfolio_Positions_Aug-25-2025.csv")
-        ) == date(2025, 8, 25)
-
-    def test_non_matching_returns_none(self) -> None:
-        assert verify_positions.parse_as_of_from_filename(Path("random.csv")) is None
-        assert verify_positions.parse_as_of_from_filename(
-            Path("Portfolio_Snapshot_Apr-07-2026.csv")
-        ) is None
-
-    def test_bad_month_returns_none(self) -> None:
-        assert verify_positions.parse_as_of_from_filename(
-            Path("Portfolio_Positions_XYZ-07-2026.csv")
-        ) is None
+    @pytest.mark.parametrize(
+        ("filename", "expected"),
+        [
+            ("Portfolio_Positions_Apr-07-2026.csv", date(2026, 4, 7)),
+            ("Portfolio_Positions_Dec-31-2025.csv", date(2025, 12, 31)),
+            ("Portfolio_Positions_Jan-01-1999.csv", date(1999, 1, 1)),
+            ("/some/dir/Portfolio_Positions_Aug-25-2025.csv", date(2025, 8, 25)),
+            ("random.csv", None),
+            ("Portfolio_Snapshot_Apr-07-2026.csv", None),
+            ("Portfolio_Positions_XYZ-07-2026.csv", None),
+        ],
+    )
+    def test_parse_as_of_from_filename(self, filename: str, expected: date | None) -> None:
+        assert verify_positions.parse_as_of_from_filename(Path(filename)) == expected
 
 
 # ── load_positions ────────────────────────────────────────────────────────────
 
 class TestLoadPositions:
-    def test_aggregates_cash_and_margin_lots(self, tmp_path: Path) -> None:
-        """Two rows for the same (account, symbol) must be summed, not overwritten."""
+    @pytest.mark.parametrize(
+        ("rows", "expected"),
+        [
+            (
+                [
+                    {"Account Number": "Z001", "Symbol": "VOO", "Quantity": "10"},
+                    {"Account Number": "Z001", "Symbol": "VOO", "Quantity": "5"},
+                    {"Account Number": "Z001", "Symbol": "QQQM", "Quantity": "20"},
+                ],
+                {("Z001", "VOO"): 15.0, ("Z001", "QQQM"): 20.0},
+            ),
+            (
+                [
+                    {"Account Number": "Z001", "Symbol": "VOO", "Quantity": "10"},
+                    {"Account Number": "Z001", "Symbol": "ZERO", "Quantity": "0"},
+                ],
+                {("Z001", "VOO"): 10.0},
+            ),
+            (
+                [
+                    {"Account Number": "", "Symbol": "VOO", "Quantity": "10"},
+                    {"Account Number": "Z001", "Symbol": "", "Quantity": "10"},
+                    {"Account Number": "Z001", "Symbol": "VOO", "Quantity": ""},
+                    {"Account Number": "Z001", "Symbol": "GOOD", "Quantity": "3"},
+                ],
+                {("Z001", "GOOD"): 3.0},
+            ),
+            (
+                [
+                    {"Account Number": "Z001", "Symbol": "**Pending**", "Quantity": "1"},
+                    {"Account Number": "Z001", "Symbol": "VOO", "Quantity": "2"},
+                ],
+                {("Z001", "VOO"): 2.0},
+            ),
+            (
+                [{"Account Number": "Z001", "Symbol": "VOO", "Quantity": "1,234.5"}],
+                {("Z001", "VOO"): 1234.5},
+            ),
+        ],
+        ids=[
+            "sums-lots",
+            "skips-zero-quantity",
+            "skips-blank-rows",
+            "skips-total-rows",
+            "comma-separated-quantity",
+        ],
+    )
+    def test_load_positions(
+        self,
+        tmp_path: Path,
+        rows: list[dict[str, str]],
+        expected: dict[tuple[str, str], float],
+    ) -> None:
         csv_path = tmp_path / "pos.csv"
-        _write_csv(csv_path, [
-            {"Account Number": "Z001", "Symbol": "VOO", "Quantity": "10"},
-            {"Account Number": "Z001", "Symbol": "VOO", "Quantity": "5"},  # second lot type
-            {"Account Number": "Z001", "Symbol": "QQQM", "Quantity": "20"},
-        ])
-        positions = verify_positions.load_positions(csv_path)
-        assert positions[("Z001", "VOO")] == pytest.approx(15.0)
-        assert positions[("Z001", "QQQM")] == pytest.approx(20.0)
-
-    def test_skips_zero_quantity(self, tmp_path: Path) -> None:
-        csv_path = tmp_path / "pos.csv"
-        _write_csv(csv_path, [
-            {"Account Number": "Z001", "Symbol": "VOO", "Quantity": "10"},
-            {"Account Number": "Z001", "Symbol": "ZERO", "Quantity": "0"},
-        ])
-        positions = verify_positions.load_positions(csv_path)
-        assert ("Z001", "ZERO") not in positions
-        assert ("Z001", "VOO") in positions
-
-    def test_skips_blank_rows(self, tmp_path: Path) -> None:
-        csv_path = tmp_path / "pos.csv"
-        _write_csv(csv_path, [
-            {"Account Number": "", "Symbol": "VOO", "Quantity": "10"},       # no acct
-            {"Account Number": "Z001", "Symbol": "", "Quantity": "10"},       # no sym
-            {"Account Number": "Z001", "Symbol": "VOO", "Quantity": ""},      # no qty
-            {"Account Number": "Z001", "Symbol": "GOOD", "Quantity": "3"},
-        ])
-        positions = verify_positions.load_positions(csv_path)
-        assert positions == {("Z001", "GOOD"): 3.0}
-
-    def test_skips_total_rows(self, tmp_path: Path) -> None:
-        csv_path = tmp_path / "pos.csv"
-        _write_csv(csv_path, [
-            {"Account Number": "Z001", "Symbol": "**Pending**", "Quantity": "1"},
-            {"Account Number": "Z001", "Symbol": "VOO", "Quantity": "2"},
-        ])
-        positions = verify_positions.load_positions(csv_path)
-        assert ("Z001", "**Pending**") not in positions
-        assert positions == {("Z001", "VOO"): 2.0}
-
-    def test_handles_comma_separated_qty(self, tmp_path: Path) -> None:
-        csv_path = tmp_path / "pos.csv"
-        _write_csv(csv_path, [
-            {"Account Number": "Z001", "Symbol": "VOO", "Quantity": "1,234.5"},
-        ])
-        positions = verify_positions.load_positions(csv_path)
-        assert positions[("Z001", "VOO")] == pytest.approx(1234.5)
+        _write_csv(csv_path, rows)
+        assert verify_positions.load_positions(csv_path) == expected
 
 
 # ── Integration: main() with seeded DB + CSV ─────────────────────────────────
