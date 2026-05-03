@@ -71,16 +71,14 @@ def produces_positions(config: RawConfig) -> bool:
 def ingest(db_path: Path, config: RawConfig) -> None:
     """Scan ``fidelity_downloads`` for ``Accounts_History*.csv`` and ingest each file.
 
-    Files are processed in chronological order by earliest ``MM/DD/YYYY``
-    date in their body. Each CSV is authoritative for its own date range, so
-    processing oldest→newest naturally deduplicates overlapping exports via
-    :func:`parse._ingest_one_csv`'s range-replace.
+    Files can overlap and be partial on boundary dates, so Fidelity ingest
+    rebuilds the table from the canonical union of every observed CSV row.
+    Repeated observations across files are de-duplicated; same-file duplicate
+    rows are preserved.
     """
     downloads_dir = _downloads_dir(config)
     raw_csvs = sorted(downloads_dir.glob("Accounts_History*.csv"))
-    raw_csvs.sort(key=parse._csv_earliest_date)
-    for csv_path in raw_csvs:
-        parse._ingest_one_csv(db_path, csv_path)
+    parse.ingest_csvs(db_path, raw_csvs)
 
 
 def positions_at(

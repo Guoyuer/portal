@@ -5,10 +5,11 @@ import logging
 import sqlite3
 import sys
 from contextlib import closing
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from types import ModuleType
 from unittest.mock import MagicMock
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import pytest
@@ -23,7 +24,6 @@ from etl.allocation import (  # noqa: E402
     _build_allocation_row,
     _categorize_ticker,
     _find_price_date,
-    _qianji_transaction_dates,
     _resolve_date_windows,
     compute_daily_allocation,
 )
@@ -135,32 +135,6 @@ def _compute_allocation(
         start=start,
         end=end,
     )
-
-
-# ── _qianji_transaction_dates ──────────────────────────────────────────────
-
-
-class TestQianjiTransactionDates:
-    def test_returns_sorted_dates(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "qianji.db"
-        _init_qianji(db_path)
-        conn = sqlite3.connect(str(db_path))
-        conn.executemany(
-            "INSERT INTO user_bill (time, type, money, fromact, status) VALUES (?, 0, ?, 'HYSA', 1)",
-            [
-                (1735862400, 10),
-                (1735776000, 20),
-            ],
-        )
-        conn.commit()
-        conn.close()
-        dates = _qianji_transaction_dates(db_path)
-        assert dates == sorted(dates)
-        assert len(dates) == 2
-
-    def test_missing_db_returns_empty(self, tmp_path: Path) -> None:
-        dates = _qianji_transaction_dates(tmp_path / "nonexistent.db")
-        assert dates == []
 
 
 # ── compute_daily_allocation ──────────────────────────────────────────────
@@ -298,11 +272,44 @@ class TestComputeDailyAllocation:
         assert len(results) == 1
         assert results[0]["us_equity"] > 0
 
-    def test_multiple_days_cached_replay(self, allocation_paths: tuple[Path, Path]) -> None:
+    def test_multiple_days_replays_qianji(self, allocation_paths: tuple[Path, Path]) -> None:
         results = _compute_allocation(allocation_paths, end=date(2025, 1, 6))
         assert len(results) == 3
         totals = [r["total"] for r in results]
         assert all(t > 0 for t in totals)
+
+    def test_qianji_late_evening_local_transaction_applies_same_day(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "timemachine.db"
+        qj_path = tmp_path / "qianji.db"
+        init_db(db_path)
+
+        with closing(sqlite3.connect(str(db_path))) as conn:
+            for dt in ("2025-02-28", "2025-03-03"):
+                conn.execute("INSERT INTO daily_close (symbol, date, close) VALUES ('CNY=X', ?, 7.25)", (dt,))
+            conn.commit()
+
+        with closing(sqlite3.connect(str(qj_path))) as conn:
+            _create_qianji_schema(conn)
+            conn.execute("INSERT INTO user_asset (name, money, currency) VALUES ('Checking', 1100.0, 'USD')")
+            late_local = datetime(2025, 3, 3, 20, 0, 0, tzinfo=ZoneInfo("America/Los_Angeles")).timestamp()
+            conn.execute(
+                "INSERT INTO user_bill (time, type, money, fromact, status) VALUES (?, 1, 100.0, 'Checking', 1)",
+                (late_local,),
+            )
+            conn.commit()
+
+        config = {
+            "assets": {"Cash": {"category": "Safe Net", "subtype": ""}},
+            "qianji_accounts": {"credit": [], "cny": [], "ticker_map": {"Checking": "Cash"}},
+        }
+
+        rows = compute_daily_allocation(db_path, qj_path, config, date(2025, 2, 28), date(2025, 3, 3))
+
+        values = {row["date"]: row["safe_net"] for row in rows}
+        assert values == {
+            "2025-02-28": 1000.0,
+            "2025-03-03": 1100.0,
+        }
 
 
 # ── _find_price_date ───────────────────────────────────────────────────────
