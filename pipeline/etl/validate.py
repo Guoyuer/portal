@@ -135,21 +135,12 @@ def _check_day_over_day(conn: sqlite3.Connection) -> list[CheckResult]:
 
 def _check_holdings_have_prices(conn: sqlite3.Connection) -> list[CheckResult]:
     """Every holding > $100 on latest date should have a row in daily_close."""
-    latest = conn.execute("SELECT MAX(date) FROM computed_daily_tickers").fetchone()
-    if latest is None or latest[0] is None:
+    _, tickers = _latest_priced_holding_tickers(conn, latest_table="computed_daily_tickers")
+    if not tickers:
         return []
-    latest_date: str = latest[0]
-
-    # Get tickers with value > 100 on latest date
-    tickers = conn.execute(
-        "SELECT ticker FROM computed_daily_tickers WHERE date = ? AND value > 100",
-        (latest_date,),
-    ).fetchall()
 
     missing: list[str] = []
-    for (ticker,) in tickers:
-        if ticker in _NON_PRICE_TICKERS:
-            continue
+    for ticker in tickers:
         price_row = conn.execute(
             "SELECT 1 FROM daily_close WHERE symbol = ? LIMIT 1",
             (ticker,),
@@ -200,22 +191,12 @@ def _check_holdings_prices_are_fresh(conn: sqlite3.Connection) -> list[CheckResu
     federal holiday (e.g. Fri holiday + weekend = 3 days, or Mon holiday + weekend = 3
     days); anything beyond that is genuinely stale.
     """
-    latest = conn.execute("SELECT MAX(date) FROM computed_daily").fetchone()
-    if latest is None or latest[0] is None:
+    latest_iso, tickers = _latest_priced_holding_tickers(conn, latest_table="computed_daily")
+    if latest_iso is None or not tickers:
         return []
-    latest_iso: str = latest[0]
-
-    # Held tickers on latest date, excluding book-value / proxy tickers that have
-    # no corresponding `daily_close` row by design.
-    tickers = conn.execute(
-        "SELECT ticker FROM computed_daily_tickers WHERE date = ? AND value > 100",
-        (latest_iso,),
-    ).fetchall()
 
     stale: list[tuple[str, str]] = []  # (ticker, max_price_date)
-    for (ticker,) in tickers:
-        if ticker in _NON_PRICE_TICKERS:
-            continue
+    for ticker in tickers:
         row = conn.execute(
             "SELECT MAX(date) FROM daily_close WHERE symbol = ?",
             (ticker,),
@@ -242,6 +223,22 @@ def _check_holdings_prices_are_fresh(conn: sqlite3.Connection) -> list[CheckResu
             f"computed {latest_iso}): {sample}{more}"
         ),
     )]
+
+
+def _latest_priced_holding_tickers(
+    conn: sqlite3.Connection,
+    *,
+    latest_table: str,
+) -> tuple[str | None, list[str]]:
+    latest = conn.execute(f"SELECT MAX(date) FROM {latest_table}").fetchone()
+    if latest is None or latest[0] is None:
+        return None, []
+    latest_iso = str(latest[0])
+    rows = conn.execute(
+        "SELECT ticker FROM computed_daily_tickers WHERE date = ? AND value > 100",
+        (latest_iso,),
+    ).fetchall()
+    return latest_iso, [str(ticker) for (ticker,) in rows if ticker not in _NON_PRICE_TICKERS]
 
 
 def _check_cost_basis_nonneg(conn: sqlite3.Connection) -> list[CheckResult]:

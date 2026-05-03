@@ -11,7 +11,7 @@ the pre-refactor default.
 """
 from __future__ import annotations
 
-from etl.sources import PositionRow
+from etl.sources._types import PositionRow
 from etl.types import RawConfig
 
 DEFAULT_MM_TICKER = "FZFXX"

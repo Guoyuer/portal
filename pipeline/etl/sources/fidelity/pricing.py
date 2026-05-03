@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 
 from etl.parsing import is_cusip
-from etl.sources import PositionRow, PriceContext
+from etl.sources._types import PositionRow, PriceContext
 from etl.types import RawConfig
 
 log = logging.getLogger(__name__)

@@ -1,8 +1,8 @@
 # Archive
 
-Historical design notes, completed plans, superseded audits, and old TODOs were
-removed from the active tree after the R2 migration cleanup. They are still
-available in git history and in the PRs that introduced or completed them.
+Historical design notes, completed plans, superseded audits, and old TODOs stay
+out of the active docs set. Most are available only in git history and PRs; a
+few recent audit artifacts live here when keeping the exact report is useful.
 
 Current implementation and operations guidance belongs in:
 

@@ -166,6 +166,17 @@ insertions / 248 deletions (`-114 diff LOC`). Physical maintenance surface
 drops by 111 LOC before this note; with the note included, current maintenance
 surface is 247 files / 25,550 physical LOC.
 
+Source registry / active-docs follow-up: the investment source registry is now
+an explicit typed `SOURCES` list instead of lazy `__getattr__` plus cache state,
+and validation shares the latest-priced-holding query between missing-price and
+stale-price gates. Source modules import shared types directly from
+`etl.sources._types`, leaving `etl.sources` as a public re-export surface. The
+one-off historical rebaseline report was moved to `docs/archive/` so the active
+docs set only carries current guidance. Code diff effect: 5 files, 33
+insertions / 58 deletions (`-25 diff LOC`). Active maintenance surface drops by
+140 LOC before this note; with the note included, current maintenance surface
+is 246 files / 25,420 physical LOC.
+
 ### Wave 1: Safe Deletions and Test Compression
 
 Targets:
