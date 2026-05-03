@@ -6,11 +6,11 @@ from datetime import date
 import pytest
 
 from etl.db import (
-    get_connection,
     get_last_computed_date,
     init_db,
     upsert_daily_rows,
 )
+from tests.fixtures import connected_db, db_rows, db_value
 
 
 @pytest.fixture()
@@ -19,15 +19,13 @@ def db(empty_db):
 
 
 def _insert_daily(db_path, rows):
-    conn = get_connection(db_path)
-    for r in rows:
-        conn.execute(
-            "INSERT INTO computed_daily (date, total, us_equity, non_us_equity, crypto, safe_net)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
-            (r["date"], r["total"], r["us_equity"], r["non_us_equity"], r["crypto"], r["safe_net"]),
-        )
-    conn.commit()
-    conn.close()
+    with connected_db(db_path) as conn:
+        for r in rows:
+            conn.execute(
+                "INSERT INTO computed_daily (date, total, us_equity, non_us_equity, crypto, safe_net)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (r["date"], r["total"], r["us_equity"], r["non_us_equity"], r["crypto"], r["safe_net"]),
+            )
 
 
 _DAY1 = {"date": "2025-01-02", "total": 100, "us_equity": 50, "non_us_equity": 20, "crypto": 10, "safe_net": 20}
@@ -56,9 +54,7 @@ class TestUpsertDailyRows:
                 "non_us_equity": 22, "crypto": 11, "safe_net": 22,
                 "liabilities": 0, "tickers": []}]
         assert upsert_daily_rows(db, new) == 1
-        conn = get_connection(db)
-        assert conn.execute("SELECT COUNT(*) FROM computed_daily").fetchone()[0] == 2
-        conn.close()
+        assert db_value(db, "SELECT COUNT(*) FROM computed_daily") == 2
 
     def test_upserts_existing_dates(self, db):
         """Recomputed row must replace the stored one (incremental refresh window)."""
@@ -72,10 +68,7 @@ class TestUpsertDailyRows:
              "liabilities": 0, "tickers": []},
         ]
         assert upsert_daily_rows(db, new) == 2
-        conn = get_connection(db)
-        row = conn.execute("SELECT total FROM computed_daily WHERE date = '2025-01-02'").fetchone()
-        conn.close()
-        assert row[0] == 999  # overwritten with recomputed value
+        assert db_value(db, "SELECT total FROM computed_daily WHERE date = '2025-01-02'") == 999
 
     def test_appends_tickers(self, db):
         new = [{"date": "2025-01-02", "total": 100, "us_equity": 50,
@@ -85,10 +78,7 @@ class TestUpsertDailyRows:
                              "subtype": "S&P 500", "cost_basis": 40,
                              "gain_loss": 10, "gain_loss_pct": 25}]}]
         upsert_daily_rows(db, new)
-        conn = get_connection(db)
-        row = conn.execute("SELECT ticker, value FROM computed_daily_tickers WHERE date = '2025-01-02'").fetchone()
-        conn.close()
-        assert row == ("VOO", 50)
+        assert db_rows(db, "SELECT ticker, value FROM computed_daily_tickers WHERE date = '2025-01-02'")[0] == ("VOO", 50)
 
     def test_upsert_wipes_removed_tickers(self, db):
         """If a holding drops out on recompute, its ticker row must go too."""
@@ -112,11 +102,7 @@ class TestUpsertDailyRows:
                              "subtype": "S&P 500", "cost_basis": 40,
                              "gain_loss": 35, "gain_loss_pct": 87.5}]}]
         upsert_daily_rows(db, new)
-        conn = get_connection(db)
-        tickers = conn.execute(
-            "SELECT ticker FROM computed_daily_tickers WHERE date = '2025-01-02'"
-        ).fetchall()
-        conn.close()
+        tickers = db_rows(db, "SELECT ticker FROM computed_daily_tickers WHERE date = '2025-01-02'")
         assert {t[0] for t in tickers} == {"VOO"}  # OLD wiped
 
     def test_empty_input(self, db):
@@ -188,14 +174,12 @@ class TestBuildRefreshWindowOrchestration:
         from etl.build import BuildPaths
         paths = BuildPaths(data_dir=tmp_path, config=tmp_path / "cfg.json", downloads=tmp_path)
         init_db(paths.db_path)  # property → tmp_path/timemachine.db
-        conn = get_connection(paths.db_path)
-        conn.execute(
-            "INSERT INTO computed_daily (date, total, us_equity, non_us_equity,"
-            " crypto, safe_net, liabilities) VALUES (?, 100000, 60000, 15000, 5000, 20000, 0)",
-            (last_date,),
-        )
-        conn.commit()
-        conn.close()
+        with connected_db(paths.db_path) as conn:
+            conn.execute(
+                "INSERT INTO computed_daily (date, total, us_equity, non_us_equity,"
+                " crypto, safe_net, liabilities) VALUES (?, 100000, 60000, 15000, 5000, 20000, 0)",
+                (last_date,),
+            )
         return paths
 
     def test_passes_correct_range_to_compute(self, tmp_path, monkeypatch):
@@ -260,10 +244,4 @@ class TestBuildRefreshWindowOrchestration:
             paths, {}, date(2023, 1, 1), date(2026, 4, 14), no_validate=True,
         )
         # The new row should be in the DB.
-        conn = get_connection(paths.db_path)
-        row = conn.execute(
-            "SELECT total FROM computed_daily WHERE date = '2026-04-14'"
-        ).fetchone()
-        conn.close()
-        assert row is not None
-        assert row[0] == 105000
+        assert db_value(paths.db_path, "SELECT total FROM computed_daily WHERE date = '2026-04-14'") == 105000
