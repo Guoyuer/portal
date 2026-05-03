@@ -1,8 +1,9 @@
 # Docs
 
 Use this directory for current operator and architecture guidance. Historical
-plans and superseded audits live under `archive/` and should not be used as
-implementation guidance unless a current doc links to them for context.
+plans and superseded audits are intentionally kept out of the active tree; use
+git history for archaeology, then copy any still-valid conclusion into a
+current doc.
 
 ## Current Docs
 
@@ -22,7 +23,5 @@ implementation guidance unless a current doc links to them for context.
 
 ## Archive
 
-[`archive/`](archive/) contains completed plans, dated audits, and migration
-notes retained for historical reference. Start with
-[`archive/README.md`](archive/README.md) before opening individual archived
-files.
+[`archive/README.md`](archive/README.md) explains why old plans and audits are
+not kept as active files.

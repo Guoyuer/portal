@@ -4,7 +4,8 @@
 and near-term cleanup pass.
 
 Keep this file active-only. Completed refactor notes, historical decision logs,
-and superseded plans live under `docs/archive/`.
+and superseded plans live in git history unless a current doc still needs the
+conclusion.
 
 ## Near-Term Cleanup
 
