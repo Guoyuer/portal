@@ -85,6 +85,7 @@ deleting flows, narrowing outputs, and using table-driven tests.
 | S14 | Source modules | Delete or merge tiny broker helpers that no longer have at least two live call sites. | Partial | Low-Medium | `_ingest.py` was removed after Fidelity moved to canonical ingest; keep broker parsing explicit and only share helpers that remove real duplication. |
 | S15 | CI workflows | Fold rare baseline refresh and real-worker workflows if they are not pulling their weight. | Done | Low | Removed opt-in real-worker e2e and baseline-refresh automation; local commands remain for explicit checks. |
 | S16 | Worker | No meaningful LOC target. | 0 | Low | At 157 LOC, leave it boring and explicit. |
+| S17 | Frontend dependency surface | Remove retained scaffolding/tool packages once copied components no longer depend on them. | Done | Low | Removed the unused shadcn toolchain and the single-use `cn` wrapper; table styling now depends directly on `tailwind-merge`. |
 
 ## Highest-Leverage Waves
 
@@ -183,6 +184,17 @@ carrying local query helpers and repeated connection close blocks. Diff effect:
 2 files, 27 insertions / 59 deletions (`-32 diff LOC`). Physical maintenance
 surface drops by 28 LOC before this note; with the note included, current
 maintenance surface is 246 files / 25,398 physical LOC.
+
+Frontend dependency follow-up: the leftover shadcn CLI/config surface was
+removed after verifying none of its CSS variants or generated metadata were
+referenced. The copied table component now calls `tailwind-merge` directly, so
+`clsx`, `src/lib/utils.ts`, and its dedicated tests were deleted too. Playwright
+local default workers are capped at 4 after a 10-worker local run showed ticker
+dialog stability timeouts while 4-worker and single-file runs passed. Diff
+effect excluding lockfile: 9 maintained files, 35 insertions / 101 deletions
+(`-66 diff LOC`); `package-lock.json` drops 2,630 lines and `npm uninstall`
+removed 189 installed packages. Physical maintenance surface drops to 243 files
+/ 25,332 physical LOC before this note.
 
 ### Wave 1: Safe Deletions and Test Compression
 
