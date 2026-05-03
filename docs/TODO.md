@@ -9,6 +9,8 @@ conclusion.
 
 ## Near-Term Cleanup
 
+- Merge PR #309 once CI stays green; it compresses duplicate tests plus the
+  first build/R2 artifact dedup pass.
 - Keep `scripts/validate_api_zod.ts live` unless it becomes noisy. It duplicates
   publish-time Zod validation, but gives clearer failures in the real-worker
   workflow.

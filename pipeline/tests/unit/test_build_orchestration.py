@@ -31,20 +31,11 @@ def _alloc_row(day: str = "2026-04-14", total: float = 100.0) -> build_mod.Alloc
     return {
         "date": day,
         "total": total,
-        "us_equity": total,
-        "non_us_equity": 0,
-        "crypto": 0,
-        "safe_net": 0,
-        "liabilities": 0,
+        "us_equity": total, "non_us_equity": 0, "crypto": 0, "safe_net": 0, "liabilities": 0,
         "tickers": [
             {
-                "ticker": "VOO",
-                "value": total,
-                "category": "US Equity",
-                "subtype": "broad",
-                "cost_basis": total - 10,
-                "gain_loss": 10,
-                "gain_loss_pct": 10,
+                "ticker": "VOO", "value": total, "category": "US Equity", "subtype": "broad",
+                "cost_basis": total - 10, "gain_loss": 10, "gain_loss_pct": 10,
             }
         ],
     }
@@ -81,6 +72,25 @@ def _seed_fidelity(db_path: Path, day: str, action_type: str = "buy", symbol: st
         "INSERT INTO fidelity_transactions (run_date, action, action_type, symbol)"
         f" VALUES ('{day}', '{action_type.title()}', '{action_type}', '{symbol}')",
     )
+
+
+def _stub_full_build_inputs(
+    monkeypatch: pytest.MonkeyPatch,
+    calls: list[tuple[str, object]] | None = None,
+    *,
+    allocation: list[build_mod.AllocationRow] | None = None,
+    qianji_records: list[dict[str, object]] | None = None,
+) -> None:
+    monkeypatch.setattr(build_mod, "compute_daily_allocation", lambda *args: allocation or [])
+    monkeypatch.setattr(build_mod, "load_cny_rates", lambda db: {"2026-04-14": 7.2})
+    monkeypatch.setattr(build_mod, "load_all_from_db", lambda qj, historical_cny_rates: qianji_records or [])
+
+    def fake_ingest_qianji(db_path, records, *, retirement_categories):
+        if calls is not None:
+            calls.append(("qianji", (records, retirement_categories)))
+        return len(records)
+
+    monkeypatch.setattr(build_mod, "ingest_qianji_transactions", fake_ingest_qianji)
 
 
 class TestLoadPricesFromCsv:
@@ -181,17 +191,16 @@ class TestQianjiFallbackAndValidation:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         qj_db = tmp_path / "qianji.sqlite"
-        conn = sqlite3.connect(qj_db)
-        conn.execute(
-            "CREATE TABLE user_bill (money REAL, time INTEGER, status INTEGER, type INTEGER, fromact TEXT)"
-        )
         before = int(datetime(2026, 1, 1, tzinfo=UTC).timestamp())
         after = int(datetime(2026, 2, 1, tzinfo=UTC).timestamp())
-        conn.execute("INSERT INTO user_bill VALUES (200, ?, 1, 1, '401k')", (before,))
-        conn.execute("INSERT INTO user_bill VALUES (300, ?, 1, 1, '401k')", (after,))
-        conn.execute("INSERT INTO user_bill VALUES (999, ?, 0, 1, '401k')", (after,))
-        conn.commit()
-        conn.close()
+        with closing(sqlite3.connect(qj_db)) as conn:
+            conn.execute(
+                "CREATE TABLE user_bill (money REAL, time INTEGER, status INTEGER, type INTEGER, fromact TEXT)"
+            )
+            conn.execute("INSERT INTO user_bill VALUES (200, ?, 1, 1, '401k')", (before,))
+            conn.execute("INSERT INTO user_bill VALUES (300, ?, 1, 1, '401k')", (after,))
+            conn.execute("INSERT INTO user_bill VALUES (999, ?, 0, 1, '401k')", (after,))
+            conn.commit()
         monkeypatch.setattr(build_mod, "DEFAULT_QJ_DB", qj_db)
 
         contribs = build_mod._qianji_401k_fallback_contribs(date(2026, 1, 15))
@@ -210,33 +219,32 @@ class TestQianjiFallbackAndValidation:
         assert build_mod._qianji_401k_fallback_contribs(None) == []
         assert build_mod._qianji_401k_fallback_contribs(date(2026, 1, 1)) == []
 
-    def test_run_validation_exits_on_fatal(
+    @pytest.mark.parametrize(
+        ("results", "expected_exit"),
+        [
+            ([CheckResult("bad", Severity.FATAL, "broken")], 1),
+            ([CheckResult("warn", Severity.WARNING, "heads up")], None),
+        ],
+    )
+    def test_run_validation(
         self,
         paths: build_mod.BuildPaths,
         monkeypatch: pytest.MonkeyPatch,
+        results: list[CheckResult],
+        expected_exit: int | None,
     ) -> None:
         monkeypatch.setattr(
             build_mod,
             "validate_build",
-            lambda _db: [CheckResult("bad", Severity.FATAL, "broken")],
+            lambda _db: results,
         )
 
-        with pytest.raises(SystemExit) as exc:
+        if expected_exit is None:
             build_mod._run_validation(paths)
-        assert exc.value.code == 1
-
-    def test_run_validation_allows_warnings(
-        self,
-        paths: build_mod.BuildPaths,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        monkeypatch.setattr(
-            build_mod,
-            "validate_build",
-            lambda _db: [CheckResult("warn", Severity.WARNING, "heads up")],
-        )
-
-        build_mod._run_validation(paths)
+        else:
+            with pytest.raises(SystemExit) as exc:
+                build_mod._run_validation(paths)
+            assert exc.value.code == expected_exit
 
 
 class TestSourceIngestAndPeriods:
@@ -441,15 +449,7 @@ class TestFullAndIncrementalBuild:
         init_db(paths.db_path)
         _seed_computed(paths.db_path, "2026-01-01", 999)
         calls: list[tuple[str, object]] = []
-        monkeypatch.setattr(build_mod, "compute_daily_allocation", lambda *args: [_alloc_row()])
-        monkeypatch.setattr(build_mod, "load_cny_rates", lambda db: {"2026-04-14": 7.2})
-        monkeypatch.setattr(build_mod, "load_all_from_db", lambda qj, historical_cny_rates: [{"id": "qj"}])
-
-        def fake_ingest_qianji(db_path, records, *, retirement_categories):
-            calls.append(("qianji", (records, retirement_categories)))
-            return 1
-
-        monkeypatch.setattr(build_mod, "ingest_qianji_transactions", fake_ingest_qianji)
+        _stub_full_build_inputs(monkeypatch, calls, allocation=[_alloc_row()], qianji_records=[{"id": "qj"}])
         monkeypatch.setattr(build_mod, "precompute_market", lambda db: calls.append(("market", db)))
         monkeypatch.setattr(build_mod, "precompute_holdings_detail", lambda db: calls.append(("holdings", db)))
         monkeypatch.setattr(build_mod, "_run_validation", lambda p: calls.append(("validation", p)))
@@ -478,10 +478,7 @@ class TestFullAndIncrementalBuild:
     ) -> None:
         init_db(paths.db_path)
         called: list[str] = []
-        monkeypatch.setattr(build_mod, "compute_daily_allocation", lambda *args: [])
-        monkeypatch.setattr(build_mod, "load_cny_rates", lambda db: {})
-        monkeypatch.setattr(build_mod, "load_all_from_db", lambda qj, historical_cny_rates: [])
-        monkeypatch.setattr(build_mod, "ingest_qianji_transactions", lambda *args, **kwargs: 0)
+        _stub_full_build_inputs(monkeypatch)
         monkeypatch.setattr(build_mod, "precompute_market", lambda db: called.append("market"))
         monkeypatch.setattr(build_mod, "precompute_holdings_detail", lambda db: called.append("holdings"))
         monkeypatch.setattr(build_mod, "_run_validation", lambda p: called.append("validation"))
@@ -527,10 +524,7 @@ class TestFullAndIncrementalBuild:
         init_db(paths.db_path)
         _seed_computed(paths.db_path, "2026-04-13")
         calls: list[str] = []
-        monkeypatch.setattr(build_mod, "compute_daily_allocation", lambda *args: [])
-        monkeypatch.setattr(build_mod, "load_cny_rates", lambda db: {})
-        monkeypatch.setattr(build_mod, "load_all_from_db", lambda qj, historical_cny_rates: [])
-        monkeypatch.setattr(build_mod, "ingest_qianji_transactions", lambda *args, **kwargs: 0)
+        _stub_full_build_inputs(monkeypatch)
         monkeypatch.setattr(build_mod, "precompute_market", lambda db: calls.append("market"))
         monkeypatch.setattr(build_mod, "precompute_holdings_detail", lambda db: calls.append("holdings"))
         monkeypatch.setattr(build_mod, "_run_validation", lambda p: calls.append("validation"))

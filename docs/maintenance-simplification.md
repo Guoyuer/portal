@@ -7,26 +7,26 @@ stays active-only.
 
 ## Baseline
 
-Raw tracked repo size is about 266 files / 42.4k physical LOC. The maintenance
+Raw tracked repo size is about 266 files / 41.7k physical LOC. The maintenance
 surface below excludes lockfiles, `docs/archive/`, generated Zod, and the
 golden regression fixture:
 
 | Area | Files | LOC | Share |
 | --- | ---: | ---: | ---: |
-| pipeline tests | 50 | 7,611 | 27.8% |
-| frontend app/lib | 62 | 5,818 | 21.3% |
-| pipeline etl | 42 | 5,704 | 20.9% |
-| frontend tests | 32 | 2,928 | 10.7% |
-| pipeline scripts/tools | 9 | 1,332 | 4.9% |
-| root/config/misc | 35 | 1,269 | 4.6% |
-| e2e tests | 8 | 888 | 3.2% |
+| pipeline tests | 50 | 7,001 | 26.3% |
+| frontend app/lib | 64 | 6,004 | 22.6% |
+| pipeline etl | 42 | 5,704 | 21.4% |
+| frontend tests | 30 | 2,714 | 10.2% |
+| pipeline scripts/tools | 9 | 1,332 | 5.0% |
+| root/config/misc | 36 | 1,317 | 4.9% |
 | pipeline fixtures | 11 | 783 | 2.9% |
-| docs current | 6 | 426 | 1.6% |
-| CI | 3 | 306 | 1.1% |
+| e2e tests | 6 | 706 | 2.7% |
+| docs current | 6 | 435 | 1.6% |
+| CI | 4 | 337 | 1.3% |
 | worker source | 3 | 275 | 1.0% |
 
-Total: 261 files / 27.3k physical LOC after the archive collapse, excluding
-the same generated/archive/fixture surfaces.
+Total: 261 files / 26.6k physical LOC after the duplicate-test compression,
+excluding the same generated/archive/fixture surfaces.
 
 Use the same exclusion rule when reporting future LOC deltas:
 
@@ -71,12 +71,12 @@ deleting flows, narrowing outputs, and using table-driven tests.
 | --- | --- | --- | ---: | --- | --- |
 | S1 | Automation email | Simplify `receipt.py` and `notify.py`: keep text receipt as source of truth, make HTML a plain `<pre>`, reduce row-delta details, and report artifact summary first. | Done | Low | Receipt now derives from before/after snapshots; email formatting no longer models row deltas separately. |
 | S2 | Automation warning capture | Replace log-file fallback parsing with per-run subprocess buffer only, or keep fallback in tests only. | Done | Low | Runner passes the current subprocess buffer; old log-file parsing was removed. |
-| S3 | Build orchestration | Collapse repeated full/incremental tail logic in `build.py`, or remove incremental mode if full build stays fast enough. | -100 to -300 | Medium | Measure build time first. Keep incremental only if it buys real runtime. |
-| S4 | Test style | Convert large Python tests to builders and parametrized cases, especially prices, allocation, Qianji, build orchestration, and automation. | Partial | Low-Medium | Prices, allocation, Qianji, receipt, and replay tests are compressed; build orchestration can still shrink later. |
+| S3 | Build orchestration | Collapse repeated full/incremental tail logic in `build.py`, or remove incremental mode if full build stays fast enough. | Partial | Medium | Full and incremental now share finalization; do not delete incremental without build-time evidence. |
+| S4 | Test style | Convert large Python tests to builders and parametrized cases, especially prices, allocation, Qianji, build orchestration, and automation. | Partial | Low-Medium | Prices, allocation, automation, Qianji, receipt, and replay tests are compressed; build orchestration can still shrink later. |
 | S5 | Frontend compute tests | Compress repeated `compute.test.ts` scenarios with shared fixtures and table-driven expectation helpers. | Done | Low | Coverage retained with table-driven helpers and fewer repeated assertions. |
 | S6 | Ticker/group data | Deduplicate chart data-state helpers across ticker and group views. Keep source-specific transaction semantics outside the chart shell. | -150 to -400 | Medium | Worth doing only if the shared shell stays small and obvious. |
 | S7 | Finance UI tables | Reuse table row/header helpers across allocation, ticker, transaction, and group tables where markup is identical. | -100 to -250 | Medium | Small win. Avoid a generic mega-table abstraction. |
-| S8 | R2 artifact script | Extract endpoint descriptor metadata once: path, schema name, row-count key, and validation summary. Share it across export, verify, summary, and Zod smoke helpers. | Partial | Medium | Endpoint write/descriptor verification is deduped; row-count metadata can still be consolidated later. |
+| S8 | R2 artifact script | Extract endpoint descriptor metadata once: path, schema name, row-count key, and validation summary. Share it across export, verify, summary, and Zod smoke helpers. | Done | Medium | Endpoint descriptor and row-count metadata are now single-source; keep publish verification explicit. |
 | S9 | Validation CLIs | Merge old artifact/live Zod scripts behind one small `validate_api_zod.ts` CLI with `live` and `artifacts` modes. | Done | Low | Keep the real-worker failure messages readable. |
 | S10 | Manual e2e paths | Consolidate `e2e/manual/*` and manual Playwright config into one documented smoke/perf command. | Done | Low | Removed the manual screenshot/perf specs and config; mock e2e, real-worker e2e, and ticker cluster unit coverage remain. |
 | S11 | Config example | Shrink `pipeline/config.example.json` to a minimal template with representative assets and all supported config keys. | Done | Low-Medium | Add every real held ticker to private `config.json`; unknown holdings still fail closed. |
@@ -91,8 +91,22 @@ deleting flows, narrowing outputs, and using table-driven tests.
 Initial execution pass completed: S1 receipt-state simplification, S2
 buffer-only warning capture, S4 selected Python test compression, S5 compute
 test compression, S9 CLI merge, S11 config template shrink, ResourceWarning
-cleanup, pytest xdist enablement, S10 manual-e2e deletion, and part of S8
-endpoint descriptor dedup.
+cleanup, pytest xdist enablement, S10 manual-e2e deletion, S3 shared build
+finalization, and S8 endpoint/row-count metadata dedup.
+
+Latest S4 follow-up: prices/allocation/automation tests were pruned for true
+duplicate coverage (`existing CNY row` vs gap-fill, recent-window fetch vs
+refresh-window assertion, no-position CSV publish vs all-ok publish, and basic
+allocation vs categorization). Redundant long-form test prose was also removed.
+Net effect: 3 test files, 86 insertions / 403 deletions (`-317 LOC`), with the
+Python gate still passing at 522 tests and 94.88% ETL coverage.
+
+Second S4 follow-up: build orchestration, Qianji, finance e2e, and compute tests
+were compressed in one pass. The main duplicate coverage removed was replay
+case scaffolding, repeated CNY-rate fallback tests, overlapping finance smoke
+assertions, and one redundant grouped-activity compute case. Net effect: 6 files,
+203 insertions / 534 deletions (`-331 LOC`), with targeted Python tests,
+`finance.spec.ts`, frontend coverage, and the full Python gate passing.
 
 ### Wave 1: Safe Deletions and Test Compression
 
