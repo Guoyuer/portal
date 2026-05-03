@@ -1,11 +1,9 @@
 // @vitest-environment jsdom
 
-import { describe, it, expect, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { describe, it, expect } from "vitest";
+import { render, screen } from "@testing-library/react";
 import { MacroCards } from "./macro-cards";
 import type { EconSnapshot } from "@/lib/schemas";
-
-afterEach(cleanup);
 
 describe("MacroCards", () => {
   it("renders only the indicators present in the snapshot", () => {

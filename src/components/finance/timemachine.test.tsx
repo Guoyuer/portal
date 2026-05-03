@@ -1,9 +1,7 @@
 // @vitest-environment jsdom
 
-import { describe, it, expect, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
-
-afterEach(cleanup);
+import { describe, it, expect } from "vitest";
+import { render, screen } from "@testing-library/react";
 import { TimemachineSummary } from "./timemachine";
 import type { CrossCheck } from "@/lib/compute/compute";
 import { CATEGORIES, SNAPSHOT, CASHFLOW, ACTIVITY } from "@/test/factories";

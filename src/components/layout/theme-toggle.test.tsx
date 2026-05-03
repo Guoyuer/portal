@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, screen, cleanup, fireEvent, act } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import { ThemeToggle } from "./theme-toggle";
 
 describe("ThemeToggle", () => {
@@ -30,7 +30,6 @@ describe("ThemeToggle", () => {
     }));
   });
   afterEach(() => {
-    cleanup();
     vi.unstubAllGlobals();
   });
 

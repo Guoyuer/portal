@@ -1,11 +1,9 @@
 // @vitest-environment jsdom
 
-import { describe, it, expect, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { describe, it, expect } from "vitest";
+import { render, screen } from "@testing-library/react";
 import type { TooltipContentProps } from "recharts/types/component/Tooltip";
 import { TooltipCard } from "./tooltip-card";
-
-afterEach(cleanup);
 
 // Recharts' TooltipPayload has internal fields (graphicalItemId, …) we don't
 // populate. Treat the array's element type as the underlying payload union so

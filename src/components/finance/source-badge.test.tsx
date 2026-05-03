@@ -1,14 +1,10 @@
 // @vitest-environment jsdom
 
-import { describe, it, expect, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { describe, it, expect } from "vitest";
+import { render, screen } from "@testing-library/react";
 import { SourceBadge } from "./source-badge";
 
 describe("SourceBadge", () => {
-  afterEach(() => {
-    cleanup();
-  });
-
   it("renders 'FID' for fidelity", () => {
     render(<SourceBadge source="fidelity" />);
     expect(screen.getByText("FID")).toBeTruthy();

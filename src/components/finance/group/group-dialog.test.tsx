@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { GroupChartDialog } from "./group-dialog";
 import { TransactionTable } from "../transaction-table";
 import { MarkerHoverPanel } from "../charts/marker-hover-panel";
@@ -42,7 +42,6 @@ beforeEach(() => {
   vi.stubGlobal("matchMedia", matchMediaStub);
 });
 afterEach(() => {
-  cleanup();
   vi.unstubAllGlobals();
 });
 

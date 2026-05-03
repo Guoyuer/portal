@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { describe, it, expect, vi } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
 
 // TickerChart fetches /prices — stub so the test stays purely about table UX.
 vi.mock("./ticker/ticker-chart", () => ({
@@ -10,8 +10,6 @@ vi.mock("./ticker/ticker-chart", () => ({
 }));
 
 import { TickerTable, DeviationCell } from "./ticker-table";
-
-afterEach(cleanup);
 
 describe("TickerTable", () => {
   const mk = (n: number) =>
