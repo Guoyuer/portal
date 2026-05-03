@@ -1,15 +1,11 @@
 // @vitest-environment jsdom
 
-import { describe, it, expect, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { describe, it, expect } from "vitest";
+import { render, screen } from "@testing-library/react";
 import { UnmatchedPanel } from "./unmatched-panel";
 import type { UnmatchedItem } from "@/lib/compute/compute";
 
 describe("UnmatchedPanel", () => {
-  afterEach(() => {
-    cleanup();
-  });
-
   it("groups items by source with per-group count", () => {
     const items: UnmatchedItem[] = [
       { source: "fidelity",  date: "2024-10-01", amount: 500 },

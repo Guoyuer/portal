@@ -1,12 +1,10 @@
 // @vitest-environment jsdom
 
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { describe, it, expect, vi } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { MetricCards } from "./metric-cards";
 import type { ApiTicker } from "@/lib/compute/computed-types";
 import { COLOR_BY_NAME, mkApiCategory } from "@/test/factories";
-
-afterEach(cleanup);
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 

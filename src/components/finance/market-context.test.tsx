@@ -1,11 +1,9 @@
 // @vitest-environment jsdom
 
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { describe, it, expect, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
 import { MarketContext } from "./market-context";
 import { MARKET } from "@/test/factories";
-
-afterEach(cleanup);
 
 // Mock recharts (avoids SVG rendering issues in jsdom)
 vi.mock("recharts", () => ({

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 
 vi.mock("./ticker-chart-base", () => ({
   TickerChartBase: ({ data }: { data: unknown[] }) => <div data-testid="ticker-chart-base">{data.length}</div>,
@@ -12,7 +12,6 @@ vi.mock("./ticker-dialog", () => ({
 }));
 
 afterEach(() => {
-  cleanup();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
