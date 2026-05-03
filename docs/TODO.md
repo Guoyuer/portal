@@ -9,13 +9,11 @@ conclusion.
 
 ## Near-Term Cleanup
 
-- Merge PR #309 once CI stays green; it compresses duplicate tests plus the
-  first build/R2 artifact dedup pass.
-- Merge the Fidelity/Qianji correctness fix before any historical data
-  rebaseline. See `docs/HISTORICAL_REBASELINE_REPORT_2026-05-03.md`.
 - Treat full historical recompute as an explicit data migration, not a normal
   simplification. Require a drift report and latest Fidelity positions pass
   before publishing.
+- Keep incremental build semantics unless a full-build experiment proves the
+  wall time and Yahoo call count are acceptable for routine automation.
 - Keep `scripts/validate_api_zod.ts live` unless it becomes noisy. It duplicates
   publish-time Zod validation, but gives clearer failures in the real-worker
   workflow.

@@ -87,7 +87,6 @@ Investment sources live under `pipeline/etl/sources/`:
 - `fidelity/` -- directory module for CSV parsing, pricing, and cash reconstruction.
 - `robinhood.py`, `empower.py` -- single-file sources.
 - `_types.py` -- Protocol + shared dataclasses.
-- `_ingest.py` -- shared range-replace idempotency helper.
 
 Each source exposes `ingest(db_path, config)`, `positions_at(db_path, ctx) -> list[PositionRow]`, and `produces_positions(config) -> bool`. `compute_daily_allocation` and `positions_at_all` iterate `SOURCES`; allocation should not contain broker-specific code.
 

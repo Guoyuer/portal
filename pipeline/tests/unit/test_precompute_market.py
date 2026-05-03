@@ -40,6 +40,14 @@ def _seed_index_prices(db_path: Path, ticker: str, base: float, n_days: int = 30
     return closes
 
 
+def _fetchone(db_path: Path, sql: str):
+    conn = get_connection(db_path)
+    try:
+        return conn.execute(sql).fetchone()
+    finally:
+        conn.close()
+
+
 @pytest.fixture()
 def db_path(empty_db: Path) -> Path:
     """Create a fresh timemachine DB seeded with index + CNY prices."""
@@ -251,27 +259,13 @@ class TestPrecomputeHoldingsDetailRows:
         conn = get_connection(holdings_db)
         rows = conn.execute("SELECT ticker FROM computed_holdings_detail ORDER BY ticker").fetchall()
         conn.close()
-        tickers = {r[0] for r in rows}
-        assert "VOO" in tickers
-        assert "QQQM" in tickers
-        assert "401k sp500" not in tickers
-        assert "CNY Cash" not in tickers
+        assert {r[0] for r in rows} == {"QQQM", "VOO"}
 
     def test_end_value_matches_ticker_value(self, holdings_db: Path) -> None:
         precompute_holdings_detail(holdings_db)
-        conn = get_connection(holdings_db)
-        row = conn.execute("SELECT end_value FROM computed_holdings_detail WHERE ticker = 'VOO'").fetchone()
-        conn.close()
+        row = _fetchone(holdings_db, "SELECT end_value FROM computed_holdings_detail WHERE ticker = 'VOO'")
         assert row is not None
         assert row[0] == pytest.approx(50000.0, abs=0.01)
-
-    def test_month_return_positive_uptrend(self, holdings_db: Path) -> None:
-        precompute_holdings_detail(holdings_db)
-        conn = get_connection(holdings_db)
-        row = conn.execute("SELECT month_return FROM computed_holdings_detail WHERE ticker = 'VOO'").fetchone()
-        conn.close()
-        assert row is not None
-        assert row[0] > 0  # steady uptrend -> positive month return
 
     def test_month_return_correct_value(self, holdings_db: Path) -> None:
         """Verify month return matches manual calculation from seeded prices."""
@@ -289,15 +283,15 @@ class TestPrecomputeHoldingsDetailRows:
 
         row = conn.execute("SELECT month_return FROM computed_holdings_detail WHERE ticker = 'VOO'").fetchone()
         conn.close()
+        assert expected > 0
         assert row[0] == pytest.approx(expected, abs=0.01)
 
     def test_52w_high_low_and_vs_high(self, holdings_db: Path) -> None:
         precompute_holdings_detail(holdings_db)
-        conn = get_connection(holdings_db)
-        row = conn.execute(
+        row = _fetchone(
+            holdings_db,
             "SELECT high_52w, low_52w, vs_high FROM computed_holdings_detail WHERE ticker = 'VOO'"
-        ).fetchone()
-        conn.close()
+        )
         assert row is not None
         high_52w, low_52w, vs_high = row
         assert high_52w >= low_52w
@@ -305,11 +299,10 @@ class TestPrecomputeHoldingsDetailRows:
 
     def test_start_value_derived_from_month_return(self, holdings_db: Path) -> None:
         precompute_holdings_detail(holdings_db)
-        conn = get_connection(holdings_db)
-        row = conn.execute(
+        row = _fetchone(
+            holdings_db,
             "SELECT month_return, start_value, end_value FROM computed_holdings_detail WHERE ticker = 'VOO'"
-        ).fetchone()
-        conn.close()
+        )
         month_ret, start_val, end_val = row
         # start_value = end_value / (1 + month_ret / 100)
         expected_start = round(end_val / (1 + month_ret / 100), 2)
@@ -322,9 +315,7 @@ class TestHoldingsDetailIdempotent:
     def test_rerun_does_not_duplicate(self, holdings_db: Path) -> None:
         precompute_holdings_detail(holdings_db)
         precompute_holdings_detail(holdings_db)
-        conn = get_connection(holdings_db)
-        count = conn.execute("SELECT COUNT(*) FROM computed_holdings_detail").fetchone()[0]
-        conn.close()
+        count = _fetchone(holdings_db, "SELECT COUNT(*) FROM computed_holdings_detail")[0]
         # Only VOO + QQQM = 2
         assert count == 2
 
@@ -334,7 +325,5 @@ class TestHoldingsDetailEmptyDB:
 
     def test_no_crash_on_empty_db(self, empty_db: Path) -> None:
         precompute_holdings_detail(empty_db)
-        conn = get_connection(empty_db)
-        count = conn.execute("SELECT COUNT(*) FROM computed_holdings_detail").fetchone()[0]
-        conn.close()
+        count = _fetchone(empty_db, "SELECT COUNT(*) FROM computed_holdings_detail")[0]
         assert count == 0

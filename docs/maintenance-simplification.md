@@ -82,7 +82,7 @@ deleting flows, narrowing outputs, and using table-driven tests.
 | S11 | Config example | Shrink `pipeline/config.example.json` to a minimal template with representative assets and all supported config keys. | Done | Low-Medium | Add every real held ticker to private `config.json`; unknown holdings still fail closed. |
 | S12 | Docs archive | Move `docs/archive/` to a branch/wiki or keep only an archive index plus the few decision records still referenced. | Done | Low | Historical notes were removed from the active tree; use git history for archaeology. |
 | S13 | Qianji legacy fallback | Review old CNY and category fallback logic; delete branches covered by newer source invariants. | -80 to -180 | Medium | Only after regression fixtures prove old exports do not need them. |
-| S14 | Source modules | Deduplicate tiny broker helpers such as date normalization, download discovery, and CUSIP lookup. | -50 to -150 | Medium | Keep broker-specific parsing explicit. Do not force all sources into one generic parser. |
+| S14 | Source modules | Delete or merge tiny broker helpers that no longer have at least two live call sites. | Partial | Low-Medium | `_ingest.py` was removed after Fidelity moved to canonical ingest; keep broker parsing explicit and only share helpers that remove real duplication. |
 | S15 | CI workflows | Fold rare baseline refresh and real-worker workflows if they are not pulling their weight. | -50 to -150 | Low | Only if operational signal remains clear. CI LOC is already small. |
 | S16 | Worker | No meaningful LOC target. | 0 | Low | At 157 LOC, leave it boring and explicit. |
 
@@ -107,6 +107,13 @@ case scaffolding, repeated CNY-rate fallback tests, overlapping finance smoke
 assertions, and one redundant grouped-activity compute case. Net effect: 6 files,
 203 insertions / 534 deletions (`-331 LOC`), with targeted Python tests,
 `finance.spec.ts`, frontend coverage, and the full Python gate passing.
+
+Current follow-up: a dead source-ingest helper and repeated test scaffolding
+were trimmed together. `_ingest.py` disappeared after it fell to one caller, and
+`verify_positions`, validation-edge, and holdings precompute tests now use
+parameter tables or query helpers instead of copied test bodies. Net effect:
+8 files, 186 insertions / 313 deletions (`-127 LOC`), with targeted Python
+tests and Ruff passing before the broader gate.
 
 ### Wave 1: Safe Deletions and Test Compression
 
