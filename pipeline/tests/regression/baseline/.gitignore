@@ -1,3 +1,0 @@
-# pipeline/tests/regression/baseline/.gitignore
-# Personal data lives in JSON dumps — never commit. Only commit the SHA256 hashes.
-*.json

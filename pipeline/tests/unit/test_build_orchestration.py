@@ -23,7 +23,6 @@ def paths(tmp_path: Path) -> build_mod.BuildPaths:
         data_dir=tmp_path,
         config=tmp_path / "config.json",
         downloads=downloads,
-        csv=None,
     )
 
 
@@ -133,38 +132,6 @@ class TestConfigAndFidelityIngest:
         config.write_text("[1, 2, 3]", encoding="utf-8")
         with pytest.raises(ValueError, match="Config root must be an object"):
             build_mod._load_config(config)
-
-    def test_single_csv_missing_exits(self, paths: build_mod.BuildPaths) -> None:
-        one_csv = build_mod.BuildPaths(
-            data_dir=paths.data_dir,
-            config=paths.config,
-            downloads=paths.downloads,
-            csv=paths.data_dir / "missing.csv",
-        )
-        with pytest.raises(SystemExit) as exc:
-            build_mod._ingest_fidelity_csvs(one_csv)
-        assert exc.value.code == 1
-
-    def test_single_csv_uses_canonical_ingest(
-        self,
-        paths: build_mod.BuildPaths,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        init_db(paths.db_path)
-        csv_path = paths.data_dir / "one.csv"
-        csv_path.write_text("Date,Action\n", encoding="utf-8")
-        one_csv = build_mod.BuildPaths(paths.data_dir, paths.config, paths.downloads, csv_path)
-        captured: dict[str, object] = {}
-
-        def fake_ingest_csvs(db_path: Path, selected_csvs: list[Path]) -> None:
-            captured["db"] = db_path
-            captured["csvs"] = selected_csvs
-
-        monkeypatch.setattr(build_mod.fidelity_src.parse, "ingest_csvs", fake_ingest_csvs)
-
-        build_mod._ingest_fidelity_csvs(one_csv)
-
-        assert captured == {"db": paths.db_path, "csvs": [csv_path]}
 
     def test_directory_ingest_reports_persisted_row_count(
         self,
@@ -489,7 +456,7 @@ class TestFullAndIncrementalBuild:
             date(2026, 4, 1),
             date(2026, 4, 14),
             no_validate=True,
-            dry_run_market=True,
+            skip_market_precompute=True,
         ) == []
         assert called == []
 
@@ -534,7 +501,7 @@ class TestFullAndIncrementalBuild:
             {},
             date(2026, 1, 1),
             date(2026, 4, 14),
-            dry_run_market=True,
+            skip_market_precompute=True,
         ) == []
         assert calls == ["validation"]
 
@@ -548,7 +515,6 @@ class TestFullAndIncrementalBuild:
             as_of=date(2026, 4, 14),
             prices_from_csv=paths.data_dir / "prices.csv",
             no_validate=True,
-            dry_run_market=True,
         )
         monkeypatch.setattr(build_mod, "_resolve_paths", lambda a: paths)
         monkeypatch.setattr(build_mod, "_load_config", lambda p: {"goal": 1})
@@ -563,8 +529,8 @@ class TestFullAndIncrementalBuild:
         monkeypatch.setattr(
             build_mod,
             "_build_refresh_window",
-            lambda p, cfg, start, end, *, no_validate, dry_run_market: calls.append(
-                ("refresh", (p, cfg, start, end, no_validate, dry_run_market))
+            lambda p, cfg, start, end, *, no_validate, skip_market_precompute: calls.append(
+                ("refresh", (p, cfg, start, end, no_validate, skip_market_precompute))
             ),
         )
 

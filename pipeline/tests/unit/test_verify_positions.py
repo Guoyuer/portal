@@ -71,9 +71,9 @@ class TestParseAsOfFromFilename:
         assert verify_positions.parse_as_of_from_filename(Path(filename)) == expected
 
 
-# ── load_positions ────────────────────────────────────────────────────────────
+# ── load_position_details ─────────────────────────────────────────────────────
 
-class TestLoadPositions:
+class TestLoadPositionDetails:
     @pytest.mark.parametrize(
         ("rows", "expected"),
         [
@@ -121,7 +121,7 @@ class TestLoadPositions:
             "comma-separated-quantity",
         ],
     )
-    def test_load_positions(
+    def test_load_position_details_quantities(
         self,
         tmp_path: Path,
         rows: list[dict[str, str]],
@@ -129,7 +129,8 @@ class TestLoadPositions:
     ) -> None:
         csv_path = tmp_path / "pos.csv"
         _write_csv(csv_path, rows)
-        assert verify_positions.load_positions(csv_path) == expected
+        details = verify_positions.load_position_details(csv_path)
+        assert {key: detail.quantity for key, detail in details.items()} == expected
 
 
 # ── Integration: main() with seeded DB + CSV ─────────────────────────────────

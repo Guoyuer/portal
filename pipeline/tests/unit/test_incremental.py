@@ -186,8 +186,7 @@ class TestBuildRefreshWindowOrchestration:
     def _seeded_db(self, tmp_path, last_date: str):
         """Return a BuildPaths backed by a DB with one computed_daily row."""
         from etl.build import BuildPaths
-        paths = BuildPaths(data_dir=tmp_path, config=tmp_path / "cfg.json",
-                           downloads=tmp_path, csv=None)
+        paths = BuildPaths(data_dir=tmp_path, config=tmp_path / "cfg.json", downloads=tmp_path)
         init_db(paths.db_path)  # property → tmp_path/timemachine.db
         conn = get_connection(paths.db_path)
         conn.execute(
@@ -228,8 +227,7 @@ class TestBuildRefreshWindowOrchestration:
         from etl import build as build_mod
         from etl.build import BuildPaths, _build_refresh_window
 
-        paths = BuildPaths(data_dir=tmp_path, config=tmp_path / "cfg.json",
-                           downloads=tmp_path, csv=None)
+        paths = BuildPaths(data_dir=tmp_path, config=tmp_path / "cfg.json", downloads=tmp_path)
         init_db(paths.db_path)  # empty
 
         called = {"full_build": False}

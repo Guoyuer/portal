@@ -77,7 +77,7 @@ deleting flows, narrowing outputs, and using table-driven tests.
 | S6 | Ticker/group data | Deduplicate chart data-state helpers across ticker and group views. Keep source-specific transaction semantics outside the chart shell. | -150 to -400 | Medium | Worth doing only if the shared shell stays small and obvious. |
 | S7 | Finance UI tables | Reuse table row/header helpers across allocation, ticker, transaction, and group tables where markup is identical. | -100 to -250 | Medium | Small win. Avoid a generic mega-table abstraction. |
 | S8 | R2 artifact script | Extract endpoint descriptor metadata once: path, schema name, row-count key, and validation summary. Share it across export, verify, summary, and Zod smoke helpers. | Done | Medium | Endpoint descriptor and row-count metadata are now single-source; keep publish verification explicit. |
-| S9 | Validation CLIs | Merge old artifact/live Zod scripts behind one small `validate_api_zod.ts` CLI with `live` and `artifacts` modes. | Done | Low | Keep this for active production payload checks. |
+| S9 | Validation CLIs | Keep one small artifact Zod validator called by `r2_artifacts.py verify/publish`; remove the live endpoint mode. | Done | Low | Publish-time schema validation remains the supported gate. |
 | S10 | Manual e2e paths | Consolidate `e2e/manual/*` and manual Playwright config into one documented smoke/perf command. | Done | Low | Removed the manual screenshot/perf specs, real-worker e2e, and extra config; mock e2e and unit coverage remain. |
 | S11 | Config example | Shrink `pipeline/config.example.json` to a minimal template with representative assets and all supported config keys. | Done | Low-Medium | Add every real held ticker to private `config.json`; unknown holdings still fail closed. |
 | S12 | Docs archive | Move `docs/archive/` to a branch/wiki or keep only an archive index plus the few decision records still referenced. | Done | Low | Historical notes were removed from the active tree; use git history for archaeology. |
@@ -121,6 +121,24 @@ baseline refresh workflow were deleted. Core coverage remains in artifact
 verification, Zod validation, Worker unit tests, mock Playwright e2e, and the
 offline regression fixture test. Net effect: 13 files, 40 insertions / 440
 deletions (`-400 LOC`) before validation.
+
+Current non-test follow-up: the automation runner now has one publish mode
+(`--remote`); local R2 remains available directly through `r2_artifacts.py
+publish --local`. The unused L1 baseline refresh script, its shared hasher
+script, and stale committed baseline hashes were removed; the golden regression
+test owns its small canonical dump helper locally. This trims production/tooling
+surface without changing artifact publication gates. The Zod validator was also
+trimmed to artifact validation only; `r2_artifacts.py verify/publish` still runs
+the same frontend schema gate before remote publish. A deeper pass removed
+dead wrappers (`receipt.diff`, `has_meaningful_changes`,
+`verify_positions.load_positions`, group transaction classifier), collapsed the
+now-constant automation publish mode, and removed the public `--skip-schema`
+bypass from the R2 CLI. A final pass removed the remaining test-only schema
+bypass parameter, the unused single-Fidelity-CSV build path, dead regression
+fixture scaffolding, the explicit `--dry-run-market` fixture flag, and a
+one-call ticker price-map helper. Net effect: 37 files, 162 insertions / 711
+deletions (`-549 LOC`); current maintenance surface
+is 248 files / 25,820 physical LOC under the baseline exclusions above.
 
 ### Wave 1: Safe Deletions and Test Compression
 

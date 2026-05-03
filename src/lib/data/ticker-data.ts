@@ -176,13 +176,6 @@ export function computeAvgCost(txns: TickerTxn[]): number | null {
   return totalQty > 0 ? totalCost / totalQty : null;
 }
 
-/** Build a Map<date, close> from the prices array returned by /prices/:symbol. */
-export function priceMapFromSeries(prices: TickerPricePoint[]): Map<string, number> {
-  const m = new Map<string, number>();
-  for (const p of prices) m.set(p.date, p.close);
-  return m;
-}
-
 export function sizeClusters(buys: Cluster[], sells: Cluster[]): { buys: Cluster[]; sells: Cluster[] } {
   const maxAmount = Math.max(1, ...buys.map((c) => c.amount), ...sells.map((c) => c.amount));
   const withR = (c: Cluster): Cluster => ({ ...c, r: scaleR(c.amount, maxAmount, 9, 22) });

@@ -59,9 +59,14 @@ def _seed_exportable_db(db_path: Path) -> None:
         conn.close()
 
 
-def test_export_writes_manifest_summary_and_endpoint_artifacts(empty_db: Path, tmp_path: Path) -> None:
+def test_export_writes_manifest_summary_and_endpoint_artifacts(
+    empty_db: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _seed_exportable_db(empty_db)
     artifact_dir = tmp_path / "r2"
+    monkeypatch.setattr(r2_artifacts, "_run_schema_check", lambda _artifact_dir: None)
 
     manifest = export_artifacts(
         db_path=empty_db,
@@ -101,12 +106,17 @@ def test_export_writes_manifest_summary_and_endpoint_artifacts(empty_db: Path, t
     assert summary["priceRowCounts"]["VOO"] == {"priceRows": 1, "transactionRows": 1}
     assert summary["objectCount"] == 3
 
-    verify_artifacts(db_path=empty_db, artifact_dir=artifact_dir, schema=False)
+    verify_artifacts(db_path=empty_db, artifact_dir=artifact_dir)
 
 
-def test_verify_rejects_hash_drift(empty_db: Path, tmp_path: Path) -> None:
+def test_verify_rejects_hash_drift(
+    empty_db: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _seed_exportable_db(empty_db)
     artifact_dir = tmp_path / "r2"
+    monkeypatch.setattr(r2_artifacts, "_run_schema_check", lambda _artifact_dir: None)
     export_artifacts(
         db_path=empty_db,
         artifact_dir=artifact_dir,
@@ -118,7 +128,7 @@ def test_verify_rejects_hash_drift(empty_db: Path, tmp_path: Path) -> None:
     price_path.write_text('{"VOO":{"symbol":"VOO","prices":[],"transactions":[]}}', encoding="utf-8")
 
     with pytest.raises(RuntimeError, match="bytes|sha256"):
-        verify_artifacts(db_path=empty_db, artifact_dir=artifact_dir, schema=False)
+        verify_artifacts(db_path=empty_db, artifact_dir=artifact_dir)
 
 
 def test_export_allows_symbols_that_are_only_json_keys(empty_db: Path, tmp_path: Path) -> None:
@@ -186,8 +196,9 @@ def test_publish_uploads_manifest_last(
 
     monkeypatch.setattr(r2_artifacts, "_run_wrangler_r2", fake_wrangler)
     monkeypatch.setattr(r2_artifacts, "_LOCK_PATH", tmp_path / "publish.lock")
+    monkeypatch.setattr(r2_artifacts, "_run_schema_check", lambda _artifact_dir: None)
 
-    r2_artifacts.publish_artifacts(db_path=empty_db, artifact_dir=artifact_dir, remote=remote, schema=False)
+    r2_artifacts.publish_artifacts(db_path=empty_db, artifact_dir=artifact_dir, remote=remote)
 
     assert put_order[-1] == "manifest.json"
     assert "snapshots/2026-05-02T170000Z/timeline.json" in uploaded

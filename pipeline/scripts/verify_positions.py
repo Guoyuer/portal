@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import logging
 import os
 import re
 import sys
@@ -37,8 +36,6 @@ from etl.replay import replay_transactions  # noqa: E402
 from etl.sources.fidelity import FIDELITY_REPLAY  # noqa: E402
 
 _DB_PATH = Path(os.environ.get("PORTAL_DB_PATH", str(_PROJECT_DIR / "data" / "timemachine.db")))
-
-log = logging.getLogger(__name__)
 
 # ── Filename-based as-of parsing ──────────────────────────────────────────────
 _MONTH_MAP = {
@@ -114,11 +111,6 @@ def load_position_details(path: Path) -> dict[tuple[str, str], ExpectedPosition]
     return dict(positions)
 
 
-def load_positions(path: Path) -> dict[tuple[str, str], float]:
-    """Parse CSV and return aggregated share quantities."""
-    return {key: detail.quantity for key, detail in load_position_details(path).items()}
-
-
 # ── CLI ───────────────────────────────────────────────────────────────────────
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
@@ -135,12 +127,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--dollar-tolerance", type=float, default=1.0,
                    help="Per-(account,symbol) dollarized tolerance when the positions CSV has a price "
                         "(default $1).")
-    p.add_argument("--tolerance", type=float, default=None,
-                   help="Deprecated alias for --share-tolerance.")
-    args = p.parse_args(argv)
-    if args.tolerance is not None:
-        args.share_tolerance = args.tolerance
-    return args
+    return p.parse_args(argv)
 
 
 def _resolve_as_of(args: argparse.Namespace) -> date | None:
@@ -151,7 +138,6 @@ def _resolve_as_of(args: argparse.Namespace) -> date | None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
     args = _parse_args(argv)
 
     if not args.positions.exists():

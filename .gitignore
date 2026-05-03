@@ -54,6 +54,7 @@ __pycache__/
 pipeline/.sync_state.json
 pipeline/config.json
 pipeline/artifacts/
+pipeline/tests/regression/baseline/*.json
 pipeline/migration-baseline/
 pipeline/data/
 .wrangler/

@@ -39,12 +39,10 @@ cd pipeline && .venv/Scripts/python.exe tools/gen_zod.py --write ../src/lib/sche
 
 # Regression gate
 cd pipeline && .venv/Scripts/python.exe -m pytest tests/regression/ -v
-cd pipeline && .venv/Scripts/python.exe scripts/refresh_l1_baseline_from_fixtures.py
 
 # Automated pipeline
 cd pipeline && .venv/Scripts/python.exe scripts/run_automation.py
 cd pipeline && .venv/Scripts/python.exe scripts/run_automation.py --dry-run
-cd pipeline && .venv/Scripts/python.exe scripts/run_automation.py --force --local
 ```
 
 **Git Bash / MSYS gotcha:** `NEXT_PUBLIC_*=/path npx next build` in Git Bash translates the value into `C:/Program Files/Git/path`. Prefix such commands with `MSYS_NO_PATHCONV=1` or run from CMD/PowerShell.
