@@ -1,6 +1,6 @@
 # Data sources
 yfinance==1.3.0
-fredapi>=0.5,<1
+fredapi>=0.5.2,<1
 
 # HTTP client (used by tests)
 httpx>=0.28.1,<1
