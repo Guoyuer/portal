@@ -7,7 +7,7 @@ stays active-only.
 
 ## Baseline
 
-Raw tracked repo size is about 291 files / 50.0k physical LOC. The maintenance
+Raw tracked repo size is about 266 files / 42.4k physical LOC. The maintenance
 surface below excludes lockfiles, `docs/archive/`, generated Zod, and the
 golden regression fixture:
 
@@ -25,8 +25,8 @@ golden regression fixture:
 | CI | 3 | 306 | 1.1% |
 | worker source | 3 | 275 | 1.0% |
 
-Total: 261 files / 27.3k physical LOC after the manual-e2e deletion pass
-candidate, excluding the same generated/archive/fixture surfaces.
+Total: 261 files / 27.3k physical LOC after the archive collapse, excluding
+the same generated/archive/fixture surfaces.
 
 Use the same exclusion rule when reporting future LOC deltas:
 
@@ -80,7 +80,7 @@ deleting flows, narrowing outputs, and using table-driven tests.
 | S9 | Validation CLIs | Merge old artifact/live Zod scripts behind one small `validate_api_zod.ts` CLI with `live` and `artifacts` modes. | Done | Low | Keep the real-worker failure messages readable. |
 | S10 | Manual e2e paths | Consolidate `e2e/manual/*` and manual Playwright config into one documented smoke/perf command. | Done | Low | Removed the manual screenshot/perf specs and config; mock e2e, real-worker e2e, and ticker cluster unit coverage remain. |
 | S11 | Config example | Shrink `pipeline/config.example.json` to a minimal template with representative assets and all supported config keys. | Done | Low-Medium | Add every real held ticker to private `config.json`; unknown holdings still fail closed. |
-| S12 | Docs archive | Move `docs/archive/` to a branch/wiki or keep only an archive index plus the few decision records still referenced. | Raw -8k to -10k | Low | Does not change runtime maintenance, but reduces search noise and repo scale. |
+| S12 | Docs archive | Move `docs/archive/` to a branch/wiki or keep only an archive index plus the few decision records still referenced. | Done | Low | Historical notes were removed from the active tree; use git history for archaeology. |
 | S13 | Qianji legacy fallback | Review old CNY and category fallback logic; delete branches covered by newer source invariants. | -80 to -180 | Medium | Only after regression fixtures prove old exports do not need them. |
 | S14 | Source modules | Deduplicate tiny broker helpers such as date normalization, download discovery, and CUSIP lookup. | -50 to -150 | Medium | Keep broker-specific parsing explicit. Do not force all sources into one generic parser. |
 | S15 | CI workflows | Fold rare baseline refresh and real-worker workflows if they are not pulling their weight. | -50 to -150 | Low | Only if operational signal remains clear. CI LOC is already small. |
@@ -123,7 +123,6 @@ Targets:
 
 - S6 ticker/group chart shell dedup, or cut low-value group drilldown paths.
 - S7 finance table helper reuse.
-- S12 archive externalization.
 - S13 Qianji legacy branch review.
 
 Expected effect: small-to-medium LOC reduction, but useful mental-load reduction
