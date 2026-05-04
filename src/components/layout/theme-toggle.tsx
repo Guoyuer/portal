@@ -12,12 +12,8 @@ function getThemeSnapshot(): boolean {
   return stored === "dark" || (!stored && window.matchMedia("(prefers-color-scheme: dark)").matches);
 }
 
-function getServerSnapshot(): boolean {
-  return false;
-}
-
 export function ThemeToggle() {
-  const dark = useSyncExternalStore(subscribeTheme, getThemeSnapshot, getServerSnapshot);
+  const dark = useSyncExternalStore(subscribeTheme, getThemeSnapshot, () => false);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
@@ -27,7 +23,6 @@ export function ThemeToggle() {
     const next = !document.documentElement.classList.contains("dark");
     document.documentElement.classList.toggle("dark", next);
     localStorage.setItem("theme", next ? "dark" : "light");
-    // Force re-render by triggering a storage event (useSyncExternalStore picks it up)
     window.dispatchEvent(new Event("theme-change"));
   };
 

@@ -21,12 +21,6 @@ describe("ThemeToggle", () => {
     vi.stubGlobal("matchMedia", (q: string) => ({
       matches: false,
       media: q,
-      onchange: null,
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      addListener: () => {},
-      removeListener: () => {},
-      dispatchEvent: () => true,
     }));
   });
   afterEach(() => {

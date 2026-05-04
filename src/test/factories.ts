@@ -140,9 +140,9 @@ export const CASHFLOW: CashflowResponse = {
 };
 
 export const ACTIVITY: ActivityResponse = {
-  buysBySymbol: [{ ticker: "VTI", count: 2, total: 1000, isGroup: false, sources: ["fidelity"] }],
+  buysBySymbol: [{ ticker: "VTI", count: 2, total: 1000, sources: ["fidelity"] }],
   sellsBySymbol: [],
-  dividendsBySymbol: [{ ticker: "SCHD", count: 1, total: 50, isGroup: false, sources: ["fidelity"] }],
+  dividendsBySymbol: [{ ticker: "SCHD", count: 1, total: 50, sources: ["fidelity"] }],
 };
 
 export const MARKET: MarketData = {

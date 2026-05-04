@@ -14,14 +14,13 @@ type ManifestObject = {
   contentType: string;
 };
 
+const ENDPOINTS = ["timeline", "econ", "prices"] as const;
+type Endpoint = (typeof ENDPOINTS)[number];
+
 type R2Manifest = {
   version: string;
   generatedAt: string;
-  objects: {
-    timeline: ManifestObject;
-    econ: ManifestObject;
-    prices: ManifestObject;
-  };
+  objects: Record<Endpoint, ManifestObject>;
 };
 
 const MANIFEST_KEY = "manifest.json";
@@ -77,9 +76,7 @@ function validManifest(value: unknown): value is R2Manifest {
     typeof obj.version === "string"
     && typeof obj.generatedAt === "string"
     && !!objects
-    && validManifestObject(objects.timeline)
-    && validManifestObject(objects.econ)
-    && validManifestObject(objects.prices)
+    && ENDPOINTS.every((endpoint) => validManifestObject(objects[endpoint]))
   );
 }
 
@@ -112,11 +109,11 @@ async function streamR2Object(env: Env, descriptor: ManifestObject): Promise<Res
 
 async function handleR2Endpoint(
   env: Env,
-  select: (manifest: R2Manifest) => ManifestObject,
+  endpoint: Endpoint,
 ): Promise<Response> {
   const manifest = await loadR2Manifest(env);
   if (manifest instanceof Response) return manifest;
-  return streamR2Object(env, select(manifest));
+  return streamR2Object(env, manifest.objects[endpoint]);
 }
 
 export default {
@@ -128,17 +125,8 @@ export default {
       pathname = pathname.slice(API_PREFIX.length) || "/";
     }
 
-    if (pathname === "/econ") {
-      return handleR2Endpoint(env, (m) => m.objects.econ);
-    }
-
-    if (pathname === "/prices") {
-      return handleR2Endpoint(env, (m) => m.objects.prices);
-    }
-
-    if (pathname === "/timeline") {
-      return handleR2Endpoint(env, (m) => m.objects.timeline);
-    }
+    const endpoint = ENDPOINTS.find((name) => pathname === `/${name}`);
+    if (endpoint) return handleR2Endpoint(env, endpoint);
 
     return notFoundResponse();
   },

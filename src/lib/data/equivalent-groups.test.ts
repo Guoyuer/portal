@@ -1,11 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { EQUIVALENT_GROUPS, GROUP_BY_TICKER, groupOfTicker } from "./equivalent-groups";
+import { EQUIVALENT_GROUPS, groupOfTicker } from "./equivalent-groups";
 
 describe("equivalent groups", () => {
   it("indexes every listed ticker back to its group", () => {
     for (const [key, group] of Object.entries(EQUIVALENT_GROUPS)) {
       for (const t of group.tickers) {
-        expect(GROUP_BY_TICKER.get(t)).toBe(key);
+        expect(groupOfTicker(t)).toBe(key);
       }
     }
   });

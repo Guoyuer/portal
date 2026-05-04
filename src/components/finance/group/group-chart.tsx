@@ -38,17 +38,17 @@ const MAX_R = 14;
  * Combine the representative ticker's price series with the group-net
  * markers into chart points.
  *
- * proxyPrices: Map<ISO date, close price>
+ * proxyPrices: representative ticker price rows
  * markers: Map<ISO date, GroupNetEntry>  (from groupNetByDate)
  */
 export function buildGroupChartData(
-  proxyPrices: Map<string, number>,
+  proxyPrices: { date: string; close: number }[],
   markers: Map<string, GroupNetEntry>,
 ): GroupChartPoint[] {
   const maxAmount = Math.max(1, ...Array.from(markers.values(), (m) => m.net));
 
   const points: GroupChartPoint[] = [];
-  for (const [date, close] of proxyPrices) {
+  for (const { date, close } of proxyPrices) {
     const ts = parseLocalDate(date).getTime();
     const entry = markers.get(date);
     if (!entry) {
@@ -71,8 +71,7 @@ export function buildGroupChartData(
       points.push({ date, ts, price: close, sellCluster: cluster, sellClusterPrice: close });
     }
   }
-  // Ensure chronological order (Map iteration order is insertion order, but
-  // callers may build the Map from unsorted data)
+  // Ensure chronological order; callers may pass unsorted data.
   points.sort((a, b) => a.ts - b.ts);
   return points;
 }

@@ -38,14 +38,13 @@ function groupNetSide(actionType: string): "buy" | "sell" | null {
   return null;
 }
 
-function extractGroupTxns(txns: GroupTxnInput[]): Map<string, Real[]> {
-  const byGroup = new Map<string, Real[]>();
+function extractGroupTxns(txns: GroupTxnInput[]): Map<string, Map<string, Real[]>> {
+  const byGroup = new Map<string, Map<string, Real[]>>();
   for (const t of txns) {
     const side = groupNetSide(t.actionType);
     if (!side) continue;
     const groupKey = groupOfTicker(t.ticker);
     if (!groupKey) continue;
-    const bucketKey = `${groupKey}\u0000${t.source}`;
     const entry: Real = {
       date: t.date,
       ts: parseLocalDate(t.date).getTime(),
@@ -53,9 +52,14 @@ function extractGroupTxns(txns: GroupTxnInput[]): Map<string, Real[]> {
       side,
       amount: Math.abs(t.amount),
     };
-    const arr = byGroup.get(bucketKey);
+    let bySource = byGroup.get(groupKey);
+    if (!bySource) {
+      bySource = new Map<string, Real[]>();
+      byGroup.set(groupKey, bySource);
+    }
+    const arr = bySource.get(t.source);
     if (arr) arr.push(entry);
-    else byGroup.set(bucketKey, [entry]);
+    else bySource.set(t.source, [entry]);
   }
   return byGroup;
 }
@@ -97,13 +101,13 @@ export function groupNetByDate(
   const byGroup = extractGroupTxns(txns);
   const result = new Map<string, Map<string, GroupNetEntry>>();
 
-  for (const [bucketKey, groupTxns] of byGroup) {
-    const [groupKey] = bucketKey.split("\u0000");
-    const clusters = clusterByWindow(groupTxns);
+  for (const [groupKey, bySource] of byGroup) {
     const byDate = result.get(groupKey) ?? new Map<string, GroupNetEntry>();
-    for (const cluster of clusters) {
-      const entry = aggregateCluster(cluster);
-      if (entry) addEntryByDate(byDate, entry);
+    for (const groupTxns of bySource.values()) {
+      for (const cluster of clusterByWindow(groupTxns)) {
+        const entry = aggregateCluster(cluster);
+        if (entry) addEntryByDate(byDate, entry);
+      }
     }
     if (byDate.size > 0) result.set(groupKey, byDate);
   }

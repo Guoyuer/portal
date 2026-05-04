@@ -18,7 +18,6 @@ describe("TickerTable", () => {
       ticker: `SYM${i + 1}`,
       count: i + 1,
       total: (i + 1) * 100,
-      isGroup: false,
       sources: [],
     }));
 
@@ -66,8 +65,8 @@ describe("TickerTable", () => {
 
   it("renders a group row with display name", () => {
     render(<TickerTable title="Test" data={[
-      { ticker: "NASDAQ 100", count: 2, total: 3000, isGroup: true, sources: [], groupKey: "nasdaq_100" },
-      { ticker: "NVDA", count: 1, total: 500, isGroup: false, sources: [] },
+      { ticker: "NASDAQ 100", count: 2, total: 3000, sources: [], groupKey: "nasdaq_100" },
+      { ticker: "NVDA", count: 1, total: 500, sources: [] },
     ]} />);
     expect(screen.getByText("NASDAQ 100")).toBeTruthy();
     expect(screen.getByText("NVDA")).toBeTruthy();
@@ -75,7 +74,7 @@ describe("TickerTable", () => {
 
   it("renders SourceBadge for each source on a row", () => {
     const data: ActivityTicker[] = [
-      { ticker: "S&P 500", count: 3, total: 1050, isGroup: true, sources: ["fidelity", "401k"], groupKey: "sp500" },
+      { ticker: "S&P 500", count: 3, total: 1050, sources: ["fidelity", "401k"], groupKey: "sp500" },
     ];
     render(<TickerTable title="Buys by Symbol" data={data} />);
     expect(screen.getByText("FID")).toBeTruthy();

@@ -22,7 +22,6 @@ export type ActivityTicker = {
   ticker: string;
   count: number;
   total: number;
-  isGroup: boolean;
   groupKey?: string;
   sources: Array<SourceKind>;
 };

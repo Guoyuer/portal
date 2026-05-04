@@ -203,6 +203,15 @@ interface SourceCrossCheck {
   unmatched: UnmatchedItem[];
 }
 
+const CROSS_CHECK_SOURCES = [
+  { source: "fidelity", accountPrefix: "fidelity" },
+  { source: "robinhood", accountPrefix: "robinhood" },
+] as const satisfies readonly { source: UnmatchedItem["source"]; accountPrefix: string }[];
+
+function emptySourceCrossCheck(): SourceCrossCheck {
+  return { matched: 0, total: 0, unmatched: [] };
+}
+
 export interface CrossCheck {
   matchedCount: number;
   totalCount: number;
@@ -236,56 +245,39 @@ export function computeCrossCheck(
     if (floor > effectiveStart) effectiveStart = floor;
   }
 
-  const fidelitySrc:  SourceCrossCheck = { matched: 0, total: 0, unmatched: [] };
-  const robinhoodSrc: SourceCrossCheck = { matched: 0, total: 0, unmatched: [] };
+  const perSource: CrossCheck["perSource"] = {
+    fidelity: emptySourceCrossCheck(),
+    robinhood: emptySourceCrossCheck(),
+  };
 
-  // ── Fidelity ──
-  // Candidates: transfers (user moves money into Fidelity from another account),
-  // or income booked directly into a Fidelity account (payroll direct deposit,
-  // rebate rewards). Qianji logs those as type=income with accountTo="Fidelity …"
-  // rather than as a transfer. Matching on the accountTo prefix (case-insensitive)
-  // covers "Fidelity taxable", "Fidelity Roth IRA", etc.
-  {
+  // Candidates: Qianji transfers, or income booked directly into the broker
+  // account (payroll direct deposit, rebate rewards).
+  for (const { source, accountPrefix } of CROSS_CHECK_SOURCES) {
     const deposits = investmentTxns
-      .filter((t) => t.source === "fidelity" && t.actionType === "deposit"
+      .filter((t) => t.source === source && t.actionType === "deposit"
         && Math.abs(t.amount) >= DUST_THRESHOLD
         && t.date >= effectiveStart && t.date <= end)
       .map((t) => ({ amount: Math.abs(t.amount), ms: new Date(t.date).getTime(), date: t.date }));
     const candidates = qianjiTxns.filter((q) =>
       q.type === "transfer" ||
-      (q.type === "income" && q.accountTo.toLowerCase().startsWith("fidelity")),
+      (q.type === "income" && q.accountTo.toLowerCase().startsWith(accountPrefix)),
     );
-    matchAndRecord(deposits, candidates, fidelitySrc, "fidelity");
-  }
-
-  // ── Robinhood ──
-  // Candidates: transfers, or income booked directly into a Robinhood account.
-  {
-    const deposits = investmentTxns
-      .filter((t) => t.source === "robinhood" && t.actionType === "deposit"
-        && Math.abs(t.amount) >= DUST_THRESHOLD
-        && t.date >= effectiveStart && t.date <= end)
-      .map((t) => ({ amount: Math.abs(t.amount), ms: new Date(t.date).getTime(), date: t.date }));
-    const candidates = qianjiTxns.filter((q) =>
-      q.type === "transfer" ||
-      (q.type === "income" && q.accountTo.toLowerCase().startsWith("robinhood")),
-    );
-    matchAndRecord(deposits, candidates, robinhoodSrc, "robinhood");
+    matchAndRecord(deposits, candidates, perSource[source], source);
   }
 
   // 401k contributions are excluded — the pipeline reconciles QFX vs Qianji
   // at ingest time (ContributionReconcileError on per-date $1 mismatch);
   // a UI cross-check layer would be ~100% tautological.
 
-  const matchedCount = fidelitySrc.matched + robinhoodSrc.matched;
-  const totalCount   = fidelitySrc.total   + robinhoodSrc.total;
-  const allUnmatched = [...fidelitySrc.unmatched, ...robinhoodSrc.unmatched];
+  const matchedCount = perSource.fidelity.matched + perSource.robinhood.matched;
+  const totalCount   = perSource.fidelity.total   + perSource.robinhood.total;
+  const allUnmatched = [...perSource.fidelity.unmatched, ...perSource.robinhood.unmatched];
 
   return {
     matchedCount,
     totalCount,
     ok: totalCount > 0 && matchedCount === totalCount,
-    perSource: { fidelity: fidelitySrc, robinhood: robinhoodSrc },
+    perSource,
     allUnmatched,
   };
 }
@@ -367,7 +359,6 @@ export function computeActivity(investmentTxns: InvestmentTxn[], start: string, 
         ticker,
         count: v.count,
         total: round(v.total),
-        isGroup: false,
         sources: [...v.sources],
       }))
       .sort((a, b) => b.total - a.total);
@@ -397,7 +388,7 @@ export function buildTickerIndex(tickers: DailyTicker[]): Map<string, ApiTicker[
 
 import { EQUIVALENT_GROUPS, groupOfTicker } from "@/lib/data/equivalent-groups";
 
-type GroupAccum = { count: number; total: number; sources: Set<SourceKind>; isGroup: boolean; groupKey?: string };
+type GroupAccum = { count: number; total: number; sources: Set<SourceKind>; groupKey?: string };
 
 function foldIntoGroups(rows: ActivityTicker[]): ActivityTicker[] {
   const grouped = new Map<string, GroupAccum>();
@@ -414,7 +405,6 @@ function foldIntoGroups(rows: ActivityTicker[]): ActivityTicker[] {
         count: row.count,
         total: row.total,
         sources: new Set(row.sources),
-        isGroup: gKey !== null,
         groupKey: gKey ?? undefined,
       });
     }
@@ -424,7 +414,6 @@ function foldIntoGroups(rows: ActivityTicker[]): ActivityTicker[] {
       ticker,
       count: v.count,
       total: round(v.total),
-      isGroup: v.isGroup,
       groupKey: v.groupKey,
       sources: [...v.sources],
     }))

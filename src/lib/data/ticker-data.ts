@@ -93,12 +93,12 @@ export function mergeTickerData(
 
 export function clusterByTime(
   points: TickerChartPoint[],
-  priceField: "buyPrice" | "sellPrice",
-  qtyField: "buyQty" | "sellQty",
-  amountField: "buyAmount" | "sellAmount",
-  countField: "buyTxnCount" | "sellTxnCount",
+  side: "buy" | "sell",
 ): Cluster[] {
   type M = { ts: number; price: number; qty: number; amount: number; count: number; date: string };
+  const [priceField, qtyField, amountField, countField] = side === "buy"
+    ? ["buyPrice", "buyQty", "buyAmount", "buyTxnCount"] as const
+    : ["sellPrice", "sellQty", "sellAmount", "sellTxnCount"] as const;
   const markers: M[] = [];
   for (const p of points) {
     const price = p[priceField];
@@ -193,8 +193,8 @@ export function tsToIsoLocal(ts: number): string {
 
 export function buildClusteredData(data: TickerChartPoint[]): ClusteredPoint[] {
   const sized = sizeClusters(
-    clusterByTime(data, "buyPrice", "buyQty", "buyAmount", "buyTxnCount"),
-    clusterByTime(data, "sellPrice", "sellQty", "sellAmount", "sellTxnCount"),
+    clusterByTime(data, "buy"),
+    clusterByTime(data, "sell"),
   );
 
   // Drop per-day scatter markers (clusters replace them in the dialog)

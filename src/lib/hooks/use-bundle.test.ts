@@ -22,6 +22,13 @@ beforeAll(() => server.listen({ onUnhandledRequest: "bypass" }));
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
+async function renderLoadedBundle(handler?: ReturnType<typeof http.get>) {
+  if (handler) server.use(handler);
+  const rendered = renderHook(() => useBundle());
+  await waitFor(() => expect(rendered.result.current.loading).toBe(false));
+  return rendered;
+}
+
 // ── Tests ───────────────────────────────────────────────────────────────
 
 describe("useBundle", () => {
@@ -33,8 +40,7 @@ describe("useBundle", () => {
   });
 
   it("loads data successfully", async () => {
-    const { result } = renderHook(() => useBundle());
-    await waitFor(() => expect(result.current.loading).toBe(false));
+    const { result } = await renderLoadedBundle();
 
     expect(result.current.error).toBeNull();
     expect(result.current.chartDaily).toHaveLength(3);
@@ -46,43 +52,34 @@ describe("useBundle", () => {
     expect(result.current.allocation!.total).toBe(102000);
   });
 
-  it("sets error on HTTP failure", async () => {
-    server.use(
+  it.each([
+    [
+      "HTTP failure",
       http.get(TIMELINE_URL, () => new HttpResponse(null, { status: 500, statusText: "Internal Server Error" })),
-    );
-    const { result } = renderHook(() => useBundle());
-    await waitFor(() => expect(result.current.loading).toBe(false));
+      "HTTP 500 Internal Server Error",
+    ],
+    [
+      "network failure",
+      http.get(TIMELINE_URL, () => HttpResponse.error()),
+      null,
+    ],
+    [
+      "invalid schema",
+      http.get(TIMELINE_URL, () => HttpResponse.json({ daily: "not-an-array" })),
+      /^schema drift:/,
+    ],
+  ])("sets error on %s", async (_label, handler, expected) => {
+    const { result } = await renderLoadedBundle(handler);
 
-    expect(result.current.error).toBe("HTTP 500 Internal Server Error");
+    if (expected instanceof RegExp) expect(result.current.error).toMatch(expected);
+    else if (expected) expect(result.current.error).toBe(expected);
+    else expect(result.current.error).toBeTruthy();
     expect(result.current.chartDaily).toEqual([]);
     expect(result.current.snapshot).toBeNull();
   });
 
-  it("sets error on network failure", async () => {
-    server.use(
-      http.get(TIMELINE_URL, () => HttpResponse.error()),
-    );
-    const { result } = renderHook(() => useBundle());
-    await waitFor(() => expect(result.current.loading).toBe(false));
-
-    expect(result.current.error).toBeTruthy();
-    expect(result.current.chartDaily).toEqual([]);
-  });
-
-  it("sets error on invalid schema", async () => {
-    server.use(
-      http.get(TIMELINE_URL, () => HttpResponse.json({ daily: "not-an-array" })),
-    );
-    const { result } = renderHook(() => useBundle());
-    await waitFor(() => expect(result.current.loading).toBe(false));
-
-    expect(result.current.error).toMatch(/^schema drift:/);
-    expect(result.current.chartDaily).toEqual([]);
-  });
-
   it("updates snapshot on brush change", async () => {
-    const { result } = renderHook(() => useBundle());
-    await waitFor(() => expect(result.current.loading).toBe(false));
+    const { result } = await renderLoadedBundle();
 
     // Initially snapshot is last point
     expect(result.current.snapshot!.date).toBe("2026-01-06");
@@ -95,7 +92,7 @@ describe("useBundle", () => {
   });
 
   it("computes cashflow and activity for brush range", async () => {
-    server.use(
+    const { result } = await renderLoadedBundle(
       http.get(TIMELINE_URL, () => HttpResponse.json({
         ...VALID_PAYLOAD,
         qianjiTxns: [
@@ -107,8 +104,6 @@ describe("useBundle", () => {
         ],
       })),
     );
-    const { result } = renderHook(() => useBundle());
-    await waitFor(() => expect(result.current.loading).toBe(false));
 
     expect(result.current.cashflow).not.toBeNull();
     expect(result.current.cashflow!.totalIncome).toBe(5000);
@@ -119,7 +114,7 @@ describe("useBundle", () => {
   });
 
   it("accepts sparkline as a JSON array", async () => {
-    server.use(
+    const { result } = await renderLoadedBundle(
       http.get(TIMELINE_URL, () => HttpResponse.json({
         ...VALID_PAYLOAD,
         market: {
@@ -129,14 +124,12 @@ describe("useBundle", () => {
         },
       })),
     );
-    const { result } = renderHook(() => useBundle());
-    await waitFor(() => expect(result.current.loading).toBe(false));
 
     expect(result.current.market!.indices[0].sparkline).toEqual([5500, 5600, 5700, 5800]);
   });
 
   it("computes monthlyFlows from qianjiTxns", async () => {
-    server.use(
+    const { result } = await renderLoadedBundle(
       http.get(TIMELINE_URL, () => HttpResponse.json({
         ...VALID_PAYLOAD,
         qianjiTxns: [
@@ -145,8 +138,6 @@ describe("useBundle", () => {
         ],
       })),
     );
-    const { result } = renderHook(() => useBundle());
-    await waitFor(() => expect(result.current.loading).toBe(false));
 
     expect(result.current.monthlyFlows).toHaveLength(1);
     expect(result.current.monthlyFlows[0].month).toBe("2026-01");

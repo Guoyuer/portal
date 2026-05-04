@@ -133,7 +133,7 @@ function GroupChartDialogContent({
         </p>
       );
     }
-    if (proxy.status === "pseudo" || proxy.status === "missing" || proxy.status === "empty") {
+    if (proxy.status === "pseudo" || proxy.status === "empty") {
       return (
         <p className="text-sm text-muted-foreground py-4 px-4">
           No price data for {group.representative}
@@ -153,8 +153,7 @@ function GroupChartDialogContent({
       );
     }
 
-    const priceMap = new Map(filteredPrices.map((p) => [p.date, p.close]));
-    const chartData = buildGroupChartData(priceMap, markers);
+    const chartData = buildGroupChartData(filteredPrices, markers);
 
     return (
       <GroupChart
