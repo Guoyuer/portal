@@ -25,6 +25,5 @@ export const TickerPriceResponseSchema = z.object({
 
 export const TickerPricesBundleSchema = z.record(z.string(), TickerPriceResponseSchema);
 
-export type TickerPricePoint = z.infer<typeof TickerPricePointSchema>;
 export type TickerTxn = z.infer<typeof TickerTxnSchema>;
 export type TickerPricesBundle = z.infer<typeof TickerPricesBundleSchema>;

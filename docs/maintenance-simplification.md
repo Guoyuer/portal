@@ -266,11 +266,22 @@ Current static-analysis sweep:
   reports no circular dependencies.
 - Dependency/file reachability: `knip` remaining findings are reviewed dynamic
   or generated surfaces: `e2e/mock-api.ts` is Playwright `webServer.command`,
-  `scripts/validate_api_zod.ts` is called by `r2_artifacts.py`, `public/sw.js`
-  is registered from `layout.tsx`, `tsx` is required by those command paths,
+  `scripts/validate_api_zod.ts` is called by `r2_artifacts.py`, `tsx` is
+  required by those command paths,
   `@cloudflare/workers-types` is declared in `worker/package.json`,
-  `postcss` is a Next/Tailwind config peer satisfied by the toolchain, and
-  `TickerPricePoint` is a type-only import in `ticker-data.ts`.
+  and `postcss` is a Next/Tailwind config peer satisfied by the toolchain.
+
+Service-worker cleanup: the custom `public/sw.js` cache-first layer for
+`/_next/static` was removed. Cloudflare Pages and Next hashed assets already
+cover static caching, and the custom worker added stale-cache mental load
+without protecting API artifacts. `layout.tsx` now only unregisters old
+registrations and deletes the old `portal-static-*` caches for users who had
+visited production before this cleanup. The prices schema also stopped
+exporting the one-reader `TickerPricePoint` alias; `ticker-data.ts` derives it
+from `TickerPricesBundle` locally. Diff effect: 5 files, 36 insertions / 52
+deletions (`-16 diff LOC`); maintenance surface is 224 files / 23,521 LOC.
+Validation: frontend lint, TypeScript, knip, ts-prune, Vitest, Next build,
+and Playwright e2e.
 
 Parsing-surface follow-up: the broker parser no longer exposes a fake-generic
 US date API. Fidelity keeps a strict `MM/DD/YYYY` parser; Robinhood owns its
