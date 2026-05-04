@@ -139,7 +139,7 @@ DATA:OFXSGML
 """
     (tmp_path / "Bloomberg.Download.2024Q2.qfx").write_text(qfx_content, encoding="ascii")
 
-    empower_src.ingest(empty_db, tmp_path)
+    empower_src.ingest(empty_db, tmp_path, {})
 
     assert db_value(empty_db, "SELECT COUNT(*) FROM empower_snapshots") == 1
     assert db_value(empty_db, "SELECT COUNT(*) FROM empower_funds") == 1
@@ -160,7 +160,7 @@ DATA:OFXSGML
 </INVPOSLIST></INVSTMTRS></INVSTMTTRNRS></INVSTMTMSGSRSV1></OFX>
 """
     (tmp_path / "Bloomberg.Download.zero.qfx").write_text(qfx, encoding="ascii")
-    empower_src.ingest(empty_db, tmp_path)
+    empower_src.ingest(empty_db, tmp_path, {})
 
     assert db_value(empty_db, "SELECT COUNT(*) FROM empower_funds") == 0
 
@@ -179,7 +179,7 @@ DATA:OFXSGML
 </INVPOSLIST></INVSTMTRS></INVSTMTTRNRS></INVSTMTMSGSRSV1></OFX>
 """
     (tmp_path / "Bloomberg.Download.unknown.qfx").write_text(qfx, encoding="ascii")
-    empower_src.ingest(empty_db, tmp_path)
+    empower_src.ingest(empty_db, tmp_path, {})
 
     tickers = [row[0] for row in db_rows(empty_db, "SELECT ticker FROM empower_funds")]
     assert tickers == ["401k_unknown_999999999"]
@@ -208,7 +208,7 @@ DATA:OFXSGML
 
 def test_ingest_missing_dir_is_noop(tmp_path: Path, empty_db: Path) -> None:
     """Non-existent downloads directory → silent no-op."""
-    empower_src.ingest(empty_db, tmp_path / "does_not_exist")
+    empower_src.ingest(empty_db, tmp_path / "does_not_exist", {})
     assert db_value(empty_db, "SELECT COUNT(*) FROM empower_snapshots") == 0
 
 

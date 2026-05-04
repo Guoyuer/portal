@@ -93,7 +93,7 @@ def _seed_computed_daily(tmp_path: Path, last_date: str) -> Path:
 class TestChangesDetected:
     def test_marker_missing_returns_true(self, marker, downloads):
         assert not marker.exists()
-        assert changes.changes_detected(marker, downloads, None) is True
+        assert changes.changes_detected(marker, downloads, downloads / "missing-qianji.db") is True
 
     @pytest.mark.parametrize(
         "filename",
@@ -107,7 +107,7 @@ class TestChangesDetected:
     def test_watched_file_newer_than_marker_returns_true(self, marker, downloads, filename):
         _stale_marker(marker)
         (downloads / filename).write_text("data")
-        assert changes.changes_detected(marker, downloads, None) is True
+        assert changes.changes_detected(marker, downloads, downloads / "missing-qianji.db") is True
 
     def test_no_newer_files_returns_false(self, marker, downloads):
         csv = downloads / "Accounts_History_old.csv"
@@ -115,11 +115,11 @@ class TestChangesDetected:
         past = time.time() - 3600
         os.utime(csv, (past, past))
         marker.write_text("new")
-        assert changes.changes_detected(marker, downloads, None) is False
+        assert changes.changes_detected(marker, downloads, downloads / "missing-qianji.db") is False
 
     def test_empty_downloads_returns_false(self, marker, downloads):
         marker.write_text("new")
-        assert changes.changes_detected(marker, downloads, None) is False
+        assert changes.changes_detected(marker, downloads, downloads / "missing-qianji.db") is False
 
     def test_qianji_db_newer_returns_true(self, marker, downloads, qianji_db_file):
         _stale_marker(marker)
@@ -128,7 +128,7 @@ class TestChangesDetected:
 
     def test_missing_downloads_dir_returns_false(self, marker, tmp_path):
         _stale_marker(marker)
-        assert changes.changes_detected(marker, tmp_path / "nope", None) is False
+        assert changes.changes_detected(marker, tmp_path / "nope", tmp_path / "missing-qianji.db") is False
 
 
 # ── needs_catchup() ───────────────────────────────────────────────────────────
@@ -216,7 +216,7 @@ def _stub_runner_env(
     for fname in downloads_seed or ():
         (downloads / fname).write_text("stub")
     monkeypatch.setattr(runner, "get_downloads_dir", lambda: downloads)
-    monkeypatch.setattr(runner, "get_qianji_db_path", lambda: None)
+    monkeypatch.setattr(runner, "get_qianji_db_path", lambda: tmp_path / "missing-qianji.db")
     monkeypatch.setenv("PORTAL_HEALTHCHECK_URL", "https://hc.example/dummy")
     if email_enabled:
         monkeypatch.setenv("PORTAL_SMTP_USER", "me@gmail.com")
@@ -442,14 +442,14 @@ class TestPathHelpers:
         monkeypatch.setenv("USERPROFILE", str(tmp_path))
         assert paths.get_downloads_dir() == tmp_path / "Downloads"
 
-    def test_qianji_db_path_none_without_appdata(self, monkeypatch):
+    def test_qianji_db_path_fallback_without_appdata(self, monkeypatch):
         monkeypatch.delenv("APPDATA", raising=False)
-        assert paths.get_qianji_db_path() is None
+        p = paths.get_qianji_db_path()
+        assert p.parts[-3:] == ("com.mutangtech.qianji.win", "qianji_flutter", "qianjiapp.db")
 
     def test_qianji_db_path_uses_appdata(self, monkeypatch, tmp_path):
         monkeypatch.setenv("APPDATA", str(tmp_path))
         p = paths.get_qianji_db_path()
-        assert p is not None
         assert p.is_relative_to(tmp_path)
         assert p.name == "qianjiapp.db"
 
@@ -609,9 +609,6 @@ class TestEmailNotifications:
 
 
 class TestExtractValidationWarnings:
-    def test_returns_empty_without_buffer(self):
-        assert notify.extract_validation_warnings() == []
-
     @pytest.mark.parametrize(
         ("lines", "expected_count", "expected_substrings"),
         [

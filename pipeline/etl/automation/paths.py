@@ -41,12 +41,11 @@ def get_downloads_dir() -> Path:
     return Path.home() / "Downloads"
 
 
-def get_qianji_db_path() -> Path | None:
-    """Location of Qianji's Windows app DB. Returns ``None`` if ``APPDATA`` is unset."""
+def get_qianji_db_path() -> Path:
+    """Location of Qianji's Windows app DB."""
     appdata = os.environ.get("APPDATA")
-    if not appdata:
-        return None
-    return Path(appdata) / "com.mutangtech.qianji.win" / "qianji_flutter" / "qianjiapp.db"
+    root = Path(appdata) if appdata else Path.home() / "AppData" / "Roaming"
+    return root / "com.mutangtech.qianji.win" / "qianji_flutter" / "qianjiapp.db"
 
 
 def get_log_dir() -> Path:

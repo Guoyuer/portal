@@ -128,9 +128,9 @@ def _parse_warnings_from_lines(lines: list[str]) -> list[str]:
     return warnings
 
 
-def extract_validation_warnings(buffer: list[str] | None = None) -> list[str]:
+def extract_validation_warnings(buffer: list[str]) -> list[str]:
     """Return validation WARNINGs captured from this run's subprocess output."""
-    return _parse_warnings_from_lines(buffer or [])
+    return _parse_warnings_from_lines(buffer)
 
 
 def _fmt_duration(seconds: float) -> str:
@@ -145,22 +145,20 @@ def _build_context(
     exit_code: int,
     log_file: Path,
     error: str | None,
-    warnings: list[str] | None,
-    started_at: datetime | None = None,
+    warnings: list[str],
+    started_at: datetime,
     publish_summary: PublishSummary | None = None,
     dry_run: bool = False,
 ) -> dict[str, object]:
     """Assemble context consumed by format_text / format_html."""
-    duration = ""
-    if started_at is not None:
-        duration = _fmt_duration((datetime.now() - started_at).total_seconds())
+    duration = _fmt_duration((datetime.now() - started_at).total_seconds())
     return {
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "status_label": _STATUS_LABELS.get(exit_code, f"EXIT {exit_code}"),
         "exit_code": exit_code,
         "log_file": str(log_file),
         "error": error,
-        "warnings": warnings or [],
+        "warnings": warnings,
         "publish_summary": publish_summary,
         "dry_run": dry_run,
         "duration": duration,
@@ -171,12 +169,13 @@ def send_report_email(
     config: EmailConfig | None,
     log: logging.Logger,
     snapshot_before: SyncSnapshot,
-    snapshot_after: SyncSnapshot | None,
+    snapshot_after: SyncSnapshot,
     exit_code: int,
     log_file: Path,
+    *,
     error: str | None = None,
-    validation_warnings: list[str] | None = None,
-    started_at: datetime | None = None,
+    validation_warnings: list[str],
+    started_at: datetime,
     publish_summary: PublishSummary | None = None,
     dry_run: bool = False,
 ) -> None:

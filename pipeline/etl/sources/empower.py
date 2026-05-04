@@ -179,7 +179,7 @@ def _cusip_map(config: RawConfig) -> dict[str, str]:
 # ── Public API (module protocol) ───────────────────────────────────────────
 
 
-def ingest(db_path: Path, downloads_dir: Path, config: RawConfig | None = None) -> None:
+def ingest(db_path: Path, downloads_dir: Path, config: RawConfig) -> None:
     """Scan ``downloads_dir`` for ``Bloomberg.Download*.qfx`` and ingest each.
 
     Populates ``empower_snapshots`` + ``empower_funds`` (idempotent per
@@ -190,7 +190,7 @@ def ingest(db_path: Path, downloads_dir: Path, config: RawConfig | None = None) 
     Silent no-op when the downloads directory doesn't exist — mirrors
     :func:`etl.sources.robinhood.ingest`'s missing-CSV behaviour.
     """
-    cusip_map = _cusip_map(config or {})
+    cusip_map = _cusip_map(config)
     if not downloads_dir.exists():
         return
     qfx_paths = sorted(downloads_dir.glob("Bloomberg.Download*.qfx"))

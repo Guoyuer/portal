@@ -51,7 +51,7 @@ def _load_records(
     conn: sqlite3.Connection,
     cny_rate: float | Callable[[], float] | None = None,
     *,
-    historical_cny_rates: Mapping[date, float] | None = None,
+    historical_cny_rates: Mapping[date, float],
 ) -> list[QianjiRecord]:
     """Load cashflow records from an open DB connection.
 
@@ -112,7 +112,7 @@ def _load_records(
 def load_all_from_db(
     db_path: Path = DEFAULT_DB_PATH,
     *,
-    historical_cny_rates: Mapping[date, float] | None = None,
+    historical_cny_rates: Mapping[date, float],
 ) -> list[QianjiRecord]:
     """Load Qianji cashflow records.
 
@@ -149,7 +149,7 @@ def ingest_qianji_transactions(
     db_path: Path,
     records: list[QianjiRecord],
     *,
-    retirement_categories: list[str] | None = None,
+    retirement_categories: list[str],
 ) -> int:
     """Ingest Qianji transaction records into the database.
 
@@ -160,7 +160,7 @@ def ingest_qianji_transactions(
 
     Returns row count.
     """
-    retirement_set = set(retirement_categories or [])
+    retirement_set = set(retirement_categories)
 
     conn = get_connection(db_path)
     try:
