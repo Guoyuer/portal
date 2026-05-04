@@ -111,11 +111,11 @@ def ping_healthcheck(suffix: str = "") -> None:
 
 # ── Email reporting ──────────────────────────────────────────────────────────
 
-def _parse_warnings_from_lines(lines: list[str]) -> list[str]:
-    """Extract WARNING messages, skipping healthcheck noise and duplicates."""
+def extract_validation_warnings(buffer: list[str]) -> list[str]:
+    """Return validation WARNINGs captured from this run's subprocess output."""
     warnings: list[str] = []
     seen: set[str] = set()
-    for line in lines:
+    for line in buffer:
         msg = ""
         for marker in ("WARNING:", "WARNING "):
             if marker in line:
@@ -128,41 +128,12 @@ def _parse_warnings_from_lines(lines: list[str]) -> list[str]:
     return warnings
 
 
-def extract_validation_warnings(buffer: list[str]) -> list[str]:
-    """Return validation WARNINGs captured from this run's subprocess output."""
-    return _parse_warnings_from_lines(buffer)
-
-
 def _fmt_duration(seconds: float) -> str:
     """Compact ``NmNNs``-style duration (or ``NNs`` when under a minute)."""
     if seconds < 60:
         return f"{seconds:.0f}s"
     m, s = divmod(int(seconds), 60)
     return f"{m}m{s:02d}s"
-
-
-def _build_context(
-    exit_code: int,
-    log_file: Path,
-    error: str | None,
-    warnings: list[str],
-    started_at: datetime,
-    publish_summary: PublishSummary | None = None,
-    dry_run: bool = False,
-) -> dict[str, object]:
-    """Assemble context consumed by format_text / format_html."""
-    duration = _fmt_duration((datetime.now() - started_at).total_seconds())
-    return {
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "status_label": _STATUS_LABELS.get(exit_code, f"EXIT {exit_code}"),
-        "exit_code": exit_code,
-        "log_file": str(log_file),
-        "error": error,
-        "warnings": warnings,
-        "publish_summary": publish_summary,
-        "dry_run": dry_run,
-        "duration": duration,
-    }
 
 
 def send_report_email(
@@ -193,15 +164,18 @@ def send_report_email(
         return
 
     receipt = SyncReceipt(before=snapshot_before, after=snapshot_after)
-    context = _build_context(
-        exit_code,
-        log_file,
-        error,
-        validation_warnings,
-        started_at=started_at,
-        publish_summary=publish_summary,
-        dry_run=dry_run,
-    )
+    now = datetime.now()
+    context = {
+        "timestamp": now.strftime("%Y-%m-%d %H:%M"),
+        "status_label": _STATUS_LABELS.get(exit_code, f"EXIT {exit_code}"),
+        "exit_code": exit_code,
+        "log_file": str(log_file),
+        "error": error,
+        "warnings": validation_warnings,
+        "publish_summary": publish_summary,
+        "dry_run": dry_run,
+        "duration": _fmt_duration((now - started_at).total_seconds()),
+    }
     subject = build_subject(receipt, exit_code, _STATUS_LABELS.get(exit_code), publish_summary)
     html = format_html(receipt, context)
     text = format_text(receipt, context)
