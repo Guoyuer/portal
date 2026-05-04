@@ -4,7 +4,6 @@ import { TickerPriceResponseSchema } from "./ticker";
 describe("TickerPriceResponseSchema", () => {
   it("accepts complete ticker payloads", () => {
     const parsed = TickerPriceResponseSchema.safeParse({
-      symbol: "VOO",
       prices: [{ date: "2026-01-02", close: 500 }],
       transactions: [],
     });
@@ -13,6 +12,6 @@ describe("TickerPriceResponseSchema", () => {
   });
 
   it("rejects missing exporter-guaranteed arrays", () => {
-    expect(TickerPriceResponseSchema.safeParse({ symbol: "VOO" }).success).toBe(false);
+    expect(TickerPriceResponseSchema.safeParse({}).success).toBe(false);
   });
 });

@@ -128,7 +128,6 @@ describe("TickerChart", () => {
   it("renders the chart for real ticker data", async () => {
     mockPricesResponse({
       AAPL: {
-        symbol: "AAPL",
         prices: [{ date: "2025-10-01", close: 100 }],
         transactions: [],
       },
@@ -165,7 +164,6 @@ describe("TickerDialogOnly", () => {
   it("closes for empty ticker data", async () => {
     mockPricesResponse({
       AAPL: {
-        symbol: "AAPL",
         prices: [],
         transactions: [],
       },

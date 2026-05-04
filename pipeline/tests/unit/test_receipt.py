@@ -78,7 +78,6 @@ def test_load_publish_summary(tmp_path: Path) -> None:
             "objectCount": 3,
             "totalBytes": 4096,
             "source": {"latestDate": "2026-05-01"},
-            "rowCounts": {"daily": 1},
             "priceRowCounts": {
                 "VOO": {"priceRows": 10, "transactionRows": 2},
                 "SPAXX": {"priceRows": 0, "transactionRows": 3},

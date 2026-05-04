@@ -121,7 +121,7 @@ export function mkApiTicker(overrides: Partial<ApiTicker> = {}): ApiTicker {
 }
 
 export function mkApiCategory(name: string, value: number, overrides: Partial<ApiCategory> = {}): ApiCategory {
-  return { name, value, pct: 0, target: 0, deviation: 0, ...overrides };
+  return { name, value, pct: 0, target: 0, ...overrides };
 }
 
 export const SNAPSHOT: DailyPoint = mkDaily();

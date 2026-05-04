@@ -96,6 +96,7 @@ def test_export_writes_manifest_summary_and_endpoint_artifacts(
     assert timeline["syncMeta"] == {"last_sync": "2026-05-02T17:00:00Z"}
 
     prices = json.loads((artifact_dir / "snapshots/2026-05-02T170000Z/prices.json").read_text())
+    assert "symbol" not in prices["VOO"]
     assert prices["VOO"]["transactions"][0]["actionType"] == "buy"
 
     econ = json.loads((artifact_dir / "snapshots/2026-05-02T170000Z/econ.json").read_text())
@@ -105,7 +106,7 @@ def test_export_writes_manifest_summary_and_endpoint_artifacts(
     ]
 
     summary = json.loads((artifact_dir / "reports/export-summary.json").read_text())
-    assert summary["rowCounts"]["daily"] == 1
+    assert "rowCounts" not in summary
     assert summary["priceRowCounts"]["VOO"] == {"priceRows": 1, "transactionRows": 1}
     assert summary["objectCount"] == 3
 
@@ -128,7 +129,7 @@ def test_verify_rejects_hash_drift(
     )
 
     price_path = artifact_dir / "snapshots/2026-05-02T170000Z/prices.json"
-    price_path.write_text('{"VOO":{"symbol":"VOO","prices":[],"transactions":[]}}', encoding="utf-8")
+    price_path.write_text('{"VOO":{"prices":[],"transactions":[]}}', encoding="utf-8")
 
     with pytest.raises(RuntimeError, match="bytes|sha256"):
         verify_artifacts(db_path=empty_db, artifact_dir=artifact_dir)

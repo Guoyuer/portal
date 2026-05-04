@@ -3,11 +3,6 @@
 // The Worker owns only same-origin routing, manifest lookup, object
 // streaming, no-store headers, and explicit failure responses.
 
-import {
-  errorResponse,
-  notFoundResponse,
-} from "./utils";
-
 interface Env {
   PORTAL_DATA?: R2Bucket;
 }
@@ -30,6 +25,21 @@ type R2Manifest = {
 };
 
 const MANIFEST_KEY = "manifest.json";
+// Worker is mounted same-origin as Pages in prod (portal.guoyuer.com/api/*),
+// so the browser never applies CORS. The wildcard keeps local Next -> wrangler
+// dev requests working; requests carry no credentials.
+const RESPONSE_HEADERS: HeadersInit = {
+  "Access-Control-Allow-Origin": "*",
+  "Cache-Control": "no-store",
+};
+
+function errorResponse(message: string, status: number): Response {
+  return Response.json({ error: message }, { status, headers: RESPONSE_HEADERS });
+}
+
+function notFoundResponse(): Response {
+  return new Response("Not found", { status: 404, headers: RESPONSE_HEADERS });
+}
 
 function r2Unavailable(): Response {
   return errorResponse("PORTAL_DATA R2 binding is missing", 500);

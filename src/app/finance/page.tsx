@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { GOAL } from "@/lib/config";
 import { useBundle } from "@/lib/hooks/use-bundle";
-import { catColorByName, cashflowState, computeGroupedActivity, type CashflowState } from "@/lib/compute/compute";
+import { catColorByName, computeGroupedActivity } from "@/lib/compute/compute";
 import type { MonthlyFlowPoint } from "@/lib/compute/computed-types";
 import { fmtDateMedium } from "@/lib/format/format";
 import { SectionHeader, SectionBody, SectionMessage } from "@/components/finance/section";
@@ -32,33 +32,30 @@ function SyncStatus({ syncMeta }: { syncMeta: ReturnType<typeof useBundle>["sync
 }
 
 function CashFlowContent({
-  state,
+  cashflow,
   monthlyFlows,
   activeMonth,
 }: {
-  state: CashflowState;
+  cashflow: ReturnType<typeof useBundle>["cashflow"];
   monthlyFlows: MonthlyFlowPoint[];
   activeMonth: string | undefined;
 }) {
-  switch (state.kind) {
-    case "unavailable":
-      return <SectionMessage kind="unavailable">Cash flow data unavailable</SectionMessage>;
-    case "empty":
-      return <SectionMessage kind="empty">No transactions in this period</SectionMessage>;
-    case "data":
-      return (
-        <>
-          <SectionBody><CashFlow data={state.data} /></SectionBody>
-          {monthlyFlows.length > 0 && (
-            <div className="liquid-glass mt-4 overflow-hidden">
-              <div className="px-3 sm:px-5 pb-3 sm:pb-5 pt-3">
-                <IncomeExpensesChart data={monthlyFlows} activeMonth={activeMonth} />
-              </div>
-            </div>
-          )}
-        </>
-      );
+  if (!cashflow) return <SectionMessage kind="unavailable">Cash flow data unavailable</SectionMessage>;
+  if (cashflow.totalIncome === 0 && cashflow.totalExpenses === 0) {
+    return <SectionMessage kind="empty">No transactions in this period</SectionMessage>;
   }
+  return (
+    <>
+      <SectionBody><CashFlow data={cashflow} /></SectionBody>
+      {monthlyFlows.length > 0 && (
+        <div className="liquid-glass mt-4 overflow-hidden">
+          <div className="px-3 sm:px-5 pb-3 sm:pb-5 pt-3">
+            <IncomeExpensesChart data={monthlyFlows} activeMonth={activeMonth} />
+          </div>
+        </div>
+      )}
+    </>
+  );
 }
 
 function ActivityContent({
@@ -143,7 +140,6 @@ export default function FinancePage() {
     dailyTickers, investmentTxns,
   } = tl;
   const colorByName = catColorByName(categories);
-  const cfState = cashflowState(cashflow);
 
   return (
     <div data-testid="finance-page" className="max-w-5xl mx-auto space-y-10 pb-16">
@@ -217,7 +213,7 @@ export default function FinancePage() {
         <section id="cashflow" className="scroll-mt-20 md:scroll-mt-8">
           <SectionHeader>Cash Flow</SectionHeader>
           <CashFlowContent
-            state={cfState}
+            cashflow={cashflow}
             monthlyFlows={monthlyFlows}
             activeMonth={snapshotDate?.slice(0, 7)}
           />

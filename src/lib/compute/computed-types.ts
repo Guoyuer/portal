@@ -8,11 +8,9 @@ import type { DailyTicker } from "@/lib/schemas/timeline";
 export type SourceKind = "fidelity" | "robinhood" | "401k";
 
 export type MonthlyFlowPoint = { month: string; income: number; expenses: number; savings: number; savingsRate: number };
-export type ApiTicker = Omit<DailyTicker, "date"> & {
-  sources?: Array<SourceKind>;
-};
-export type ApiCategory = { name: string; value: number; pct: number; target: number; deviation: number };
-export type AllocationResponse = { total: number; netWorth: number; liabilities: number; categories: ApiCategory[]; tickers: ApiTicker[] };
+export type ApiTicker = Omit<DailyTicker, "date">;
+export type ApiCategory = { name: string; value: number; pct: number; target: number };
+export type AllocationResponse = { total: number; netWorth: number; categories: ApiCategory[]; tickers: ApiTicker[] };
 export type CashflowResponse = {
   incomeItems: { category: string; amount: number; count: number }[];
   expenseItems: { category: string; amount: number; count: number }[];
