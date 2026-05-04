@@ -33,7 +33,7 @@ export interface CategorySummaryModel {
 }
 
 /** Sum value/pct/target across categories; deviation is pct - target of the sum. */
-export function aggregateCategories(cats: Pick<GroupedCategory, "value" | "pct" | "target">[]): CategoryAggregate {
+function aggregateCategories(cats: Pick<GroupedCategory, "value" | "pct" | "target">[]): CategoryAggregate {
   let value = 0;
   let pct = 0;
   let target = 0;
@@ -45,11 +45,11 @@ export function aggregateCategories(cats: Pick<GroupedCategory, "value" | "pct" 
   return { value, pct, target, deviation: pct - target };
 }
 
-export function isEquityCategory(name: string): boolean {
+function isEquityCategory(name: string): boolean {
   return EQUITY_CATEGORIES.has(name);
 }
 
-export function groupTickers(categories: ApiCategory[], tickers: ApiTicker[], total: number): GroupedCategory[] {
+function groupTickers(categories: ApiCategory[], tickers: ApiTicker[], total: number): GroupedCategory[] {
   const tickersByCategory: Record<string, Record<string, ApiTicker[]>> = {};
   for (const t of tickers) {
     if (!tickersByCategory[t.category]) tickersByCategory[t.category] = {};
@@ -82,7 +82,7 @@ export function groupTickers(categories: ApiCategory[], tickers: ApiTicker[], to
   });
 }
 
-export function toDonutCategories(categories: ApiCategory[]): CategoryData[] {
+function toDonutCategories(categories: ApiCategory[]): CategoryData[] {
   return categories.map((c) => ({
     name: c.name,
     value: c.value,

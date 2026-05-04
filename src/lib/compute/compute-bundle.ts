@@ -119,7 +119,7 @@ function computeWindow(
   };
 }
 
-export function prepareBundleData(data: TimelineData): PreparedBundleData {
+function prepareBundleData(data: TimelineData): PreparedBundleData {
   return {
     chartDaily: data.daily,
     dailyTickers: data.dailyTickers,
@@ -141,7 +141,7 @@ export function prepareBundleData(data: TimelineData): PreparedBundleData {
   };
 }
 
-export function computeWindowBundle(
+function computeWindowBundle(
   prepared: PreparedBundleData,
   brushStart: number,
   brushEnd: number,

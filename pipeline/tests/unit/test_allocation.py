@@ -28,34 +28,29 @@ from etl.allocation import (  # noqa: E402
     compute_daily_allocation,
 )
 from etl.db import init_db  # noqa: E402
+from tests.fixtures import connected_db, insert_close, insert_fidelity_txn  # noqa: E402
 
 # ── Fixtures ────────────────────────────────────────────────────────────────
 
 
 def _init_timemachine(db_path: Path) -> None:
     init_db(db_path)
-    conn = sqlite3.connect(str(db_path))
-
-    conn.execute(
-        "INSERT INTO fidelity_transactions"
-        " (run_date, account_number, action, action_type, action_kind,"
-        "  symbol, lot_type, quantity, amount)"
-        " VALUES ('2025-01-02', 'Z29133576', 'YOU BOUGHT', 'buy', 'buy', 'VTI', '', 10, -2500)",
-    )
-    conn.execute(
-        "INSERT INTO fidelity_transactions"
-        " (run_date, account_number, action, action_type, action_kind,"
-        "  symbol, lot_type, quantity, amount)"
-        " VALUES ('2025-01-02', 'Z29133576', 'YOU BOUGHT', 'buy', 'buy', 'VXUS', '', 5, -300)",
-    )
-
-    for dt in ("2025-01-02", "2025-01-03", "2025-01-06"):
-        conn.execute("INSERT INTO daily_close (symbol, date, close) VALUES ('VTI', ?, 250.0)", (dt,))
-        conn.execute("INSERT INTO daily_close (symbol, date, close) VALUES ('VXUS', ?, 60.0)", (dt,))
-        conn.execute("INSERT INTO daily_close (symbol, date, close) VALUES ('CNY=X', ?, 7.25)", (dt,))
-
-    conn.commit()
-    conn.close()
+    with connected_db(db_path) as conn:
+        for symbol, quantity, amount in [("VTI", 10, -2500), ("VXUS", 5, -300)]:
+            insert_fidelity_txn(
+                conn,
+                run_date="2025-01-02",
+                account_number="Z29133576",
+                action="YOU BOUGHT",
+                action_type="buy",
+                action_kind="buy",
+                symbol=symbol,
+                quantity=quantity,
+                amount=amount,
+            )
+        for dt in ("2025-01-02", "2025-01-03", "2025-01-06"):
+            for symbol, close in [("VTI", 250.0), ("VXUS", 60.0), ("CNY=X", 7.25)]:
+                insert_close(conn, symbol, dt, close)
 
 
 def _init_qianji(db_path: Path) -> None:
@@ -182,16 +177,17 @@ class TestComputeDailyAllocation:
             _create_qianji_schema(qj_conn)
 
         init_db(db_path)
-        conn = sqlite3.connect(str(db_path))
-        conn.execute(
-            "INSERT INTO fidelity_transactions"
-            " (run_date, account_number, action, action_type, action_kind,"
-            "  symbol, lot_type, quantity, amount)"
-            " VALUES ('2025-01-02', 'UNKNOWN999', 'DEPOSIT', 'deposit', 'deposit', '', '', 0, 1000)",
-        )
-        conn.execute("INSERT INTO daily_close (symbol, date, close) VALUES ('CNY=X', '2025-01-02', 7.25)")
-        conn.commit()
-        conn.close()
+        with connected_db(db_path) as conn:
+            insert_fidelity_txn(
+                conn,
+                run_date="2025-01-02",
+                account_number="UNKNOWN999",
+                action="DEPOSIT",
+                action_type="deposit",
+                action_kind="deposit",
+                amount=1000,
+            )
+            insert_close(conn, "CNY=X", "2025-01-02", 7.25)
 
         config = {
             "assets": {"FZFXX": {"category": "Safe Net", "subtype": ""}},
@@ -212,18 +208,16 @@ class TestComputeDailyAllocation:
     def test_401k_values_included(self, allocation_paths: tuple[Path, Path]) -> None:
         db_path, _ = allocation_paths
 
-        conn = sqlite3.connect(str(db_path))
-        conn.execute("INSERT INTO empower_snapshots (snapshot_date) VALUES ('2025-01-02')")
-        sid = conn.execute(
-            "SELECT id FROM empower_snapshots WHERE snapshot_date = '2025-01-02'"
-        ).fetchone()[0]
-        conn.execute(
-            "INSERT INTO empower_funds (snapshot_id, cusip, ticker, shares, price, mktval)"
-            " VALUES (?, '856917729', '401k sp500', 100.0, 500.0, 50000.0)",
-            (sid,),
-        )
-        conn.commit()
-        conn.close()
+        with connected_db(db_path) as conn:
+            conn.execute("INSERT INTO empower_snapshots (snapshot_date) VALUES ('2025-01-02')")
+            sid = conn.execute(
+                "SELECT id FROM empower_snapshots WHERE snapshot_date = '2025-01-02'"
+            ).fetchone()[0]
+            conn.execute(
+                "INSERT INTO empower_funds (snapshot_id, cusip, ticker, shares, price, mktval)"
+                " VALUES (?, '856917729', '401k sp500', 100.0, 500.0, 50000.0)",
+                (sid,),
+            )
 
         config = _make_config()
         config["assets"]["401k sp500"] = {"category": "US Equity", "subtype": "retirement"}
@@ -283,10 +277,9 @@ class TestComputeDailyAllocation:
         qj_path = tmp_path / "qianji.db"
         init_db(db_path)
 
-        with closing(sqlite3.connect(str(db_path))) as conn:
+        with connected_db(db_path) as conn:
             for dt in ("2025-02-28", "2025-03-03"):
-                conn.execute("INSERT INTO daily_close (symbol, date, close) VALUES ('CNY=X', ?, 7.25)", (dt,))
-            conn.commit()
+                insert_close(conn, "CNY=X", dt, 7.25)
 
         with closing(sqlite3.connect(str(qj_path))) as conn:
             _create_qianji_schema(conn)
