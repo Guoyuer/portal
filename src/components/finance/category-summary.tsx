@@ -4,9 +4,7 @@ import type { ApiCategory, ApiTicker } from "@/lib/compute/computed-types";
 import { SectionHeader, SectionBody } from "@/components/finance/section";
 import { AllocationDonut } from "@/components/finance/charts";
 import { CategoryAllocationTable } from "@/components/finance/category-allocation-table";
-import { buildCategorySummaryModel, groupTickers } from "@/components/finance/category-summary-model";
-
-export { groupTickers };
+import { buildCategorySummaryModel } from "@/components/finance/category-summary-model";
 
 export function CategorySummary({
   categories,

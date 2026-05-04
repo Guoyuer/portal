@@ -22,7 +22,7 @@ export type GroupNetEntry = {
   breakdown: { symbol: string; signed: number }[];
 };
 
-export type GroupTxnInput =
+type GroupTxnInput =
   | Pick<FidelityTxn, "runDate" | "actionType" | "symbol" | "amount">
   | {
       source?: SourceKind;

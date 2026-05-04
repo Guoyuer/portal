@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { groupTickers } from "./category-summary-model";
+import { buildCategorySummaryModel } from "./category-summary-model";
 import type { ApiTicker } from "@/lib/compute/computed-types";
 import { mkApiTicker as mkTicker, mkApiCategory as mkCategory } from "@/test/factories";
+
+const groupTickers = (...args: Parameters<typeof buildCategorySummaryModel>) => buildCategorySummaryModel(...args).grouped;
 
 describe("groupTickers", () => {
   it("groups tickers by category and subtype, summing values into subtypes", () => {

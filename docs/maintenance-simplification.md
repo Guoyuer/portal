@@ -230,6 +230,15 @@ deletions (`-21 diff LOC`); physical maintenance surface drops to 243 files /
 25,322 physical LOC before this note. Validation: targeted automation tests,
 Ruff, and full Python pytest all pass.
 
+Frontend/test public-surface follow-up: frontend helpers that were only used
+inside their own module are no longer exported (`compute-bundle`, category
+summary model, and group aggregation internals), and allocation tests reuse the
+shared DB inserters instead of local SQLite boilerplate. Diff effect: 6
+maintained files, 51 insertions / 58 deletions (`-7 diff LOC`); physical
+maintenance surface drops to 243 files / 25,325 physical LOC before this note.
+Validation: frontend lint, Vitest, Next build, ts-prune, targeted allocation
+tests, Ruff, and full Python pytest all pass.
+
 ### Wave 1: Safe Deletions and Test Compression
 
 Targets:
