@@ -34,16 +34,16 @@ interface TickerRowProps {
   ticker: string;
   count: number;
   total: number;
-  isGroup?: boolean;
+  isGroup: boolean;
   groupKey?: string;
-  sources?: SourceKind[];
+  sources: SourceKind[];
   expanded: boolean;
   onToggle: () => void;
   startDate?: string;
   endDate?: string;
 }
 
-function ExpanderIndicator({ expanded, isGroup }: { expanded: boolean; isGroup?: boolean }) {
+function ExpanderIndicator({ expanded, isGroup }: { expanded: boolean; isGroup: boolean }) {
   if (isGroup) {
     // Groups open a full-screen dialog — use a pop-out icon so users can
     // predict the interaction instead of seeing the same chevron as solo rows.
@@ -60,6 +60,14 @@ function ExpanderIndicator({ expanded, isGroup }: { expanded: boolean; isGroup?:
   );
 }
 
+function SourceBadges({ sources }: { sources: SourceKind[] }) {
+  return sources.map((s) => (
+    <span key={s} className="ml-1">
+      <SourceBadge source={s} />
+    </span>
+  ));
+}
+
 /** Primary table row: expands to the inline chart or group dialog. */
 function TickerRow({ ticker, count, total, isGroup, sources, expanded, onToggle, startDate, endDate }: TickerRowProps) {
   return (
@@ -68,11 +76,7 @@ function TickerRow({ ticker, count, total, isGroup, sources, expanded, onToggle,
         <TableCell className="font-mono">
           <ExpanderIndicator expanded={expanded} isGroup={isGroup} />
           {ticker}
-          {sources && sources.map((s) => (
-            <span key={s} className="ml-1">
-              <SourceBadge source={s} />
-            </span>
-          ))}
+          <SourceBadges sources={sources} />
         </TableCell>
         <TableCell className="text-right">{count}</TableCell>
         <TableCell className="text-right">{fmtCurrency(total)}</TableCell>
@@ -100,11 +104,7 @@ function TickerRowOverflow({ ticker, count, total, isGroup, sources, expanded, o
         <td className="px-2 py-1.5 font-mono text-muted-foreground">
           <ExpanderIndicator expanded={expanded} isGroup={isGroup} />
           {ticker}
-          {sources && sources.map((s) => (
-            <span key={s} className="ml-1">
-              <SourceBadge source={s} />
-            </span>
-          ))}
+          <SourceBadges sources={sources} />
         </td>
         <td className={numCell}>{count}</td>
         <td className={numCell}>{fmtCurrency(total)}</td>

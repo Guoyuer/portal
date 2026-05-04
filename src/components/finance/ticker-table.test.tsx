@@ -10,10 +10,17 @@ vi.mock("./ticker/ticker-chart", () => ({
 }));
 
 import { TickerTable, DeviationCell } from "./ticker-table";
+import type { ActivityTicker } from "@/lib/compute/computed-types";
 
 describe("TickerTable", () => {
   const mk = (n: number) =>
-    Array.from({ length: n }, (_, i) => ({ ticker: `SYM${i + 1}`, count: i + 1, total: (i + 1) * 100 }));
+    Array.from({ length: n }, (_, i): ActivityTicker => ({
+      ticker: `SYM${i + 1}`,
+      count: i + 1,
+      total: (i + 1) * 100,
+      isGroup: false,
+      sources: [],
+    }));
 
   it("renders all rows when there are 5 or fewer symbols", () => {
     const { container } = render(<TickerTable title="Buys" data={mk(4)} />);
@@ -59,15 +66,15 @@ describe("TickerTable", () => {
 
   it("renders a group row with display name", () => {
     render(<TickerTable title="Test" data={[
-      { ticker: "NASDAQ 100", count: 2, total: 3000, isGroup: true, groupKey: "nasdaq_100" },
-      { ticker: "NVDA", count: 1, total: 500 },
+      { ticker: "NASDAQ 100", count: 2, total: 3000, isGroup: true, sources: [], groupKey: "nasdaq_100" },
+      { ticker: "NVDA", count: 1, total: 500, isGroup: false, sources: [] },
     ]} />);
     expect(screen.getByText("NASDAQ 100")).toBeTruthy();
     expect(screen.getByText("NVDA")).toBeTruthy();
   });
 
   it("renders SourceBadge for each source on a row", () => {
-    const data: import("@/lib/compute/computed-types").ActivityTicker[] = [
+    const data: ActivityTicker[] = [
       { ticker: "S&P 500", count: 3, total: 1050, isGroup: true, sources: ["fidelity", "401k"], groupKey: "sp500" },
     ];
     render(<TickerTable title="Buys by Symbol" data={data} />);

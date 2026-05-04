@@ -39,8 +39,8 @@ function investmentTxnsToTickerTxns(txns: InvestmentTxn[], tickers: string[]): T
     .map((t) => ({
       runDate: t.date,
       actionType: t.actionType,
-      quantity: t.quantity ?? 0,
-      price: t.price ?? 0,
+      quantity: t.quantity,
+      price: t.price,
       amount: t.amount,
     }));
 }

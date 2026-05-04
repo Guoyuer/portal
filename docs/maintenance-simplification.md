@@ -26,7 +26,9 @@ fixture:
 | worker source | 3 | 275 | 1.0% |
 
 Total: 261 files / 26.6k physical LOC after the duplicate-test compression,
-excluding the same archive/fixture surfaces.
+excluding the same archive/fixture surfaces. The current active surface after
+the latest documented cleanup is 223 files / 23.5k physical LOC under the same
+exclusions.
 
 Use the same exclusion rule when reporting future LOC deltas:
 
@@ -81,11 +83,26 @@ deleting flows, narrowing outputs, and using table-driven tests.
 | S10 | Manual e2e paths | Consolidate `e2e/manual/*` and manual Playwright config into one documented smoke/perf command. | Done | Low | Removed the manual screenshot/perf specs, real-worker e2e, and extra config; mock e2e and unit coverage remain. |
 | S11 | Config example | Shrink `pipeline/config.example.json` to a minimal template with representative assets and all supported config keys. | Done | Low-Medium | Add every real held ticker to private `config.json`; unknown holdings still fail closed. |
 | S12 | Docs archive | Move `docs/archive/` to a branch/wiki or keep only an archive index plus the few decision records still referenced. | Done | Low | Historical notes were removed from the active tree; use git history for archaeology. |
-| S13 | Qianji legacy fallback | Review old CNY and category fallback logic; delete branches covered by newer source invariants. | -80 to -180 | Medium | Only after regression fixtures prove old exports do not need them. |
+| S13 | Qianji legacy fallback | Review old CNY and category fallback logic; delete branches covered by newer source invariants. | Partial | Medium | Live/scalar CNY fallback is removed in the current cleanup. Category empty-string fallback remains until real Qianji data proves it is unreachable or should fail closed. |
 | S14 | Source modules | Delete or merge tiny broker helpers that no longer have at least two live call sites. | Partial | Low-Medium | `_ingest.py` was removed after Fidelity moved to canonical ingest; keep broker parsing explicit and only share helpers that remove real duplication. |
 | S15 | CI workflows | Fold rare baseline refresh and real-worker workflows if they are not pulling their weight. | Done | Low | Removed opt-in real-worker e2e and baseline-refresh automation; local commands remain for explicit checks. |
-| S16 | Worker | No meaningful LOC target. | 0 | Low | At 157 LOC, leave it boring and explicit. |
+| S16 | Worker | No meaningful LOC target. | 0 | Low | Small and load-bearing; leave it boring and explicit. |
 | S17 | Frontend dependency surface | Remove retained scaffolding/tool packages once copied components no longer depend on them. | Done | Low | Removed the unused shadcn toolchain and the single-use `cn` wrapper; table styling now depends directly on `tailwind-merge`. |
+
+## Open Items After Current Cleanup
+
+These are the remaining simplification directions that still look real after
+the no-reader field, compatibility-layer, and static-analysis passes:
+
+| Area | Status | Next useful move | Notes |
+| --- | --- | --- | --- |
+| Build orchestration | Open | Measure full vs incremental with cached market data and byte-compare produced artifacts before deleting incremental mode. | Incremental still reduces unnecessary Yahoo fetch work; keep it unless full build is proven cheap, deterministic, and byte-identical for published artifacts. |
+| Python tests | Open | Continue compressing build/replay/regression tests with builders and table-driven checks where the same DB setup or assertion body repeats. | Do not shrink oracle coverage around artifact bytes, cashflow, or position snapshots. |
+| Ticker/group UI state | Open | If the state machines still match after the fallback cleanup, extract a small chart/detail shell or delete a low-value branch. | Avoid a generic chart framework; only share the loading/error/empty/selection mechanics that are truly identical. |
+| Finance tables | Open | Reuse tiny row/header/cell helpers for repeated numeric table chrome after behavior cleanup is exhausted. | This is a secondary LOC win; keep table-specific data semantics local. |
+| Source modules | Open | Keep scanning for one-call helper modules, compatibility aliases, or no-reader variables in broker ingest/validation paths. | Good target for static analysis plus manual call-graph reading; do not merge broker-specific parsing quirks into clever shared code. |
+| Qianji category fallback | Open | Compare real `user_bill.cateid` coverage against `category.id`; if every active bill has a category row, turn missing category into fail-closed validation. | Current cleanup only removes the live CNY fallback. Empty category remains a supported representation for uncategorized or missing-category bills. |
+| Type optionality | Open | Continue narrowing `| None` / optional fields where producer invariants are now explicit and tests only carried fallback scaffolding. | The current branch narrows investment activity rows, transaction quantity/price, and Qianji FX inputs. |
 
 ## Highest-Leverage Waves
 
@@ -366,6 +383,21 @@ TypeScript, Vitest, lint, Worker Vitest, Worker `tsc`, full Python pytest with
 xdist (`459 passed`), Ruff, mypy strict, Next build, Playwright e2e, static
 knip/ts-prune review, and R2 export/verify.
 
+Current fallback/type cleanup: activity ticker rows now require `isGroup` and
+`sources`, investment transactions require `quantity` and `price`, and tests no
+longer carry optional-field fallbacks for those production contracts. The
+Qianji CNY conversion path no longer has a live Yahoo/scalar fallback:
+Qianji ingest requires a historical CNY=X map, walks back for weekends/market
+holidays, and fails closed when a bill date has no historical rate. This keeps
+old cashflow rows byte-stable across rebuilds instead of silently applying
+today's FX rate. Diff effect before this note: 11 files, 109 insertions / 122
+deletions (`-13 diff LOC`); maintenance surface is 223 files / 23,462 LOC
+before this note and 223 files / 23,491 LOC after this note. Validation so far:
+full Python pytest with xdist (`458 passed`), Ruff, mypy strict, frontend
+lint, Vitest, TypeScript, Next build, Playwright e2e, Worker Vitest, Worker
+TypeScript, R2 artifact verify, and a real Qianji DB load against the current
+historical CNY=X table.
+
 ### Wave 1: Safe Deletions and Test Compression
 
 Targets:
@@ -395,34 +427,35 @@ Targets:
 
 - S6 ticker/group chart shell dedup, or cut low-value group drilldown paths.
 - S7 finance table helper reuse.
-- S13 Qianji legacy branch review.
+- Remaining S13 Qianji category fallback review.
 
 Expected effect: small-to-medium LOC reduction, but useful mental-load reduction
 if rarely used surfaces are deleted instead of polished.
 
 ## Specific Deduplication Targets
 
-The following concepts are currently repeated enough to deserve attention:
+The following concepts still look repeated enough to deserve attention:
 
-- Endpoint artifact metadata: `timeline`, `econ`, `prices`, their paths,
-  schemas, row-count summaries, and smoke-test labels.
-- Email receipt data: DB row labels, artifact summary labels, subject details,
-  and HTML/text rendering.
-- Test fixture setup: temp DB creation, config scaffolding, price CSV rows,
-  Qianji rows, and allocation assertions.
+- Test fixture setup: build/replay DB setup, regression fixture patching,
+  Qianji row scaffolding, and allocation assertions.
 - Chart load states: loading, parse error, empty data, selected symbol/group,
   and transaction overlays.
 - Finance table chrome: sticky headers, numeric alignment, percent/money
   formatting, empty states, and expandable row affordances.
 - Build date-window handling: refresh start, gap-fill start, and as-of overrides.
+- Broker/source compatibility surfaces: one-call helper modules, public
+  aliases, optional fields, and fallback branches that are only kept for old
+  tests.
 
 ## Non-Targets
 
 These areas look tempting but should not be simplified for LOC alone:
 
 - Worker routing and R2 streaming: small and load-bearing.
-- Investment source protocol: explicit source modules keep broker quirks local.
-- Generated Zod schemas: generated code is not maintenance surface.
+- Broker-specific parsing quirks: explicit source modules keep import layouts
+  boring and auditable.
+- Runtime Zod schemas for published artifacts: keep the parse gates even when
+  schema authoring is manual.
 - Publish verification stages: some duplication is intentional defense in depth.
 - Manual SQL debuggability through SQLite: important for financial data audits.
 
