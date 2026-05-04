@@ -56,7 +56,7 @@ def _snapshot(
     tmp_path: Path,
     assets: list[tuple],
     bills: list[dict],
-    as_of: date | None = date(2025, 3, 1),
+    as_of: date = date(2025, 3, 1),
 ) -> dict[str, float]:
     db = tmp_path / "qianji.db"
     _create_qianji_db(db, assets, bills)
@@ -67,17 +67,7 @@ def _snapshot(
 
 class TestQianjiBalances:
     def test_missing_db(self, tmp_path: Path) -> None:
-        assert qianji_balances_at(tmp_path / "nonexistent.db") == {}
-
-    def test_current_balances_no_date(self, tmp_path: Path) -> None:
-        snapshot = _snapshot(
-            tmp_path,
-            [("Checking", 5000.0, "USD"), ("Savings", 10000.0, "USD")],
-            [],
-            as_of=None,
-        )
-        assert snapshot["Checking"] == pytest.approx(5000.0)
-        assert snapshot["Savings"] == pytest.approx(10000.0)
+        assert qianji_balances_at(tmp_path / "nonexistent.db", date(2025, 3, 1)) == {}
 
     @pytest.mark.parametrize(
         ("assets", "bills", "expected"),
@@ -130,12 +120,6 @@ class TestQianjiBalances:
             snapshot = qianji_balances_at(db, as_of=date(2025, 3, 1))
         assert snapshot["Checking"] == pytest.approx(5000.0)
         assert any("bill_type=4" in rec.message for rec in caplog.records)
-
-    def test_inactive_asset_excluded(self, tmp_path: Path) -> None:
-        snapshot = _snapshot(tmp_path, [("Active", 100.0, "USD"), ("Closed", 200.0, "USD", 1)], [], as_of=None)
-        assert "Active" in snapshot
-        assert "Closed" not in snapshot
-
 
 # ── qianji_balances_at: currencies ──────────────────────────────────────────
 

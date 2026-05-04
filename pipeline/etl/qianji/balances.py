@@ -44,7 +44,7 @@ def qianji_currencies(db_path: Path) -> dict[str, str]:
         conn.close()
 
 
-def qianji_balances_at(db_path: Path, as_of: date | None = None) -> dict[str, float]:
+def qianji_balances_at(db_path: Path, as_of: date) -> dict[str, float]:
     """Return Qianji account balances at ``as_of`` via reverse replay.
 
     Qianji stores only the current account balances in ``user_asset``. To
@@ -70,9 +70,6 @@ def qianji_balances_at(db_path: Path, as_of: date | None = None) -> dict[str, fl
     try:
         raw = _load_balances(conn)
         balances = {name: money for name, (money, _) in raw.items()}
-
-        if as_of is None:
-            return balances
 
         # Reverse all transactions after end of as_of day, anchored in the
         # user's wall-clock timezone. UTC cutoff would make "as_of=2026-04-15"
