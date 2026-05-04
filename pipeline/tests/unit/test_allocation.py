@@ -284,7 +284,7 @@ class TestComputeDailyAllocation:
 
         with _qianji_conn(qj_path) as conn:
             conn.execute("INSERT INTO user_asset (name, money, currency) VALUES ('Checking', 1100.0, 'USD')")
-            late_local = datetime(2025, 3, 3, 20, 0, 0, tzinfo=ZoneInfo("America/Los_Angeles")).timestamp()
+            late_local = datetime(2025, 3, 3, 20, 0, 0, tzinfo=ZoneInfo("America/New_York")).timestamp()
             conn.execute(
                 "INSERT INTO user_bill (time, type, money, fromact, status) VALUES (?, 1, 100.0, 'Checking', 1)",
                 (late_local,),
