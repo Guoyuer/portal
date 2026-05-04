@@ -13,18 +13,22 @@ import pytest
 pytest.importorskip("yfinance", reason="yfinance required for prices module")
 
 from etl.db import get_connection  # noqa: E402
-from etl.prices import (  # noqa: E402
-    SplitValidationError,
-    _holding_periods_from_action_kind_rows,
+from etl.prices.fetch import (  # noqa: E402
     _reverse_split_factor,
-    _validate_splits_against_transactions,
     fetch_and_store_cny_rates,
     fetch_and_store_prices,
-    load_cny_rates,
-    load_prices,
     refresh_window_start,
 )
-from etl.sources import ActionKind  # noqa: E402
+from etl.prices.store import (  # noqa: E402
+    holding_periods_from_action_kind_rows,
+    load_cny_rates,
+    load_prices,
+)
+from etl.prices.validate import (  # noqa: E402
+    SplitValidationError,
+    _validate_splits_against_transactions,
+)
+from etl.sources._types import ActionKind  # noqa: E402
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -146,7 +150,7 @@ class TestLoadCnyRates:
         assert len(rates) == 1
 
 
-# ── _holding_periods_from_action_kind_rows ─────────────────────────────────
+# ── holding_periods_from_action_kind_rows ──────────────────────────────────
 
 
 class TestHoldingPeriodsCore:
@@ -178,7 +182,7 @@ class TestHoldingPeriodsCore:
         rows: list[tuple[str, str, str, float]],
         expected: dict[str, tuple[date, date | None]],
     ) -> None:
-        assert _holding_periods_from_action_kind_rows(rows) == expected
+        assert holding_periods_from_action_kind_rows(rows) == expected
 
 
 # ── Invariant: historical daily_close rows are immutable ───────────────────
@@ -248,8 +252,6 @@ class TestHistoricalImmutabilityPrices:
 
 class TestFetchGateRefreshesRecentWindow:
     def test_fetch_uses_refresh_window_not_full_history(self, empty_db: Path) -> None:
-        from etl.prices import refresh_window_start
-
         db_path = empty_db
         _seed_prices(db_path, [
             ("VOO", "2024-01-15", 440.50),
@@ -460,8 +462,6 @@ class TestCachedFetch:
     def test_cached_lo_after_global_start_does_not_trigger_full_batch(
         self, empty_db: Path,
     ) -> None:
-        from etl.prices import refresh_window_start
-
         db_path = empty_db
         _seed_prices(db_path, [
             ("VOO", "2023-03-13", 380.0),

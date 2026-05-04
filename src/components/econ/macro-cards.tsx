@@ -1,4 +1,4 @@
-import type { EconSnapshot } from "@/lib/schemas";
+import type { EconSnapshot } from "@/lib/schemas/econ";
 import { ECON_FORMATTERS, fmtSpreadSigned } from "@/lib/format/econ-formatters";
 
 const INDICATORS: { key: keyof EconSnapshot; label: string; format: (v: number) => string }[] = [

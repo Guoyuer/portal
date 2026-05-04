@@ -23,7 +23,7 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from etl.replay import ReplayConfig, replay_transactions
-from etl.sources import ActionKind
+from etl.sources._types import ActionKind
 from tests.fixtures import insert_prop_rows
 
 # A small ticker pool keeps the state space tight — we want invariants to

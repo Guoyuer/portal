@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { groupNetByDate, buildGroupValueSeries } from "./group-aggregation";
-import type { FidelityTxn } from "@/lib/schemas";
+import type { FidelityTxn } from "@/lib/schemas/timeline";
 
 const real = (runDate: string, symbol: string, actionType: "buy" | "sell", amount: number): FidelityTxn => ({
   runDate, actionType, symbol,

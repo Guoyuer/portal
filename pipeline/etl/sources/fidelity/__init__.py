@@ -1,8 +1,7 @@
 """Fidelity source — composes the ``parse`` / ``cash`` / ``pricing`` submodules.
 
 Public surface mirrors :mod:`etl.sources.robinhood` / :mod:`etl.sources.empower`:
-``produces_positions(config)``, ``ingest(db_path, config)``,
-``positions_at(db_path, as_of, prices, config)``.
+``ingest(db_path, config)`` and ``positions_at(db_path, as_of, prices, config)``.
 
 ``positions_at`` delegates transaction replay to the source-agnostic
 :func:`etl.replay.replay_transactions` primitive via ``FIDELITY_REPLAY``
@@ -19,11 +18,11 @@ from datetime import date
 from pathlib import Path
 
 from etl.replay import ReplayConfig, replay_transactions
-from etl.sources._types import PositionRow, PriceContext, resolve_downloads_dir
+from etl.sources._types import PositionRow, PriceContext
 from etl.types import RawConfig
 
 from . import cash, parse, pricing
-from .parse import TABLE, classify_fidelity_action
+from .parse import TABLE
 
 # Fidelity-specific money-market fund tickers. Treated as $1/share cash, so
 # they stay out of the per-share position accumulator and instead flow
@@ -44,39 +43,17 @@ FIDELITY_REPLAY = ReplayConfig(
     mm_drip_tickers=MM_SYMBOLS,
 )
 
-__all__ = [
-    "FIDELITY_REPLAY",
-    "MM_SYMBOLS",
-    "TABLE",
-    "classify_fidelity_action",
-    "ingest",
-    "positions_at",
-    "produces_positions",
-]
-
-
-def _downloads_dir(config: RawConfig) -> Path:
-    return resolve_downloads_dir(config, "fidelity_downloads")
-
-
 # ── Public API (module protocol) ───────────────────────────────────────────
 
 
-def produces_positions(config: RawConfig) -> bool:
-    """Fidelity is always on — the ingest path is idempotent and silent on missing CSVs."""
-    del config
-    return True
-
-
-def ingest(db_path: Path, config: RawConfig) -> None:
-    """Scan ``fidelity_downloads`` for ``Accounts_History*.csv`` and ingest each file.
+def ingest(db_path: Path, downloads_dir: Path) -> None:
+    """Scan ``downloads_dir`` for ``Accounts_History*.csv`` and ingest each file.
 
     Files can overlap and be partial on boundary dates, so Fidelity ingest
     rebuilds the table from the canonical union of every observed CSV row.
     Repeated observations across files are de-duplicated; same-file duplicate
     rows are preserved.
     """
-    downloads_dir = _downloads_dir(config)
     raw_csvs = sorted(downloads_dir.glob("Accounts_History*.csv"))
     parse.ingest_csvs(db_path, raw_csvs)
 

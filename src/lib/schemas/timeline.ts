@@ -7,10 +7,10 @@ import { z } from "zod";
 
 import {
   AllocationRowSchema,
-  EmpowerContributionSchema as GeneratedEmpowerContributionSchema,
-  FidelityTxnSchema as GeneratedFidelityTxnSchema,
-  QianjiTxnSchema as GeneratedQianjiTxnSchema,
-  RobinhoodTxnSchema as GeneratedRobinhoodTxnSchema,
+  EmpowerContributionSchema,
+  FidelityTxnSchema,
+  QianjiTxnSchema,
+  RobinhoodTxnSchema,
   TickerDetailSchema,
 } from "./_generated";
 
@@ -54,20 +54,6 @@ const DailyPointSchema = AllocationRowSchema.omit({ tickers: true });
 const DailyTickerSchema = TickerDetailSchema.extend({
   date: z.string(),
 });
-
-// FidelityTxn is the pure 1:1 subset/rename of FidelityTransaction — use
-// the generated schema directly.
-const FidelityTxnSchema = GeneratedFidelityTxnSchema;
-
-// QianjiTxn is exported as endpoint JSON, so logical booleans must already be
-// JSON booleans before they reach the frontend schema.
-const QianjiTxnSchema = GeneratedQianjiTxnSchema;
-
-// RobinhoodTxn — direct 1:1 projection from the generated schema.
-const RobinhoodTxnSchema = GeneratedRobinhoodTxnSchema;
-
-// EmpowerContribution — direct 1:1 projection from the generated schema.
-const EmpowerContributionSchema = GeneratedEmpowerContributionSchema;
 
 // ── Category metadata (target weights + display order from pipeline) ────
 

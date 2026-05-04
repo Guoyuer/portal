@@ -21,7 +21,7 @@ from pathlib import Path
 import pandas as pd
 
 from etl.db import get_connection
-from etl.sources._types import PositionRow, PriceContext, resolve_downloads_dir
+from etl.sources._types import PositionRow, PriceContext
 from etl.types import RawConfig
 
 # ── CUSIP → config ticker → proxy ticker mapping ───────────────────────────
@@ -169,12 +169,6 @@ def _proxy_prices_from_df(prices: pd.DataFrame, proxy: str) -> dict[date, float]
 # ── Config helpers ─────────────────────────────────────────────────────────
 
 
-def _downloads_dir(config: RawConfig) -> Path:
-    return resolve_downloads_dir(
-        config, "empower_downloads", default=Path("__missing_empower_downloads__"),
-    )
-
-
 def _cusip_map(config: RawConfig) -> dict[str, str]:
     raw = config.get("empower_cusip_map")
     if isinstance(raw, dict):
@@ -185,14 +179,8 @@ def _cusip_map(config: RawConfig) -> dict[str, str]:
 # ── Public API (module protocol) ───────────────────────────────────────────
 
 
-def produces_positions(config: RawConfig) -> bool:
-    """Always on — :func:`positions_at` returns ``[]`` before the first snapshot."""
-    del config
-    return True
-
-
-def ingest(db_path: Path, config: RawConfig) -> None:
-    """Scan ``empower_downloads`` for ``Bloomberg.Download*.qfx`` and ingest each.
+def ingest(db_path: Path, downloads_dir: Path, config: RawConfig | None = None) -> None:
+    """Scan ``downloads_dir`` for ``Bloomberg.Download*.qfx`` and ingest each.
 
     Populates ``empower_snapshots`` + ``empower_funds`` (idempotent per
     snapshot date: INSERT OR IGNORE the snapshot, DELETE + INSERT the funds)
@@ -202,8 +190,7 @@ def ingest(db_path: Path, config: RawConfig) -> None:
     Silent no-op when the downloads directory doesn't exist — mirrors
     :func:`etl.sources.robinhood.ingest`'s missing-CSV behaviour.
     """
-    downloads_dir = _downloads_dir(config)
-    cusip_map = _cusip_map(config)
+    cusip_map = _cusip_map(config or {})
     if not downloads_dir.exists():
         return
     qfx_paths = sorted(downloads_dir.glob("Bloomberg.Download*.qfx"))
@@ -370,7 +357,7 @@ def positions_at(
         snap_date = date.fromisoformat(snap_date_str)
 
         fund_rows = conn.execute(
-            "SELECT ticker, shares, mktval FROM empower_funds WHERE snapshot_id = ?",
+            "SELECT ticker, mktval FROM empower_funds WHERE snapshot_id = ?",
             (snapshot_id,),
         ).fetchall()
 
@@ -393,13 +380,11 @@ def positions_at(
     # Aggregate by config ticker (a snapshot may have multiple funds with the
     # same config ticker — e.g., two S&P 500 variants).
     values_by_ticker: dict[str, float] = {}
-    shares_by_ticker: dict[str, float] = {}
-    for ticker, shares, mktval in fund_rows:
+    for ticker, mktval in fund_rows:
         proxy = PROXY_TICKERS.get(ticker)
         if proxy is None:
             # Unknown fund / unmapped ticker — use raw snapshot value.
             values_by_ticker[ticker] = values_by_ticker.get(ticker, 0.0) + float(mktval)
-            shares_by_ticker[ticker] = shares_by_ticker.get(ticker, 0.0) + float(shares)
             continue
         pp = proxy_maps.get(proxy, {})
         snap_proxy = _ffill_proxy(pp, snap_date)
@@ -409,7 +394,6 @@ def positions_at(
         else:
             scaled = float(mktval)
         values_by_ticker[ticker] = values_by_ticker.get(ticker, 0.0) + scaled
-        shares_by_ticker[ticker] = shares_by_ticker.get(ticker, 0.0) + float(shares)
 
     # Add contributions (cumulative, each scaled from its own date).
     for c_date_str, amount, ticker in contrib_rows:
@@ -431,9 +415,7 @@ def positions_at(
         PositionRow(
             ticker=ticker,
             value_usd=value,
-            quantity=shares_by_ticker.get(ticker),
             cost_basis_usd=None,
-            account=None,
         )
         for ticker, value in values_by_ticker.items()
     ]

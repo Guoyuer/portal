@@ -2,7 +2,7 @@
 // `groupNetByDate` clusters real buy/sell flows within an equivalence group
 // to surface net exposure change, filtering out ticker-swap noise.
 
-import type { DailyTicker, FidelityTxn } from "@/lib/schemas";
+import type { DailyTicker, FidelityTxn } from "@/lib/schemas/timeline";
 import type { SourceKind } from "@/lib/compute/computed-types";
 import { groupOfTicker } from "@/lib/data/equivalent-groups";
 import { parseLocalDate } from "@/lib/format/format";

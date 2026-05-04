@@ -16,9 +16,15 @@ import yfinance as yf
 
 from ..db import get_connection
 from ..market._yfinance import extract_close
-from . import refresh_window_start
-from .store import _cached_range, _persist_close_batch
+from .store import _cached_start, _persist_close_batch
 from .validate import _validate_splits_against_transactions
+
+REFRESH_WINDOW_DAYS = 7
+
+
+def refresh_window_start(end: date) -> date:
+    """Inclusive start for the mutable recent-price refresh window."""
+    return end - timedelta(days=REFRESH_WINDOW_DAYS - 1)
 
 # ── Split adjustment reversal ──────────────────────────────────────────────
 
@@ -93,9 +99,9 @@ def fetch_and_store_prices(
         for sym, (hp_start, hp_end) in holding_periods.items():
             fetch_start = min(hp_start, global_start) if global_start else hp_start
             need_end = hp_end or end
-            cached_lo, cached_hi = _cached_range(conn, sym)
+            cached_start = _cached_start(conn, sym)
             window_start = max(fetch_start, refresh_window_start(need_end))
-            if cached_lo is None:
+            if cached_start is None:
                 # Never fetched — pull the full range.
                 to_fetch[sym] = (fetch_start, need_end)
             else:
@@ -106,7 +112,7 @@ def fetch_and_store_prices(
                 # (min across to_fetch) back to ``global_start``, turning
                 # what should be an incremental refresh into a multi-year
                 # batch download for every symbol. Refresh the recent
-                # window only — ``_persist_close`` keeps older dates
+                # window only — ``_persist_close_batch`` keeps older dates
                 # immutable so this is idempotent.
                 to_fetch[sym] = (window_start, need_end)
 
@@ -169,16 +175,16 @@ def fetch_and_store_prices(
 def fetch_and_store_cny_rates(db_path: Path, start: date, end: date) -> None:
     """Fetch daily USD/CNY rate from yfinance and store in timemachine.db.
 
-    Writes go through ``_persist_close``: dates older than the refresh window
+    Writes go through ``_persist_close_batch``: dates older than the refresh window
     are never overwritten once stored. Re-runs are therefore idempotent — a
     partial or wrong Yahoo response cannot corrupt already-captured history.
     """
     sym = "CNY=X"
     conn = get_connection(db_path)
     try:
-        cached_lo, _cached_hi = _cached_range(conn, sym)
+        cached_start = _cached_start(conn, sym)
         fetch_start = start
-        if cached_lo is not None and cached_lo <= start:
+        if cached_start is not None and cached_start <= start:
             fetch_start = max(start, refresh_window_start(end))
         refresh_cutoff_iso = refresh_window_start(end).isoformat()
 

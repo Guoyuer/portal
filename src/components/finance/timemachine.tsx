@@ -13,7 +13,7 @@ import {
   YAxis,
 } from "recharts";
 import type { TooltipContentProps } from "recharts/types/component/Tooltip";
-import type { CategoryMeta, DailyPoint } from "@/lib/schemas";
+import type { CategoryMeta, DailyPoint } from "@/lib/schemas/timeline";
 import type { CashflowResponse, ActivityResponse } from "@/lib/compute/computed-types";
 import { fmtCurrency, fmtCurrencyShort, fmtDateLong, fmtDateMedium, fmtTick, parseLocalDate } from "@/lib/format/format";
 import { useIsDark } from "@/lib/hooks/use-is-dark";

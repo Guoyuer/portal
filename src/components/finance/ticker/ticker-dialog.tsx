@@ -9,7 +9,7 @@ import { ChartDialog } from "../charts/chart-dialog";
 import { MarkerChart } from "../charts/marker-chart";
 import { AvgCostReferenceLine, PriceTooltip } from "./ticker-chart-base";
 import { useIsDark } from "@/lib/hooks/use-is-dark";
-import type { TickerTxn } from "@/lib/schemas";
+import type { TickerTxn } from "@/lib/schemas/ticker";
 import { buildClusteredData, type TickerChartPoint } from "@/lib/data/ticker-data";
 import { TransactionTable } from "../transaction-table";
 import { MarkerHoverPanel } from "../charts/marker-hover-panel";

@@ -8,7 +8,7 @@ import {
   computeAvgCost,
   type TickerChartPoint,
 } from "@/lib/data/ticker-data";
-import type { TickerTxn } from "@/lib/schemas";
+import type { TickerTxn } from "@/lib/schemas/ticker";
 
 // Helper to build a chart point
 const pt = (date: string, over: Partial<TickerChartPoint> = {}): TickerChartPoint => {

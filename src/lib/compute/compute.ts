@@ -8,7 +8,7 @@ import type {
   QianjiTxn,
   RobinhoodTxn,
   EmpowerContribution,
-} from "@/lib/schemas";
+} from "@/lib/schemas/timeline";
 import type {
   AllocationResponse,
   CashflowResponse,
@@ -19,7 +19,6 @@ import type {
   MonthlyFlowPoint,
   SourceKind,
 } from "@/lib/compute/computed-types";
-export type { ActivityTicker };
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 

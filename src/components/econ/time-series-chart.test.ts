@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { mergeSeriesByDate, type LineConfig } from "./time-series-chart";
-import type { EconPoint } from "@/lib/schemas";
+import type { EconPoint } from "@/lib/schemas/econ";
 
 const lineA: LineConfig = { dataKey: "a", label: "A", color: "#000" };
 const lineB: LineConfig = { dataKey: "b", label: "B", color: "#fff" };

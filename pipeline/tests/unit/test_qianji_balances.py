@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from etl.qianji import QianjiSnapshot, qianji_balances_at
+from etl.qianji.balances import qianji_balances_at, qianji_currencies
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -57,7 +57,7 @@ def _snapshot(
     assets: list[tuple],
     bills: list[dict],
     as_of: date | None = date(2025, 3, 1),
-) -> QianjiSnapshot:
+) -> dict[str, float]:
     db = tmp_path / "qianji.db"
     _create_qianji_db(db, assets, bills)
     return qianji_balances_at(db, as_of=as_of)
@@ -67,10 +67,7 @@ def _snapshot(
 
 class TestQianjiBalances:
     def test_missing_db(self, tmp_path: Path) -> None:
-        snapshot = qianji_balances_at(tmp_path / "nonexistent.db")
-        assert snapshot == QianjiSnapshot()
-        assert snapshot.balances == {}
-        assert snapshot.currencies == {}
+        assert qianji_balances_at(tmp_path / "nonexistent.db") == {}
 
     def test_current_balances_no_date(self, tmp_path: Path) -> None:
         snapshot = _snapshot(
@@ -79,8 +76,8 @@ class TestQianjiBalances:
             [],
             as_of=None,
         )
-        assert snapshot.balances["Checking"] == pytest.approx(5000.0)
-        assert snapshot.balances["Savings"] == pytest.approx(10000.0)
+        assert snapshot["Checking"] == pytest.approx(5000.0)
+        assert snapshot["Savings"] == pytest.approx(10000.0)
 
     @pytest.mark.parametrize(
         ("assets", "bills", "expected"),
@@ -120,7 +117,7 @@ class TestQianjiBalances:
     def test_replays_balances_to_as_of(self, tmp_path: Path, assets: list[tuple], bills: list[dict], expected: dict[str, float]) -> None:
         snapshot = _snapshot(tmp_path, assets, bills)
         for account, amount in expected.items():
-            assert snapshot.balances[account] == pytest.approx(amount)
+            assert snapshot[account] == pytest.approx(amount)
 
     def test_unknown_bill_type_logs_warning(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         db = tmp_path / "qianji.db"
@@ -131,37 +128,36 @@ class TestQianjiBalances:
         )
         with caplog.at_level(logging.WARNING, logger="etl.qianji"):
             snapshot = qianji_balances_at(db, as_of=date(2025, 3, 1))
-        assert snapshot.balances["Checking"] == pytest.approx(5000.0)
+        assert snapshot["Checking"] == pytest.approx(5000.0)
         assert any("bill_type=4" in rec.message for rec in caplog.records)
 
     def test_inactive_asset_excluded(self, tmp_path: Path) -> None:
         snapshot = _snapshot(tmp_path, [("Active", 100.0, "USD"), ("Closed", 200.0, "USD", 1)], [], as_of=None)
-        assert "Active" in snapshot.balances
-        assert "Closed" not in snapshot.balances
+        assert "Active" in snapshot
+        assert "Closed" not in snapshot
 
 
 # ── qianji_balances_at: currencies ──────────────────────────────────────────
 
 class TestQianjiCurrencies:
     def test_returns_currencies(self, tmp_path: Path) -> None:
-        snapshot = _snapshot(
-            tmp_path,
-            [("Checking", 5000.0, "USD"), ("Alipay", 30000.0, "CNY")],
-            [],
-            as_of=None,
-        )
-        assert snapshot.currencies["Checking"] == "USD"
-        assert snapshot.currencies["Alipay"] == "CNY"
+        db = tmp_path / "qianji.db"
+        _create_qianji_db(db, [("Checking", 5000.0, "USD"), ("Alipay", 30000.0, "CNY")], [])
+        currencies = qianji_currencies(db)
+        assert currencies["Checking"] == "USD"
+        assert currencies["Alipay"] == "CNY"
 
     def test_null_currency_defaults_usd(self, tmp_path: Path) -> None:
-        snapshot = _snapshot(tmp_path, [("Wallet", 100.0, None)], [], as_of=None)
-        assert snapshot.currencies["Wallet"] == "USD"
+        db = tmp_path / "qianji.db"
+        _create_qianji_db(db, [("Wallet", 100.0, None)], [])
+        assert qianji_currencies(db)["Wallet"] == "USD"
 
     def test_missing_db_empty_currencies(self, tmp_path: Path) -> None:
-        snapshot = qianji_balances_at(tmp_path / "nonexistent.db")
-        assert snapshot.currencies == {}
+        assert qianji_currencies(tmp_path / "nonexistent.db") == {}
 
     def test_excludes_inactive(self, tmp_path: Path) -> None:
-        snapshot = _snapshot(tmp_path, [("Active", 100.0, "USD"), ("Closed", 200.0, "EUR", 1)], [], as_of=None)
-        assert "Active" in snapshot.currencies
-        assert "Closed" not in snapshot.currencies
+        db = tmp_path / "qianji.db"
+        _create_qianji_db(db, [("Active", 100.0, "USD"), ("Closed", 200.0, "EUR", 1)], [])
+        currencies = qianji_currencies(db)
+        assert "Active" in currencies
+        assert "Closed" not in currencies

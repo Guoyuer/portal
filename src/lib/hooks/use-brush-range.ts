@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { TimelineData } from "@/lib/schemas";
+import type { TimelineData } from "@/lib/schemas/timeline";
 
 // Default brush range shows ~1 year (252 US trading days per calendar year).
 const TRADING_DAYS_PER_YEAR = 252;

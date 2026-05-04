@@ -27,6 +27,9 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import cast
 
+import etl.sources.empower as empower_src
+import etl.sources.fidelity as fidelity_src
+import etl.sources.robinhood as robinhood_src
 from etl.allocation import compute_daily_allocation
 from etl.categories import ingest_categories
 from etl.db import (
@@ -39,18 +42,18 @@ from etl.precompute import (
     precompute_holdings_detail,
     precompute_market,
 )
-from etl.prices import (
+from etl.prices.fetch import (
     fetch_and_store_cny_rates,
     fetch_and_store_prices,
-    load_cny_rates,
     refresh_window_start,
+)
+from etl.prices.store import (
+    holding_periods_from_action_kind_rows,
+    load_cny_rates,
     symbol_holding_periods_from_db,
 )
-from etl.qianji import DEFAULT_DB_PATH as DEFAULT_QJ_DB
-from etl.qianji import ingest_qianji_transactions, load_all_from_db
-from etl.sources import empower as empower_src
-from etl.sources import fidelity as fidelity_src
-from etl.sources import robinhood as robinhood_src
+from etl.qianji.config import DEFAULT_DB_PATH as DEFAULT_QJ_DB
+from etl.qianji.ingest import ingest_qianji_transactions, load_all_from_db
 from etl.sources.empower import PROXY_TICKERS, Contribution
 from etl.types import AllocationRow, RawConfig
 from etl.validate import Severity, validate_build
@@ -102,8 +105,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def _resolve_paths(args: argparse.Namespace) -> BuildPaths:
     """Resolve all file paths from parsed args and environment variables."""
-    data_dir = args.data_dir or Path(os.environ.get("PORTAL_DATA_DIR", PIPELINE_DIR / "data"))
-    config = args.config or Path(os.environ.get("PORTAL_CONFIG", PIPELINE_DIR / "config.json"))
+    data_dir = args.data_dir or PIPELINE_DIR / "data"
+    config = args.config or PIPELINE_DIR / "config.json"
     downloads = args.downloads or Path(os.environ.get("PORTAL_DOWNLOADS", Path.home() / "Downloads"))
     return BuildPaths(
         data_dir=data_dir,
@@ -154,19 +157,6 @@ def _load_config(path: Path) -> RawConfig:
         msg = f"Config root must be an object, got {type(data).__name__}"
         raise ValueError(msg)
     return cast(RawConfig, data)
-
-
-def _ingest_fidelity_csvs(paths: BuildPaths) -> None:
-    """Ingest every Fidelity CSV discovered in the downloads directory."""
-    print(f"  Ingesting from {paths.downloads}...")
-    fidelity_src.ingest(paths.db_path, {"fidelity_downloads": paths.downloads})
-
-    conn = get_connection(paths.db_path)
-    try:
-        total = conn.execute("SELECT COUNT(*) FROM fidelity_transactions").fetchone()[0]
-    finally:
-        conn.close()
-    print(f"  {total} rows after ingestion")
 
 
 def _qianji_401k_fallback_contribs(last_qfx_date: date | None) -> list[Contribution]:
@@ -240,44 +230,43 @@ def _init_db_and_ingest_sources(
 
     # ── Step 2: Ingest Fidelity ──
     print("[2] Ingesting Fidelity transactions...")
-    _ingest_fidelity_csvs(paths)
+    print(f"  Ingesting from {paths.downloads}...")
+    fidelity_src.ingest(paths.db_path, paths.downloads)
+    conn = get_connection(paths.db_path)
+    try:
+        total = conn.execute("SELECT COUNT(*) FROM fidelity_transactions").fetchone()[0]
+    finally:
+        conn.close()
+    print(f"  {total} rows after ingestion")
 
     # ── Step 2b: Ingest Robinhood ──
     # Silent no-op when no CSV matches (user has no Robinhood holdings). Uses
     # the same ``downloads/`` glob as Fidelity — users drop fresh
     # ``Robinhood_history*.csv`` files into the shared downloads folder.
     print("[2b] Ingesting Robinhood transactions...")
-    robinhood_src.ingest(paths.db_path, {"robinhood_downloads": paths.downloads})
+    robinhood_src.ingest(paths.db_path, paths.downloads)
 
     # ── Step 3: Ingest Empower QFX + Qianji fallback contributions ──
     print("[3] Ingesting Empower 401k...")
-    empower_src.ingest(paths.db_path, {"empower_downloads": paths.downloads})
+    empower_src.ingest(paths.db_path, paths.downloads, config)
 
     # QFX coverage ends at the latest snapshot date. Contributions made after
     # that (as recorded in Qianji) are tracked as 50/50 sp500/ex-us fallback
     # rows and persisted into ``empower_contributions`` so that
     # :func:`empower_src.positions_at` sees them at query time.
-    last_qfx_date = _last_empower_snapshot_date(paths.db_path)
+    last_qfx_date = _date_scalar(paths.db_path, "SELECT MAX(snapshot_date) FROM empower_snapshots")
     fallback_contribs = _qianji_401k_fallback_contribs(last_qfx_date)
     if fallback_contribs:
         empower_src.ingest_contributions(paths.db_path, fallback_contribs)
 
 
-def _empower_snapshot_date(db_path: Path, sql: str) -> date | None:
+def _date_scalar(db_path: Path, sql: str) -> date | None:
     conn = get_connection(db_path)
     try:
         row = conn.execute(sql).fetchone()
     finally:
         conn.close()
     return date.fromisoformat(row[0]) if row and row[0] else None
-
-
-def _last_empower_snapshot_date(db_path: Path) -> date | None:
-    return _empower_snapshot_date(db_path, "SELECT MAX(snapshot_date) FROM empower_snapshots")
-
-
-def _first_empower_snapshot_date(db_path: Path) -> date | None:
-    return _empower_snapshot_date(db_path, "SELECT MIN(snapshot_date) FROM empower_snapshots")
 
 
 def _compute_holding_periods(
@@ -293,10 +282,30 @@ def _compute_holding_periods(
       - Robinhood symbols not already in Fidelity
     """
     periods = symbol_holding_periods_from_db(paths.db_path)
-    # Earliest date from all holding periods
+    # Add Robinhood holding periods from the DB table that
+    # :func:`etl.sources.robinhood.ingest` populated in step 2b. Reading from
+    # persisted rows keeps price fetching stable even if the source CSV is
+    # deleted after an earlier build.
+    conn = get_connection(paths.db_path)
+    try:
+        rh_rows = conn.execute(
+            "SELECT txn_date, ticker, action_kind, quantity FROM robinhood_transactions"
+            " ORDER BY txn_date, id"
+        ).fetchall()
+    finally:
+        conn.close()
+    for sym, rh_period in holding_periods_from_action_kind_rows(list(rh_rows)).items():
+        existing = periods.get(sym)
+        if existing is None:
+            periods[sym] = rh_period
+            continue
+        start = min(existing[0], rh_period[0])
+        end_date = None if existing[1] is None or rh_period[1] is None else max(existing[1], rh_period[1])
+        periods[sym] = (start, end_date)
+
     earliest = min((p[0] for p in periods.values()), default=end)
 
-    first_snap = _first_empower_snapshot_date(paths.db_path)
+    first_snap = _date_scalar(paths.db_path, "SELECT MIN(snapshot_date) FROM empower_snapshots")
     proxy_start = first_snap if first_snap is not None else earliest
     for proxy in PROXY_TICKERS.values():
         existing = periods.get(proxy)
@@ -305,23 +314,6 @@ def _compute_holding_periods(
     # Add market index tickers for /market endpoint
     for idx_ticker in ("^GSPC", "^NDX", "000300.SS"):
         periods[idx_ticker] = (earliest, None)
-
-    # Add Robinhood symbols that aren't in Fidelity — query the
-    # ``robinhood_transactions`` table that :func:`etl.sources.robinhood.ingest`
-    # populated in step 2b. (Reading from the DB here instead of the CSV
-    # means a user whose CSV was deleted after an earlier build still has
-    # their prices refetched.)
-    conn = get_connection(paths.db_path)
-    try:
-        rh_syms = {
-            sym for (sym,) in conn.execute(
-                "SELECT DISTINCT ticker FROM robinhood_transactions WHERE ticker != ''"
-            )
-        }
-    finally:
-        conn.close()
-    for sym in rh_syms - set(periods.keys()):
-        periods[sym] = (earliest, None)
 
     return periods, earliest
 
@@ -371,35 +363,6 @@ def _fetch_all_prices(
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 
-def _ingest_and_fetch(
-    paths: BuildPaths,
-    config: RawConfig,
-    end: date,
-    *,
-    prices_from_csv: Path | None = None,
-) -> None:
-    """Steps 1-4: init DB, ingest every source, fetch prices.
-
-    Per-day 401k valuation used to be pre-computed here and threaded through
-    to :func:`compute_daily_allocation`. After the Phase 5 migration, Empower
-    is a full :class:`InvestmentSource` that reads its own DB tables at
-    query time — so this function no longer needs to compute anything.
-    """
-    _init_db_and_ingest_sources(paths, config)
-
-    print("[4] Fetching prices...")
-    periods, earliest = _compute_holding_periods(paths, end)
-    _fetch_all_prices(paths, periods, earliest, end, prices_from_csv=prices_from_csv)
-
-
-def _print_summary(alloc: list[AllocationRow]) -> None:
-    if not alloc:
-        return
-    earliest, latest = alloc[0], alloc[-1]
-    print(f"\n  Earliest: {earliest['date']}  ${earliest['total']:,.0f}")
-    print(f"  Latest:   {latest['date']}  ${latest['total']:,.0f}")
-
-
 def _finalize_build_outputs(
     paths: BuildPaths,
     config: RawConfig,
@@ -431,27 +394,15 @@ def _finalize_build_outputs(
         precompute_holdings_detail(paths.db_path)
         print("  Done")
 
-    _print_summary(alloc)
+    if alloc:
+        earliest, latest = alloc[0], alloc[-1]
+        print(f"\n  Earliest: {earliest['date']}  ${earliest['total']:,.0f}")
+        print(f"  Latest:   {latest['date']}  ${latest['total']:,.0f}")
     if not no_validate:
         _run_validation(paths)
 
 
 # ── Full rebuild ────────────────────────────────────────────────────────────
-
-
-def _build_source_config(paths: BuildPaths, config: RawConfig) -> RawConfig:
-    """Compose the raw config dict with per-run path overrides.
-
-    ``compute_daily_allocation`` threads this dict straight into each source
-    module's ``positions_at`` via :class:`AllocationSources.source_config`.
-    """
-    # `dict(td) | {...}` widens the TypedDict to a plain dict; the new keys
-    # are valid RawConfig fields so the resulting shape is still a RawConfig.
-    return cast(RawConfig, dict(config) | {
-        "fidelity_downloads": paths.downloads,
-        "robinhood_downloads": paths.downloads,
-        "empower_downloads": paths.downloads,
-    })
 
 
 def _full_build(
@@ -465,7 +416,7 @@ def _full_build(
 ) -> list[AllocationRow]:
     print("\n[5] Computing full allocation...")
     alloc = compute_daily_allocation(
-        paths.db_path, DEFAULT_QJ_DB, _build_source_config(paths, config), start, end,
+        paths.db_path, DEFAULT_QJ_DB, config, start, end,
     )
     print(f"  {len(alloc)} daily records")
 
@@ -540,7 +491,7 @@ def _build_refresh_window(
 
     print(f"\n[5] Computing allocation {inc_start} -> {end} (incremental)...")
     alloc = compute_daily_allocation(
-        paths.db_path, DEFAULT_QJ_DB, _build_source_config(paths, config), inc_start, end,
+        paths.db_path, DEFAULT_QJ_DB, config, inc_start, end,
     )
     print(f"  {len(alloc)} daily records")
 
@@ -580,10 +531,10 @@ def build_timemachine_db(args: argparse.Namespace) -> int:
     config = _load_config(paths.config)
     end = args.as_of or date.today()
 
-    # Ingest all sources, fetch prices (populates DB)
-    _ingest_and_fetch(
-        paths, config, end, prices_from_csv=args.prices_from_csv,
-    )
+    _init_db_and_ingest_sources(paths, config)
+    print("[4] Fetching prices...")
+    periods, earliest = _compute_holding_periods(paths, end)
+    _fetch_all_prices(paths, periods, earliest, end, prices_from_csv=args.prices_from_csv)
 
     # Derive date range from ingested fidelity transactions
     start = _derive_start_date(paths, fallback=end)

@@ -7,8 +7,8 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from etl.sources import PriceContext
-from etl.sources import empower as empower_src
+import etl.sources.empower as empower_src
+from etl.sources._types import PriceContext
 from tests.fixtures import connected_db, db_rows, db_value
 
 
@@ -38,10 +38,6 @@ def _seed_empower(
                 " VALUES (?, ?, ?, ?, ?, ?)",
                 (snap_ids[snap_date], cusip, ticker, shares, price, mktval),
             )
-
-
-def test_produces_positions_always_on() -> None:
-    assert empower_src.produces_positions({}) is True
 
 
 def test_positions_at_returns_latest_snapshot_at_or_before(empty_db: Path) -> None:
@@ -143,7 +139,7 @@ DATA:OFXSGML
 """
     (tmp_path / "Bloomberg.Download.2024Q2.qfx").write_text(qfx_content, encoding="ascii")
 
-    empower_src.ingest(empty_db, {"empower_downloads": tmp_path})
+    empower_src.ingest(empty_db, tmp_path)
 
     assert db_value(empty_db, "SELECT COUNT(*) FROM empower_snapshots") == 1
     assert db_value(empty_db, "SELECT COUNT(*) FROM empower_funds") == 1
@@ -164,7 +160,7 @@ DATA:OFXSGML
 </INVPOSLIST></INVSTMTRS></INVSTMTTRNRS></INVSTMTMSGSRSV1></OFX>
 """
     (tmp_path / "Bloomberg.Download.zero.qfx").write_text(qfx, encoding="ascii")
-    empower_src.ingest(empty_db, {"empower_downloads": tmp_path})
+    empower_src.ingest(empty_db, tmp_path)
 
     assert db_value(empty_db, "SELECT COUNT(*) FROM empower_funds") == 0
 
@@ -183,7 +179,7 @@ DATA:OFXSGML
 </INVPOSLIST></INVSTMTRS></INVSTMTTRNRS></INVSTMTMSGSRSV1></OFX>
 """
     (tmp_path / "Bloomberg.Download.unknown.qfx").write_text(qfx, encoding="ascii")
-    empower_src.ingest(empty_db, {"empower_downloads": tmp_path})
+    empower_src.ingest(empty_db, tmp_path)
 
     tickers = [row[0] for row in db_rows(empty_db, "SELECT ticker FROM empower_funds")]
     assert tickers == ["401k_unknown_999999999"]
@@ -203,16 +199,16 @@ DATA:OFXSGML
 </INVPOSLIST></INVSTMTRS></INVSTMTTRNRS></INVSTMTMSGSRSV1></OFX>
 """
     (tmp_path / "Bloomberg.Download.A.qfx").write_text(qfx, encoding="ascii")
-    cfg: dict[str, object] = {"empower_downloads": tmp_path}
-    empower_src.ingest(empty_db, cfg)
-    empower_src.ingest(empty_db, cfg)
+    cfg: dict[str, object] = {"empower_cusip_map": {"999999999": "401k custom"}}
+    empower_src.ingest(empty_db, tmp_path, cfg)
+    empower_src.ingest(empty_db, tmp_path, cfg)
     assert db_value(empty_db, "SELECT COUNT(*) FROM empower_snapshots") == 1
     assert db_value(empty_db, "SELECT COUNT(*) FROM empower_funds") == 1
 
 
 def test_ingest_missing_dir_is_noop(tmp_path: Path, empty_db: Path) -> None:
     """Non-existent downloads directory → silent no-op."""
-    empower_src.ingest(empty_db, {"empower_downloads": tmp_path / "does_not_exist"})
+    empower_src.ingest(empty_db, tmp_path / "does_not_exist")
     assert db_value(empty_db, "SELECT COUNT(*) FROM empower_snapshots") == 0
 
 

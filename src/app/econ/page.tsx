@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { ECON_URL, FETCH_TIMEOUT_MS } from "@/lib/config";
 import { fetchWithSchema } from "@/lib/schemas/fetch-schema";
-import { EconDataSchema, type EconData, type EconPoint } from "@/lib/schemas";
+import { EconDataSchema, type EconData, type EconPoint } from "@/lib/schemas/econ";
 import { ECON_FORMATTERS } from "@/lib/format/econ-formatters";
 import { fmtDateMedium } from "@/lib/format/format";
 import { ECON_LINE_COLORS } from "@/lib/format/chart-colors";

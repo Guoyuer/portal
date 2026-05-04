@@ -81,9 +81,9 @@ Investment sources live under `pipeline/etl/sources/`:
 
 - `fidelity/` -- directory module for CSV parsing, pricing, and cash reconstruction.
 - `robinhood.py`, `empower.py` -- single-file sources.
-- `_types.py` -- Protocol + shared dataclasses.
+- `_types.py` -- shared source dataclasses and the `positions_at` Protocol.
 
-Each source exposes `ingest(db_path, config)`, `positions_at(db_path, ctx) -> list[PositionRow]`, and `produces_positions(config) -> bool`. `compute_daily_allocation` and `positions_at_all` iterate `SOURCES`; allocation should not contain broker-specific code.
+Build orchestration calls each concrete `ingest` function directly with the resolved Downloads path it needs. Allocation owns the small ordered `positions_at` source list and calls `positions_at(db_path, as_of, ctx, config) -> list[PositionRow]`; source-specific valuation logic stays inside the source modules. Sources with no data return `[]`.
 
 Qianji stays outside the `InvestmentSource` Protocol because it models categorical cash flows, not investment positions. Yahoo/FRED market data also stays outside because it produces time series.
 

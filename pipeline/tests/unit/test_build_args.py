@@ -4,7 +4,6 @@ from __future__ import annotations
 import sys
 from dataclasses import FrozenInstanceError
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -34,6 +33,7 @@ class TestParseArgs:
         args = _parse_args(["--downloads", str(tmp_path)])
         assert args.downloads == tmp_path
 
+
 class TestResolvePaths:
     def test_default_paths(self):
         args = _parse_args([])
@@ -57,12 +57,6 @@ class TestResolvePaths:
         args = _parse_args(["--downloads", str(tmp_path)])
         paths = _resolve_paths(args)
         assert paths.downloads == tmp_path
-
-    def test_env_var_fallback(self, tmp_path):
-        with patch.dict("os.environ", {"PORTAL_DATA_DIR": str(tmp_path)}):
-            args = _parse_args([])
-            paths = _resolve_paths(args)
-            assert paths.data_dir == tmp_path
 
     def test_returns_build_paths(self):
         args = _parse_args([])

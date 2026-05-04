@@ -3,7 +3,7 @@
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MacroCards } from "./macro-cards";
-import type { EconSnapshot } from "@/lib/schemas";
+import type { EconSnapshot } from "@/lib/schemas/econ";
 
 describe("MacroCards", () => {
   it("renders only the indicators present in the snapshot", () => {

@@ -27,7 +27,7 @@ from pathlib import Path
 from etl.db import get_connection
 from etl.parsing import read_csv_rows
 from etl.replay import ReplayConfig, replay_transactions
-from etl.sources._types import ActionKind, PositionRow, PriceContext, resolve_downloads_dir
+from etl.sources._types import ActionKind, PositionRow, PriceContext
 from etl.types import RawConfig, parse_currency
 
 log = logging.getLogger(__name__)
@@ -69,27 +69,13 @@ def classify_robinhood_action(trans_code: str) -> ActionKind:
 # ── Config helpers ─────────────────────────────────────────────────────────
 
 
-def _downloads_dir(config: RawConfig) -> Path:
-    """Resolve the directory that holds ``Robinhood_history*.csv`` exports.
-
-    Prefers a dedicated ``robinhood_downloads`` key, then ``fidelity_downloads``
-    (same ``~/Downloads`` folder in practice), then the system Downloads
-    folder. Every fallback goes through :meth:`Path.exists` in the callers,
-    so a missing config / directory surfaces as a silent no-op.
-    """
-    return resolve_downloads_dir(
-        config, "robinhood_downloads", fallback_keys=("fidelity_downloads",),
-    )
-
-
-def _csv_paths(config: RawConfig) -> list[Path]:
+def _csv_paths(downloads: Path) -> list[Path]:
     """Glob matching Robinhood activity-report CSVs for this build.
 
     Returns ``[]`` when the directory doesn't exist. Users without a Robinhood
     CSV see no rows; users with multiple exports (e.g. quarterly pulls) have
     each CSV range-replace its own window.
     """
-    downloads = _downloads_dir(config)
     if not downloads.exists():
         return []
     return sorted(downloads.glob("Robinhood_history*.csv"))
@@ -98,16 +84,8 @@ def _csv_paths(config: RawConfig) -> list[Path]:
 # ── Public API (module protocol) ───────────────────────────────────────────
 
 
-def produces_positions(config: RawConfig) -> bool:
-    """Always on. The ingest path is a silent no-op when no CSVs are present,
-    and :func:`positions_at` returns an empty list when the table is empty.
-    """
-    del config
-    return True
-
-
-def ingest(db_path: Path, config: RawConfig) -> None:
-    """Scan ``robinhood_downloads`` for ``Robinhood_history*.csv`` and ingest each.
+def ingest(db_path: Path, downloads: Path) -> None:
+    """Scan ``downloads`` for ``Robinhood_history*.csv`` and ingest each.
 
     Each CSV is authoritative for its own date window via
     :func:`_ingest_one_csv`'s range-replace. Re-running the build on the same
@@ -118,7 +96,7 @@ def ingest(db_path: Path, config: RawConfig) -> None:
 
     If no CSV matches (user doesn't have Robinhood), this is a silent no-op.
     """
-    for path in _csv_paths(config):
+    for path in _csv_paths(downloads):
         _ingest_one_csv(db_path, path)
 
 
@@ -199,7 +177,6 @@ def positions_at(
             rows.append(PositionRow(
                 ticker=ticker,
                 value_usd=st.quantity * price,
-                quantity=st.quantity,
                 cost_basis_usd=st.cost_basis_usd,
             ))
             continue

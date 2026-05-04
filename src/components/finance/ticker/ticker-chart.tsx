@@ -11,7 +11,7 @@
 // fetch, per-symbol lookup, range-filtering, and the expand-to-dialog gesture.
 
 import { useEffect, useState } from "react";
-import { TickerPricesBundleSchema, type TickerPricesBundle, type TickerTxn } from "@/lib/schemas";
+import { TickerPricesBundleSchema, type TickerPricesBundle, type TickerTxn } from "@/lib/schemas/ticker";
 import { PRICES_URL } from "@/lib/config";
 import { fetchWithSchema } from "@/lib/schemas/fetch-schema";
 import { mergeTickerData, computeAvgCost, type TickerChartPoint } from "@/lib/data/ticker-data";

@@ -21,8 +21,6 @@ const COLORS: Record<SourceKind, string> = {
   "401k": CAT_COLOR_BY_KEY.crypto,         // Okabe-Ito orange
 };
 
-export type { SourceKind };
-
 export function SourceBadge({ source }: { source: SourceKind }) {
   const color = COLORS[source];
   return (

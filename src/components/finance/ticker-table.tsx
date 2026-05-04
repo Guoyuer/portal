@@ -13,9 +13,10 @@ import {
 } from "@/components/ui/table";
 import { TickerChart, TickerDialogOnly } from "./ticker/ticker-chart";
 import { GroupChartDialog } from "./group/group-dialog";
-import { SourceBadge, type SourceKind } from "./source-badge";
-import type { ActivityTicker, InvestmentTxn } from "@/lib/compute/compute";
-import type { DailyTicker } from "@/lib/schemas";
+import { SourceBadge } from "./source-badge";
+import type { InvestmentTxn } from "@/lib/compute/compute";
+import type { ActivityTicker, SourceKind } from "@/lib/compute/computed-types";
+import type { DailyTicker } from "@/lib/schemas/timeline";
 
 const ACTIVITY_TOP_SYMBOLS = 5;
 

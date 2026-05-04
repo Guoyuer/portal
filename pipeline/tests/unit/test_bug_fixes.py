@@ -26,9 +26,10 @@ from dataclasses import replace  # noqa: E402
 
 from etl.allocation import compute_daily_allocation  # noqa: E402
 from etl.db import init_db  # noqa: E402
-from etl.prices import symbol_holding_periods_from_db  # noqa: E402
+from etl.prices.store import symbol_holding_periods_from_db  # noqa: E402
 from etl.replay import replay_transactions  # noqa: E402
-from etl.sources.fidelity import FIDELITY_REPLAY, classify_fidelity_action  # noqa: E402
+from etl.sources.fidelity import FIDELITY_REPLAY  # noqa: E402
+from etl.sources.fidelity.parse import classify_fidelity_action  # noqa: E402
 from tests.fixtures import connected_db, insert_fidelity_txn  # noqa: E402
 
 # Strip cash tracking — these tests only assert position quantities + cost
@@ -219,7 +220,7 @@ class TestMissingPriceWarns:
         )
         config = {
             "assets": {"SGOV": {"category": "Safe Net"}, "VTI": {"category": "US Equity"}},
-            "qianji_accounts": {"fidelity_tracked": [], "ticker_map": {}},
+            "qianji_accounts": {"ticker_map": {}},
         }
         with caplog.at_level(logging.WARNING):
             compute_daily_allocation(db, qj, config, date(2025, 1, 2), date(2025, 1, 2))
@@ -234,7 +235,7 @@ class TestMissingPriceWarns:
         )
         config = {
             "assets": {"VTI": {"category": "US Equity"}},
-            "qianji_accounts": {"fidelity_tracked": [], "ticker_map": {}},
+            "qianji_accounts": {"ticker_map": {}},
         }
         with caplog.at_level(logging.WARNING):
             compute_daily_allocation(db, qj, config, date(2025, 1, 2), date(2025, 1, 2))
@@ -274,7 +275,7 @@ class TestUnmappedQianjiWarns:
         )
         config = {
             "assets": {"VTI": {"category": "US Equity"}},
-            "qianji_accounts": {"fidelity_tracked": [], "ticker_map": {}},
+            "qianji_accounts": {"ticker_map": {}},
         }
         with caplog.at_level(logging.WARNING, logger="etl.allocation"):
             results = compute_daily_allocation(db, qj, config, date(2025, 1, 2), date(2025, 1, 2))
@@ -293,7 +294,7 @@ class TestUnmappedQianjiWarns:
         )
         config = {
             "assets": {"VTI": {"category": "US Equity"}, "HYSA": {"category": "Safe Net"}},
-            "qianji_accounts": {"fidelity_tracked": [], "ticker_map": {"HYSA": "HYSA"}},
+            "qianji_accounts": {"ticker_map": {"HYSA": "HYSA"}},
         }
         with caplog.at_level(logging.WARNING, logger="etl.allocation"):
             compute_daily_allocation(db, qj, config, date(2025, 1, 2), date(2025, 1, 2))
@@ -326,7 +327,7 @@ class TestTBillCusipsValuedAtFace:
         )
         config = {
             "assets": {"T-Bills": {"category": "Safe Net"}},
-            "qianji_accounts": {"fidelity_tracked": [], "ticker_map": {}},
+            "qianji_accounts": {"ticker_map": {}},
         }
         results = compute_daily_allocation(db, qj, config, date(2025, 1, 2), date(2025, 1, 2))
         tickers = {t["ticker"]: t for t in results[0]["tickers"]}
@@ -343,7 +344,7 @@ class TestTBillCusipsValuedAtFace:
         )
         config = {
             "assets": {"T-Bills": {"category": "Safe Net"}},
-            "qianji_accounts": {"fidelity_tracked": [], "ticker_map": {}},
+            "qianji_accounts": {"ticker_map": {}},
         }
         with caplog.at_level(logging.WARNING, logger="etl.allocation"):
             compute_daily_allocation(db, qj, config, date(2025, 1, 2), date(2025, 1, 2))
@@ -360,7 +361,7 @@ class TestTBillCusipsValuedAtFace:
         )
         config = {
             "assets": {"T-Bills": {"category": "Safe Net"}},
-            "qianji_accounts": {"fidelity_tracked": [], "ticker_map": {}},
+            "qianji_accounts": {"ticker_map": {}},
         }
         results = compute_daily_allocation(db, qj, config, date(2025, 1, 2), date(2025, 1, 2))
         tickers = {t["ticker"]: t for t in results[0]["tickers"]}

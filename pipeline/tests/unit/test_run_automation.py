@@ -12,18 +12,18 @@ from unittest.mock import patch
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-from etl.automation import (  # noqa: E402
+import etl.automation.changes as changes  # noqa: E402
+import etl.automation.notify as notify  # noqa: E402
+import etl.automation.paths as paths  # noqa: E402
+import etl.automation.runner as runner  # noqa: E402
+from etl.automation._constants import (  # noqa: E402
+    _STATUS_LABELS,  # noqa: E402
     EXIT_BUILD_FAIL,
     EXIT_OK,
     EXIT_PARITY_FAIL,
     EXIT_POSITIONS_FAIL,
     EXIT_SYNC_FAIL,
-    changes,
-    notify,
-    paths,
-    runner,
 )
-from etl.automation._constants import _STATUS_LABELS  # noqa: E402
 from etl.automation.receipt import NetWorthPoint, SyncSnapshot  # noqa: E402
 from scripts import run_automation  # noqa: E402
 
@@ -183,13 +183,16 @@ class TestParseArgs:
 # ── Exit-code mapping ─────────────────────────────────────────────────────────
 
 class _FakeRun:
-    def __init__(self, codes: list[int]):
+    def __init__(self, codes: list[int], outputs: list[list[str]] | None = None):
         self.codes = list(codes)
+        self.outputs = [list(lines) for lines in outputs or []]
         self.calls: list[tuple[Path, tuple[str, ...]]] = []
 
-    def __call__(self, script: Path, *args: str) -> int:
+    def __call__(self, script: Path, *args: str) -> tuple[int, list[str]]:
         self.calls.append((script, args))
-        return self.codes.pop(0) if self.codes else 0
+        code = self.codes.pop(0) if self.codes else 0
+        output = self.outputs.pop(0) if self.outputs else []
+        return code, output
 
 
 _BUILD = "build_timemachine_db.py"
@@ -486,8 +489,9 @@ class TestEmailNotifications:
         send_side_effect=None,
         disable_email=False,
         downloads_seed=None,
+        outputs=None,
     ):
-        fake = _FakeRun(codes)
+        fake = _FakeRun(codes, outputs)
         monkeypatch.setattr(runner, "run_python_script", fake)
         _stub_runner_env(
             monkeypatch,
@@ -590,17 +594,21 @@ class TestEmailNotifications:
         captured = capsys.readouterr()
         assert "Email send FAILED" in captured.out
 
+    def test_success_email_includes_current_script_warnings(self, monkeypatch, tmp_path):
+        rc, _, sent = self._invoke_with_email(
+            ["--force"], [0, 0, 0, 0], monkeypatch, tmp_path,
+            snapshot_before=SyncSnapshot(),
+            snapshot_after=SyncSnapshot(),
+            outputs=[["2026-04-12T12:00:01 WARNING: day_over_day 15.7% change"]],
+        )
+        assert rc == EXIT_OK
+        assert "day_over_day 15.7% change" in sent[0]["text"]
+
 
 # ── extract_validation_warnings() ─────────────────────────────────────────────
 
 
 class TestExtractValidationWarnings:
-    def setup_method(self) -> None:
-        runner._reset_script_output_buffer()
-
-    def teardown_method(self) -> None:
-        runner._reset_script_output_buffer()
-
     def test_returns_empty_without_buffer(self):
         assert notify.extract_validation_warnings() == []
 
@@ -641,29 +649,13 @@ class TestExtractValidationWarnings:
         for i, sub in enumerate(expected_substrings):
             assert sub in warnings[i]
 
-    def test_extract_warnings_uses_capture_buffer(self):
-        runner._SCRIPT_OUTPUT_BUFFER.extend([
-            "2026-04-12T12:00:00 INFO [2] build",
-            "2026-04-12T12:00:01 WARNING: day_over_day 2023-07-04 -> 2023-07-05: 15.7% change",
-            "2026-04-12T12:00:01 WARNING: day_over_day 2023-07-04 -> 2023-07-05: 15.7% change",
-            "2026-04-12T12:00:02 INFO done",
-        ])
-        warnings = notify.extract_validation_warnings(runner.get_script_output_buffer())
-        assert len(warnings) == 1
-        assert "15.7%" in warnings[0]
-
     def test_extract_warnings_buffer_scopes_to_current_main_run(
         self, monkeypatch, tmp_path, caplog
     ):
-        runner._SCRIPT_OUTPUT_BUFFER.extend([
-            "2026-04-12T08:00:01 WARNING: STALE bad_data found",
-        ])
-
-        monkeypatch.setattr(runner, "run_python_script", lambda script, *args: 0)
+        monkeypatch.setattr(runner, "run_python_script", lambda script, *args: (0, []))
         _stub_runner_env(monkeypatch, tmp_path)
 
         monkeypatch.setattr(runner, "capture", lambda _p: SyncSnapshot())
 
         rc = run_automation.main(["--force"])
         assert rc == EXIT_OK
-        assert runner.get_script_output_buffer() == []

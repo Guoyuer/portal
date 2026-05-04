@@ -114,32 +114,14 @@ class TestLoadPricesFromCsv:
 class TestConfigAndFidelityIngest:
     def test_load_config_accepts_object_root(self, tmp_path: Path) -> None:
         config = tmp_path / "config.json"
-        config.write_text('{"goal": 1000}', encoding="utf-8")
-        assert build_mod._load_config(config)["goal"] == 1000
+        config.write_text('{"assets": {}}', encoding="utf-8")
+        assert build_mod._load_config(config)["assets"] == {}
 
     def test_load_config_rejects_non_object_root(self, tmp_path: Path) -> None:
         config = tmp_path / "config.json"
         config.write_text("[1, 2, 3]", encoding="utf-8")
         with pytest.raises(ValueError, match="Config root must be an object"):
             build_mod._load_config(config)
-
-    def test_directory_ingest_reports_persisted_row_count(
-        self,
-        paths: build_mod.BuildPaths,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        init_db(paths.db_path)
-
-        def fake_ingest(db_path: Path, config: dict[str, Path]) -> None:
-            assert config == {"fidelity_downloads": paths.downloads}
-            _seed_fidelity(db_path, "2026-01-01")
-
-        monkeypatch.setattr(build_mod.fidelity_src, "ingest", fake_ingest)
-
-        build_mod._ingest_fidelity_csvs(paths)
-
-        assert db_value(paths.db_path, "SELECT COUNT(*) FROM fidelity_transactions") == 1
-
 
 class TestQianjiFallbackAndValidation:
     def test_qianji_401k_fallback_returns_split_contribs_after_last_qfx(
@@ -224,15 +206,19 @@ class TestSourceIngestAndPeriods:
         calls: list[tuple[str, object]] = []
 
         monkeypatch.setattr(build_mod, "ingest_categories", lambda db, cfg: calls.append(("categories", cfg)))
-        monkeypatch.setattr(build_mod, "_ingest_fidelity_csvs", lambda p: calls.append(("fidelity", p.db_path)))
+        monkeypatch.setattr(
+            build_mod.fidelity_src,
+            "ingest",
+            lambda db, downloads: calls.append(("fidelity", downloads)),
+        )
         monkeypatch.setattr(
             build_mod.robinhood_src,
             "ingest",
-            lambda db, cfg: calls.append(("robinhood", cfg["robinhood_downloads"])),
+            lambda db, downloads: calls.append(("robinhood", downloads)),
         )
 
-        def fake_empower_ingest(db_path: Path, config: dict[str, Path]) -> None:
-            calls.append(("empower", config["empower_downloads"]))
+        def fake_empower_ingest(db_path: Path, downloads: Path, config: dict) -> None:
+            calls.append(("empower", downloads))
             _exec(db_path, "INSERT INTO empower_snapshots (snapshot_date) VALUES ('2026-01-31')")
 
         monkeypatch.setattr(build_mod.empower_src, "ingest", fake_empower_ingest)
@@ -248,27 +234,27 @@ class TestSourceIngestAndPeriods:
             lambda db, rows: calls.append(("fallback-rows", rows)),
         )
 
-        build_mod._init_db_and_ingest_sources(paths, {"goal": 1})
+        build_mod._init_db_and_ingest_sources(paths, {})
 
-        assert calls[0] == ("categories", {"goal": 1})
-        assert ("fidelity", paths.db_path) in calls
+        assert calls[0] == ("categories", {})
+        assert ("fidelity", paths.downloads) in calls
         assert ("robinhood", paths.downloads) in calls
         assert ("empower", paths.downloads) in calls
         assert ("fallback-last", date(2026, 1, 31)) in calls
         assert calls[-1][0] == "fallback-rows"
 
-    def test_snapshot_date_helpers_return_min_and_max(self, paths: build_mod.BuildPaths) -> None:
+    def test_snapshot_date_helper_returns_min_and_max(self, paths: build_mod.BuildPaths) -> None:
         init_db(paths.db_path)
-        assert build_mod._first_empower_snapshot_date(paths.db_path) is None
-        assert build_mod._last_empower_snapshot_date(paths.db_path) is None
+        assert build_mod._date_scalar(paths.db_path, "SELECT MIN(snapshot_date) FROM empower_snapshots") is None
+        assert build_mod._date_scalar(paths.db_path, "SELECT MAX(snapshot_date) FROM empower_snapshots") is None
         _exec(
             paths.db_path,
             "INSERT INTO empower_snapshots (snapshot_date) VALUES ('2026-03-31')",
             "INSERT INTO empower_snapshots (snapshot_date) VALUES ('2026-01-31')",
         )
 
-        assert build_mod._first_empower_snapshot_date(paths.db_path) == date(2026, 1, 31)
-        assert build_mod._last_empower_snapshot_date(paths.db_path) == date(2026, 3, 31)
+        assert build_mod._date_scalar(paths.db_path, "SELECT MIN(snapshot_date) FROM empower_snapshots") == date(2026, 1, 31)
+        assert build_mod._date_scalar(paths.db_path, "SELECT MAX(snapshot_date) FROM empower_snapshots") == date(2026, 3, 31)
 
     def test_compute_holding_periods_unions_fidelity_proxies_market_and_robinhood(
         self,
@@ -279,8 +265,8 @@ class TestSourceIngestAndPeriods:
         _exec(
             paths.db_path,
             "INSERT INTO empower_snapshots (snapshot_date) VALUES ('2026-01-01')",
-            "INSERT INTO robinhood_transactions (txn_date, action_kind, ticker)"
-            " VALUES ('2026-01-02', 'buy', 'HOOD')",
+            "INSERT INTO robinhood_transactions (txn_date, action_kind, ticker, quantity)"
+            " VALUES ('2026-01-02', 'buy', 'HOOD', 1)",
         )
         monkeypatch.setattr(
             build_mod,
@@ -290,12 +276,12 @@ class TestSourceIngestAndPeriods:
 
         periods, earliest = build_mod._compute_holding_periods(paths, date(2026, 4, 1))
 
-        assert earliest == date(2026, 1, 5)
+        assert earliest == date(2026, 1, 2)
         assert periods["VOO"] == (date(2026, 1, 1), None)
         assert periods["QQQM"] == (date(2026, 1, 1), None)
         assert periods["VXUS"] == (date(2026, 1, 1), None)
-        assert periods["HOOD"] == (date(2026, 1, 5), None)
-        assert periods["^GSPC"] == (date(2026, 1, 5), None)
+        assert periods["HOOD"] == (date(2026, 1, 2), None)
+        assert periods["^GSPC"] == (date(2026, 1, 2), None)
 
 
 class TestFetchAndBuildOrchestration:
@@ -347,55 +333,6 @@ class TestFetchAndBuildOrchestration:
 
         assert calls["prices"] == (paths.db_path, periods, date(2026, 4, 1), date(2026, 1, 15))
         assert calls["cny"] == (paths.db_path, date(2026, 1, 3), date(2026, 4, 1))
-
-    def test_ingest_and_fetch_threads_periods_to_price_fetch(
-        self,
-        paths: build_mod.BuildPaths,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        calls: dict[str, object] = {}
-        monkeypatch.setattr(build_mod, "_init_db_and_ingest_sources", lambda p, c: calls.setdefault("ingest", (p, c)))
-        monkeypatch.setattr(
-            build_mod,
-            "_compute_holding_periods",
-            lambda p, end: ({"VOO": (date(2026, 1, 1), None)}, date(2026, 1, 1)),
-        )
-
-        def fake_fetch(paths_arg, periods, earliest, end, *, prices_from_csv=None):
-            calls["fetch"] = (paths_arg, periods, earliest, end, prices_from_csv)
-
-        monkeypatch.setattr(build_mod, "_fetch_all_prices", fake_fetch)
-        price_csv = paths.data_dir / "prices.csv"
-
-        build_mod._ingest_and_fetch(paths, {"goal": 1}, date(2026, 4, 1), prices_from_csv=price_csv)
-
-        assert calls["ingest"] == (paths, {"goal": 1})
-        assert calls["fetch"] == (
-            paths,
-            {"VOO": (date(2026, 1, 1), None)},
-            date(2026, 1, 1),
-            date(2026, 4, 1),
-            price_csv,
-        )
-
-    def test_print_summary_handles_empty_and_non_empty(self, capsys: pytest.CaptureFixture[str]) -> None:
-        build_mod._print_summary([])
-        assert capsys.readouterr().out == ""
-
-        build_mod._print_summary([_alloc_row("2026-01-01", 10), _alloc_row("2026-01-02", 20)])
-
-        out = capsys.readouterr().out
-        assert "Earliest: 2026-01-01  $10" in out
-        assert "Latest:   2026-01-02  $20" in out
-
-    def test_build_source_config_injects_download_paths(self, paths: build_mod.BuildPaths) -> None:
-        config = build_mod._build_source_config(paths, {"goal": 1})
-
-        assert config["goal"] == 1
-        assert config["fidelity_downloads"] == paths.downloads
-        assert config["robinhood_downloads"] == paths.downloads
-        assert config["empower_downloads"] == paths.downloads
-
 
 class TestFullAndIncrementalBuild:
     def test_full_build_replaces_existing_rows_and_runs_precompute_validation(
@@ -507,12 +444,18 @@ class TestFullAndIncrementalBuild:
             no_validate=True,
         )
         monkeypatch.setattr(build_mod, "_resolve_paths", lambda a: paths)
-        monkeypatch.setattr(build_mod, "_load_config", lambda p: {"goal": 1})
+        monkeypatch.setattr(build_mod, "_load_config", lambda p: {})
+        monkeypatch.setattr(build_mod, "_init_db_and_ingest_sources", lambda p, cfg: calls.append(("ingest", (p, cfg))))
         monkeypatch.setattr(
             build_mod,
-            "_ingest_and_fetch",
-            lambda p, cfg, end, *, prices_from_csv: calls.append(
-                ("ingest", (p, cfg, end, prices_from_csv))
+            "_compute_holding_periods",
+            lambda p, end: ({"VOO": (date(2026, 1, 1), None)}, date(2026, 1, 1)),
+        )
+        monkeypatch.setattr(
+            build_mod,
+            "_fetch_all_prices",
+            lambda p, periods, earliest, end, *, prices_from_csv: calls.append(
+                ("fetch", (p, periods, earliest, end, prices_from_csv))
             ),
         )
         monkeypatch.setattr(build_mod, "_derive_start_date", lambda *_args, **_kwargs: date(2026, 1, 1))
@@ -526,6 +469,7 @@ class TestFullAndIncrementalBuild:
 
         assert build_mod.build_timemachine_db(args) == 0
         assert calls == [
-            ("ingest", (paths, {"goal": 1}, date(2026, 4, 14), args.prices_from_csv)),
-            ("refresh", (paths, {"goal": 1}, date(2026, 1, 1), date(2026, 4, 14), True, True)),
+            ("ingest", (paths, {})),
+            ("fetch", (paths, {"VOO": (date(2026, 1, 1), None)}, date(2026, 1, 1), date(2026, 4, 14), args.prices_from_csv)),
+            ("refresh", (paths, {}, date(2026, 1, 1), date(2026, 4, 14), True, True)),
         ]

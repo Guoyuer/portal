@@ -71,9 +71,6 @@ def _make_config() -> dict:
             "CNY Cash": {"category": "Safe Net", "subtype": ""},
         },
         "qianji_accounts": {
-            "fidelity_tracked": ["Fidelity taxable", "Roth IRA", "Fidelity Cash Management"],
-            "credit": [],
-            "cny": ["Alipay"],
             "ticker_map": {"HYSA": "HYSA", "Alipay": "CNY Cash"},
         },
         "fidelity_accounts": {
@@ -191,10 +188,7 @@ class TestComputeDailyAllocation:
 
         config = {
             "assets": {"FZFXX": {"category": "Safe Net", "subtype": ""}},
-            "qianji_accounts": {
-                "fidelity_tracked": ["Fidelity taxable"],
-                "credit": [], "cny": [], "ticker_map": {},
-            },
+            "qianji_accounts": {"ticker_map": {}},
             "fidelity_accounts": {},
         }
 
@@ -242,7 +236,6 @@ class TestComputeDailyAllocation:
             conn.execute("INSERT INTO user_asset (name, money, currency) VALUES ('Credit Card', -2000.0, 'USD')")
 
         config = _make_config()
-        config["qianji_accounts"]["credit"] = ["Credit Card"]
 
         results = _compute_allocation((db_path, qj_path), config=config)
         assert results[0]["liabilities"] < 0
@@ -293,7 +286,7 @@ class TestComputeDailyAllocation:
 
         config = {
             "assets": {"Cash": {"category": "Safe Net", "subtype": ""}},
-            "qianji_accounts": {"credit": [], "cny": [], "ticker_map": {"Checking": "Cash"}},
+            "qianji_accounts": {"ticker_map": {"Checking": "Cash"}},
         }
 
         rows = compute_daily_allocation(db_path, qj_path, config, date(2025, 2, 28), date(2025, 3, 3))
@@ -381,6 +374,7 @@ def _qianji_values(
         assets=assets or {},
         cny_rate=7.25,
         skip_accounts=skip_accounts,
+        warning_keys=set(),
     )
     return ticker_values
 

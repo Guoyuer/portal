@@ -239,6 +239,40 @@ maintenance surface drops to 243 files / 25,325 physical LOC before this note.
 Validation: frontend lint, Vitest, Next build, ts-prune, targeted allocation
 tests, Ruff, and full Python pytest all pass.
 
+Formal static-analysis follow-up: tool-driven cleanup removed the frontend
+schema barrel (`src/lib/schemas/index.ts`) and the Python `etl.sources`
+composition package. Schema consumers now import owner modules
+(`timeline`/`ticker`/`econ`) directly, and allocation owns the only remaining
+investment-source composition loop. Empty package markers were kept only where
+static analyzers need them (`etl/__init__.py`); no re-export compatibility
+surface remains there. Diff effect for this branch so far: 82 maintained files,
+545 insertions / 1,473 deletions (`-928 diff LOC`); physical maintenance
+surface drops to 232 files / 24,558 LOC before this note. Validation so far:
+Ruff, mypy strict, TypeScript `tsc --noEmit`, frontend lint, `vulture`, `knip`,
+`madge --circular`, and targeted Python tests all pass or produce only reviewed
+false positives.
+
+Current static-analysis sweep:
+
+- Python dead code: `vulture etl scripts tests --min-confidence 80` reports no
+  findings.
+- Python typing: `mypy etl/ --strict --ignore-missing-imports` passes after
+  keeping `etl/__init__.py` as a package marker.
+- Python lint/style: `ruff check etl scripts tests` passes.
+- TypeScript type/lint: `tsc --noEmit` and frontend `npm run lint` pass.
+- TypeScript unused exports: `ts-prune` now reports only framework/default
+  exports and generated Zod types.
+- Dependency graph: `madge --extensions ts,tsx --circular src worker/src`
+  reports no circular dependencies.
+- Dependency/file reachability: `knip` remaining findings are reviewed dynamic
+  or generated surfaces: `e2e/mock-api.ts` is Playwright `webServer.command`,
+  `scripts/validate_api_zod.ts` is called by `r2_artifacts.py`, `public/sw.js`
+  is registered from `layout.tsx`, `tsx` is required by those command paths,
+  `@cloudflare/workers-types` is declared in `worker/package.json`,
+  `postcss` is a Next/Tailwind config peer satisfied by the toolchain,
+  `TickerPricePoint` is a type-only import in `ticker-data.ts`, and generated
+  Zod type exports are excluded from maintenance LOC.
+
 ### Wave 1: Safe Deletions and Test Compression
 
 Targets:
