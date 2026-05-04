@@ -198,6 +198,7 @@ def _records_for(
     conn = sqlite3.connect(":memory:")
     try:
         _make_db(conn, bills, categories)
+        kwargs.setdefault("historical_cny_rates", {})
         return _load_records(conn, **kwargs)
     finally:
         conn.close()
@@ -339,15 +340,19 @@ class TestIngestQianjiTransactions:
             _record_dict(date_="2025-03-01", category="Salary", amount=5000.0, account_from="Checking"),
             _record_dict(date_="2025-03-05", type_="expense", category="Rent", amount=1500.0, account_from="Checking"),
         ]
-        assert ingest_qianji_transactions(empty_db, records) == 2
+        assert ingest_qianji_transactions(empty_db, records, retirement_categories=[]) == 2
 
     def test_clears_and_replaces(self, empty_db: Path) -> None:
-        ingest_qianji_transactions(empty_db, [_record_dict(date_="2025-03-01", amount=5000.0, account_from="Checking")])
+        ingest_qianji_transactions(
+            empty_db,
+            [_record_dict(date_="2025-03-01", amount=5000.0, account_from="Checking")],
+            retirement_categories=[],
+        )
         new = [_record_dict(date_="2025-04-01", type_="expense", category="Food", amount=100.0, account_from="Checking")]
-        assert ingest_qianji_transactions(empty_db, new) == 1
+        assert ingest_qianji_transactions(empty_db, new, retirement_categories=[]) == 1
 
     def test_empty_records(self, empty_db: Path) -> None:
-        assert ingest_qianji_transactions(empty_db, []) == 0
+        assert ingest_qianji_transactions(empty_db, [], retirement_categories=[]) == 0
 
 
 # ── Retirement flag — ingest_qianji_transactions ──────────────────────────────
@@ -429,5 +434,5 @@ class TestAccountToNormalization:
         ],
     )
     def test_destination_account(self, empty_db: Path, record: dict, expected: tuple) -> None:
-        ingest_qianji_transactions(empty_db, [record])
+        ingest_qianji_transactions(empty_db, [record], retirement_categories=[])
         assert _row_for(empty_db) == expected

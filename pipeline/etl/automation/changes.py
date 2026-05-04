@@ -36,7 +36,7 @@ STALE_DB_THRESHOLD_DAYS = 4
 def changes_detected(
     marker: Path,
     downloads: Path,
-    qianji_db: Path | None,
+    qianji_db: Path,
     patterns: tuple[str, ...] = WATCHED_PATTERNS,
 ) -> bool:
     """True if marker missing, or any watched file is newer than marker."""
@@ -47,7 +47,7 @@ def changes_detected(
 
     marker_mtime = marker.stat().st_mtime
 
-    if qianji_db and qianji_db.exists() and qianji_db.stat().st_mtime > marker_mtime:
+    if qianji_db.exists() and qianji_db.stat().st_mtime > marker_mtime:
         log.info("  Change detected: Qianji DB modified")
         return True
 

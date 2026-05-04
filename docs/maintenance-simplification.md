@@ -283,6 +283,15 @@ insertions / 161 deletions (`-138 diff LOC`); physical maintenance surface
 drops to 231 files / 24,487 LOC before this note. Validation so far: targeted
 Fidelity/Robinhood/Qianji/allocation tests, Ruff, mypy strict, and vulture.
 
+Type-surface follow-up: several `| None` paths that were only caller
+convenience were narrowed. Automation warning extraction now requires the
+current run buffer, `send_report_email` requires the runner's `started_at` and
+after-snapshot, `get_qianji_db_path` always returns a candidate path, Empower
+ingest requires an explicit config dict, and Qianji ingest requires explicit
+historical CNY rates plus retirement categories. This is mostly mental-load
+reduction rather than LOC reduction: 8 files, 45 insertions / 45 deletions,
+with full Python pytest, Ruff, mypy strict, and vulture passing.
+
 ### Wave 1: Safe Deletions and Test Compression
 
 Targets:
