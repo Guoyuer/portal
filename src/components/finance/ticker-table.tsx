@@ -59,7 +59,7 @@ function ExpanderIndicator({ expanded, isGroup }: { expanded: boolean; isGroup?:
   );
 }
 
-/** Primary table row: uses shadcn TableRow/TableCell. */
+/** Primary table row: expands to the inline chart or group dialog. */
 function TickerRow({ ticker, count, total, isGroup, sources, expanded, onToggle, startDate, endDate }: TickerRowProps) {
   return (
     <>
