@@ -222,6 +222,14 @@ Diff effect: 1 maintained file, 28 insertions / 28 deletions (`0 diff LOC`);
 the code maintenance surface remains 243 files / 25,337 physical LOC before
 this note. Validation: frontend lint, Vitest, and full Playwright all pass.
 
+Automation test harness follow-up: `test_run_automation.py` now shares one
+runner-environment stub and one computed-daily DB seeder across orchestration,
+email, catchup, and warning-buffer tests instead of repeating monkeypatch and
+SQLite setup blocks. Diff effect: 1 maintained file, 54 insertions / 75
+deletions (`-21 diff LOC`); physical maintenance surface drops to 243 files /
+25,322 physical LOC before this note. Validation: targeted automation tests,
+Ruff, and full Python pytest all pass.
+
 ### Wave 1: Safe Deletions and Test Compression
 
 Targets:

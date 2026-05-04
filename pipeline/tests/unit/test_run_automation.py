@@ -74,6 +74,22 @@ def _stale_marker(marker: Path) -> None:
     os.utime(marker, (time.time() - 3600,) * 2)
 
 
+def _seed_computed_daily(tmp_path: Path, last_date: str) -> Path:
+    from etl.db import get_connection, init_db
+
+    db = tmp_path / "tm.db"
+    init_db(db)
+    conn = get_connection(db)
+    conn.execute(
+        "INSERT INTO computed_daily (date, total, us_equity, non_us_equity, crypto, safe_net)"
+        " VALUES (?, 100000, 55000, 15000, 3000, 27000)",
+        (last_date,),
+    )
+    conn.commit()
+    conn.close()
+    return db
+
+
 class TestChangesDetected:
     def test_marker_missing_returns_true(self, marker, downloads):
         assert not marker.exists()
@@ -118,21 +134,6 @@ class TestChangesDetected:
 # ── needs_catchup() ───────────────────────────────────────────────────────────
 
 class TestNeedsCatchup:
-    @staticmethod
-    def _seed_computed_daily(tmp_path: Path, last_date: str) -> Path:
-        from etl.db import get_connection, init_db
-        db = tmp_path / "tm.db"
-        init_db(db)
-        conn = get_connection(db)
-        conn.execute(
-            "INSERT INTO computed_daily (date, total, us_equity, non_us_equity, crypto, safe_net)"
-            " VALUES (?, 100000, 55000, 15000, 3000, 27000)",
-            (last_date,),
-        )
-        conn.commit()
-        conn.close()
-        return db
-
     @pytest.mark.parametrize(
         ("last_date", "expected"),
         [
@@ -142,7 +143,7 @@ class TestNeedsCatchup:
         ],
     )
     def test_seeded_db_catchup_window(self, tmp_path, last_date: str, expected: bool):
-        db = self._seed_computed_daily(tmp_path, last_date)
+        db = _seed_computed_daily(tmp_path, last_date)
         assert changes.needs_catchup(db, today=date(2026, 4, 14)) is expected
 
     def test_empty_db_needs_catchup(self, tmp_path):
@@ -196,22 +197,38 @@ _R2 = "r2_artifacts.py"
 _VERIFY_POS = "verify_positions.py"
 
 
+def _stub_runner_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    downloads_seed: tuple[str, ...] | None = None,
+    *,
+    email_enabled: bool = False,
+) -> Path:
+    marker = tmp_path / ".last_run"
+    monkeypatch.setattr(runner, "MARKER", marker)
+    monkeypatch.setattr(runner, "get_log_dir", lambda: tmp_path / "logs")
+    monkeypatch.setenv("PORTAL_DB_PATH", str(tmp_path / "timemachine.db"))
+    downloads = tmp_path / "iso_downloads"
+    downloads.mkdir(exist_ok=True)
+    for fname in downloads_seed or ():
+        (downloads / fname).write_text("stub")
+    monkeypatch.setattr(runner, "get_downloads_dir", lambda: downloads)
+    monkeypatch.setattr(runner, "get_qianji_db_path", lambda: None)
+    monkeypatch.setenv("PORTAL_HEALTHCHECK_URL", "https://hc.example/dummy")
+    if email_enabled:
+        monkeypatch.setenv("PORTAL_SMTP_USER", "me@gmail.com")
+        monkeypatch.setenv("PORTAL_SMTP_PASSWORD", "apppw")
+    else:
+        monkeypatch.delenv("PORTAL_SMTP_USER", raising=False)
+        monkeypatch.delenv("PORTAL_SMTP_PASSWORD", raising=False)
+    return marker
+
+
 class TestExitCodeMapping:
     def _invoke(self, argv, codes, monkeypatch, tmp_path, downloads_seed=None):
         fake = _FakeRun(codes)
         monkeypatch.setattr(runner, "run_python_script", fake)
-        monkeypatch.setattr(runner, "MARKER", tmp_path / ".last_run")
-        monkeypatch.setattr(runner, "get_log_dir", lambda: tmp_path / "logs")
-        monkeypatch.setenv("PORTAL_DB_PATH", str(tmp_path / "timemachine.db"))
-        iso_downloads = tmp_path / "iso_downloads"
-        iso_downloads.mkdir(exist_ok=True)
-        for fname in downloads_seed or ():
-            (iso_downloads / fname).write_text("stub")
-        monkeypatch.setattr(runner, "get_downloads_dir", lambda: iso_downloads)
-        monkeypatch.setattr(runner, "get_qianji_db_path", lambda: None)
-        monkeypatch.setenv("PORTAL_HEALTHCHECK_URL", "https://hc.example/dummy")
-        monkeypatch.delenv("PORTAL_SMTP_USER", raising=False)
-        monkeypatch.delenv("PORTAL_SMTP_PASSWORD", raising=False)
+        _stub_runner_env(monkeypatch, tmp_path, downloads_seed)
         rc = run_automation.main(argv)
         return rc, fake
 
@@ -299,29 +316,11 @@ class TestExitCodeMapping:
         assert not marker.exists(), "dry-run wrote the marker; next real sync would be skipped"
 
     def test_no_changes_returns_0_without_invoking_build(self, monkeypatch, tmp_path):
-        from etl.db import get_connection, init_db
-
         fake = _FakeRun([])
         monkeypatch.setattr(runner, "run_python_script", fake)
-        monkeypatch.setattr(runner, "MARKER", tmp_path / ".last_run")
-        monkeypatch.setattr(runner, "get_log_dir", lambda: tmp_path / "logs")
-        monkeypatch.setattr(runner, "get_downloads_dir", lambda: tmp_path / "empty_downloads")
-        monkeypatch.setattr(runner, "get_qianji_db_path", lambda: None)
-        monkeypatch.setenv("PORTAL_HEALTHCHECK_URL", "https://hc.example/dummy")
-        (tmp_path / "empty_downloads").mkdir()
-        (tmp_path / ".last_run").write_text("seeded")
-
-        db_path = tmp_path / "tm.db"
+        _stub_runner_env(monkeypatch, tmp_path).write_text("seeded")
+        db_path = _seed_computed_daily(tmp_path, date.today().isoformat())
         monkeypatch.setenv("PORTAL_DB_PATH", str(db_path))
-        init_db(db_path)
-        conn = get_connection(db_path)
-        conn.execute(
-            "INSERT INTO computed_daily (date, total, us_equity, non_us_equity, crypto, safe_net)"
-            " VALUES (?, 100000, 55000, 15000, 3000, 27000)",
-            (date.today().isoformat(),),
-        )
-        conn.commit()
-        conn.close()
 
         assert run_automation.main([]) == EXIT_OK
         assert fake.calls == []
@@ -490,23 +489,12 @@ class TestEmailNotifications:
     ):
         fake = _FakeRun(codes)
         monkeypatch.setattr(runner, "run_python_script", fake)
-        monkeypatch.setattr(runner, "MARKER", tmp_path / ".last_run")
-        monkeypatch.setattr(runner, "get_log_dir", lambda: tmp_path / "logs")
-        monkeypatch.setenv("PORTAL_DB_PATH", str(tmp_path / "timemachine.db"))
-        iso_downloads = tmp_path / "iso_downloads"
-        iso_downloads.mkdir(exist_ok=True)
-        for fname in downloads_seed or ():
-            (iso_downloads / fname).write_text("stub")
-        monkeypatch.setattr(runner, "get_downloads_dir", lambda: iso_downloads)
-        monkeypatch.setattr(runner, "get_qianji_db_path", lambda: None)
-        monkeypatch.setenv("PORTAL_HEALTHCHECK_URL", "https://hc.example/dummy")
-
-        if disable_email:
-            monkeypatch.delenv("PORTAL_SMTP_USER", raising=False)
-            monkeypatch.delenv("PORTAL_SMTP_PASSWORD", raising=False)
-        else:
-            monkeypatch.setenv("PORTAL_SMTP_USER", "me@gmail.com")
-            monkeypatch.setenv("PORTAL_SMTP_PASSWORD", "apppw")
+        _stub_runner_env(
+            monkeypatch,
+            tmp_path,
+            downloads_seed,
+            email_enabled=not disable_email,
+        )
 
         snapshots = [snapshot_before or SyncSnapshot()]
         if snapshot_after is not None:
@@ -672,16 +660,7 @@ class TestExtractValidationWarnings:
         ])
 
         monkeypatch.setattr(runner, "run_python_script", lambda script, *args: 0)
-        monkeypatch.setattr(runner, "MARKER", tmp_path / ".last_run")
-        monkeypatch.setattr(runner, "get_log_dir", lambda: tmp_path / "logs")
-        monkeypatch.setenv("PORTAL_DB_PATH", str(tmp_path / "timemachine.db"))
-        iso_downloads = tmp_path / "iso_downloads"
-        iso_downloads.mkdir()
-        monkeypatch.setattr(runner, "get_downloads_dir", lambda: iso_downloads)
-        monkeypatch.setattr(runner, "get_qianji_db_path", lambda: None)
-        monkeypatch.setenv("PORTAL_HEALTHCHECK_URL", "https://hc.example/dummy")
-        monkeypatch.delenv("PORTAL_SMTP_USER", raising=False)
-        monkeypatch.delenv("PORTAL_SMTP_PASSWORD", raising=False)
+        _stub_runner_env(monkeypatch, tmp_path)
 
         monkeypatch.setattr(runner, "capture", lambda _p: SyncSnapshot())
 
