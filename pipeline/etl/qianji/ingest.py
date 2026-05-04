@@ -16,14 +16,14 @@ from __future__ import annotations
 import logging
 import re
 import sqlite3
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from datetime import date, datetime
 from pathlib import Path
 
 from ..db import get_connection, get_readonly_connection
 from ..types import QianjiRecord
 from .config import _TYPE_MAP, _USER_TZ, DEFAULT_DB_PATH
-from .currency import _fetch_live_cny_rate, parse_qj_amount
+from .currency import parse_qj_amount
 
 log = logging.getLogger(__name__)
 
@@ -49,7 +49,6 @@ _BILL_QUERY = "SELECT id, type, money, fromact, targetact, remark, time, cateid,
 
 def _load_records(
     conn: sqlite3.Connection,
-    cny_rate: float | Callable[[], float] | None = None,
     *,
     historical_cny_rates: Mapping[date, float],
 ) -> list[QianjiRecord]:
@@ -59,8 +58,8 @@ def _load_records(
     primary input: it's a per-date dict of closing rates (loaded via
     :func:`etl.prices.load_cny_rates`) so each bill gets revalued at the FX
     rate of the day it was spent — not today's live rate. That stabilises
-    the USD amount of legacy bills across runs. ``cny_rate`` remains as a
-    scalar fallback for offline tests that don't build a historical dict.
+    the USD amount of legacy bills across runs. Missing historical rates fail
+    closed instead of silently rewriting old bills with today's FX.
 
     Bills are date-truncated in ``_USER_TZ`` (default ``America/Los_Angeles``)
     so the daily cashflow reflects the user's wall-clock, not UTC.
@@ -80,8 +79,10 @@ def _load_records(
             continue
         dt = datetime.fromtimestamp(ts, tz=_USER_TZ)
         amount = parse_qj_amount(
-            money, extra_str, cny_rate=cny_rate,
-            bill_date=dt.date(), historical_cny_rates=historical_cny_rates,
+            money,
+            extra_str,
+            bill_date=dt.date(),
+            historical_cny_rates=historical_cny_rates,
         )
         if abs(amount - float(money)) > 0.01:
             cny_converted += 1
@@ -116,28 +117,16 @@ def load_all_from_db(
 ) -> list[QianjiRecord]:
     """Load Qianji cashflow records.
 
-    The live USD/CNY rate is fetched as a last-resort fallback for
-    :func:`parse_qj_amount`'s cross-currency quirk handling — in normal
-    operation ``historical_cny_rates`` covers every bill's date (with
-    7-day weekend walk-back). Returns ``[]`` when the Qianji DB file
-    doesn't exist.
+    Historical USD/CNY rates cover :func:`parse_qj_amount`'s cross-currency
+    quirk handling with 7-day weekend walk-back. Returns ``[]`` when the
+    Qianji DB file doesn't exist.
     """
     if not db_path.exists():
         return []
 
-    live_rate: float | None = None
-
-    def cny_rate() -> float:
-        nonlocal live_rate
-        if live_rate is None:
-            live_rate = _fetch_live_cny_rate()
-        return live_rate
-
     conn = get_readonly_connection(db_path)
     try:
-        return _load_records(
-            conn, cny_rate=cny_rate, historical_cny_rates=historical_cny_rates,
-        )
+        return _load_records(conn, historical_cny_rates=historical_cny_rates)
     finally:
         conn.close()
 

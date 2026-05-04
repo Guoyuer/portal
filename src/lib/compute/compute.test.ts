@@ -592,7 +592,7 @@ describe("computeGroupedActivity", () => {
     const g = computeJanGroupedActivity(txns);
     const spRow = g.buysBySymbol.find((r) => r.ticker === "S&P 500")!;
     expect(spRow.isGroup).toBe(true);
-    expect([...spRow.sources!].sort()).toEqual(["401k", "fidelity"]);
+    expect([...spRow.sources].sort()).toEqual(["401k", "fidelity"]);
     expect(spRow.total).toBe(1050);
   });
 });

@@ -57,35 +57,31 @@ class TestParseQjAmount:
         assert parse_qj_amount(money, extra) == expected
 
     @pytest.mark.parametrize(
-        ("money", "extra", "cny_rate", "expected"),
+        ("money", "extra", "bill_date", "historical", "expected"),
         [
             pytest.param(
                 5000.0,
                 _extra("CNY", 5000.0, None, 0.0, "USD", 5000.0),
-                7.0,
+                date(2024, 5, 18),
+                {date(2024, 5, 18): 7.0},
                 pytest.approx(714.2857, rel=1e-3),
-                id="cny-rate-converts",
+                id="historical-cny-rate-converts",
             ),
             pytest.param(
                 5000.0,
                 _extra("CNY", 5000.0, None, 0.0, "USD", 5000.0),
                 None,
+                None,
                 5000.0,
-                id="cny-no-rate",
+                id="no-historical-context",
             ),
             pytest.param(
                 100.0,
                 _extra("EUR", 100.0, None, 0.0, "USD", 100.0),
-                7.0,
+                date(2024, 5, 18),
+                {date(2024, 5, 18): 7.0},
                 100.0,
-                id="non-cny-rate-ignored",
-            ),
-            pytest.param(
-                5000.0,
-                _extra("CNY", 5000.0, None, 0.0, "USD", 5000.0),
-                0.0,
-                5000.0,
-                id="zero-rate",
+                id="non-cny-historical-rate-ignored",
             ),
         ],
     )
@@ -93,43 +89,59 @@ class TestParseQjAmount:
         self,
         money: float,
         extra: str,
-        cny_rate: float | None,
+        bill_date: date | None,
+        historical: dict[date, float] | None,
         expected: object,
     ) -> None:
-        assert parse_qj_amount(money, extra, cny_rate=cny_rate) == expected
+        assert parse_qj_amount(
+            money,
+            extra,
+            bill_date=bill_date,
+            historical_cny_rates=historical,
+        ) == expected
 
-    def test_unconverted_cny_uses_historical_rate_over_live_rate(self):
+    def test_unconverted_cny_uses_stable_historical_rate(self) -> None:
         extra = _extra("CNY", 7000.0, None, 0.0, "USD", 7000.0)
         bill_date = date(2024, 5, 18)
         historical = {bill_date: 7.2345, date(2026, 4, 18): 6.8164}
 
-        run1 = parse_qj_amount(7000.0, extra, cny_rate=6.8164,
-                               bill_date=bill_date, historical_cny_rates=historical)
-        run2 = parse_qj_amount(7000.0, extra, cny_rate=6.9003,
-                               bill_date=bill_date, historical_cny_rates=historical)
+        run1 = parse_qj_amount(7000.0, extra, bill_date=bill_date, historical_cny_rates=historical)
+        run2 = parse_qj_amount(7000.0, extra, bill_date=bill_date, historical_cny_rates=historical)
         assert run1 == run2
         assert run1 == pytest.approx(7000.0 / 7.2345, rel=1e-6)
 
     @pytest.mark.parametrize(
-        ("amount", "bill_date", "historical", "cny_rate", "expected_rate"),
+        ("amount", "bill_date", "historical", "expected_rate"),
         [
-            (1000.0, date(2024, 5, 18), {date(2024, 5, 17): 7.2345}, None, 7.2345),
-            (5000.0, date(2024, 5, 18), {}, 7.0, 7.0),
-            (5000.0, None, {}, 7.0, 7.0),
+            (1000.0, date(2024, 5, 18), {date(2024, 5, 17): 7.2345}, 7.2345),
+            (1000.0, date(2024, 5, 20), {date(2024, 5, 17): 7.2345}, 7.2345),
         ],
     )
-    def test_unconverted_cny_rate_fallbacks(
+    def test_unconverted_cny_rate_walkback(
         self,
         amount: float,
-        bill_date: date | None,
+        bill_date: date,
         historical: dict[date, float],
-        cny_rate: float | None,
         expected_rate: float,
     ) -> None:
         extra = _extra("CNY", amount, None, 0.0, "USD", amount)
         assert parse_qj_amount(
-            amount, extra, cny_rate=cny_rate, bill_date=bill_date, historical_cny_rates=historical,
+            amount,
+            extra,
+            bill_date=bill_date,
+            historical_cny_rates=historical,
         ) == pytest.approx(amount / expected_rate, rel=1e-6)
+
+    def test_unconverted_cny_missing_historical_rate_fails_closed(self) -> None:
+        extra = _extra("CNY", 5000.0, None, 0.0, "USD", 5000.0)
+
+        with pytest.raises(ValueError, match="missing historical CNY=X rate"):
+            parse_qj_amount(
+                5000.0,
+                extra,
+                bill_date=date(2024, 5, 18),
+                historical_cny_rates={},
+            )
 
 
 # ── parse_qj_target_amount ────────────────────────────────────────────────────
@@ -259,11 +271,16 @@ class TestLoadRecords:
         assert len(records) == 1
         assert records[0]["note"] == "active"
 
-    def test_cny_rate_passed_through_to_parse_qj_amount(self):
+    def test_historical_cny_rates_passed_through_to_parse_qj_amount(self) -> None:
         extra = _extra("CNY", 5000.0, None, 0.0, "USD", 5000.0)
-        bills = [_bill(1, money=5000.0, fromact="Alipay", extra=extra)]
-        assert _records_for(bills)[0]["amount"] == 5000.0
-        assert _records_for(bills, cny_rate=7.0)[0]["amount"] == pytest.approx(714.2857, rel=1e-3)
+        ts = int(datetime(2025, 1, 1, 12, 0, tzinfo=UTC).timestamp())
+        bills = [_bill(1, money=5000.0, fromact="Alipay", ts=ts, extra=extra)]
+
+        with pytest.raises(ValueError, match="missing historical CNY=X rate"):
+            _records_for(bills)
+
+        records = _records_for(bills, historical_cny_rates={date(2025, 1, 1): 7.0})
+        assert records[0]["amount"] == pytest.approx(714.2857, rel=1e-3)
 
     def test_balance_adjustment_rows_skipped(self):
         ts = int(datetime(2025, 1, 15, 12, 0, tzinfo=UTC).timestamp())

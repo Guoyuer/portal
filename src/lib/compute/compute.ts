@@ -129,8 +129,8 @@ export interface InvestmentTxn {
   ticker: string;
   actionType: InvestmentActionType;
   amount: number;
-  quantity?: number;
-  price?: number;
+  quantity: number;
+  price: number;
 }
 
 export function normalizeInvestmentTxns(
@@ -408,12 +408,12 @@ function foldIntoGroups(rows: ActivityTicker[]): ActivityTicker[] {
     if (existing) {
       existing.count += row.count;
       existing.total += row.total;
-      for (const s of row.sources ?? []) existing.sources.add(s);
+      for (const s of row.sources) existing.sources.add(s);
     } else {
       grouped.set(display, {
         count: row.count,
         total: row.total,
-        sources: new Set(row.sources ?? []),
+        sources: new Set(row.sources),
         isGroup: gKey !== null,
         groupKey: gKey ?? undefined,
       });

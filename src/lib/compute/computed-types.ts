@@ -22,9 +22,9 @@ export type ActivityTicker = {
   ticker: string;
   count: number;
   total: number;
-  isGroup?: boolean;
+  isGroup: boolean;
   groupKey?: string;
-  sources?: Array<SourceKind>;
+  sources: Array<SourceKind>;
 };
 
 export type ActivityResponse = {

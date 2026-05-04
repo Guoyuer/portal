@@ -101,14 +101,14 @@ describe("Worker R2 path", () => {
     const env = {
       PORTAL_DATA: makeR2({
         "manifest.json": manifest(),
-        "snapshots/2026-05-02T170000Z/prices.json": '{"VOO":{"symbol":"VOO","prices":[],"transactions":[]}}',
+        "snapshots/2026-05-02T170000Z/prices.json": '{"VOO":{"prices":[],"transactions":[]}}',
       }),
     };
 
     const res = await worker.fetch(new Request("http://localhost/api/prices"), env, makeCtx());
 
     expect(res.status).toBe(200);
-    await expect(res.json()).resolves.toEqual({ VOO: { symbol: "VOO", prices: [], transactions: [] } });
+    await expect(res.json()).resolves.toEqual({ VOO: { prices: [], transactions: [] } });
   });
 
   it("does not expose the old per-symbol price route", async () => {

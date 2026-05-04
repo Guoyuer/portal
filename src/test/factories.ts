@@ -106,6 +106,8 @@ export function mkInvestmentTxn(overrides: Partial<InvestmentTxn> = {}): Investm
     ticker: "VTI",
     actionType: "buy",
     amount: -500,
+    quantity: 0,
+    price: 0,
     ...overrides,
   };
 }
