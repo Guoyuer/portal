@@ -17,7 +17,7 @@ import {
 } from "recharts";
 import type { Props as LabelProps } from "recharts/types/component/Label";
 import type { TooltipContentProps } from "recharts/types/component/Tooltip";
-import type { CategoryData, MonthlyFlowPoint } from "@/lib/compute/computed-types";
+import type { ApiCategory, MonthlyFlowPoint } from "@/lib/compute/computed-types";
 import { fmtCurrencyShort, fmtDateMonthYear, fmtMonth } from "@/lib/format/format";
 import { useIsDark } from "@/lib/hooks/use-is-dark";
 import { useIsMobile } from "@/lib/hooks/use-is-mobile";
@@ -31,7 +31,7 @@ export function AllocationDonut({
   total,
   colorByName,
 }: {
-  categories: CategoryData[];
+  categories: ApiCategory[];
   total: number;
   colorByName: Record<string, string>;
 }) {

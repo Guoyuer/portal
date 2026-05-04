@@ -89,4 +89,4 @@ Use a Gmail app password, not the account password.
 - `R2 snapshot object already exists`: export used an already-published version. Re-export with a new timestamp/version.
 - `R2 manifest missing`: publish has not completed or Worker is pointed at the wrong bucket.
 - `PORTAL_DATA R2 binding is missing`: deploy the Worker with the current `wrangler.toml`.
-- Zod validation failed: regenerate schemas if `etl/types.py` changed, or fix exporter shape drift.
+- Zod validation failed: keep `src/lib/schemas/` and `r2_artifacts.py` SQL projections in sync.

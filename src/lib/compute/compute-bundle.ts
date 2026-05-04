@@ -3,10 +3,6 @@ import type {
   MarketData,
   DailyPoint,
   DailyTicker,
-  QianjiTxn,
-  FidelityTxn,
-  RobinhoodTxn,
-  EmpowerContribution,
   TimelineData,
 } from "@/lib/schemas/timeline";
 import type {
@@ -19,24 +15,18 @@ import {
   computeAllocation,
   computeCashflow,
   computeActivity,
-  computeGroupedActivity,
   computeCrossCheck,
   computeMonthlyFlows,
   normalizeInvestmentTxns,
   buildDateIndex,
   buildTickerIndex,
   type CrossCheck,
-  type GroupedActivityResponse,
   type InvestmentTxn,
 } from "@/lib/compute/compute";
 
 export interface ComputedBundle {
   chartDaily: DailyPoint[];
   dailyTickers: DailyTicker[];
-  qianjiTxns: QianjiTxn[];
-  fidelityTxns: FidelityTxn[];
-  robinhoodTxns: RobinhoodTxn[];
-  empowerContributions: EmpowerContribution[];
   investmentTxns: InvestmentTxn[];
   categories: CategoryMeta[];
   snapshot: DailyPoint | null;
@@ -45,7 +35,6 @@ export interface ComputedBundle {
   allocation: AllocationResponse | null;
   cashflow: CashflowResponse | null;
   activity: ActivityResponse | null;
-  groupedActivity: GroupedActivityResponse | null;
   market: MarketData | null;
   crossCheck: CrossCheck | null;
   monthlyFlows: MonthlyFlowPoint[];
@@ -55,10 +44,6 @@ export interface ComputedBundle {
 const EMPTY_BUNDLE: ComputedBundle = {
   chartDaily: [],
   dailyTickers: [],
-  qianjiTxns: [],
-  fidelityTxns: [],
-  robinhoodTxns: [],
-  empowerContributions: [],
   investmentTxns: [],
   categories: [],
   snapshot: null,
@@ -67,28 +52,24 @@ const EMPTY_BUNDLE: ComputedBundle = {
   allocation: null,
   cashflow: null,
   activity: null,
-  groupedActivity: null,
   market: null,
   crossCheck: null,
   monthlyFlows: [],
   syncMeta: null,
 };
 
-type WindowSlice = Pick<ComputedBundle, "cashflow" | "activity" | "groupedActivity" | "crossCheck">;
+type WindowSlice = Pick<ComputedBundle, "cashflow" | "activity" | "crossCheck">;
 
 type PreparedBundleData = Pick<
   ComputedBundle,
   | "chartDaily"
   | "dailyTickers"
-  | "qianjiTxns"
-  | "fidelityTxns"
-  | "robinhoodTxns"
-  | "empowerContributions"
   | "investmentTxns"
   | "categories"
   | "market"
   | "syncMeta"
 > & {
+  qianjiTxns: TimelineData["qianjiTxns"];
   tickerIndex: ReturnType<typeof buildTickerIndex>;
   dateIndex: ReturnType<typeof buildDateIndex>;
 };
@@ -96,7 +77,6 @@ type PreparedBundleData = Pick<
 const EMPTY_WINDOW: WindowSlice = {
   cashflow: null,
   activity: null,
-  groupedActivity: null,
   crossCheck: null,
 };
 
@@ -110,7 +90,6 @@ function computeWindow(
   return {
     cashflow: computeCashflow(prepared.qianjiTxns, startDate, snapshotDate),
     activity: computeActivity(prepared.investmentTxns, startDate, snapshotDate),
-    groupedActivity: computeGroupedActivity(prepared.investmentTxns, startDate, snapshotDate),
     crossCheck: computeCrossCheck(prepared.investmentTxns, prepared.qianjiTxns, startDate, snapshotDate),
   };
 }
@@ -120,9 +99,6 @@ function prepareBundleData(data: TimelineData): PreparedBundleData {
     chartDaily: data.daily,
     dailyTickers: data.dailyTickers,
     qianjiTxns: data.qianjiTxns,
-    fidelityTxns: data.fidelityTxns,
-    robinhoodTxns: data.robinhoodTxns,
-    empowerContributions: data.empowerContributions,
     investmentTxns: normalizeInvestmentTxns(
       data.fidelityTxns,
       data.robinhoodTxns,
@@ -157,10 +133,6 @@ function computeWindowBundle(
   return {
     chartDaily: prepared.chartDaily,
     dailyTickers: prepared.dailyTickers,
-    qianjiTxns: prepared.qianjiTxns,
-    fidelityTxns: prepared.fidelityTxns,
-    robinhoodTxns: prepared.robinhoodTxns,
-    empowerContributions: prepared.empowerContributions,
     investmentTxns: prepared.investmentTxns,
     categories: prepared.categories,
     snapshot,

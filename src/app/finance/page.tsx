@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { GOAL } from "@/lib/config";
 import { useBundle } from "@/lib/hooks/use-bundle";
-import { catColorByName, cashflowState, type CashflowState, type GroupedActivityResponse } from "@/lib/compute/compute";
+import { catColorByName, cashflowState, computeGroupedActivity, type CashflowState } from "@/lib/compute/compute";
 import type { MonthlyFlowPoint } from "@/lib/compute/computed-types";
 import { fmtDateMedium } from "@/lib/format/format";
 import { SectionHeader, SectionBody, SectionMessage } from "@/components/finance/section";
@@ -63,14 +63,12 @@ function CashFlowContent({
 
 function ActivityContent({
   activity,
-  groupedActivity,
   startDate,
   snapshotDate,
   dailyTickers,
   investmentTxns,
 }: {
   activity: ReturnType<typeof useBundle>["activity"];
-  groupedActivity: GroupedActivityResponse | null;
   startDate: string | null;
   snapshotDate: string | null;
   dailyTickers: ReturnType<typeof useBundle>["dailyTickers"];
@@ -79,7 +77,9 @@ function ActivityContent({
   const [grouped, setGrouped] = useState(true);
 
   if (!activity) return <SectionMessage kind="unavailable">Activity data unavailable</SectionMessage>;
-  const source = grouped && groupedActivity ? groupedActivity : activity;
+  const source = grouped && startDate && snapshotDate
+    ? computeGroupedActivity(investmentTxns, startDate, snapshotDate)
+    : activity;
   const { buysBySymbol, sellsBySymbol, dividendsBySymbol } = source;
   if (buysBySymbol.length === 0 && sellsBySymbol.length === 0 && dividendsBySymbol.length === 0) {
     return <SectionMessage kind="empty">No activity in this period</SectionMessage>;
@@ -136,7 +136,7 @@ export default function FinancePage() {
   }
 
   const {
-    allocation, cashflow, activity, groupedActivity, market, crossCheck,
+    allocation, cashflow, activity, market, crossCheck,
     categories, chartDaily, monthlyFlows,
     syncMeta,
     brushStart, brushEnd, defaultStartIndex, defaultEndIndex, onBrushChange,
@@ -208,7 +208,7 @@ export default function FinancePage() {
           {crossCheck && !crossCheck.ok && unmatchedExpanded && (
             <UnmatchedPanel items={crossCheck.allUnmatched} />
           )}
-          <ActivityContent activity={activity} groupedActivity={groupedActivity} startDate={startDate} snapshotDate={snapshotDate} dailyTickers={dailyTickers} investmentTxns={investmentTxns} />
+          <ActivityContent activity={activity} startDate={startDate} snapshotDate={snapshotDate} dailyTickers={dailyTickers} investmentTxns={investmentTxns} />
         </section>
       </ErrorBoundary>
 

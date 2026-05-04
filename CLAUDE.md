@@ -34,9 +34,6 @@ cd pipeline && .venv/Scripts/python.exe scripts/r2_artifacts.py verify
 cd pipeline && .venv/Scripts/python.exe scripts/r2_artifacts.py publish --remote
 cd pipeline && .venv/Scripts/python.exe scripts/r2_artifacts.py publish --local
 
-# Regenerate Zod schemas from etl/types.py
-cd pipeline && .venv/Scripts/python.exe tools/gen_zod.py --write ../src/lib/schemas/_generated.ts
-
 # Regression gate
 cd pipeline && .venv/Scripts/python.exe -m pytest tests/regression/ -v
 
@@ -56,11 +53,9 @@ cd pipeline && .venv/Scripts/python.exe scripts/run_automation.py --dry-run
 
 ## Type Contract
 
-Python `etl/types.py` is the source for generated Zod schemas:
-
-`etl/types.py` -> `pipeline/tools/gen_zod.py` -> `src/lib/schemas/_generated.ts`.
-
 Local SQLite `timemachine.db` is the source of truth for data. `pipeline/scripts/r2_artifacts.py` exports endpoint-shaped JSON from SQLite API projections, verifies hashes/row counts/latest date/Zod schemas, publishes versioned objects to R2, and flips `manifest.json` last. The Worker streams those artifacts; it does not run SQL.
+
+Frontend endpoint schemas live explicitly in `src/lib/schemas/`. Keep `pipeline/scripts/r2_artifacts.py` SQL aliases and those Zod schemas in lockstep; publish-time Zod validation is the drift gate.
 
 Pipeline-internal types that never cross the artifact/Worker/Zod boundary live in `pipeline/etl/sources/_types.py`:
 

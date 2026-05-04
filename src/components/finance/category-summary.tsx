@@ -29,7 +29,7 @@ export function CategorySummary({
         <CategoryAllocationTable model={model} totalValue={totalValue} />
       </div>
       <div className="lg:w-80 flex-shrink-0">
-        <AllocationDonut categories={model.donutCategories} total={totalValue} colorByName={colorByName} />
+        <AllocationDonut categories={categories} total={totalValue} colorByName={colorByName} />
       </div>
     </div>
   );

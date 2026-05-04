@@ -8,8 +8,8 @@ stays active-only.
 ## Baseline
 
 Raw tracked repo size is about 266 files / 41.7k physical LOC. The maintenance
-surface below excludes lockfiles, `docs/archive/`, generated Zod, and the
-golden regression fixture:
+surface below excludes lockfiles, `docs/archive/`, and the golden regression
+fixture:
 
 | Area | Files | LOC | Share |
 | --- | ---: | ---: | ---: |
@@ -26,12 +26,12 @@ golden regression fixture:
 | worker source | 3 | 275 | 1.0% |
 
 Total: 261 files / 26.6k physical LOC after the duplicate-test compression,
-excluding the same generated/archive/fixture surfaces.
+excluding the same archive/fixture surfaces.
 
 Use the same exclusion rule when reporting future LOC deltas:
 
 ```powershell
-$exclude = '^(package-lock\.json$|worker/package-lock\.json$|docs/archive/|src/lib/schemas/_generated\.ts$|pipeline/tests/fixtures/regression/golden\.json$)'
+$exclude = '^(package-lock\.json$|worker/package-lock\.json$|docs/archive/|pipeline/tests/fixtures/regression/golden\.json$)'
 git ls-files |
   ForEach-Object { $_.Trim() } |
   Where-Object { $_ -and $_ -notmatch $exclude } |
@@ -261,7 +261,7 @@ Current static-analysis sweep:
 - Python lint/style: `ruff check etl scripts tests` passes.
 - TypeScript type/lint: `tsc --noEmit` and frontend `npm run lint` pass.
 - TypeScript unused exports: `ts-prune` now reports only framework/default
-  exports and generated Zod types.
+  exports and reviewed type-only surfaces.
 - Dependency graph: `madge --extensions ts,tsx --circular src worker/src`
   reports no circular dependencies.
 - Dependency/file reachability: `knip` remaining findings are reviewed dynamic
@@ -269,9 +269,8 @@ Current static-analysis sweep:
   `scripts/validate_api_zod.ts` is called by `r2_artifacts.py`, `public/sw.js`
   is registered from `layout.tsx`, `tsx` is required by those command paths,
   `@cloudflare/workers-types` is declared in `worker/package.json`,
-  `postcss` is a Next/Tailwind config peer satisfied by the toolchain,
-  `TickerPricePoint` is a type-only import in `ticker-data.ts`, and generated
-  Zod type exports are excluded from maintenance LOC.
+  `postcss` is a Next/Tailwind config peer satisfied by the toolchain, and
+  `TickerPricePoint` is a type-only import in `ticker-data.ts`.
 
 Parsing-surface follow-up: the broker parser no longer exposes a fake-generic
 US date API. Fidelity keeps a strict `MM/DD/YYYY` parser; Robinhood owns its
@@ -309,6 +308,19 @@ production orchestration. Diff effect: 28 files, 234 insertions / 798 deletions
 note. Validation: targeted Python tests including golden regression, full
 Python pytest with xdist (`468 passed`), Ruff, mypy strict, frontend lint,
 focused Vitest, and Next build.
+
+Schema/bundle surface follow-up: the Python-to-Zod generator was deleted after
+the timeline endpoint shape shrank to a small explicit contract. `timeline.ts`
+now owns the runtime schema directly, and Python `etl/types.py` no longer
+carries API-projection TypedDicts solely for a generator. The frontend bundle
+also stopped re-exporting raw source arrays and precomputing grouped activity;
+those remain internal inputs, with grouping computed next to the checkbox that
+uses it. The donut model dropped old `lots` / `holdings` / nested subtype
+fields that no reader used. Diff effect: 16 files, 94 insertions / 547
+deletions (`-453 diff LOC`); maintenance surface is 225 files / 23,723 LOC
+after this note. Validation so far: focused Vitest, frontend lint, TypeScript
+`tsc --noEmit`, R2 artifact Zod verification, Ruff, mypy strict, vulture,
+ts-prune, and reviewed knip output.
 
 ### Wave 1: Safe Deletions and Test Compression
 

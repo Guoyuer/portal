@@ -8,17 +8,6 @@ import type { DailyTicker } from "@/lib/schemas/timeline";
 export type SourceKind = "fidelity" | "robinhood" | "401k";
 
 export type MonthlyFlowPoint = { month: string; income: number; expenses: number; savings: number; savingsRate: number };
-export type CategoryData = {
-  name: string;
-  value: number;
-  lots: number;
-  pct: number;
-  target: number;
-  deviation: number;
-  isEquity: boolean;
-  subtypes: { name: string; holdings: { ticker: string; value: number }[]; value: number; lots: number; pct: number }[];
-  holdings: { ticker: string; value: number }[];
-};
 export type ApiTicker = Omit<DailyTicker, "date"> & {
   sources?: Array<SourceKind>;
 };
@@ -31,7 +20,6 @@ export type CashflowResponse = {
   ccPayments: number; savingsRate: number; takehomeSavingsRate: number;
 };
 
-/** Row type for both ActivityResponse and GroupedActivityResponse lists. */
 export type ActivityTicker = {
   ticker: string;
   count: number;

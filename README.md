@@ -131,14 +131,14 @@ R2 state.
 
 ```mermaid
 graph LR
-    PY["pipeline/etl/types.py<br/>TypedDicts"] -->|"gen_zod.py"| GEN["src/lib/schemas/_generated.ts"]
-    PY -->|"build_timemachine_db.py"| DB["timemachine.db"]
+    PY["pipeline/etl<br/>ingest + compute"] -->|"build_timemachine_db.py"| DB["timemachine.db"]
     DB -->|"r2_artifacts.py export"| JSON["R2 JSON artifacts"]
     JSON -->|"Worker streams"| API["/api/timeline /econ /prices"]
-    API -->|"safeParse in frontend"| ZOD["Zod schemas"]
+    API -->|"safeParse in frontend"| ZOD["src/lib/schemas"]
 ```
 
-- Python `etl/types.py` is the source for generated Zod schemas.
+- Frontend Zod schemas are explicit endpoint contracts. Keep them in sync with
+  the SQL projections in `pipeline/scripts/r2_artifacts.py`.
 - SQLite `timemachine.db` remains the local SQL/debug surface.
 - R2 artifacts are endpoint-shaped JSON, not a dump of the DB file.
 - Frontend Zod parsing is the single runtime drift checkpoint.
@@ -161,8 +161,7 @@ portal/
 │   │   ├── build_timemachine_db.py
 │   │   ├── r2_artifacts.py      # export / verify / publish
 │   │   ├── run_automation.py
-│   ├── tests/
-│   └── tools/gen_zod.py
+│   └── tests/
 ├── e2e/                         # Playwright tests
 ├── docs/                        # current docs + archive index
 └── .github/workflows/           # CI and Pages deploy
