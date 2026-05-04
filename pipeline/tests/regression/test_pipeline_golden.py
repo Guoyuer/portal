@@ -1,27 +1,27 @@
-"""L2 regression: build timemachine.db from committed synthetic fixtures
-and assert that ``computed_daily`` + ``computed_daily_tickers`` match the
-committed golden JSON.
+"""L2 regression: build timemachine.db from committed synthetic fixtures.
 
-Runs offline (no Yahoo fetches, no network, no wrangler) — the build
-reads prices from a committed CSV via ``--prices-from-csv``, which also
-skips market-index precompute. The Qianji DB is
-swapped in via the ``QIANJI_DB_PATH_OVERRIDE`` env var so the module-
-level default path never reaches the caller's home directory.
-
-Designed for CI: only inputs are files in ``tests/fixtures/regression/``
-and the build script itself.
+Asserts that ``computed_daily`` + ``computed_daily_tickers`` match the
+committed golden JSON. The run stays offline by monkeypatching the Yahoo
+fetchers to seed prices from a fixture CSV, skipping market precompute, and
+pinning Qianji's DB path/timezone in-process.
 """
 from __future__ import annotations
 
+import argparse
+import csv
 import json
-import os
 import shutil
 import sqlite3
-import subprocess
-import sys
+from datetime import date
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
+
+import etl.qianji.balances as qianji_balances
+import etl.qianji.ingest as qianji_ingest
+from etl import build as build_mod
+from etl.db import get_connection
 
 PIPELINE_DIR = Path(__file__).resolve().parent.parent.parent
 FIXTURE_DIR = PIPELINE_DIR / "tests" / "fixtures" / "regression"
@@ -47,65 +47,68 @@ EXCLUDED_COLUMNS = {
 }
 
 
-def _resolve_python() -> str:
-    """Prefer the pinned venv interpreter so the test doesn't depend on the
-    user's active venv. Falls back to ``sys.executable`` in CI or other
-    environments where the Windows venv path doesn't exist.
-    """
-    venv_py = PIPELINE_DIR / ".venv" / "Scripts" / "python.exe"
-    if venv_py.exists():
-        return str(venv_py)
-    return sys.executable
+def _seed_fixture_prices(db_path: Path, csv_path: Path) -> None:
+    with csv_path.open(encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        symbols = [name for name in (reader.fieldnames or []) if name != "date"]
+        rows = [
+            (symbol, date_iso, float(raw))
+            for row in reader
+            if (date_iso := (row.get("date") or "").strip())
+            for symbol in symbols
+            if (raw := (row.get(symbol) or "").strip())
+        ]
+    conn = get_connection(db_path)
+    try:
+        conn.executemany(
+            "INSERT OR REPLACE INTO daily_close (symbol, date, close) VALUES (?, ?, ?)",
+            rows,
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
-@pytest.fixture(scope="module")
-def built_db(tmp_path_factory: pytest.TempPathFactory) -> Path:
+@pytest.fixture()
+def built_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Build timemachine.db against the L2 fixture inputs.
 
     Copies the Fidelity / Empower / Robinhood fixtures into a scratch
-    ``downloads/`` directory so production globs pick them up, points the
-    Qianji DB loader at the fixture SQLite via the override env var, and
-    invokes ``build_timemachine_db.py`` with ``--prices-from-csv`` so the
-    run is fully offline.
+    ``downloads/`` directory so production globs pick them up, then runs the
+    production build function with external fetches replaced by fixture data.
     """
-    data_dir = tmp_path_factory.mktemp("regression")
+    data_dir = tmp_path / "regression"
     downloads = data_dir / "downloads"
-    downloads.mkdir()
+    downloads.mkdir(parents=True)
 
     for name in DOWNLOAD_FIXTURES:
         shutil.copy(FIXTURE_DIR / name, downloads / name)
     shutil.copy(FIXTURE_DIR / ROBINHOOD_FIXTURE_SRC, downloads / ROBINHOOD_FIXTURE_DST)
 
-    env = os.environ.copy()
-    env["QIANJI_DB_PATH_OVERRIDE"] = str(FIXTURE_DIR / "qianji.sqlite")
-    # Offline: pin CNY rate + user timezone so the build never touches
-    # Yahoo and dates land deterministically regardless of CI host tz.
-    env["QIANJI_CNY_RATE_OVERRIDE"] = "7.20"
-    env["QIANJI_USER_TZ"] = "UTC"
+    monkeypatch.setattr(build_mod, "DEFAULT_QJ_DB", FIXTURE_DIR / "qianji.sqlite")
+    monkeypatch.setattr(qianji_ingest, "_USER_TZ", ZoneInfo("UTC"))
+    monkeypatch.setattr(qianji_balances, "_USER_TZ", ZoneInfo("UTC"))
 
-    python = _resolve_python()
-    result = subprocess.run(
-        [
-            python,
-            "scripts/build_timemachine_db.py",
-            "--data-dir", str(data_dir),
-            "--config", str(FIXTURE_DIR / "config.json"),
-            "--downloads", str(downloads),
-            "--prices-from-csv", str(FIXTURE_DIR / "prices.csv"),
-            "--no-validate",
-            "--as-of", "2026-04-14",
-        ],
-        cwd=str(PIPELINE_DIR),
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=180,
+    def fake_prices(
+        db_path: Path,
+        _periods: dict[str, tuple[date, date | None]],
+        _end: date,
+        **_kwargs: date,
+    ) -> None:
+        _seed_fixture_prices(db_path, FIXTURE_DIR / "prices.csv")
+
+    monkeypatch.setattr(build_mod, "fetch_and_store_prices", fake_prices)
+    monkeypatch.setattr(build_mod, "fetch_and_store_cny_rates", lambda *_args: None)
+    monkeypatch.setattr(build_mod, "precompute_market", lambda _db: None)
+
+    args = argparse.Namespace(
+        data_dir=data_dir,
+        config=FIXTURE_DIR / "config.json",
+        downloads=downloads,
+        no_validate=True,
+        as_of=date(2026, 4, 14),
     )
-    assert result.returncode == 0, (
-        f"build failed (rc={result.returncode})\n"
-        f"stdout:\n{result.stdout}\n"
-        f"stderr:\n{result.stderr}"
-    )
+    assert build_mod.build_timemachine_db(args) == 0
     return data_dir / "timemachine.db"
 
 

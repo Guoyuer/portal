@@ -31,18 +31,6 @@ const MarketDataSchema = z.object({
   indices: z.array(IndexReturnSchema),
 });
 
-// ── Holdings Detail ──────────────────────────────────────────────────────
-
-const StockDetailSchema = z.object({
-  ticker: z.string(),
-  monthReturn: z.number(),
-  startValue: z.number(),
-  endValue: z.number(),
-  high52w: z.number().nullable(),
-  low52w: z.number().nullable(),
-  vsHigh: z.number().nullable(),
-});
-
 // ── Timemachine (derived from generated AllocationRow) ─────────────────
 // DailyPoint is AllocationRow minus the nested `tickers` — those rows are
 // flattened into a top-level `dailyTickers` array by the exporter.
@@ -75,7 +63,6 @@ export const TimelineDataSchema = z.object({
   empowerContributions: z.array(EmpowerContributionSchema),
   categories: z.array(CategoryMetaSchema),
   market: MarketDataSchema,
-  holdingsDetail: z.array(StockDetailSchema),
   syncMeta: z.record(z.string(), z.string()),
 });
 
@@ -90,5 +77,4 @@ export type EmpowerContribution = z.infer<typeof EmpowerContributionSchema>;
 export type TimelineData = z.infer<typeof TimelineDataSchema>;
 export type IndexReturn = z.infer<typeof IndexReturnSchema>;
 export type MarketData = z.infer<typeof MarketDataSchema>;
-export type StockDetail = z.infer<typeof StockDetailSchema>;
 export type CategoryMeta = z.infer<typeof CategoryMetaSchema>;

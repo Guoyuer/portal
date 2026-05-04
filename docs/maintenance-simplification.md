@@ -292,6 +292,24 @@ historical CNY rates plus retirement categories. This is mostly mental-load
 reduction rather than LOC reduction: 8 files, 45 insertions / 45 deletions,
 with full Python pytest, Ruff, mypy strict, and vulture passing.
 
+Wide unused-surface follow-up: allocation's one-use category rollup module was
+inlined, Fidelity's one-use `cash.py` / `pricing.py` layers were folded back
+into the source module, and the stale `InvestmentSource` Protocol plus its
+contract tests were removed after allocation switched to explicit
+`positions_at` callables. The no-reader `holdingsDetail` endpoint path was
+deleted end-to-end: no SQLite table, precompute step, R2 export field, Zod
+schema field, frontend bundle field, e2e mock data, or unit tests remain. The
+timeline API also stopped exporting Robinhood raw `action` / `rawDescription`
+and Empower `cusip`; those stay internal to SQLite/reconcile logic where they
+are actually used. The production build CLI also dropped the test-only
+`--prices-from-csv` / skip-market branch; the golden regression seeds fixture
+prices with a monkeypatch instead of carrying offline-only branches in
+production orchestration. Diff effect: 28 files, 234 insertions / 798 deletions
+(`-564 diff LOC`); maintenance surface is 227 files / 24,050 LOC after this
+note. Validation: targeted Python tests including golden regression, full
+Python pytest with xdist (`468 passed`), Ruff, mypy strict, frontend lint,
+focused Vitest, and Next build.
+
 ### Wave 1: Safe Deletions and Test Compression
 
 Targets:

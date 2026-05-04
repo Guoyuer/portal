@@ -82,12 +82,10 @@ export function mkQianjiTxn(overrides: Partial<QianjiTxn> = {}): QianjiTxn {
 export function mkRobinhoodTxn(overrides: Partial<RobinhoodTxn> = {}): RobinhoodTxn {
   return {
     txnDate: "2026-01-15",
-    action: "Buy",
     actionKind: "buy",
     ticker: "AAPL",
     quantity: 1,
     amountUsd: -200,
-    rawDescription: "",
     ...overrides,
   };
 }
@@ -97,7 +95,6 @@ export function mkEmpowerContribution(overrides: Partial<EmpowerContribution> = 
     date: "2026-01-15",
     amount: 450,
     ticker: "401k sp500",
-    cusip: "09259A791",
     ...overrides,
   };
 }
@@ -172,7 +169,6 @@ export function mkTimelinePayload(overrides: Record<string, unknown> = {}) {
     empowerContributions: [],
     categories: CATEGORIES,
     market: MARKET,
-    holdingsDetail: [],
     syncMeta: {
       backend: "r2",
       version: "test",

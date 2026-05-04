@@ -1,7 +1,6 @@
 import type {
   CategoryMeta,
   MarketData,
-  StockDetail,
   DailyPoint,
   DailyTicker,
   QianjiTxn,
@@ -48,7 +47,6 @@ export interface ComputedBundle {
   activity: ActivityResponse | null;
   groupedActivity: GroupedActivityResponse | null;
   market: MarketData | null;
-  holdingsDetail: StockDetail[] | null;
   crossCheck: CrossCheck | null;
   monthlyFlows: MonthlyFlowPoint[];
   syncMeta: Record<string, string> | null;
@@ -71,7 +69,6 @@ const EMPTY_BUNDLE: ComputedBundle = {
   activity: null,
   groupedActivity: null,
   market: null,
-  holdingsDetail: null,
   crossCheck: null,
   monthlyFlows: [],
   syncMeta: null,
@@ -90,7 +87,6 @@ type PreparedBundleData = Pick<
   | "investmentTxns"
   | "categories"
   | "market"
-  | "holdingsDetail"
   | "syncMeta"
 > & {
   tickerIndex: ReturnType<typeof buildTickerIndex>;
@@ -134,7 +130,6 @@ function prepareBundleData(data: TimelineData): PreparedBundleData {
     ),
     categories: data.categories,
     market: data.market,
-    holdingsDetail: data.holdingsDetail,
     syncMeta: data.syncMeta,
     tickerIndex: buildTickerIndex(data.dailyTickers),
     dateIndex: buildDateIndex(data.daily),
@@ -175,7 +170,6 @@ function computeWindowBundle(
     ...computeWindow(prepared, startDate, snapshotDate),
     monthlyFlows: computeMonthlyFlows(prepared.qianjiTxns, startDate, snapshotDate),
     market: prepared.market,
-    holdingsDetail: prepared.holdingsDetail,
     syncMeta: prepared.syncMeta,
   };
 }

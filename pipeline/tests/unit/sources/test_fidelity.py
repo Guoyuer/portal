@@ -108,10 +108,28 @@ def test_positions_at_unknown_account_defaults_to_fzfxx(tmp_path: Path, empty_db
     assert fzfxx[0].value_usd == pytest.approx(500.0)
 
 
-def test_default_mutual_funds_when_config_missing(tmp_path: Path) -> None:
-    """Unspecified ``mutual_funds`` → the documented default set."""
-    from etl.sources.fidelity import pricing
+def test_default_mutual_funds_when_config_missing(tmp_path: Path, empty_db: Path) -> None:
+    """Unspecified ``mutual_funds`` uses the documented T-1 lookup set."""
     config: dict[str, object] = {
         "fidelity_accounts": {"X12345678": "FZFXX"},
     }
-    assert "FXAIX" in pricing.mutual_funds(config)
+    csv = tmp_path / "Accounts_History.csv"
+    write_fidelity_csv(csv, [
+        '01/02/2024,"Roth IRA",X12345678,"YOU BOUGHT FXAIX",FXAIX,"Fidelity 500 Index",Cash,10,150,-1500,01/03/2024',
+    ], header=FIDELITY_HEADER_SHORT)
+
+    fidelity_src.ingest(empty_db, tmp_path)
+    prices = pd.DataFrame(
+        {"FXAIX": [150.0]},
+        index=pd.to_datetime([date(2024, 1, 1)]).map(lambda d: d.date()),
+    )
+    ctx = PriceContext(
+        prices=prices,
+        price_date=date(2024, 1, 2),
+        mf_price_date=date(2024, 1, 1),
+    )
+    rows = fidelity_src.positions_at(empty_db, date(2024, 1, 2), ctx, config)
+
+    fxaix = [r for r in rows if r.ticker == "FXAIX"]
+    assert len(fxaix) == 1
+    assert fxaix[0].value_usd == pytest.approx(1500.0)

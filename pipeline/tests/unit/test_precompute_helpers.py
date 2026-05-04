@@ -1,9 +1,9 @@
 """Unit tests for the internal precompute helpers.
 
-End-to-end coverage of ``precompute_market`` / ``precompute_holdings_detail``
-lives in ``test_precompute_market.py`` — this file isolates the smaller
-building blocks (``_compute_index_row``, ``_precompute_indices``,
-``_precompute_cny``, ``_precompute_fred``) so their failure modes pin cleanly.
+End-to-end coverage of ``precompute_market`` lives in
+``test_precompute_market.py`` — this file isolates the smaller building blocks
+(``_compute_index_row``, ``_precompute_indices``, ``_precompute_cny``,
+``_precompute_fred``) so their failure modes pin cleanly.
 """
 from __future__ import annotations
 

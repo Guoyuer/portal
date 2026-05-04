@@ -11,12 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 from enum import StrEnum
-from pathlib import Path
-from typing import Protocol
 
 import pandas as pd
-
-from etl.types import RawConfig
 
 
 class ActionKind(StrEnum):
@@ -80,20 +76,3 @@ class PositionRow:
     ticker: str
     value_usd: float
     cost_basis_usd: float | None = None
-
-
-class InvestmentSource(Protocol):
-    """Structural type for source modules.
-
-    Every source module used by allocation must expose ``positions_at``.
-    Kept as a ``Protocol`` so mypy catches accidental signature drift; there
-    is no runtime class hierarchy.
-
-    ``config`` is the full :class:`etl.types.RawConfig` — each source reads
-    only the keys it cares about. Using one union type (instead of per-source
-    narrow TypedDicts) keeps the call sites simple: no slicing, no casts.
-    Because :class:`RawConfig` is ``total=False``, missing optional keys are
-    already well-typed via ``.get()``.
-    """
-
-    def positions_at(self, db_path: Path, as_of: date, prices: PriceContext, config: RawConfig) -> list[PositionRow]: ...
