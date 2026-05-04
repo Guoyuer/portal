@@ -125,12 +125,10 @@ class RobinhoodTransaction(TypedDict):
     table and exported API transaction shape.
     """
     txn_date: str              # ISO YYYY-MM-DD
-    action: str                # raw Trans Code from CSV (Buy/Sell/CDIV/ACH/...)
     action_kind: str           # normalized ActionKind enum (buy/sell/dividend/deposit/other)
     ticker: str
     quantity: float
     amount_usd: float
-    raw_description: str
 
 
 class EmpowerContribution(TypedDict):
@@ -140,7 +138,6 @@ class EmpowerContribution(TypedDict):
     date: str
     amount: float
     ticker: str                # "401k sp500" | "401k tech" | "401k ex-us"
-    cusip: str
 
 
 class TickerDetail(TypedDict):

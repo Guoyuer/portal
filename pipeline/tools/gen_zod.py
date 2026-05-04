@@ -113,12 +113,10 @@ _SPECS: tuple[ViewSpec, ...] = (
         source="RobinhoodTransaction",
         include={
             "txn_date": None,
-            "action": None,
             "action_kind": None,
             "ticker": None,
             "quantity": None,
             "amount_usd": None,
-            "raw_description": None,
         },
     ),
     ViewSpec(
@@ -128,7 +126,6 @@ _SPECS: tuple[ViewSpec, ...] = (
             "date": None,
             "amount": None,
             "ticker": None,
-            "cusip": None,
         },
     ),
 )

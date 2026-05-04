@@ -1,4 +1,4 @@
-"""Tests for precompute_market and precompute_holdings_detail."""
+"""Tests for precompute_market."""
 from __future__ import annotations
 
 import json
@@ -8,7 +8,7 @@ from unittest.mock import patch
 import pytest
 
 from etl.db import get_connection
-from etl.precompute import precompute_holdings_detail, precompute_market
+from etl.precompute import precompute_market
 from tests.fixtures import ingest_prices
 
 
@@ -212,118 +212,3 @@ class TestSkipTickerWithTooFewRows:
         conn.close()
         # ^GSPC has only 1 row, should be skipped; no other indices seeded
         assert len(idx_rows) == 0
-
-
-# ── Holdings detail precomputation tests ───────────────────────────────────
-
-
-def _seed_holdings_db(db_path: Path) -> None:
-    """Populate computed_daily_tickers and daily_close for holdings detail tests.
-
-    Creates two real tickers (VOO, QQQM) and one fake ("401k sp500").
-    Prices: 300 rows of steady uptrend so month_return and 52w calcs work.
-    """
-    conn = get_connection(db_path)
-    latest = "2025-11-01"
-
-    # Insert ticker values on the latest date
-    conn.executemany(
-        "INSERT INTO computed_daily_tickers (date, ticker, value, category, subtype) VALUES (?, ?, ?, ?, ?)",
-        [
-            (latest, "VOO", 50000.0, "US Equity", "etf"),
-            (latest, "QQQM", 30000.0, "US Equity", "etf"),
-            (latest, "401k sp500", 20000.0, "US Equity", "401k"),   # fake — has space, >5 chars
-            (latest, "CNY Cash", 5000.0, "Non-US Equity", ""),    # fake — has space
-        ],
-    )
-    conn.commit()
-    conn.close()
-
-    # Seed daily_close for VOO and QQQM (300 days uptrend)
-    _seed_index_prices(db_path, "VOO", 400.0, 300)
-    _seed_index_prices(db_path, "QQQM", 170.0, 300)
-
-
-@pytest.fixture()
-def holdings_db(empty_db: Path) -> Path:
-    """DB with computed_daily_tickers + daily_close for holdings detail."""
-    _seed_holdings_db(empty_db)
-    return empty_db
-
-
-class TestPrecomputeHoldingsDetailRows:
-    """Verify that precompute_holdings_detail writes correct rows."""
-
-    def test_writes_rows_for_real_tickers_only(self, holdings_db: Path) -> None:
-        precompute_holdings_detail(holdings_db)
-        conn = get_connection(holdings_db)
-        rows = conn.execute("SELECT ticker FROM computed_holdings_detail ORDER BY ticker").fetchall()
-        conn.close()
-        assert {r[0] for r in rows} == {"QQQM", "VOO"}
-
-    def test_end_value_matches_ticker_value(self, holdings_db: Path) -> None:
-        precompute_holdings_detail(holdings_db)
-        row = _fetchone(holdings_db, "SELECT end_value FROM computed_holdings_detail WHERE ticker = 'VOO'")
-        assert row is not None
-        assert row[0] == pytest.approx(50000.0, abs=0.01)
-
-    def test_month_return_correct_value(self, holdings_db: Path) -> None:
-        """Verify month return matches manual calculation from seeded prices."""
-        precompute_holdings_detail(holdings_db)
-        conn = get_connection(holdings_db)
-
-        # Recompute expected: last 300 prices of VOO, base=400 step=0.5
-        closes = conn.execute(
-            "SELECT close FROM daily_close WHERE symbol = 'VOO' ORDER BY date"
-        ).fetchall()
-        prices = [r[0] for r in closes]
-        current = prices[-1]
-        month_idx = max(0, len(prices) - 23)
-        expected = round((current / prices[month_idx] - 1) * 100, 2)
-
-        row = conn.execute("SELECT month_return FROM computed_holdings_detail WHERE ticker = 'VOO'").fetchone()
-        conn.close()
-        assert expected > 0
-        assert row[0] == pytest.approx(expected, abs=0.01)
-
-    def test_52w_high_low_and_vs_high(self, holdings_db: Path) -> None:
-        precompute_holdings_detail(holdings_db)
-        row = _fetchone(
-            holdings_db,
-            "SELECT high_52w, low_52w, vs_high FROM computed_holdings_detail WHERE ticker = 'VOO'"
-        )
-        assert row is not None
-        high_52w, low_52w, vs_high = row
-        assert high_52w >= low_52w
-        assert vs_high <= 0  # current <= high, so vs_high <= 0
-
-    def test_start_value_derived_from_month_return(self, holdings_db: Path) -> None:
-        precompute_holdings_detail(holdings_db)
-        row = _fetchone(
-            holdings_db,
-            "SELECT month_return, start_value, end_value FROM computed_holdings_detail WHERE ticker = 'VOO'"
-        )
-        month_ret, start_val, end_val = row
-        # start_value = end_value / (1 + month_ret / 100)
-        expected_start = round(end_val / (1 + month_ret / 100), 2)
-        assert start_val == pytest.approx(expected_start, abs=0.01)
-
-
-class TestHoldingsDetailIdempotent:
-    """Verify clear-and-rewrite: no duplicates on re-run."""
-
-    def test_rerun_does_not_duplicate(self, holdings_db: Path) -> None:
-        precompute_holdings_detail(holdings_db)
-        precompute_holdings_detail(holdings_db)
-        count = _fetchone(holdings_db, "SELECT COUNT(*) FROM computed_holdings_detail")[0]
-        # Only VOO + QQQM = 2
-        assert count == 2
-
-
-class TestHoldingsDetailEmptyDB:
-    """Verify graceful handling when no data exists."""
-
-    def test_no_crash_on_empty_db(self, empty_db: Path) -> None:
-        precompute_holdings_detail(empty_db)
-        count = _fetchone(empty_db, "SELECT COUNT(*) FROM computed_holdings_detail")[0]
-        assert count == 0

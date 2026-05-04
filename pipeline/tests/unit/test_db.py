@@ -21,7 +21,6 @@ EXPECTED_TABLES = frozenset({
     "computed_daily",
     "computed_daily_tickers",
     "computed_market_indices",
-    "computed_holdings_detail",
     "econ_series",
     "categories",
 })

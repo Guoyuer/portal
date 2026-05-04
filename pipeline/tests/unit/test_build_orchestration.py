@@ -13,7 +13,7 @@ from etl import build as build_mod
 from etl.db import init_db
 from etl.sources.empower import Contribution
 from etl.validate import CheckResult, Severity
-from tests.fixtures import connected_db, db_rows, db_value
+from tests.fixtures import connected_db, db_rows
 
 
 @pytest.fixture()
@@ -80,35 +80,6 @@ def _stub_full_build_inputs(
         return len(records)
 
     monkeypatch.setattr(build_mod, "ingest_qianji_transactions", fake_ingest_qianji)
-
-
-class TestLoadPricesFromCsv:
-    def test_loads_valid_prices_and_skips_blank_or_invalid_cells(self, paths: build_mod.BuildPaths) -> None:
-        init_db(paths.db_path)
-        price_csv = paths.data_dir / "prices.csv"
-        price_csv.write_text(
-            "date,VOO,VXUS\n"
-            "2026-01-01,100.5,\n"
-            "2026-01-02,bad,55\n"
-            ",101,56\n",
-            encoding="utf-8",
-        )
-
-        build_mod._load_prices_from_csv(paths.db_path, price_csv)
-
-        assert db_rows(
-            paths.db_path,
-            "SELECT symbol, date, close FROM daily_close ORDER BY symbol, date"
-        ) == [("VOO", "2026-01-01", 100.5), ("VXUS", "2026-01-02", 55.0)]
-
-    def test_empty_csv_is_noop(self, paths: build_mod.BuildPaths) -> None:
-        init_db(paths.db_path)
-        price_csv = paths.data_dir / "prices.csv"
-        price_csv.write_text("", encoding="utf-8")
-
-        build_mod._load_prices_from_csv(paths.db_path, price_csv)
-
-        assert db_value(paths.db_path, "SELECT COUNT(*) FROM daily_close") == 0
 
 
 class TestConfigAndFidelityIngest:
@@ -285,30 +256,6 @@ class TestSourceIngestAndPeriods:
 
 
 class TestFetchAndBuildOrchestration:
-    def test_fetch_all_prices_uses_csv_loader_when_supplied(
-        self,
-        paths: build_mod.BuildPaths,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        loaded: dict[str, Path] = {}
-        price_csv = paths.data_dir / "prices.csv"
-
-        def fake_load(db_path: Path, csv_path: Path) -> None:
-            loaded["db"] = db_path
-            loaded["csv"] = csv_path
-
-        monkeypatch.setattr(build_mod, "_load_prices_from_csv", fake_load)
-
-        build_mod._fetch_all_prices(
-            paths,
-            {"VOO": (date(2026, 1, 1), None)},
-            date(2026, 1, 1),
-            date(2026, 4, 1),
-            prices_from_csv=price_csv,
-        )
-
-        assert loaded == {"db": paths.db_path, "csv": price_csv}
-
     def test_fetch_all_prices_derives_global_and_cny_starts(
         self,
         paths: build_mod.BuildPaths,
@@ -345,7 +292,6 @@ class TestFullAndIncrementalBuild:
         calls: list[tuple[str, object]] = []
         _stub_full_build_inputs(monkeypatch, calls, allocation=[_alloc_row()], qianji_records=[{"id": "qj"}])
         monkeypatch.setattr(build_mod, "precompute_market", lambda db: calls.append(("market", db)))
-        monkeypatch.setattr(build_mod, "precompute_holdings_detail", lambda db: calls.append(("holdings", db)))
         monkeypatch.setattr(build_mod, "_run_validation", lambda p: calls.append(("validation", p)))
 
         alloc = build_mod._full_build(
@@ -362,10 +308,9 @@ class TestFullAndIncrementalBuild:
         assert tickers == [("VOO",)]
         assert ("qianji", ([{"id": "qj"}], ["401K"])) in calls
         assert ("market", paths.db_path) in calls
-        assert ("holdings", paths.db_path) in calls
         assert ("validation", paths) in calls
 
-    def test_full_build_can_skip_market_and_validation(
+    def test_full_build_can_skip_validation(
         self,
         paths: build_mod.BuildPaths,
         monkeypatch: pytest.MonkeyPatch,
@@ -374,7 +319,6 @@ class TestFullAndIncrementalBuild:
         called: list[str] = []
         _stub_full_build_inputs(monkeypatch)
         monkeypatch.setattr(build_mod, "precompute_market", lambda db: called.append("market"))
-        monkeypatch.setattr(build_mod, "precompute_holdings_detail", lambda db: called.append("holdings"))
         monkeypatch.setattr(build_mod, "_run_validation", lambda p: called.append("validation"))
 
         assert build_mod._full_build(
@@ -383,9 +327,8 @@ class TestFullAndIncrementalBuild:
             date(2026, 4, 1),
             date(2026, 4, 14),
             no_validate=True,
-            skip_market_precompute=True,
         ) == []
-        assert called == []
+        assert called == ["market"]
 
     def test_refresh_window_returns_empty_when_start_exceeds_end(
         self,
@@ -410,7 +353,7 @@ class TestFullAndIncrementalBuild:
 
         assert result == []
 
-    def test_refresh_window_can_skip_market_but_still_validate(
+    def test_refresh_window_runs_market_and_validation(
         self,
         paths: build_mod.BuildPaths,
         monkeypatch: pytest.MonkeyPatch,
@@ -420,7 +363,6 @@ class TestFullAndIncrementalBuild:
         calls: list[str] = []
         _stub_full_build_inputs(monkeypatch)
         monkeypatch.setattr(build_mod, "precompute_market", lambda db: calls.append("market"))
-        monkeypatch.setattr(build_mod, "precompute_holdings_detail", lambda db: calls.append("holdings"))
         monkeypatch.setattr(build_mod, "_run_validation", lambda p: calls.append("validation"))
 
         assert build_mod._build_refresh_window(
@@ -428,9 +370,8 @@ class TestFullAndIncrementalBuild:
             {},
             date(2026, 1, 1),
             date(2026, 4, 14),
-            skip_market_precompute=True,
         ) == []
-        assert calls == ["validation"]
+        assert calls == ["market", "validation"]
 
     def test_build_timemachine_db_threads_args_through_pipeline(
         self,
@@ -440,7 +381,6 @@ class TestFullAndIncrementalBuild:
         calls: list[tuple[str, object]] = []
         args = argparse.Namespace(
             as_of=date(2026, 4, 14),
-            prices_from_csv=paths.data_dir / "prices.csv",
             no_validate=True,
         )
         monkeypatch.setattr(build_mod, "_resolve_paths", lambda a: paths)
@@ -454,22 +394,18 @@ class TestFullAndIncrementalBuild:
         monkeypatch.setattr(
             build_mod,
             "_fetch_all_prices",
-            lambda p, periods, earliest, end, *, prices_from_csv: calls.append(
-                ("fetch", (p, periods, earliest, end, prices_from_csv))
-            ),
+            lambda p, periods, earliest, end: calls.append(("fetch", (p, periods, earliest, end))),
         )
         monkeypatch.setattr(build_mod, "_derive_start_date", lambda *_args, **_kwargs: date(2026, 1, 1))
         monkeypatch.setattr(
             build_mod,
             "_build_refresh_window",
-            lambda p, cfg, start, end, *, no_validate, skip_market_precompute: calls.append(
-                ("refresh", (p, cfg, start, end, no_validate, skip_market_precompute))
-            ),
+            lambda p, cfg, start, end, *, no_validate: calls.append(("refresh", (p, cfg, start, end, no_validate))),
         )
 
         assert build_mod.build_timemachine_db(args) == 0
         assert calls == [
             ("ingest", (paths, {})),
-            ("fetch", (paths, {"VOO": (date(2026, 1, 1), None)}, date(2026, 1, 1), date(2026, 4, 14), args.prices_from_csv)),
-            ("refresh", (paths, {}, date(2026, 1, 1), date(2026, 4, 14), True, True)),
+            ("fetch", (paths, {"VOO": (date(2026, 1, 1), None)}, date(2026, 1, 1), date(2026, 4, 14))),
+            ("refresh", (paths, {}, date(2026, 1, 1), date(2026, 4, 14), True)),
         ]

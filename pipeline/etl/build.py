@@ -17,7 +17,6 @@ or empty, a full build runs automatically. To force a clean rebuild, delete
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 import os
 import sqlite3
@@ -39,7 +38,6 @@ from etl.db import (
     upsert_daily_rows,
 )
 from etl.precompute import (
-    precompute_holdings_detail,
     precompute_market,
 )
 from etl.prices.fetch import (
@@ -88,13 +86,6 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--config", type=Path, default=None, help="Override config.json path")
     parser.add_argument("--downloads", type=Path, default=None, help="Override downloads directory")
     parser.add_argument(
-        "--prices-from-csv",
-        type=Path,
-        default=None,
-        help="Read prices from this CSV instead of Yahoo. "
-             "CSV columns: date (YYYY-MM-DD) + one column per ticker. For test fixtures only.",
-    )
-    parser.add_argument(
         "--as-of",
         type=lambda s: date.fromisoformat(s),
         default=None,
@@ -116,38 +107,6 @@ def _resolve_paths(args: argparse.Namespace) -> BuildPaths:
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
-
-
-def _load_prices_from_csv(db_path: Path, csv_path: Path) -> None:
-    """Load offline regression prices from CSV into daily_close, bypassing Yahoo."""
-    with csv_path.open(encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        rows = list(reader)
-    if not rows:
-        return
-
-    symbols = [c for c in (reader.fieldnames or []) if c and c != "date"]
-    conn = get_connection(db_path)
-    try:
-        for row in rows:
-            date_iso = (row.get("date") or "").strip()
-            if not date_iso:
-                continue
-            for sym in symbols:
-                raw = (row.get(sym) or "").strip()
-                if not raw:
-                    continue
-                try:
-                    close = float(raw)
-                except ValueError:
-                    continue
-                conn.execute(
-                    "INSERT OR REPLACE INTO daily_close (symbol, date, close) VALUES (?, ?, ?)",
-                    (sym, date_iso, close),
-                )
-        conn.commit()
-    finally:
-        conn.close()
 
 
 def _load_config(path: Path) -> RawConfig:
@@ -217,8 +176,8 @@ def _init_db_and_ingest_sources(
     """Steps 1-3: init DB, ingest Fidelity + Robinhood + Empower 401k sources.
 
     Every source persists its raw inputs into ``timemachine.db`` at this stage;
-    per-day valuation (step 5) reads exclusively from the DB via the
-    :class:`InvestmentSource` registry.
+    per-day valuation (step 5) reads exclusively from the DB through the
+    explicit ``positions_at`` source list.
     """
     # ── Step 1: Initialise database ──
     print("\n[1] Initialising database...")
@@ -323,8 +282,6 @@ def _fetch_all_prices(
     periods: dict[str, tuple[date, date | None]],
     earliest: date,
     end: date,
-    *,
-    prices_from_csv: Path | None = None,
 ) -> None:
     """Bulk-fetch + persist ticker prices and CNY rates for the given periods.
 
@@ -334,16 +291,7 @@ def _fetch_all_prices(
     transaction overall (e.g. a cash deposit that happens before any buy) —
     because allocation converts CNY-denominated balances from day one. We
     therefore derive the CNY start from ``MIN(run_date)`` directly.
-
-    When ``prices_from_csv`` is set, loads prices from that CSV instead of
-    Yahoo (for offline regression fixtures). Yahoo is still skipped for CNY
-    too — callers provide all needed series in the CSV.
     """
-    if prices_from_csv is not None:
-        print(f"  Loading prices from CSV (Yahoo skipped): {prices_from_csv}")
-        _load_prices_from_csv(paths.db_path, prices_from_csv)
-        return
-
     _conn = get_connection(paths.db_path)
     # Use computed_daily start as global_start so ticker charts cover the full brush range
     cd_start_row = _conn.execute("SELECT MIN(date) FROM computed_daily").fetchone()
@@ -369,7 +317,6 @@ def _finalize_build_outputs(
     alloc: list[AllocationRow],
     *,
     no_validate: bool,
-    skip_market_precompute: bool,
     qianji_verb: str,
 ) -> None:
     historical_cny = load_cny_rates(paths.db_path)
@@ -382,17 +329,9 @@ def _finalize_build_outputs(
     )
     print(f"  {qj_count} Qianji transactions {qianji_verb}")
 
-    if skip_market_precompute:
-        print("[M] Market precompute skipped (--prices-from-csv)")
-        print("[H] Holdings detail precompute skipped (--prices-from-csv)")
-    else:
-        print("[M] Precomputing market data...")
-        precompute_market(paths.db_path)
-        print("  Done")
-
-        print("[H] Precomputing holdings detail...")
-        precompute_holdings_detail(paths.db_path)
-        print("  Done")
+    print("[M] Precomputing market data...")
+    precompute_market(paths.db_path)
+    print("  Done")
 
     if alloc:
         earliest, latest = alloc[0], alloc[-1]
@@ -412,7 +351,6 @@ def _full_build(
     end: date,
     *,
     no_validate: bool = False,
-    skip_market_precompute: bool = False,
 ) -> list[AllocationRow]:
     print("\n[5] Computing full allocation...")
     alloc = compute_daily_allocation(
@@ -438,7 +376,6 @@ def _full_build(
         config,
         alloc,
         no_validate=no_validate,
-        skip_market_precompute=skip_market_precompute,
         qianji_verb="ingested",
     )
 
@@ -471,7 +408,6 @@ def _build_refresh_window(
     end: date,
     *,
     no_validate: bool = False,
-    skip_market_precompute: bool = False,
 ) -> list[AllocationRow]:
     """Recompute the REFRESH_WINDOW_DAYS tail of ``computed_daily``, filling any
     historical gap beyond the tail. Delegates to ``_full_build`` when the DB
@@ -481,7 +417,7 @@ def _build_refresh_window(
         print("  No existing data — falling back to full build")
         return _full_build(
             paths, config, start, end,
-            no_validate=no_validate, skip_market_precompute=skip_market_precompute,
+            no_validate=no_validate,
         )
 
     inc_start = compute_inc_start(last, start, end)
@@ -505,7 +441,6 @@ def _build_refresh_window(
         config,
         alloc,
         no_validate=no_validate,
-        skip_market_precompute=skip_market_precompute,
         qianji_verb="re-ingested",
     )
 
@@ -534,7 +469,7 @@ def build_timemachine_db(args: argparse.Namespace) -> int:
     _init_db_and_ingest_sources(paths, config)
     print("[4] Fetching prices...")
     periods, earliest = _compute_holding_periods(paths, end)
-    _fetch_all_prices(paths, periods, earliest, end, prices_from_csv=args.prices_from_csv)
+    _fetch_all_prices(paths, periods, earliest, end)
 
     # Derive date range from ingested fidelity transactions
     start = _derive_start_date(paths, fallback=end)
@@ -543,7 +478,6 @@ def build_timemachine_db(args: argparse.Namespace) -> int:
     _build_refresh_window(
         paths, config, start, end,
         no_validate=args.no_validate,
-        skip_market_precompute=args.prices_from_csv is not None,
     )
 
     print("\n" + "=" * 60)

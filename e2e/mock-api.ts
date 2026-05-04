@@ -200,21 +200,6 @@ const market = {
   ],
 };
 
-// ── Holdings detail ─────────────────────────────────────────────────────
-
-const holdingsDetail = [
-  { ticker: "VOO",  monthReturn: 2.5,  startValue: 150000, endValue: 153750, high52w: 160000, low52w: 120000, vsHigh: -3.9 },
-  { ticker: "QQQM", monthReturn: 3.1,  startValue: 80000,  endValue: 82480,  high52w: 85000,  low52w: 60000,  vsHigh: -3.0 },
-  { ticker: "VXUS", monthReturn: 1.8,  startValue: 40000,  endValue: 40720,  high52w: 42000,  low52w: 35000,  vsHigh: -3.0 },
-  { ticker: "SCHD", monthReturn: 1.2,  startValue: 25000,  endValue: 25300,  high52w: 30000,  low52w: 22000,  vsHigh: -15.7 },
-  { ticker: "AAPL", monthReturn: -0.5, startValue: 18000,  endValue: 17910,  high52w: 22000,  low52w: 16000,  vsHigh: -18.6 },
-  { ticker: "NVDA", monthReturn: 5.2,  startValue: 15000,  endValue: 15780,  high52w: 20000,  low52w: 10000,  vsHigh: -21.1 },
-  { ticker: "TSM",  monthReturn: 2.8,  startValue: 12000,  endValue: 12336,  high52w: 14000,  low52w: 9000,   vsHigh: -11.9 },
-  { ticker: "SGOV", monthReturn: 0.4,  startValue: 25000,  endValue: 25100,  high52w: 25200,  low52w: 24800,  vsHigh: -0.4 },
-  { ticker: "GLDM", monthReturn: 1.5,  startValue: 15000,  endValue: 15225,  high52w: 16000,  low52w: 12000,  vsHigh: -4.8 },
-  { ticker: "FBTC", monthReturn: 8.0,  startValue: 5000,   endValue: 5400,   high52w: 7000,   low52w: 3000,   vsHigh: -22.9 },
-];
-
 // ── Category metadata (target weights + display order) ──────────────────
 
 const categories = [
@@ -239,7 +224,6 @@ const TIMELINE = {
   empowerContributions: [],
   categories,
   market,
-  holdingsDetail,
   syncMeta: { last_sync: generatedAt, last_date: lastDate },
 };
 

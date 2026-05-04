@@ -198,7 +198,6 @@ class TestBuildRefreshWindowOrchestration:
         monkeypatch.setattr(build_mod, "compute_daily_allocation", _fake_compute)
         monkeypatch.setattr(build_mod, "load_all_from_db", lambda *a, **_kw: [])
         monkeypatch.setattr(build_mod, "precompute_market", lambda _p: None)
-        monkeypatch.setattr(build_mod, "precompute_holdings_detail", lambda _p: None)
 
         build_mod._build_refresh_window(
             paths, {}, date(2023, 1, 1), date(2026, 4, 14), no_validate=True,
@@ -238,7 +237,6 @@ class TestBuildRefreshWindowOrchestration:
                             }])
         monkeypatch.setattr(build_mod, "load_all_from_db", lambda *a, **_kw: [])
         monkeypatch.setattr(build_mod, "precompute_market", lambda _p: None)
-        monkeypatch.setattr(build_mod, "precompute_holdings_detail", lambda _p: None)
 
         build_mod._build_refresh_window(
             paths, {}, date(2023, 1, 1), date(2026, 4, 14), no_validate=True,

@@ -187,15 +187,14 @@ ORDER BY date
 """
 
 _ROBINHOOD_TXNS_SQL = """
-SELECT txn_date AS txnDate, action, action_kind AS actionKind,
-  ticker, quantity, amount_usd AS amountUsd,
-  raw_description AS rawDescription
+SELECT txn_date AS txnDate, action_kind AS actionKind,
+  ticker, quantity, amount_usd AS amountUsd
 FROM robinhood_transactions
 ORDER BY txnDate
 """
 
 _EMPOWER_CONTRIBUTIONS_SQL = """
-SELECT date, amount, ticker, cusip
+SELECT date, amount, ticker
 FROM empower_contributions
 ORDER BY date
 """
@@ -213,13 +212,6 @@ SELECT ticker, name, current, month_return AS monthReturn,
   ytd_return AS ytdReturn, high_52w AS high52w, low_52w AS low52w, sparkline
 FROM computed_market_indices
 ORDER BY ticker
-"""
-
-_HOLDINGS_DETAIL_SQL = """
-SELECT ticker, month_return AS monthReturn, start_value AS startValue,
-  end_value AS endValue, high_52w AS high52w, low_52w AS low52w, vs_high AS vsHigh
-FROM computed_holdings_detail
-ORDER BY month_return DESC
 """
 
 _ECON_SNAPSHOT_SQL = """
@@ -245,7 +237,6 @@ _ROW_COUNT_SPECS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("empowerContributions", "SELECT COUNT(*) FROM empower_contributions", ("timeline", "empowerContributions")),
     ("categories", "SELECT COUNT(*) FROM categories", ("timeline", "categories")),
     ("marketIndices", "SELECT COUNT(*) FROM computed_market_indices", ("timeline", "market", "indices")),
-    ("holdingsDetail", "SELECT COUNT(*) FROM computed_holdings_detail", ("timeline", "holdingsDetail")),
     ("econSeries", "SELECT COUNT(DISTINCT key) FROM econ_series", ("econ", "series")),
     ("econSnapshot", "SELECT COUNT(DISTINCT key) FROM econ_series", ("econ", "snapshot")),
 )
@@ -301,7 +292,6 @@ def _build_timeline(conn: sqlite3.Connection, *, version: str, generated_at: str
         "empowerContributions": _rows(conn, _EMPOWER_CONTRIBUTIONS_SQL),
         "categories": categories,
         "market": {"indices": _market_indices(conn)},
-        "holdingsDetail": _rows(conn, _HOLDINGS_DETAIL_SQL),
         "syncMeta": {
             "backend": "r2",
             "version": version,

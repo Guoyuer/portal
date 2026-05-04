@@ -1,7 +1,7 @@
-"""Fidelity source — composes the ``parse`` / ``cash`` / ``pricing`` submodules.
+"""Fidelity source — CSV ingest plus point-in-time positions.
 
-Public surface mirrors :mod:`etl.sources.robinhood` / :mod:`etl.sources.empower`:
-``ingest(db_path, config)`` and ``positions_at(db_path, as_of, prices, config)``.
+Public surface mirrors the other broker modules: ``ingest(...)`` persists raw
+input rows and ``positions_at(...)`` reconstructs point-in-time holdings.
 
 ``positions_at`` delegates transaction replay to the source-agnostic
 :func:`etl.replay.replay_transactions` primitive via ``FIDELITY_REPLAY``
@@ -14,21 +14,33 @@ accumulation while still letting them flow through the cash ledger.
 """
 from __future__ import annotations
 
+import logging
+from collections.abc import Mapping
 from datetime import date
 from pathlib import Path
 
-from etl.replay import ReplayConfig, replay_transactions
+from etl.parsing import is_cusip
+from etl.replay import PositionState, ReplayConfig, replay_transactions
 from etl.sources._types import PositionRow, PriceContext
 from etl.types import RawConfig
 
-from . import cash, parse, pricing
+from . import parse
 from .parse import TABLE
+
+log = logging.getLogger(__name__)
 
 # Fidelity-specific money-market fund tickers. Treated as $1/share cash, so
 # they stay out of the per-share position accumulator and instead flow
 # through the cash ledger (and, for REINVESTMENT rows, into the MM DRIP
 # adjustment that corrects for shares credited without a paired cash entry).
 MM_SYMBOLS: frozenset[str] = frozenset({"SPAXX", "FZFXX", "FDRXX"})
+
+# Default set of mutual-fund tickers that need T-1 price lookup.
+#
+# yfinance stamps open-end mutual-fund NAV with the PREVIOUS trading day's
+# date. ETFs + closed-end funds trade intraday and report T-0 correctly.
+_DEFAULT_MUTUAL_FUNDS: frozenset[str] = frozenset({"FXAIX", "FSSNX", "FNJHX", "FTIHX"})
+_DEFAULT_MM_TICKER = "FZFXX"
 
 # Per-source replay config — passed to :func:`etl.replay.replay_transactions`.
 FIDELITY_REPLAY = ReplayConfig(
@@ -42,6 +54,60 @@ FIDELITY_REPLAY = ReplayConfig(
     lot_type_col="lot_type",
     mm_drip_tickers=MM_SYMBOLS,
 )
+
+
+def _mutual_funds(config: RawConfig) -> frozenset[str]:
+    raw = config.get("mutual_funds")
+    if raw is None:
+        return _DEFAULT_MUTUAL_FUNDS
+    return frozenset(raw)
+
+
+def _position_rows(
+    positions: Mapping[tuple[str, str], PositionState],
+    prices: PriceContext,
+    mutual_fund_set: frozenset[str],
+) -> list[PositionRow]:
+    rows: list[PositionRow] = []
+
+    for (_acct, sym), state in positions.items():
+        qty = state.quantity
+        if is_cusip(sym):
+            rows.append(PositionRow(
+                ticker="T-Bills",
+                value_usd=qty,
+                cost_basis_usd=state.cost_basis_usd,
+            ))
+            continue
+
+        price = prices.lookup(sym, mutual_fund=sym in mutual_fund_set)
+        if price is not None:
+            rows.append(PositionRow(
+                ticker=sym,
+                value_usd=qty * price,
+                cost_basis_usd=state.cost_basis_usd,
+            ))
+            continue
+        if prices.should_warn_once("fidelity_missing_price", sym):
+            p_date = prices.mf_price_date if sym in mutual_fund_set else prices.price_date
+            log.warning(
+                "No price for %s on %s (holding %.3f shares) — excluded from allocation",
+                sym, p_date, qty,
+            )
+
+    return rows
+
+
+def _cash_rows(cash_by_account: dict[str, float], config: RawConfig) -> list[PositionRow]:
+    accounts = config.get("fidelity_accounts") or {}
+    return [
+        PositionRow(
+            ticker=accounts.get(acct, _DEFAULT_MM_TICKER),
+            value_usd=bal,
+        )
+        for acct, bal in cash_by_account.items()
+    ]
+
 
 # ── Public API (module protocol) ───────────────────────────────────────────
 
@@ -75,14 +141,10 @@ def positions_at(
     """
     result = replay_transactions(db_path, FIDELITY_REPLAY, as_of)
 
-    positions = {key: st.quantity for key, st in result.positions.items()}
-    cost_basis = {key: st.cost_basis_usd for key, st in result.positions.items()}
-
-    rows = pricing.position_rows(
-        positions=positions,
-        cost_basis=cost_basis,
+    rows = _position_rows(
+        positions=result.positions,
         prices=prices,
-        mutual_fund_set=pricing.mutual_funds(config),
+        mutual_fund_set=_mutual_funds(config),
     )
-    rows.extend(cash.cash_rows(result.cash, cash.accounts_map(config)))
+    rows.extend(_cash_rows(result.cash, config))
     return rows

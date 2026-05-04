@@ -294,8 +294,8 @@ describe("normalizeInvestmentTxns", () => {
   it("filters Robinhood actionKind='other' and keeps the rest", () => {
     const r = [
       mkRobinhoodTxn({ actionKind: "buy",     ticker: "AAPL", amountUsd: -200 }),
-      mkRobinhoodTxn({ actionKind: "other",   ticker: "",     amountUsd: -1.5, action: "AFEE" }),
-      mkRobinhoodTxn({ actionKind: "deposit", ticker: "",     amountUsd:  500, action: "RTP" }),
+      mkRobinhoodTxn({ actionKind: "other",   ticker: "",     amountUsd: -1.5 }),
+      mkRobinhoodTxn({ actionKind: "deposit", ticker: "",     amountUsd:  500 }),
     ];
     const out = normalizeInvestmentTxns([], r, []);
     expect(out).toHaveLength(2);

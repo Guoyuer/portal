@@ -13,7 +13,7 @@ trading day, then delegates the valuation to ``step_one_day``.
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
@@ -24,16 +24,20 @@ import etl.sources.empower as empower_src
 import etl.sources.fidelity as fidelity_src
 import etl.sources.robinhood as robinhood_src
 
-from ._category_totals import accumulate_category_totals
 from .db import get_connection
 from .prices.store import load_cny_rates, load_prices
 from .qianji.balances import qianji_balances_at, qianji_currencies
-from .sources._types import InvestmentSource, PriceContext
+from .sources._types import PositionRow, PriceContext
 from .types import AllocationRow, AssetInfo, RawConfig, TickerDetail
 
 log = logging.getLogger(__name__)
 
-_POSITION_SOURCES: tuple[InvestmentSource, ...] = (fidelity_src, robinhood_src, empower_src)
+_PositionReader = Callable[[Path, date, PriceContext, RawConfig], list[PositionRow]]
+_POSITION_READERS: tuple[_PositionReader, ...] = (
+    fidelity_src.positions_at,
+    robinhood_src.positions_at,
+    empower_src.positions_at,
+)
 
 # Qianji accounts that the Fidelity + Empower sources supersede once their
 # respective ingest tables are populated. The Robinhood account stays
@@ -196,8 +200,8 @@ def step_one_day(
         mf_price_date=mf_price_date,
         warning_keys=sources.warning_keys,
     )
-    for mod in _POSITION_SOURCES:
-        for row in mod.positions_at(sources.db_path, current, ctx, sources.source_config):
+    for positions_at in _POSITION_READERS:
+        for row in positions_at(sources.db_path, current, ctx, sources.source_config):
             ticker_values[row.ticker] = ticker_values.get(row.ticker, 0.0) + row.value_usd
             if row.cost_basis_usd is not None:
                 cost_basis_by_ticker[row.ticker] = (
@@ -224,23 +228,28 @@ def _build_allocation_row(
     # Use the raw (unrounded) value for the sign/bucket decision — matches
     # the pre-refactor behaviour exactly, so rows with |value| < 0.005 round
     # to 0 in TickerDetail but still accumulate at full precision.
-    fold_pairs: list[tuple[float, str]] = []
+    category_totals = {"US Equity": 0.0, "Non-US Equity": 0.0, "Crypto": 0.0, "Safe Net": 0.0}
+    total = 0.0
+    liabilities = 0.0
     for ticker, value in ticker_values.items():
         if value == 0:
             continue
         row = _categorize_ticker(ticker, value, assets, cost_basis_by_ticker)
         ticker_detail.append(row)
-        fold_pairs.append((value, row["category"]))
-    # Fold the per-ticker (value, category) pairs into the 4 canonical buckets.
-    totals = accumulate_category_totals(fold_pairs)
+        if value < 0:
+            liabilities += value
+        else:
+            total += value
+            if row["category"] in category_totals:
+                category_totals[row["category"]] += value
     return AllocationRow(
         date=current.isoformat(),
-        total=totals.total,
-        us_equity=totals.us_equity,
-        non_us_equity=totals.non_us_equity,
-        crypto=totals.crypto,
-        safe_net=totals.safe_net,
-        liabilities=totals.liabilities,
+        total=round(total, 2),
+        us_equity=round(category_totals["US Equity"], 2),
+        non_us_equity=round(category_totals["Non-US Equity"], 2),
+        crypto=round(category_totals["Crypto"], 2),
+        safe_net=round(category_totals["Safe Net"], 2),
+        liabilities=round(liabilities, 2),
         tickers=ticker_detail,
     )
 

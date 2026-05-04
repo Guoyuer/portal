@@ -52,12 +52,10 @@ export type QianjiTxn = z.infer<typeof QianjiTxnSchema>;
 
 export const RobinhoodTxnSchema = z.object({
   txnDate: z.string(),
-  action: z.string(),
   actionKind: z.string(),
   ticker: z.string(),
   quantity: z.number(),
   amountUsd: z.number(),
-  rawDescription: z.string(),
 });
 
 export type RobinhoodTxn = z.infer<typeof RobinhoodTxnSchema>;
@@ -66,7 +64,6 @@ export const EmpowerContributionSchema = z.object({
   date: z.string(),
   amount: z.number(),
   ticker: z.string(),
-  cusip: z.string(),
 });
 
 export type EmpowerContribution = z.infer<typeof EmpowerContributionSchema>;
