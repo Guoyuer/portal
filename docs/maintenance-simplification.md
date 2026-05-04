@@ -196,6 +196,15 @@ effect excluding lockfile: 9 maintained files, 35 insertions / 101 deletions
 removed 189 installed packages. Physical maintenance surface drops to 243 files
 / 25,332 physical LOC before this note.
 
+Python test dead-code follow-up: `test_qianji_db.py` no longer carries an
+unused `_record` helper or local SQL query wrappers now covered by
+`tests.fixtures.db_rows/db_value`. Test fake callbacks also use underscore
+catch-all parameters so vulture stops reporting intentional unused callback
+arguments. Diff effect: 5 files, 13 insertions / 43 deletions (`-30 diff LOC`);
+targeted Python tests, Ruff, and `vulture pipeline/tests --min-confidence 80`
+all pass. Physical maintenance surface drops to 243 files / 25,319 physical LOC
+before this note.
+
 ### Wave 1: Safe Deletions and Test Compression
 
 Targets:

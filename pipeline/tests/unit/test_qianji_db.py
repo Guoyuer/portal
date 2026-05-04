@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from contextlib import closing
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -16,6 +15,7 @@ from etl.qianji import (
     parse_qj_target_amount,
 )
 from etl.qianji.ingest import _load_balances, _load_records
+from tests.fixtures import db_rows, db_value
 
 # ── parse_qj_amount ───────────────────────────────────────────────────────────
 
@@ -24,42 +24,12 @@ def _extra(ss: str, sv: float, ts: str | None, tv: float, bs: str, bv: float) ->
     return json.dumps({"curr": {"ss": ss, "sv": sv, "ts": ts, "tv": tv, "bs": bs, "bv": bv}})
 
 
-def _record(
-    *,
-    date_: str = "2026-01-01",
-    type_: str = "income",
-    category: str = "Salary",
-    amount: float = 100.0,
-    account_from: str = "",
-    account_to: str = "",
-    note: str = "",
-) -> dict:
-    return {
-        "date": date_,
-        "type": type_,
-        "category": category,
-        "amount": amount,
-        "account_from": account_from,
-        "account_to": account_to,
-        "note": note,
-    }
-
-
-def _rows(db_path: Path, sql: str) -> list[tuple]:
-    with closing(sqlite3.connect(db_path)) as conn:
-        return conn.execute(sql).fetchall()
-
-
-def _scalar(db_path: Path, sql: str) -> object:
-    return _rows(db_path, sql)[0][0]
-
-
 def _flag_for(db_path: Path) -> int:
-    return _scalar(db_path, "SELECT is_retirement FROM qianji_transactions")  # type: ignore[return-value]
+    return db_value(db_path, "SELECT is_retirement FROM qianji_transactions")  # type: ignore[return-value]
 
 
 def _row_for(db_path: Path) -> tuple:
-    return _rows(db_path, "SELECT type, account_to FROM qianji_transactions")[0]
+    return db_rows(db_path, "SELECT type, account_to FROM qianji_transactions")[0]
 
 
 class TestParseQjAmount:
@@ -399,7 +369,7 @@ class TestIsRetirementFlag:
             empty_db, _SAMPLE_RETIREMENT_RECORDS,
             retirement_categories=["401K", "401k Match"],
         )
-        rows = _rows(
+        rows = db_rows(
             empty_db,
             "SELECT category, type, is_retirement FROM qianji_transactions ORDER BY date, category",
         )
@@ -434,7 +404,7 @@ class TestIsRetirementFlag:
 
     def test_empty_retirement_list_flags_nothing(self, empty_db: Path) -> None:
         ingest_qianji_transactions(empty_db, _SAMPLE_RETIREMENT_RECORDS, retirement_categories=[])
-        assert _scalar(empty_db, "SELECT COUNT(*) FROM qianji_transactions WHERE is_retirement = 1") == 0
+        assert db_value(empty_db, "SELECT COUNT(*) FROM qianji_transactions WHERE is_retirement = 1") == 0
 
 
 class TestAccountToNormalization:

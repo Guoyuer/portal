@@ -196,7 +196,7 @@ class TestBuildRefreshWindowOrchestration:
             return []
 
         monkeypatch.setattr(build_mod, "compute_daily_allocation", _fake_compute)
-        monkeypatch.setattr(build_mod, "load_all_from_db", lambda *a, **kw: [])
+        monkeypatch.setattr(build_mod, "load_all_from_db", lambda *a, **_kw: [])
         monkeypatch.setattr(build_mod, "precompute_market", lambda _p: None)
         monkeypatch.setattr(build_mod, "precompute_holdings_detail", lambda _p: None)
 
@@ -216,7 +216,7 @@ class TestBuildRefreshWindowOrchestration:
 
         called = {"full_build": False}
 
-        def _fake_full(*args, **kwargs):
+        def _fake_full(*args, **_kwargs):
             called["full_build"] = True
             return []
 
@@ -230,13 +230,13 @@ class TestBuildRefreshWindowOrchestration:
 
         paths = self._seeded_db(tmp_path, "2026-04-13")
         monkeypatch.setattr(build_mod, "compute_daily_allocation",
-                            lambda *a, **kw: [{
+                            lambda *a, **_kw: [{
                                 "date": "2026-04-14", "total": 105000,
                                 "us_equity": 62000, "non_us_equity": 15500,
                                 "crypto": 5500, "safe_net": 22000, "liabilities": 0,
                                 "tickers": [],
                             }])
-        monkeypatch.setattr(build_mod, "load_all_from_db", lambda *a, **kw: [])
+        monkeypatch.setattr(build_mod, "load_all_from_db", lambda *a, **_kw: [])
         monkeypatch.setattr(build_mod, "precompute_market", lambda _p: None)
         monkeypatch.setattr(build_mod, "precompute_holdings_detail", lambda _p: None)
 

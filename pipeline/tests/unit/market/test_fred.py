@@ -60,7 +60,7 @@ def _build_mock_fred() -> MagicMock:
         "CPILFESL": _cpi_series(cpi_core),
     }
 
-    def _get_series(series_id: str, observation_start: str | None = None, **kwargs: object) -> pd.Series:
+    def _get_series(series_id: str, **_kwargs: object) -> pd.Series:
         all_data = {**daily_data, **monthly_data, **cpi_data}
         if series_id not in all_data:
             raise ValueError(f"Unknown series: {series_id}")

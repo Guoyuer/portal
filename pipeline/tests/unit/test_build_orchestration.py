@@ -72,7 +72,7 @@ def _stub_full_build_inputs(
 ) -> None:
     monkeypatch.setattr(build_mod, "compute_daily_allocation", lambda *args: allocation or [])
     monkeypatch.setattr(build_mod, "load_cny_rates", lambda db: {"2026-04-14": 7.2})
-    monkeypatch.setattr(build_mod, "load_all_from_db", lambda qj, historical_cny_rates: qianji_records or [])
+    monkeypatch.setattr(build_mod, "load_all_from_db", lambda *_args, **_kwargs: qianji_records or [])
 
     def fake_ingest_qianji(db_path, records, *, retirement_categories):
         if calls is not None:
@@ -515,7 +515,7 @@ class TestFullAndIncrementalBuild:
                 ("ingest", (p, cfg, end, prices_from_csv))
             ),
         )
-        monkeypatch.setattr(build_mod, "_derive_start_date", lambda p, fallback: date(2026, 1, 1))
+        monkeypatch.setattr(build_mod, "_derive_start_date", lambda *_args, **_kwargs: date(2026, 1, 1))
         monkeypatch.setattr(
             build_mod,
             "_build_refresh_window",
