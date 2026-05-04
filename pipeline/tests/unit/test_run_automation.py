@@ -421,7 +421,7 @@ class TestPingHealthcheck:
         monkeypatch.setenv("PORTAL_HEALTHCHECK_URL", "https://hc.example/abc")
         import urllib.error
 
-        def boom(*a, **kw):
+        def boom(*a, **_kw):
             raise urllib.error.URLError("network down")
 
         with patch("urllib.request.urlopen", side_effect=boom):
