@@ -9,7 +9,7 @@ import type {
   RobinhoodTxn,
   EmpowerContribution,
   TimelineData,
-} from "@/lib/schemas";
+} from "@/lib/schemas/timeline";
 import type {
   AllocationResponse,
   CashflowResponse,
@@ -31,7 +31,7 @@ import {
   type InvestmentTxn,
 } from "@/lib/compute/compute";
 
-interface ComputedBundle {
+export interface ComputedBundle {
   chartDaily: DailyPoint[];
   dailyTickers: DailyTicker[];
   qianjiTxns: QianjiTxn[];

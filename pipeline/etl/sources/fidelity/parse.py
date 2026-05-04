@@ -193,12 +193,13 @@ def _parse_csv_rows(csv_path: Path) -> list[FidelityTxnRow]:
         )
 
         raw_action = record.get("Action", "").strip().strip('"')
+        action_type = _classify_action(raw_action)
         rows.append((
             iso_date,
             record.get("Account Number", "").strip().strip('"'),
             raw_action,
-            _classify_action(raw_action),
-            classify_fidelity_action(raw_action).value,
+            action_type,
+            _ACTION_TYPE_TO_KIND.get(action_type, ActionKind.OTHER).value,
             record.get("Symbol", "").strip(),
             record.get("Type", "").strip(),
             _parse_float(record.get("Quantity", "")),

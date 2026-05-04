@@ -1,32 +1,14 @@
 """Source-agnostic transaction replay.
 
-Accumulates per-``(account, ticker)`` quantity + cost basis (and, when
-enabled, per-account cash) from a standardized transactions table as of
-a given ``as_of`` date. Used by every source that persists its own
-transactions — Fidelity and Robinhood today.
+Replays a source table into per-``(account, ticker)`` quantity/cost basis,
+plus optional per-account cash, as of a date. Each source supplies one
+``ReplayConfig`` describing its table columns and cash knobs.
 
-Each source declares its schema once via :class:`ReplayConfig` at module
-level (see ``FIDELITY_REPLAY`` in :mod:`etl.sources.fidelity` and
-``ROBINHOOD_REPLAY`` in :mod:`etl.sources.robinhood`). Consumers call
-``replay_transactions(db, config, as_of)`` with that config — no kwargs
-to thread through at every call site.
-
-Supported :class:`~etl.sources.ActionKind` vocabulary:
-
-  - ``BUY`` / ``REINVESTMENT`` — ``cost += abs(amt); qty += q``
-  - ``SELL`` — ``cost -= cost × sold_fraction`` (only when qty > 0),
-    then ``qty += q`` (q is negative).
-  - ``REDEMPTION`` / ``DISTRIBUTION`` / ``EXCHANGE`` / ``TRANSFER`` —
-    qty-only (``qty += q``); no cost-basis impact. Matches the legacy
-    Fidelity ``POSITION_PREFIXES`` behaviour (``REDEMPTION PAYOUT``,
-    ``TRANSFERRED FROM/TO``, ``DISTRIBUTION``, ``EXCHANGED TO``).
-  - ``DIVIDEND`` / ``DEPOSIT`` / ``WITHDRAWAL`` / ``OTHER`` — no position
-    effect. These may still move cash when cash tracking is enabled.
-
-Rows are filtered out of the position accumulator when the ticker is
-empty, the quantity is zero, or the ticker is in ``exclude_tickers``
-(used to exclude Fidelity's money-market funds from share accumulation
-while still letting them flow through the cash ledger).
+Position math is intentionally small:
+``BUY``/``REINVESTMENT`` add cost + quantity; ``SELL`` removes proportional
+cost + quantity; ``REDEMPTION``/``DISTRIBUTION``/``EXCHANGE``/``TRANSFER``
+move quantity only; everything else has no position effect. Rows with empty
+ticker, zero quantity, or an excluded ticker skip position accumulation.
 """
 from __future__ import annotations
 
@@ -64,30 +46,12 @@ class ReplayResult:
 class ReplayConfig:
     """Per-source schema + replay knobs.
 
-    Declared once at each source module's top level; consumers pass the
-    single config object to :func:`replay_transactions`.
-
-    Attributes:
-        table: Fully-qualified transaction table name.
-        date_col: Name of the ISO-date column (defaults to ``txn_date``).
-        ticker_col: Name of the ticker / symbol column.
-        amount_col: Name of the cash-delta column.
-        account_col: Name of the per-account grouping column. ``None``
-            (e.g. Robinhood) accumulates every row under the empty
-            account string.
-        exclude_tickers: Tickers to skip when applying position / cost-
-            basis updates. These rows can still flow through the cash
-            ledger (Fidelity's money-market funds).
-        track_cash: When ``True``, accumulate per-account cash from every
-            row whose ``lot_type`` isn't ``"Shares"`` — Fidelity-only
-            today. ``"Shares"`` rows (stock distributions / lending / MM
-            sweeps) don't participate so they don't double-count.
-        lot_type_col: Column carrying the Fidelity lot-type marker
-            (``Cash`` / ``Margin`` / ``Shares`` / ``Financing``).
-            Required when ``track_cash=True``.
-        mm_drip_tickers: MM-fund tickers whose ``REINVESTMENT`` rows
-            fold share-count deltas back into the cash ledger (match
-            legacy ``mm_drip`` tallying).
+    ``account_col=None`` groups all rows under the empty account string
+    (Robinhood). ``exclude_tickers`` skips position/cost-basis accumulation
+    while still allowing cash tracking. When ``track_cash=True``,
+    ``lot_type_col`` is required; rows with lot type ``Shares`` do not move
+    cash. ``mm_drip_tickers`` routes money-market reinvestment quantities
+    back into cash.
     """
     table: str
     date_col: str = "txn_date"
@@ -149,7 +113,6 @@ def replay_transactions(
 
     for row in rows:
         # Unpack in the order the SELECT emitted (matches `cols`).
-        _txn_date = row[0]
         action = row[1]
         ticker = (row[2] or "").strip() if row[2] is not None else ""
         q = row[3] or 0.0
@@ -162,7 +125,6 @@ def replay_transactions(
         lot_type = ""
         if config.track_cash:
             lot_type = (row[idx] or "").strip()
-            idx += 1
 
         try:
             kind = ActionKind(action) if action else ActionKind.OTHER

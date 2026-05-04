@@ -12,7 +12,7 @@ import type {
   RobinhoodTxn,
   EmpowerContribution,
   MarketData,
-} from "@/lib/schemas";
+} from "@/lib/schemas/timeline";
 import type { InvestmentTxn } from "@/lib/compute/compute";
 import type {
   ApiCategory,

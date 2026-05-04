@@ -1,1 +1,1 @@
-"""Portfolio snapshot generator — computes daily allocation from transaction replay."""
+# Package marker for static analysis; keep public imports on owner modules.

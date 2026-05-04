@@ -4,9 +4,8 @@ Flow: change detection -> incremental build -> artifact verify -> R2 publish.
 Logs per-day, optionally pings healthchecks.io, graded exit codes so the
 scheduler can distinguish build-fail from artifact-verify-fail from publish-fail.
 
-All orchestration logic lives under :mod:`etl.automation`; this script is a
-thin argparse → :class:`~etl.automation.Runner` entry point so Task Scheduler
-(via ``run_portal_sync.ps1``) has a stable CLI surface.
+All orchestration logic lives under :mod:`etl.automation.runner`; this script
+keeps the stable CLI surface used by Task Scheduler via ``run_portal_sync.ps1``.
 
 Exit code taxonomy:
     0 — ok, or no changes detected (both normal outcomes for cron)
@@ -44,12 +43,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import etl.dotenv_loader  # noqa: E402, F401  (side effect: load pipeline/.env)
-from etl.automation import Runner, parse_args  # noqa: E402
+from etl.automation.runner import Runner, parse_args  # noqa: E402
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    return Runner.from_args(args).run()
+    return Runner(args).run()
 
 
 if __name__ == "__main__":

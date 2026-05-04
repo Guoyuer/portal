@@ -7,22 +7,17 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from etl.sources import PriceContext
-from etl.sources import fidelity as fidelity_src
+import etl.sources.fidelity as fidelity_src
+from etl.sources._types import PriceContext
 from tests.unit.sources.conftest import FIDELITY_HEADER_SHORT, write_fidelity_csv
 
 
 @pytest.fixture
 def config(tmp_path: Path) -> dict[str, object]:
     return {
-        "fidelity_downloads": tmp_path,
         "fidelity_accounts": {"X12345678": "FZFXX"},
         "mutual_funds": ["FXAIX"],
     }
-
-
-def test_produces_positions_always_on() -> None:
-    assert fidelity_src.produces_positions({}) is True
 
 
 def test_positions_at_surfaces_cost_basis(tmp_path: Path, empty_db: Path, config: dict[str, object]) -> None:
@@ -32,7 +27,7 @@ def test_positions_at_surfaces_cost_basis(tmp_path: Path, empty_db: Path, config
         '01/02/2024,"Roth IRA",X12345678,"YOU BOUGHT FXAIX",FXAIX,"Fidelity 500 Index",Cash,10,150,-1500,01/03/2024',
     ], header=FIDELITY_HEADER_SHORT)
 
-    fidelity_src.ingest(empty_db, config)
+    fidelity_src.ingest(empty_db, tmp_path)
 
     prices = pd.DataFrame(
         {"FXAIX": [150.0]},
@@ -48,7 +43,6 @@ def test_positions_at_surfaces_cost_basis(tmp_path: Path, empty_db: Path, config
     fxaix = [r for r in rows if r.ticker == "FXAIX"]
     assert len(fxaix) == 1
     assert fxaix[0].cost_basis_usd == pytest.approx(1500.0)
-    assert fxaix[0].quantity == pytest.approx(10.0)
     assert fxaix[0].value_usd == pytest.approx(1500.0)
 
 
@@ -62,7 +56,7 @@ def test_positions_at_t_bill_cusip_aggregates_to_t_bills(
         '01/02/2024,"Fidelity taxable",X12345678,"YOU BOUGHT",912796XB2,"T-BILL",Cash,3000,99.2,-2976,01/03/2024',
     ], header=FIDELITY_HEADER_SHORT)
 
-    fidelity_src.ingest(empty_db, config)
+    fidelity_src.ingest(empty_db, tmp_path)
     prices = pd.DataFrame(index=pd.to_datetime([date(2024, 1, 2)]).map(lambda d: d.date()))
     ctx = PriceContext(prices=prices, price_date=date(2024, 1, 2), mf_price_date=date(2024, 1, 2))
     rows = fidelity_src.positions_at(empty_db, date(2024, 1, 2), ctx, config)
@@ -82,7 +76,7 @@ def test_positions_at_routes_cash_to_mm_fund(
         '01/02/2024,"Roth IRA",X12345678,"Electronic Funds Transfer Received",,,,,,1000,01/03/2024',
     ], header=FIDELITY_HEADER_SHORT)
 
-    fidelity_src.ingest(empty_db, config)
+    fidelity_src.ingest(empty_db, tmp_path)
     prices = pd.DataFrame(index=pd.to_datetime([date(2024, 1, 2)]).map(lambda d: d.date()))
     ctx = PriceContext(prices=prices, price_date=date(2024, 1, 2), mf_price_date=date(2024, 1, 2))
     rows = fidelity_src.positions_at(empty_db, date(2024, 1, 2), ctx, config)
@@ -91,13 +85,11 @@ def test_positions_at_routes_cash_to_mm_fund(
     fzfxx = [r for r in rows if r.ticker == "FZFXX"]
     assert len(fzfxx) == 1
     assert fzfxx[0].value_usd == pytest.approx(1000.0)
-    assert fzfxx[0].account == "X12345678"
 
 
 def test_positions_at_unknown_account_defaults_to_fzfxx(tmp_path: Path, empty_db: Path) -> None:
     """Accounts not in fidelity_accounts mapping fall back to FZFXX."""
     config: dict[str, object] = {
-        "fidelity_downloads": tmp_path,
         "fidelity_accounts": {},
     }
 
@@ -106,7 +98,7 @@ def test_positions_at_unknown_account_defaults_to_fzfxx(tmp_path: Path, empty_db
         '01/02/2024,"Unknown Account",Z99999999,"Electronic Funds Transfer Received",,,,,,500,01/03/2024',
     ], header=FIDELITY_HEADER_SHORT)
 
-    fidelity_src.ingest(empty_db, config)
+    fidelity_src.ingest(empty_db, tmp_path)
     prices = pd.DataFrame(index=pd.to_datetime([date(2024, 1, 2)]).map(lambda d: d.date()))
     ctx = PriceContext(prices=prices, price_date=date(2024, 1, 2), mf_price_date=date(2024, 1, 2))
     rows = fidelity_src.positions_at(empty_db, date(2024, 1, 2), ctx, config)
@@ -120,7 +112,6 @@ def test_default_mutual_funds_when_config_missing(tmp_path: Path) -> None:
     """Unspecified ``mutual_funds`` → the documented default set."""
     from etl.sources.fidelity import pricing
     config: dict[str, object] = {
-        "fidelity_downloads": tmp_path,
         "fidelity_accounts": {"X12345678": "FZFXX"},
     }
     assert "FXAIX" in pricing.mutual_funds(config)

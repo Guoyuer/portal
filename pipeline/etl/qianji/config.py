@@ -14,22 +14,19 @@ from zoneinfo import ZoneInfo
 
 from ..types import QJ_EXPENSE, QJ_INCOME, QJ_REPAYMENT, QJ_TRANSFER
 
-_MAC_DB_PATH = Path.home() / "Library/Containers/com.mutangtech.qianji.fltios/Data/Documents/qianjiapp.db"
-_WIN_DB_PATH = Path(os.environ.get("APPDATA", "")) / "com.mutangtech.qianji.win/qianji_flutter/qianjiapp.db"
-
 # ``QIANJI_DB_PATH_OVERRIDE`` lets L2 regression tests point the build at a
 # fixture DB without touching the caller's home directory / %APPDATA%. Unset
 # in production; real builds keep the per-platform default.
-_OVERRIDE_PATH = os.environ.get("QIANJI_DB_PATH_OVERRIDE")
-if _OVERRIDE_PATH:
-    DEFAULT_DB_PATH = Path(_OVERRIDE_PATH)
+if override_path := os.environ.get("QIANJI_DB_PATH_OVERRIDE"):
+    DEFAULT_DB_PATH = Path(override_path)
+elif sys.platform == "win32":
+    DEFAULT_DB_PATH = Path(os.environ.get("APPDATA", "")) / "com.mutangtech.qianji.win/qianji_flutter/qianjiapp.db"
 else:
-    DEFAULT_DB_PATH = _WIN_DB_PATH if sys.platform == "win32" else _MAC_DB_PATH
+    DEFAULT_DB_PATH = Path.home() / "Library/Containers/com.mutangtech.qianji.fltios/Data/Documents/qianjiapp.db"
 
 # Qianji type codes → internal type names
 _TYPE_MAP = {0: QJ_EXPENSE, 1: QJ_INCOME, 2: QJ_TRANSFER, 3: QJ_REPAYMENT}
 
-_BASE_CURRENCY = "USD"
 # Minimum difference between base-currency and source-currency amounts to consider
 # a real conversion (filters out unconverted records where bv == sv).
 _CONVERSION_TOLERANCE = 0.01

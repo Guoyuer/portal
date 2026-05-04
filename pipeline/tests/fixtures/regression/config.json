@@ -1,5 +1,4 @@
 {
-  "goal": 100000,
   "assets": {
     "FXAIX": {
       "category": "US Equity",
@@ -74,19 +73,7 @@
     "Crypto",
     "Safe Net"
   ],
-  "aliases": {},
   "qianji_accounts": {
-    "fidelity_tracked": [
-      "Fidelity taxable",
-      "Roth IRA",
-      "401k"
-    ],
-    "cny": [
-      "建行卡"
-    ],
-    "credit": [
-      "CFF"
-    ],
     "ticker_map": {
       "Chase Debit": "Debit Cash",
       "Amex HYSA": "Amex HYSA",

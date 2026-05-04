@@ -2,8 +2,7 @@
 
 Covers:
 
-- ``_load_records`` / ``_load_balances`` — raw readers keyed off the live
-  ``user_bill`` / ``user_asset`` tables.
+- ``_load_records`` — raw bill reader keyed off the live ``user_bill`` table.
 - ``load_all_from_db`` — the public "give me all bills as :class:`QianjiRecord`"
   entry point; wraps :func:`parse_qj_amount` for USD conversion.
 - ``ingest_qianji_transactions`` — writes the timemachine DB's
@@ -17,13 +16,13 @@ from __future__ import annotations
 import logging
 import re
 import sqlite3
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import date, datetime
 from pathlib import Path
 
 from ..db import get_connection, get_readonly_connection
 from ..types import QianjiRecord
-from .config import _BASE_CURRENCY, _TYPE_MAP, _USER_TZ, DEFAULT_DB_PATH
+from .config import _TYPE_MAP, _USER_TZ, DEFAULT_DB_PATH
 from .currency import _fetch_live_cny_rate, parse_qj_amount
 
 log = logging.getLogger(__name__)
@@ -50,7 +49,7 @@ _BILL_QUERY = "SELECT id, type, money, fromact, targetact, remark, time, cateid,
 
 def _load_records(
     conn: sqlite3.Connection,
-    cny_rate: float | None = None,
+    cny_rate: float | Callable[[], float] | None = None,
     *,
     historical_cny_rates: Mapping[date, float] | None = None,
 ) -> list[QianjiRecord]:
@@ -72,7 +71,7 @@ def _load_records(
     records: list[QianjiRecord] = []
     cny_converted = 0
     skipped_balance_adjustments = 0
-    for bill_id, bill_type, money, fromact, targetact, remark, ts, cateid, extra_str in conn.execute(_BILL_QUERY):
+    for _bill_id, bill_type, money, fromact, targetact, remark, ts, cateid, extra_str in conn.execute(_BILL_QUERY):
         mapped_type = _TYPE_MAP.get(bill_type)
         if mapped_type is None:
             continue
@@ -88,13 +87,10 @@ def _load_records(
             cny_converted += 1
         records.append(
             {
-                "id": str(bill_id),
                 "date": dt.strftime("%Y-%m-%d %H:%M:%S"),
                 "category": categories.get(cateid, ""),
-                "subcategory": "",
                 "type": mapped_type,
                 "amount": amount,
-                "currency": "USD",
                 "account_from": fromact or "",
                 "account_to": targetact or "",
                 "note": remark or "",
@@ -113,16 +109,6 @@ def _load_records(
     return records
 
 
-def _load_balances(conn: sqlite3.Connection) -> dict[str, tuple[float, str]]:
-    """Load account balances and currencies from an open DB connection."""
-    balances = {
-        name: (float(money), currency or _BASE_CURRENCY)
-        for name, money, currency in conn.execute("SELECT name, money, currency FROM user_asset WHERE status = 0")
-    }
-    log.info("Qianji balances: %d accounts", len(balances))
-    return balances
-
-
 def load_all_from_db(
     db_path: Path = DEFAULT_DB_PATH,
     *,
@@ -139,7 +125,14 @@ def load_all_from_db(
     if not db_path.exists():
         return []
 
-    cny_rate = _fetch_live_cny_rate()
+    live_rate: float | None = None
+
+    def cny_rate() -> float:
+        nonlocal live_rate
+        if live_rate is None:
+            live_rate = _fetch_live_cny_rate()
+        return live_rate
+
     conn = get_readonly_connection(db_path)
     try:
         return _load_records(

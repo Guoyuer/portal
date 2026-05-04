@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { CategoryMeta, DailyTicker, QianjiTxn } from "@/lib/schemas";
+import type { CategoryMeta, DailyTicker, QianjiTxn } from "@/lib/schemas/timeline";
 import {
   computeAllocation,
   computeCashflow,

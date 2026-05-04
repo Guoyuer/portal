@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import date, timedelta
 from typing import Any
 
@@ -40,7 +40,7 @@ def _decode_curr(extra_str: str | None) -> dict[str, Any] | None:
 def _resolve_cny_rate(
     bill_date: date | None,
     historical: Mapping[date, float] | None,
-    fallback: float | None,
+    fallback: float | Callable[[], float] | None,
 ) -> float | None:
     """Pick the CNY rate for a given bill date, with weekend walk-back.
 
@@ -55,13 +55,15 @@ def _resolve_cny_rate(
             d = bill_date - timedelta(days=delta)
             if d in historical:
                 return historical[d]
+    if callable(fallback):
+        return fallback()
     return fallback
 
 
 def parse_qj_amount(
     money: float,
     extra_str: str | None,
-    cny_rate: float | None = None,
+    cny_rate: float | Callable[[], float] | None = None,
     *,
     bill_date: date | None = None,
     historical_cny_rates: Mapping[date, float] | None = None,

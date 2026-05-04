@@ -4,7 +4,7 @@ import { useId } from "react";
 import {
   CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
-import type { EconPoint } from "@/lib/schemas";
+import type { EconPoint } from "@/lib/schemas/econ";
 import { fmtMonthYear } from "@/lib/format/format";
 import { useIsDark } from "@/lib/hooks/use-is-dark";
 import { tooltipStyle, gridStroke, legendStyle } from "@/lib/format/chart-styles";

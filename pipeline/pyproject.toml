@@ -21,8 +21,6 @@ source = ["etl"]
 branch = false
 omit = [
     "tests/*",
-    "etl/__init__.py",
-    "etl/market/__init__.py",
 ]
 
 [tool.coverage.report]

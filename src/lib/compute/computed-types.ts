@@ -3,7 +3,7 @@
 // They live outside `schemas/` because that directory is reserved for Zod
 // schemas validating API payloads.
 
-import type { DailyTicker } from "@/lib/schemas";
+import type { DailyTicker } from "@/lib/schemas/timeline";
 
 export type SourceKind = "fidelity" | "robinhood" | "401k";
 

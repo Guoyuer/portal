@@ -5,7 +5,7 @@ The :class:`Runner` collaborates with the helper modules under
 pre-publish gates, dry-run semantics, marker update, and the final email report.
 
 CLI parsing is here too because the script-side entry point shrinks to
-``parse_args → Runner.from_args → run`` and we want those bound together.
+``parse_args → Runner(args).run()`` and we want those bound together.
 
 Exit-code taxonomy (constants live in :mod:`etl.automation._constants`):
     0 — ok, or no changes detected (both normal outcomes for cron)
@@ -24,7 +24,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from etl.automation.receipt import PublishSummary, SyncSnapshot, capture, load_publish_summary
+from etl.automation.receipt import capture, load_publish_summary
 
 from . import notify
 from ._constants import (
@@ -76,28 +76,18 @@ def setup_logging(log_dir: Path) -> Path:
 
 # ── Subprocess runner ────────────────────────────────────────────────────────
 
-# Per-process buffer of captured script output lines. Cleared at the start of
-# each Runner.run() call so that warnings extracted for an email are scoped to
-# the current invocation only — without this, re-reading the per-day log file
-# would accumulate warnings from earlier runs on the same day, leading to
-# duplicated validation messages in the email body (see PR-S8 Bug 1).
-_SCRIPT_OUTPUT_BUFFER: list[str] = []
-
-
-def run_python_script(script: Path, *args: str) -> int:
+def run_python_script(script: Path, *args: str) -> tuple[int, list[str]]:
     """Invoke a sibling Python script, stream stdout/stderr into the logger.
 
-    Each emitted line is also appended to :data:`_SCRIPT_OUTPUT_BUFFER` so that
-    the orchestrator can later extract warnings scoped to the *current* run
-    (without re-reading the per-day log file, which accumulates lines from
-    every prior invocation).
-
-    Returns the subprocess exit code.
+    Returns ``(exit_code, output_lines)``. The caller decides how to scope the
+    captured lines; :class:`Runner` keeps them on the instance for its current
+    run instead of using process-global state.
     """
     log = logging.getLogger(__name__)
     cmd = [sys.executable, str(script), *args]
     log.info("  > %s", " ".join(cmd))
 
+    output: list[str] = []
     proc = subprocess.Popen(  # noqa: S603 — fixed script path, controlled args
         cmd,
         stdout=subprocess.PIPE,
@@ -110,19 +100,9 @@ def run_python_script(script: Path, *args: str) -> int:
     for line in proc.stdout:
         stripped = line.rstrip("\n")
         log.info(stripped)
-        _SCRIPT_OUTPUT_BUFFER.append(stripped)
+        output.append(stripped)
     proc.wait()
-    return proc.returncode
-
-
-def _reset_script_output_buffer() -> None:
-    """Clear the per-run capture buffer. Call once at the start of Runner.run()."""
-    _SCRIPT_OUTPUT_BUFFER.clear()
-
-
-def get_script_output_buffer() -> list[str]:
-    """Return a *copy* of the captured subprocess lines for THIS run."""
-    return list(_SCRIPT_OUTPUT_BUFFER)
+    return proc.returncode, output
 
 
 def _artifact_summary_path() -> Path:
@@ -151,14 +131,14 @@ class Runner:
     are resolved through module attributes so tests can monkeypatch them at
     the canonical location (``etl.automation.runner.run_python_script`` etc.).
 
-    Construct via :meth:`from_args` from a parsed ``argparse.Namespace``; the
-    scripts-layer ``main()`` wraps that call and exits with :meth:`run`'s
-    return code.
+    Construct from a parsed ``argparse.Namespace``; the scripts-layer
+    ``main()`` wraps that call and exits with :meth:`run`'s return code.
     """
 
     def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
         self.started_at = datetime.now()
+        self.script_output: list[str] = []
         # Warn (but don't fail) if the healthcheck URL isn't configured.
         # Without it, ``notify.ping_healthcheck`` silently no-ops and a dead
         # healthchecks.io check would never fire on failure. Loud warning keeps
@@ -171,17 +151,9 @@ class Runner:
                 "See docs/RUNBOOK.md §8 to configure.",
             )
 
-    @classmethod
-    def from_args(cls, args: argparse.Namespace) -> Runner:
-        return cls(args)
-
     def run(self) -> int:
         """Execute the state machine. Returns the process exit code."""
-        # Reset the per-run subprocess capture so validation warnings extracted
-        # later in this invocation never include leftovers from a previous call
-        # inside the same Python process (tests, or a hypothetical long-lived
-        # orchestrator).
-        _reset_script_output_buffer()
+        self.script_output.clear()
 
         log_dir = get_log_dir()
         log_file = setup_logging(log_dir)
@@ -209,6 +181,26 @@ class Runner:
         snapshot_before = capture(db_path)
         publish_summary = None
 
+        def fail(
+            label: str,
+            rc: int,
+            exit_code: int,
+            script_name: str,
+            *,
+            include_publish_summary: bool = False,
+        ) -> int:
+            log.error("  %s FAILED (exit=%d)", label, rc)
+            notify.ping_healthcheck("fail")
+            notify.send_report_email(
+                email_config, log, snapshot_before, capture(db_path),
+                exit_code, log_file,
+                error=f"{script_name} exited with code {rc}",
+                validation_warnings=notify.extract_validation_warnings(self.script_output),
+                started_at=self.started_at,
+                publish_summary=publish_summary if include_publish_summary else None,
+            )
+            return exit_code
+
         # [1] Change detection + DB freshness catchup
         if not self.args.force:
             log.info("[1] Checking for data changes + DB freshness...")
@@ -222,54 +214,42 @@ class Runner:
 
         # [2] Build (refresh window + gap-fill; first run falls back to full)
         log.info("[2] Build...")
-        rc = run_python_script(SCRIPTS_DIR / "build_timemachine_db.py")
+        rc = self._run_python_script(SCRIPTS_DIR / "build_timemachine_db.py")
         if rc != 0:
-            return self._report_stage_failure(
-                log, "BUILD", rc, EXIT_BUILD_FAIL, "build_timemachine_db.py",
-                email_config, snapshot_before, db_path, log_file,
-            )
+            return fail("BUILD", rc, EXIT_BUILD_FAIL, "build_timemachine_db.py")
 
         # [3] Optional Portfolio_Positions ground-truth gate.
         positions_csv = find_new_positions_csv(downloads, MARKER)
         if positions_csv:
             log.info("[3] Verifying share counts vs %s...", positions_csv.name)
-            rc = run_python_script(SCRIPTS_DIR / "verify_positions.py",
-                                   "--positions", str(positions_csv))
+            rc = self._run_python_script(
+                SCRIPTS_DIR / "verify_positions.py", "--positions", str(positions_csv),
+            )
             if rc != 0:
-                return self._report_stage_failure(
-                    log, "POSITIONS CHECK", rc, EXIT_POSITIONS_FAIL, "verify_positions.py",
-                    email_config, snapshot_before, db_path, log_file,
-                )
+                return fail("POSITIONS CHECK", rc, EXIT_POSITIONS_FAIL, "verify_positions.py")
         else:
             log.info("[3] No new Portfolio_Positions CSV — skipping ground-truth check")
 
         # [4] Export endpoint-shaped R2 artifacts.
         log.info("[4] Exporting R2 artifacts...")
-        rc = run_python_script(SCRIPTS_DIR / "r2_artifacts.py", "export")
+        rc = self._run_python_script(SCRIPTS_DIR / "r2_artifacts.py", "export")
         if rc != 0:
-            return self._report_stage_failure(
-                log, "EXPORT", rc, EXIT_PARITY_FAIL, "r2_artifacts.py export",
-                email_config, snapshot_before, db_path, log_file,
-            )
+            return fail("EXPORT", rc, EXIT_PARITY_FAIL, "r2_artifacts.py export")
         publish_summary = load_publish_summary(_artifact_summary_path())
 
         if self.args.dry_run:
             log.info("[5] Verifying R2 artifacts...")
-            rc = run_python_script(SCRIPTS_DIR / "r2_artifacts.py", "verify")
+            rc = self._run_python_script(SCRIPTS_DIR / "r2_artifacts.py", "verify")
             if rc != 0:
-                return self._report_stage_failure(
-                    log, "ARTIFACT VERIFY", rc, EXIT_PARITY_FAIL, "r2_artifacts.py verify",
-                    email_config, snapshot_before, db_path, log_file,
-                )
+                return fail("ARTIFACT VERIFY", rc, EXIT_PARITY_FAIL, "r2_artifacts.py verify")
             log.info("[6] Dry run — skipping R2 publish")
         else:
             log.info("[5] Publishing R2 artifacts (--remote)...")
-            rc = run_python_script(SCRIPTS_DIR / "r2_artifacts.py", "publish", "--remote")
+            rc = self._run_python_script(SCRIPTS_DIR / "r2_artifacts.py", "publish", "--remote")
             if rc != 0:
-                return self._report_stage_failure(
-                    log, "PUBLISH", rc, EXIT_SYNC_FAIL, "r2_artifacts.py publish",
-                    email_config, snapshot_before, db_path, log_file,
-                    publish_summary=publish_summary,
+                return fail(
+                    "PUBLISH", rc, EXIT_SYNC_FAIL, "r2_artifacts.py publish",
+                    include_publish_summary=True,
                 )
 
         # Success: update marker — but NOT in dry-run mode. Dry-run skipped the
@@ -286,41 +266,15 @@ class Runner:
         notify.send_report_email(
             email_config, log, snapshot_before, capture(db_path),
             EXIT_OK, log_file,
-            validation_warnings=notify.extract_validation_warnings(get_script_output_buffer()),
+            validation_warnings=notify.extract_validation_warnings(self.script_output),
             started_at=self.started_at,
             publish_summary=publish_summary,
             dry_run=self.args.dry_run,
         )
         return EXIT_OK
 
-    def _report_stage_failure(
-        self,
-        log: logging.Logger,
-        label: str,
-        rc: int,
-        exit_code: int,
-        script_name: str,
-        email_config: EmailConfig | None,
-        snapshot_before: SyncSnapshot,
-        db_path: Path,
-        log_file: Path,
-        publish_summary: PublishSummary | None = None,
-    ) -> int:
-        """Shared error-report path used by every stage in :meth:`run`.
-
-        Logs the failure, pings healthcheck, sends the failure email (with the
-        per-run duration always included), and returns the stage-specific exit
-        code. Collapses four near-identical blocks that differ only by
-        ``label`` / ``exit_code`` / ``script_name``.
-        """
-        log.error("  %s FAILED (exit=%d)", label, rc)
-        notify.ping_healthcheck("fail")
-        notify.send_report_email(
-            email_config, log, snapshot_before, capture(db_path),
-            exit_code, log_file,
-            error=f"{script_name} exited with code {rc}",
-            validation_warnings=notify.extract_validation_warnings(get_script_output_buffer()),
-            started_at=self.started_at,
-            publish_summary=publish_summary,
-        )
-        return exit_code
+    def _run_python_script(self, script: Path, *args: str) -> int:
+        """Run a child script and retain its output for this Runner invocation."""
+        rc, output = run_python_script(script, *args)
+        self.script_output.extend(output)
+        return rc

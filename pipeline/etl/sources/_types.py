@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from enum import StrEnum
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import Protocol
 
 import pandas as pd
 
@@ -23,23 +23,9 @@ class ActionKind(StrEnum):
     """Normalized transaction action types. Each source translates its raw
     action strings (e.g. 'YOU BOUGHT', 'Buy') into one of these at ingest time.
 
-    The position-only kinds (``REDEMPTION`` / ``DISTRIBUTION`` / ``EXCHANGE`` /
-    ``TRANSFER``) change share count without touching cost basis —
-    :func:`etl.replay.replay_transactions` applies ``qty += q`` for these
-    and leaves ``cost`` alone. They mirror Fidelity's legacy
-    ``POSITION_PREFIXES`` (``REDEMPTION PAYOUT``, ``TRANSFERRED FROM/TO``,
-    ``DISTRIBUTION``, ``EXCHANGED TO``).
-
-    **Stock splits arrive as DISTRIBUTION.** Fidelity records a 3:1 split on
-    SCHD as ``DISTRIBUTION SCHWAB US DIVIDEND EQUITY ETF (SCHD)`` with
-    ``quantity = pre_split_qty × 2`` (the new shares) and ``price = 0``.
-    The qty-only handling in :func:`etl.replay.replay_transactions` is
-    correct for splits: no cash changes hands, and the per-share cost basis
-    drops proportionally because total cost stays the same. Do NOT
-    reclassify DISTRIBUTION as DIVIDEND — that would silently drop the
-    split quantity update. :func:`etl.prices._validate_splits_against_transactions`
-    cross-checks Yahoo's ``.splits`` history against these DISTRIBUTION
-    rows to catch either side drifting.
+    ``DISTRIBUTION`` is position-only, not dividend income: Fidelity records
+    stock splits as distribution quantity rows. Reclassifying it would drop
+    split shares; price split validation checks those rows separately.
     """
     BUY = "buy"
     SELL = "sell"
@@ -93,18 +79,15 @@ class PriceContext:
 class PositionRow:
     ticker: str
     value_usd: float
-    quantity: float | None = None
     cost_basis_usd: float | None = None
-    account: str | None = None
 
 
-@runtime_checkable
 class InvestmentSource(Protocol):
     """Structural type for source modules.
 
-    Every module in :data:`etl.sources.SOURCES` must expose these three
-    callables. Kept as a ``Protocol`` so mypy catches accidental signature
-    drift; there is no runtime class hierarchy.
+    Every source module used by allocation must expose ``positions_at``.
+    Kept as a ``Protocol`` so mypy catches accidental signature drift; there
+    is no runtime class hierarchy.
 
     ``config`` is the full :class:`etl.types.RawConfig` — each source reads
     only the keys it cares about. Using one union type (instead of per-source
@@ -113,35 +96,4 @@ class InvestmentSource(Protocol):
     already well-typed via ``.get()``.
     """
 
-    def ingest(self, db_path: Path, config: RawConfig) -> None: ...
-    def positions_at(
-        self, db_path: Path, as_of: date, prices: PriceContext, config: RawConfig
-    ) -> list[PositionRow]: ...
-    def produces_positions(self, config: RawConfig) -> bool: ...
-
-
-# ── Shared config helpers ──────────────────────────────────────────────────
-
-
-def resolve_downloads_dir(
-    config: RawConfig,
-    primary_key: str,
-    *,
-    fallback_keys: tuple[str, ...] = (),
-    default: Path | None = None,
-) -> Path:
-    """Resolve a per-source downloads path from :class:`RawConfig`.
-
-    Tries ``primary_key`` first, then each of ``fallback_keys`` in order, then
-    ``default`` (or ``~/Downloads`` when ``default`` is ``None``). Every
-    lookup accepts either a ``str`` or a ``Path`` value — values of other
-    types are ignored, matching the pre-refactor per-source helpers.
-
-    Callers gate on :meth:`Path.exists` downstream, so a missing or sentinel
-    path surfaces as a silent no-op rather than an exception.
-    """
-    for key in (primary_key, *fallback_keys):
-        raw = config.get(key)
-        if isinstance(raw, (str, Path)):
-            return Path(raw)
-    return default if default is not None else Path.home() / "Downloads"
+    def positions_at(self, db_path: Path, as_of: date, prices: PriceContext, config: RawConfig) -> list[PositionRow]: ...

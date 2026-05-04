@@ -31,15 +31,13 @@ def cash_rows(cash_by_account: dict[str, float], accounts: dict[str, str]) -> li
 
     Each account's cash surfaces as a single :class:`PositionRow` with the
     account's configured MM-fund ticker (or :data:`DEFAULT_MM_TICKER` when
-    the account is unmapped). ``cost_basis_usd`` and ``quantity`` stay
-    ``None`` — cash is always at face value; the caller doesn't need per-
-    share accounting.
+    the account is unmapped). Cash is always at face value; the allocation
+    surface does not need per-account share accounting.
     """
     return [
         PositionRow(
             ticker=accounts.get(acct, DEFAULT_MM_TICKER),
             value_usd=bal,
-            account=acct,
         )
         for acct, bal in cash_by_account.items()
     ]

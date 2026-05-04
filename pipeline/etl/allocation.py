@@ -1,9 +1,8 @@
-"""Compute daily portfolio allocation from the source registry + Qianji.
+"""Compute daily portfolio allocation from investment sources + Qianji.
 
 This module reconstructs historical asset allocation by combining:
   - Investment-source positions (each source module returns a list of
-    PositionRow; Fidelity, Robinhood, and Empower 401k are all composed via
-    :func:`etl.sources.positions_at_all`).
+    PositionRow; Fidelity, Robinhood, and Empower 401k are composed here).
   - Historical prices (from timemachine.db.daily_close)
   - Qianji account balances (from Qianji SQLite DB)
 
@@ -15,21 +14,26 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
-from typing import cast
 
 import pandas as pd
 
+import etl.sources.empower as empower_src
+import etl.sources.fidelity as fidelity_src
+import etl.sources.robinhood as robinhood_src
+
 from ._category_totals import accumulate_category_totals
-from .prices import load_cny_rates, load_prices
-from .qianji import qianji_balances_at
-from .sources import PriceContext, positions_at_all
-from .sources.robinhood import _csv_paths as _robinhood_csv_paths
+from .db import get_connection
+from .prices.store import load_cny_rates, load_prices
+from .qianji.balances import qianji_balances_at, qianji_currencies
+from .sources._types import InvestmentSource, PriceContext
 from .types import AllocationRow, AssetInfo, RawConfig, TickerDetail
 
 log = logging.getLogger(__name__)
+
+_POSITION_SOURCES: tuple[InvestmentSource, ...] = (fidelity_src, robinhood_src, empower_src)
 
 # Qianji accounts that the Fidelity + Empower sources supersede once their
 # respective ingest tables are populated. The Robinhood account stays
@@ -117,11 +121,9 @@ def _add_qianji_balances(
     assets: Mapping[str, AssetInfo],
     cny_rate: float,
     skip_accounts: frozenset[str],
-    warning_keys: set[tuple[str, str]] | None = None,
+    warning_keys: set[tuple[str, str]],
 ) -> None:
     """Map Qianji balances to tickers. Every unmapped account (CNY or USD) warns and is excluded."""
-    if warning_keys is None:
-        warning_keys = set()
     for qj_acct, bal in qj_balances.items():
         if qj_acct in skip_accounts or abs(bal) < 0.01:
             continue
@@ -166,8 +168,8 @@ class AllocationSources:
     qianji_currencies: dict[str, str]
     skip_qj_accounts: frozenset[str]
     db_path: Path
-    source_config: RawConfig = field(default_factory=lambda: cast(RawConfig, {}))
-    warning_keys: set[tuple[str, str]] = field(default_factory=set)
+    source_config: RawConfig
+    warning_keys: set[tuple[str, str]]
 
 
 def step_one_day(
@@ -177,9 +179,8 @@ def step_one_day(
 ) -> AllocationRow:
     """Value the portfolio for a single day. Pure — no I/O, no arg mutation.
 
-    Every source module contributes via :func:`etl.sources.positions_at_all` —
-    no source-kind branching. New modules added to :data:`etl.sources.SOURCES`
-    flow through without touching this function.
+    Every source module contributes through the uniform ``positions_at`` call;
+    no source-kind branching lives in the valuation math.
     """
     price_date, mf_price_date, cny_rate = _resolve_date_windows(
         sources.prices, sources.cny_rates, current
@@ -188,19 +189,20 @@ def step_one_day(
     ticker_values: dict[str, float] = {}
     cost_basis_by_ticker: dict[str, float] = {}
 
-    # ── Aggregate every source module via the uniform composition API. ──
+    # ── Aggregate every source module via the uniform positions API. ──
     ctx = PriceContext(
         prices=sources.prices,
         price_date=price_date,
         mf_price_date=mf_price_date,
         warning_keys=sources.warning_keys,
     )
-    for row in positions_at_all(sources.db_path, current, ctx, sources.source_config):
-        ticker_values[row.ticker] = ticker_values.get(row.ticker, 0.0) + row.value_usd
-        if row.cost_basis_usd is not None:
-            cost_basis_by_ticker[row.ticker] = (
-                cost_basis_by_ticker.get(row.ticker, 0.0) + row.cost_basis_usd
-            )
+    for mod in _POSITION_SOURCES:
+        for row in mod.positions_at(sources.db_path, current, ctx, sources.source_config):
+            ticker_values[row.ticker] = ticker_values.get(row.ticker, 0.0) + row.value_usd
+            if row.cost_basis_usd is not None:
+                cost_basis_by_ticker[row.ticker] = (
+                    cost_basis_by_ticker.get(row.ticker, 0.0) + row.cost_basis_usd
+                )
 
     _add_qianji_balances(
         ticker_values, qj_balances, sources.qianji_currencies,
@@ -257,14 +259,18 @@ def _build_sources(
     ticker_map = dict(qj_accounts.get("ticker_map", {}))
 
     # ``401k`` is skipped unconditionally because Empower snapshots are
-    # authoritative even when no QFX files have been ingested yet. Fidelity
-    # replay-accounts are always skipped because transaction replay is
-    # authoritative whenever ``fidelity_transactions`` has any rows.
-    # Robinhood is data-gated on the CSV glob's presence — the
-    # ``_csv_paths`` helper encapsulates the "does the user have any
-    # Robinhood export?" question (empty list when the directory's missing).
+    # authoritative. Fidelity replay-accounts are always skipped because
+    # transaction replay is authoritative. Robinhood is gated on persisted DB
+    # rows, not Downloads presence: valuation reads ``robinhood_transactions``,
+    # so deleting the source CSV after ingest must not re-enable Qianji balance
+    # counting for the same account.
     skip_qj = _FIDELITY_SUPERSEDED_QJ_ACCOUNTS | {"401k"}
-    if _robinhood_csv_paths(config):
+    conn = get_connection(db_path)
+    try:
+        has_robinhood_rows = conn.execute("SELECT 1 FROM robinhood_transactions LIMIT 1").fetchone() is not None
+    finally:
+        conn.close()
+    if has_robinhood_rows:
         skip_qj = skip_qj | {"Robinhood"}
 
     # currencies are snapshot-time independent (from user_asset.currency),
@@ -274,10 +280,11 @@ def _build_sources(
         cny_rates=load_cny_rates(db_path),
         assets=assets,
         ticker_map=ticker_map,
-        qianji_currencies=qianji_balances_at(qj_db).currencies,
+        qianji_currencies=qianji_currencies(qj_db),
         skip_qj_accounts=skip_qj,
         db_path=db_path,
         source_config=config,
+        warning_keys=set(),
     )
 
 
@@ -315,7 +322,7 @@ def compute_daily_allocation(
             current += timedelta(days=1)
             continue
 
-        qj_balances = qianji_balances_at(qj_db, current).balances
+        qj_balances = qianji_balances_at(qj_db, current)
         results.append(step_one_day(qj_balances, sources, current))
         current += timedelta(days=1)
 

@@ -9,7 +9,7 @@ import { useEffect, useRef } from "react";
 import { useIsDark } from "@/lib/hooks/use-is-dark";
 import { useIsMobile } from "@/lib/hooks/use-is-mobile";
 import { BUY_COLOR, SELL_COLOR } from "@/lib/format/chart-colors";
-import type { TickerTxn } from "@/lib/schemas";
+import type { TickerTxn } from "@/lib/schemas/ticker";
 import type { Selection } from "./ticker/ticker-markers";
 
 export function TransactionTable({

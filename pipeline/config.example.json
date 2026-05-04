@@ -1,5 +1,4 @@
 {
-  "goal": 1000000,
   "assets": {
     "VOO": {
       "category": "US Equity",
@@ -69,23 +68,7 @@
     "Crypto",
     "Safe Net"
   ],
-  "aliases": {
-    "State Street S&P 500 Index": "401k sp500"
-  },
   "qianji_accounts": {
-    "fidelity_tracked": [
-      "Fidelity Brokerage",
-      "Roth IRA",
-      "401k"
-    ],
-    "cny": [
-      "Bank Card",
-      "WeChat Pay"
-    ],
-    "credit": [
-      "Visa Card",
-      "Amex Card"
-    ],
     "ticker_map": {
       "Checking Account": "Debit Cash",
       "Bank Card": "CNY Cash",

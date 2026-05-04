@@ -9,12 +9,9 @@ from pathlib import Path
 
 import pytest
 
-from etl.qianji import (
-    ingest_qianji_transactions,
-    parse_qj_amount,
-    parse_qj_target_amount,
-)
-from etl.qianji.ingest import _load_balances, _load_records
+from etl.qianji.balances import _load_balances
+from etl.qianji.currency import parse_qj_amount, parse_qj_target_amount
+from etl.qianji.ingest import _load_records, ingest_qianji_transactions
 from tests.fixtures import db_rows, db_value
 
 # ── parse_qj_amount ───────────────────────────────────────────────────────────
@@ -236,7 +233,7 @@ class TestLoadRecords:
             _bill(2, type_=99, money=20.0, fromact="B"),
         ])
         assert len(records) == 1
-        assert records[0]["id"] == "1"
+        assert records[0]["amount"] == 10.0
 
     def test_all_four_types(self):
         records = _records_for([

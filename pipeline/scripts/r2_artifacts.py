@@ -541,39 +541,39 @@ def _resolve_npx() -> str:
     return npx
 
 
-def _run_wrangler_r2(args: list[str], *, capture: bool = True) -> subprocess.CompletedProcess[str]:
+def _run_wrangler_r2(
+    op: str,
+    key: str,
+    *,
+    remote: bool,
+    file_path: Path | None = None,
+    content_type: str | None = None,
+) -> subprocess.CompletedProcess[str]:
+    args = [op, f"{_BUCKET_NAME}/{key}", "--remote" if remote else "--local"]
+    if file_path is not None:
+        args.append(f"--file={file_path}")
+    if content_type is not None:
+        args.append(f"--content-type={content_type}")
     cmd = [_resolve_npx(), "wrangler", "r2", "object", *args]
     return subprocess.run(  # noqa: S603
         cmd,
         cwd=str(_WORKER_DIR),
-        capture_output=capture,
+        capture_output=True,
         text=True,
         encoding="utf-8",
         errors="replace",
     )
 
 
-def _remote_key(key: str) -> str:
-    return f"{_BUCKET_NAME}/{key}"
-
-
 def _wrangler_detail(result: CompletedProcess[str]) -> str:
     return f"stderr:\n{result.stderr or '(empty)'}\nstdout:\n{result.stdout or '(empty)'}"
-
-
-def _r2_mode_flag(remote: bool) -> str:
-    return "--remote" if remote else "--local"
-
-
-def _get_wrangler_object(key: str, file_path: Path, *, remote: bool) -> CompletedProcess[str]:
-    return _run_wrangler_r2(["get", _remote_key(key), _r2_mode_flag(remote), f"--file={file_path}"])
 
 
 def _object_absent(key: str, *, remote: bool) -> bool:
     with tempfile.NamedTemporaryFile(delete=False) as tmp:
         tmp_path = Path(tmp.name)
     try:
-        result = _get_wrangler_object(key, tmp_path, remote=remote)
+        result = _run_wrangler_r2("get", key, remote=remote, file_path=tmp_path)
         if result.returncode == 0:
             return False
         detail = (result.stderr + result.stdout).lower()
@@ -594,13 +594,7 @@ def _assert_snapshot_key_absent(key: str, *, remote: bool) -> None:
 
 def _put_wrangler_object(key: str, file_path: Path, *, remote: bool) -> None:
     result = _run_wrangler_r2(
-        [
-            "put",
-            _remote_key(key),
-            _r2_mode_flag(remote),
-            f"--file={file_path}",
-            f"--content-type={_CONTENT_TYPE_JSON}",
-        ]
+        "put", key, remote=remote, file_path=file_path, content_type=_CONTENT_TYPE_JSON,
     )
     if result.returncode != 0:
         msg = f"wrangler r2 object put failed for {key}\n{_wrangler_detail(result)}"
@@ -611,7 +605,7 @@ def _readback_wrangler_object(key: str, descriptor: Mapping[str, Any], *, remote
     with tempfile.NamedTemporaryFile(delete=False) as tmp:
         tmp_path = Path(tmp.name)
     try:
-        result = _get_wrangler_object(key, tmp_path, remote=remote)
+        result = _run_wrangler_r2("get", key, remote=remote, file_path=tmp_path)
         if result.returncode != 0:
             msg = f"wrangler r2 object get failed for {key}\n{_wrangler_detail(result)}"
             raise RuntimeError(msg)

@@ -175,23 +175,28 @@ def test_publish_uploads_manifest_last(
     uploaded: dict[str, bytes] = {}
     put_order: list[str] = []
 
-    def fake_wrangler(args: list[str], *, capture: bool = True) -> subprocess.CompletedProcess[str]:
-        assert capture
-        assert mode_flag in args
-        op = args[0]
-        key = args[1].split("/", 1)[1]
-        file_arg = next((a for a in args if a.startswith("--file=")), None)
+    def fake_wrangler(
+        op: str,
+        key: str,
+        *,
+        remote: bool,
+        file_path: Path | None = None,
+        content_type: str | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        assert ("--remote" if remote else "--local") == mode_flag
+        assert key
         if op == "get":
             if key not in uploaded:
-                return subprocess.CompletedProcess(args, 1, "", "The specified key does not exist.")
-            assert file_arg is not None
-            Path(file_arg.removeprefix("--file=")).write_bytes(uploaded[key])
-            return subprocess.CompletedProcess(args, 0, "", "")
+                return subprocess.CompletedProcess([op, key], 1, "", "The specified key does not exist.")
+            assert file_path is not None
+            file_path.write_bytes(uploaded[key])
+            return subprocess.CompletedProcess([op, key], 0, "", "")
         if op == "put":
-            assert file_arg is not None
-            uploaded[key] = Path(file_arg.removeprefix("--file=")).read_bytes()
+            assert file_path is not None
+            assert content_type == "application/json"
+            uploaded[key] = file_path.read_bytes()
             put_order.append(key)
-            return subprocess.CompletedProcess(args, 0, "", "")
+            return subprocess.CompletedProcess([op, key], 0, "", "")
         raise AssertionError(op)
 
     monkeypatch.setattr(r2_artifacts, "_run_wrangler_r2", fake_wrangler)

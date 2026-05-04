@@ -3,7 +3,7 @@
 // All React/rendering concerns live in components/finance/ticker-*.tsx.
 // Functions here are side-effect-free and fully unit-testable.
 
-import type { TickerPricePoint, TickerTxn } from "@/lib/schemas";
+import type { TickerPricePoint, TickerTxn } from "@/lib/schemas/ticker";
 import { parseLocalDate } from "@/lib/format/format";
 
 export type TickerChartPoint = {

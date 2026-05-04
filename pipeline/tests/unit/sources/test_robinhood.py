@@ -7,8 +7,8 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from etl.sources import PriceContext
-from etl.sources import robinhood as robinhood_src
+import etl.sources.robinhood as robinhood_src
+from etl.sources._types import PriceContext
 from tests.fixtures import db_rows, db_value
 
 
@@ -25,12 +25,8 @@ def fixture_downloads(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def test_produces_positions_always_on() -> None:
-    assert robinhood_src.produces_positions({}) is True
-
-
 def test_ingest_persists_normalized_rows(fixture_downloads: Path, empty_db: Path) -> None:
-    robinhood_src.ingest(empty_db, {"robinhood_downloads": fixture_downloads})
+    robinhood_src.ingest(empty_db, fixture_downloads)
     rows = db_rows(
         empty_db,
         "SELECT txn_date, action_kind, ticker, quantity, amount_usd FROM robinhood_transactions ORDER BY id"
@@ -40,7 +36,7 @@ def test_ingest_persists_normalized_rows(fixture_downloads: Path, empty_db: Path
 
 
 def test_positions_at_with_prices(fixture_downloads: Path, empty_db: Path) -> None:
-    robinhood_src.ingest(empty_db, {"robinhood_downloads": fixture_downloads})
+    robinhood_src.ingest(empty_db, fixture_downloads)
     prices = pd.DataFrame(
         {"VTI": [250.0]},
         index=pd.to_datetime([date(2024, 2, 10)]).map(lambda d: d.date()),
@@ -49,16 +45,14 @@ def test_positions_at_with_prices(fixture_downloads: Path, empty_db: Path) -> No
     rows = robinhood_src.positions_at(empty_db, date(2024, 2, 10), ctx, {})
     vti = [r for r in rows if r.ticker == "VTI"]
     assert len(vti) == 1
-    assert vti[0].quantity == pytest.approx(5.0)
     assert vti[0].value_usd == pytest.approx(1250.0)
     assert vti[0].cost_basis_usd == pytest.approx(1150.0)
 
 
 def test_ingest_is_idempotent(fixture_downloads: Path, empty_db: Path) -> None:
     """Running ingest twice must not double the rows (range-replace)."""
-    cfg: dict[str, object] = {"robinhood_downloads": fixture_downloads}
-    robinhood_src.ingest(empty_db, cfg)
-    robinhood_src.ingest(empty_db, cfg)
+    robinhood_src.ingest(empty_db, fixture_downloads)
+    robinhood_src.ingest(empty_db, fixture_downloads)
     assert db_value(empty_db, "SELECT COUNT(*) FROM robinhood_transactions") == 2
 
 
@@ -76,14 +70,14 @@ def test_ingest_multiple_csvs_merge(tmp_path: Path, empty_db: Path) -> None:
         "4/5/2024,4/5/2024,4/8/2024,VOO,,Buy,2,450.00,($900.00)\n",
         encoding="utf-8",
     )
-    robinhood_src.ingest(empty_db, {"robinhood_downloads": downloads})
+    robinhood_src.ingest(empty_db, downloads)
     tickers = {r[0] for r in db_rows(empty_db, "SELECT DISTINCT ticker FROM robinhood_transactions")}
     assert tickers == {"VTI", "VOO"}
 
 
 def test_ingest_missing_downloads_is_noop(tmp_path: Path, empty_db: Path) -> None:
     """A missing downloads directory → silent no-op."""
-    robinhood_src.ingest(empty_db, {"robinhood_downloads": tmp_path / "does_not_exist"})
+    robinhood_src.ingest(empty_db, tmp_path / "does_not_exist")
     assert db_value(empty_db, "SELECT COUNT(*) FROM robinhood_transactions") == 0
 
 
@@ -91,5 +85,5 @@ def test_ingest_empty_dir_is_noop(tmp_path: Path, empty_db: Path) -> None:
     """An empty downloads dir (no Robinhood_history*.csv) → silent no-op."""
     empty_dir = tmp_path / "empty"
     empty_dir.mkdir()
-    robinhood_src.ingest(empty_db, {"robinhood_downloads": empty_dir})
+    robinhood_src.ingest(empty_db, empty_dir)
     assert db_value(empty_db, "SELECT COUNT(*) FROM robinhood_transactions") == 0

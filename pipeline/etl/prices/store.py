@@ -1,10 +1,10 @@
 """DB read/write helpers for daily_close.
 
 Handles everything except yfinance I/O and split cross-validation:
-  * :func:`_persist_close` / :func:`_persist_close_batch` — write path
-    honoring the refresh-window immutability invariant.
-  * :func:`_cached_range` — min/max dates currently cached for a symbol.
-  * :func:`_holding_periods_from_action_kind_rows` — pure computation over
+  * :func:`_persist_close_batch` — write path honoring the refresh-window
+    immutability invariant.
+  * :func:`_cached_start` — earliest cached date for a symbol.
+  * :func:`holding_periods_from_action_kind_rows` — pure computation over
     Fidelity-shaped rows.
   * :func:`symbol_holding_periods_from_db` — wraps the row query against
     ``fidelity_transactions`` in the local SQLite DB.
@@ -20,8 +20,7 @@ from pathlib import Path
 import pandas as pd
 
 from ..db import get_connection
-from ..parsing import parse_date_iso
-from ..sources import ActionKind
+from ..sources._types import ActionKind
 from ..sources.fidelity import MM_SYMBOLS
 
 # Action kinds that change share count — same set the replay primitive uses
@@ -36,37 +35,6 @@ _POSITION_KINDS = frozenset({
     ActionKind.EXCHANGE,
     ActionKind.TRANSFER,
 })
-
-
-def _persist_close(
-    conn: sqlite3.Connection,
-    symbol: str,
-    date_iso: str,
-    close: float,
-    refresh_cutoff_iso: str,
-    *,
-    refresh_in_window: bool = True,
-) -> bool:
-    """Insert a daily_close row with the historical-immutability invariant.
-
-    - ``date_iso < refresh_cutoff_iso`` → INSERT OR IGNORE (preserve existing).
-    - ``date_iso >= refresh_cutoff_iso`` AND ``refresh_in_window=True`` → INSERT OR REPLACE.
-    - ``refresh_in_window=False`` → INSERT OR IGNORE for every date (intraday-immutable).
-
-    Returns True when the row was actually inserted/replaced; False when an
-    IGNORE skipped because the row already existed.
-    """
-    if not refresh_in_window or date_iso < refresh_cutoff_iso:
-        cur = conn.execute(
-            "INSERT OR IGNORE INTO daily_close (symbol, date, close) VALUES (?, ?, ?)",
-            (symbol, date_iso, close),
-        )
-        return cur.rowcount > 0
-    conn.execute(
-        "INSERT OR REPLACE INTO daily_close (symbol, date, close) VALUES (?, ?, ?)",
-        (symbol, date_iso, close),
-    )
-    return True
 
 
 def _persist_close_batch(
@@ -91,11 +59,18 @@ def _persist_close_batch(
     refreshed_recent = 0
     for d, value in rows:
         d_iso = d.isoformat()
-        inserted = _persist_close(conn, symbol, d_iso, value, refresh_cutoff_iso, refresh_in_window=refresh_in_window)
         if d_iso < refresh_cutoff_iso or not refresh_in_window:
-            if inserted:
+            cur = conn.execute(
+                "INSERT OR IGNORE INTO daily_close (symbol, date, close) VALUES (?, ?, ?)",
+                (symbol, d_iso, value),
+            )
+            if cur.rowcount > 0:
                 new_historical += 1
         else:
+            conn.execute(
+                "INSERT OR REPLACE INTO daily_close (symbol, date, close) VALUES (?, ?, ?)",
+                (symbol, d_iso, value),
+            )
             refreshed_recent += 1
     return new_historical, refreshed_recent
 
@@ -103,7 +78,7 @@ def _persist_close_batch(
 # ── Symbol holding periods ──────────────────────────────────────────────────
 
 
-def _holding_periods_from_action_kind_rows(
+def holding_periods_from_action_kind_rows(
     rows: list[tuple[str, str, str, float]],
 ) -> dict[str, tuple[date, date | None]]:
     """Compute ``{symbol: (first_buy_date, last_sell_date_or_None)}``.
@@ -129,7 +104,7 @@ def _holding_periods_from_action_kind_rows(
         if kind not in _POSITION_KINDS:
             continue
 
-        txn_date = parse_date_iso(run_date)
+        txn_date = date.fromisoformat(run_date.strip())
         holdings[sym] = holdings.get(sym, 0) + qty
 
         if sym not in first_held:
@@ -169,19 +144,19 @@ def symbol_holding_periods_from_db(db_path: Path) -> dict[str, tuple[date, date 
     finally:
         conn.close()
 
-    return _holding_periods_from_action_kind_rows(list(db_rows))
+    return holding_periods_from_action_kind_rows(list(db_rows))
 
 
 # ── Cache helpers ───────────────────────────────────────────────────────────
 
 
-def _cached_range(conn: sqlite3.Connection, symbol: str) -> tuple[date | None, date | None]:
+def _cached_start(conn: sqlite3.Connection, symbol: str) -> date | None:
     row = conn.execute(
-        "SELECT MIN(date), MAX(date) FROM daily_close WHERE symbol = ?", (symbol,)
+        "SELECT MIN(date) FROM daily_close WHERE symbol = ?", (symbol,)
     ).fetchone()
     if row and row[0]:
-        return date.fromisoformat(row[0]), date.fromisoformat(row[1])
-    return None, None
+        return date.fromisoformat(row[0])
+    return None
 
 
 # ── Loading from DB ─────────────────────────────────────────────────────────

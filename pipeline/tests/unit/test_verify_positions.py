@@ -13,7 +13,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "pipeline"))
 
 from etl.db import get_connection  # noqa: E402
-from etl.sources.fidelity import classify_fidelity_action  # noqa: E402
+from etl.sources.fidelity.parse import classify_fidelity_action  # noqa: E402
 from scripts import verify_positions  # noqa: E402
 
 # ── Helpers ──────────────────────────────────────────────────────────────────

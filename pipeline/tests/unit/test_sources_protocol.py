@@ -1,8 +1,7 @@
-"""Unit tests for the source-module composition API.
+"""Unit tests for the source-module contracts.
 
 After the class→module refactor, source identity is the module itself, and
-the shared types live in :mod:`etl.sources`. This file exercises the public
-surface consumed by ``etl.allocation`` + ``scripts.build_timemachine_db``.
+the shared types live in :mod:`etl.sources._types`.
 """
 from __future__ import annotations
 
@@ -11,14 +10,12 @@ from pathlib import Path
 
 import pandas as pd
 
-from etl.sources import (
-    SOURCES,
-    ActionKind,
-    InvestmentSource,
-    PositionRow,
-    PriceContext,
-    positions_at_all,
-)
+import etl.sources.empower as empower_src
+import etl.sources.fidelity as fidelity_src
+import etl.sources.robinhood as robinhood_src
+from etl.sources._types import ActionKind, PositionRow, PriceContext
+
+SOURCE_MODULES = (fidelity_src, robinhood_src, empower_src)
 
 
 def test_action_kind_is_str_enum() -> None:
@@ -28,9 +25,7 @@ def test_action_kind_is_str_enum() -> None:
 
 def test_position_row_defaults() -> None:
     row = PositionRow(ticker="FXAIX", value_usd=1500.0)
-    assert row.quantity is None
     assert row.cost_basis_usd is None
-    assert row.account is None
 
 
 def test_price_context_required_fields() -> None:
@@ -51,24 +46,12 @@ def test_price_context_lookup_returns_none_for_missing() -> None:
     assert ctx.lookup("VTI", mutual_fund=True) is None
 
 
-def test_sources_module_list_contains_all_three() -> None:
-    """The ordered SOURCES list drives ingest/positions composition."""
-    from etl.sources import empower, fidelity, robinhood
-    assert fidelity in SOURCES
-    assert robinhood in SOURCES
-    assert empower in SOURCES
+def test_every_source_module_exposes_positions_at() -> None:
+    for mod in SOURCE_MODULES:
+        assert callable(mod.positions_at), f"{mod.__name__} missing positions_at"
 
 
-def test_every_source_module_implements_protocol() -> None:
-    """mypy + runtime: every module in SOURCES exposes the 3-call contract."""
-    for mod in SOURCES:
-        assert isinstance(mod, InvestmentSource), f"{mod.__name__} missing protocol methods"
-
-
-def test_positions_at_all_returns_empty_on_empty_db(empty_db: Path) -> None:
-    """Against a fresh DB every source returns ``[]`` — sanity check."""
+def test_source_modules_return_empty_on_empty_db(empty_db: Path) -> None:
     ctx = PriceContext(prices=pd.DataFrame(), price_date=date(2024, 1, 2), mf_price_date=date(2024, 1, 1))
-    rows = positions_at_all(empty_db, date(2024, 1, 2), ctx, {})
-    assert rows == []
-
-
+    for mod in SOURCE_MODULES:
+        assert mod.positions_at(empty_db, date(2024, 1, 2), ctx, {}) == []

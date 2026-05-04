@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from etl.prices import fetch_and_store_cny_rates, fetch_and_store_prices
+from etl.prices.fetch import fetch_and_store_cny_rates, fetch_and_store_prices
 
 
 class TestFetchAndStorePricesErrors:

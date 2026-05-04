@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { FETCH_TIMEOUT_MS, TIMELINE_URL } from "@/lib/config";
 import { fetchWithSchema } from "@/lib/schemas/fetch-schema";
-import { TimelineDataSchema, type TimelineData } from "@/lib/schemas";
+import { TimelineDataSchema, type TimelineData } from "@/lib/schemas/timeline";
 
 /** Fetch /timeline once on mount. The Zod safeParse inside
  *  `fetchWithSchema` is the single drift checkpoint between the
