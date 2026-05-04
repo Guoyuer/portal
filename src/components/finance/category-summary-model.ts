@@ -22,13 +22,16 @@ interface CategoryAggregate {
 }
 
 export interface CategorySummaryModel {
-  grouped: GroupedCategory[];
   equityCats: GroupedCategory[];
   nonEquityCats: GroupedCategory[];
   nonEquityAggregate: CategoryAggregate | null;
   totalPct: number;
   totalTarget: number;
   totalDeviation: number;
+}
+
+function deviation(pct: number, target: number): number {
+  return Math.round((pct - target) * 10) / 10;
 }
 
 /** Sum value/pct/target across categories; deviation is pct - target of the sum. */
@@ -41,7 +44,7 @@ function aggregateCategories(cats: Pick<GroupedCategory, "value" | "pct" | "targ
     pct += c.pct;
     target += c.target;
   }
-  return { value, pct, target, deviation: pct - target };
+  return { value, pct, target, deviation: deviation(pct, target) };
 }
 
 function isEquityCategory(name: string): boolean {
@@ -74,7 +77,7 @@ function groupTickers(categories: ApiCategory[], tickers: ApiTicker[], total: nu
       value: cat.value,
       pct: cat.pct,
       target: cat.target,
-      deviation: cat.deviation,
+      deviation: deviation(cat.pct, cat.target),
       isEquity: isEquityCategory(cat.name),
       subtypes,
     };
@@ -94,12 +97,11 @@ export function buildCategorySummaryModel(
   const totalTarget = categories.reduce((s, c) => s + c.target, 0);
 
   return {
-    grouped,
     equityCats,
     nonEquityCats,
     nonEquityAggregate: nonEquityCats.length > 0 ? aggregateCategories(nonEquityCats) : null,
     totalPct,
     totalTarget,
-    totalDeviation: totalPct - totalTarget,
+    totalDeviation: deviation(totalPct, totalTarget),
   };
 }

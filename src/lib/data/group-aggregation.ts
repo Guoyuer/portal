@@ -2,8 +2,8 @@
 // `groupNetByDate` clusters real buy/sell flows within an equivalence group
 // to surface net exposure change, filtering out ticker-swap noise.
 
-import type { DailyTicker, FidelityTxn } from "@/lib/schemas/timeline";
-import type { SourceKind } from "@/lib/compute/computed-types";
+import type { DailyTicker } from "@/lib/schemas/timeline";
+import type { InvestmentTxn } from "@/lib/compute/compute";
 import { groupOfTicker } from "@/lib/data/equivalent-groups";
 import { parseLocalDate } from "@/lib/format/format";
 
@@ -22,15 +22,7 @@ export type GroupNetEntry = {
   breakdown: { symbol: string; signed: number }[];
 };
 
-type GroupTxnInput =
-  | Pick<FidelityTxn, "runDate" | "actionType" | "symbol" | "amount">
-  | {
-      source?: SourceKind;
-      date: string;
-      actionType: string;
-      ticker: string;
-      amount: number;
-    };
+type GroupTxnInput = Pick<InvestmentTxn, "source" | "date" | "actionType" | "ticker" | "amount">;
 
 type Real = {
   date: string;
@@ -39,12 +31,6 @@ type Real = {
   side: "buy" | "sell";
   amount: number;
 };
-
-function normalizeGroupTxn(t: GroupTxnInput): { date: string; symbol: string; source: SourceKind } {
-  return "runDate" in t
-    ? { date: t.runDate, symbol: t.symbol, source: "fidelity" }
-    : { date: t.date, symbol: t.ticker, source: t.source ?? "fidelity" };
-}
 
 function groupNetSide(actionType: string): "buy" | "sell" | null {
   if (actionType === "sell") return "sell";
@@ -57,14 +43,13 @@ function extractGroupTxns(txns: GroupTxnInput[]): Map<string, Real[]> {
   for (const t of txns) {
     const side = groupNetSide(t.actionType);
     if (!side) continue;
-    const { date, symbol, source } = normalizeGroupTxn(t);
-    const groupKey = groupOfTicker(symbol);
+    const groupKey = groupOfTicker(t.ticker);
     if (!groupKey) continue;
-    const bucketKey = `${groupKey}\u0000${source}`;
+    const bucketKey = `${groupKey}\u0000${t.source}`;
     const entry: Real = {
-      date,
-      ts: parseLocalDate(date).getTime(),
-      symbol,
+      date: t.date,
+      ts: parseLocalDate(t.date).getTime(),
+      symbol: t.ticker,
       side,
       amount: Math.abs(t.amount),
     };

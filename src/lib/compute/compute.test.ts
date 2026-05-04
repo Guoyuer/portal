@@ -10,7 +10,6 @@ import {
   buildDateIndex,
   buildTickerIndex,
   catColorByName,
-  cashflowState,
   normalizeInvestmentTxns,
   type InvestmentTxn,
 } from "@/lib/compute/compute";
@@ -103,7 +102,7 @@ it.each([
 // ── computeAllocation ───────────────────────────────────────────────────
 
 describe("computeAllocation", () => {
-  it("computes category percentages and deviation", () => {
+  it("computes category percentages", () => {
     const result = computeDefaultAllocation();
     expect(result).not.toBeNull();
     expect(result!.total).toBe(100000);
@@ -111,7 +110,6 @@ describe("computeAllocation", () => {
     expect(result!.categories).toHaveLength(4);
     const usEquity = result!.categories.find(c => c.name === "US Equity")!;
     expect(usEquity.pct).toBe(55);
-    expect(usEquity.deviation).toBe(0); // 55% actual, 55% target
   });
 
   it("returns null for unknown date", () => {
@@ -124,7 +122,6 @@ describe("computeAllocation", () => {
     expect(result).not.toBeNull();
     for (const cat of result!.categories) {
       expect(cat.pct).toBe(0);
-      expect(Number.isFinite(cat.deviation)).toBe(true);
     }
   });
 
@@ -141,8 +138,6 @@ describe("computeAllocation", () => {
     const customCats: CategoryMeta[] = CATEGORIES.map((cat, i) => ({ ...cat, targetPct: [60, 10, 5, 25][i] }));
     const result = computeDefaultAllocation({ categories: customCats })!;
     expect(result.categories.find(c => c.name === "US Equity")!.target).toBe(60);
-    // 55% actual vs 60% target → deviation -5
-    expect(result.categories.find(c => c.name === "US Equity")!.deviation).toBe(-5);
   });
 });
 
@@ -252,27 +247,6 @@ describe("computeCashflow", () => {
     ];
     const cf = computeJanCashflow(txns);
     expect(cf.expenseItems.map(e => e.category)).toEqual(["Rent", "Gas", "Food"]);
-  });
-});
-
-// ── cashflowState ───────────────────────────────────────────────────────
-
-describe("cashflowState", () => {
-  it("returns unavailable when cashflow is null", () => {
-    expect(cashflowState(null)).toEqual({ kind: "unavailable" });
-  });
-
-  it("returns empty when both totals are zero", () => {
-    const cf = computeJanCashflow([]);
-    expect(cashflowState(cf)).toEqual({ kind: "empty" });
-  });
-
-  it("returns data with the original cashflow attached when there is activity", () => {
-    const txns: QianjiTxn[] = [mkQianjiTxn({ type: "income", amount: 100 })];
-    const cf = computeJanCashflow(txns);
-    const state = cashflowState(cf);
-    expect(state.kind).toBe("data");
-    if (state.kind === "data") expect(state.data).toBe(cf);
   });
 });
 

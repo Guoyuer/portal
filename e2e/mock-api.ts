@@ -278,7 +278,7 @@ const server = http.createServer((req, res) => {
       const txns = fidelityTxns
         .filter((t) => t.symbol === symbol)
         .map((t) => ({ runDate: t.runDate, actionType: t.actionType, quantity: t.quantity, price: t.price, amount: t.amount }));
-      return [symbol, { symbol, prices, transactions: txns }];
+      return [symbol, { prices, transactions: txns }];
     }));
     res.writeHead(200, CORS);
     res.end(JSON.stringify(payload));

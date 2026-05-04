@@ -348,6 +348,24 @@ note. Validation: targeted Python tests, full Python pytest, Ruff, mypy
 strict, Vitest, lint, TypeScript, Next build, Playwright e2e, and R2
 export/verify.
 
+Compute/artifact contract cleanup: allocation no longer returns unused
+`liabilities`, allocation tickers no longer carry activity-only `sources`, and
+category `deviation` is now derived in the category-summary model instead of
+being threaded through compute output. The cashflow UI state wrapper was
+inlined into the page, group aggregation now accepts only the production
+`InvestmentTxn` shape instead of legacy raw Fidelity rows, market index display
+uses exporter-provided names, and the Worker response helpers were folded back
+into the single Worker entrypoint. `/prices` also stopped writing the redundant
+inner `symbol` field because the bundle key already identifies each payload;
+R2 verify still checks price symbols, row counts, hashes, and Zod schemas.
+`export-summary.json` no longer persists duplicate row-count metadata, though
+export/verify still compares SQLite counts to endpoint JSON. Diff effect
+before this note: 19 files, 100 insertions / 175 deletions (`-75 diff LOC`);
+maintenance surface is 223 files / 23,456 LOC after this note. Validation:
+TypeScript, Vitest, lint, Worker Vitest, Worker `tsc`, full Python pytest with
+xdist (`459 passed`), Ruff, mypy strict, Next build, Playwright e2e, static
+knip/ts-prune review, and R2 export/verify.
+
 ### Wave 1: Safe Deletions and Test Compression
 
 Targets:

@@ -1,9 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { groupNetByDate, buildGroupValueSeries } from "./group-aggregation";
-import type { FidelityTxn } from "@/lib/schemas/timeline";
+import type { InvestmentTxn } from "@/lib/compute/compute";
 
-const real = (runDate: string, symbol: string, actionType: "buy" | "sell", amount: number): FidelityTxn => ({
-  runDate, actionType, symbol,
+const real = (date: string, ticker: string, actionType: "buy" | "sell", amount: number): InvestmentTxn => ({
+  source: "fidelity",
+  date,
+  actionType,
+  ticker,
   amount: actionType === "sell" ? -Math.abs(amount) : amount,
   quantity: 1,
   price: amount,
@@ -57,9 +60,9 @@ describe("groupNetByDate", () => {
   });
 
   it("REINVEST excluded from net", () => {
-    const txns: FidelityTxn[] = [
+    const txns: InvestmentTxn[] = [
       real("2026-01-02", "SPY", "sell", 1000),
-      { runDate: "2026-01-02", actionType: "reinvestment", symbol: "VOO", amount: 50, quantity: 0.5, price: 100 },
+      { source: "fidelity", date: "2026-01-02", actionType: "reinvestment", ticker: "VOO", amount: 50, quantity: 0.5, price: 100 },
     ];
     const entries = Array.from(groupNetByDate(txns).get("sp500")!.values());
     expect(entries).toHaveLength(1);

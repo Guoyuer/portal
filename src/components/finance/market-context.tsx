@@ -7,12 +7,6 @@ import { fmtPct } from "@/lib/format/format";
 import { SectionHeader } from "@/components/finance/section";
 import { MARKET_GAIN, MARKET_LOSS } from "@/lib/format/chart-colors";
 
-// ── Display name mapping ────────────────────────────────────────────────
-const INDEX_NAMES: Record<string, string> = {
-  "^GSPC": "S&P 500",
-  "^NDX": "NASDAQ 100",
-};
-
 function returnColor(v: number) { return v >= 0 ? MARKET_GAIN : MARKET_LOSS; }
 // ~15% alpha (0x26 / 255 ≈ 0.15) — matches the previous `bg-[…]/15` Tailwind
 // arbitrary class the JIT used to emit, without duplicating the hex in two places.
@@ -100,7 +94,6 @@ function RangeBar({ current, high, low }: { current: number; high: number; low: 
 
 // ── Index Card ──────────────────────────────────────────────────────────
 function IndexCard({ idx }: { idx: IndexReturn }) {
-  const displayName = INDEX_NAMES[idx.ticker] ?? idx.name;
   const pts = idx.current >= 1000
     ? idx.current.toLocaleString("en-US", { maximumFractionDigits: 0 })
     : idx.current.toFixed(2);
@@ -113,7 +106,7 @@ function IndexCard({ idx }: { idx: IndexReturn }) {
       <div className="flex items-start justify-between">
         <div className="min-w-0">
           <p className="text-xs font-semibold text-foreground/60 tracking-wide uppercase">
-            {displayName}
+            {idx.name}
           </p>
           <p className="text-xl font-bold tabular-nums text-foreground mt-1">
             {pts}

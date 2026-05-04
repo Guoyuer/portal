@@ -3,7 +3,10 @@ import { buildCategorySummaryModel } from "./category-summary-model";
 import type { ApiTicker } from "@/lib/compute/computed-types";
 import { mkApiTicker as mkTicker, mkApiCategory as mkCategory } from "@/test/factories";
 
-const groupTickers = (...args: Parameters<typeof buildCategorySummaryModel>) => buildCategorySummaryModel(...args).grouped;
+function modelCategories(...args: Parameters<typeof buildCategorySummaryModel>) {
+  const model = buildCategorySummaryModel(...args);
+  return [...model.equityCats, ...model.nonEquityCats];
+}
 
 describe("groupTickers", () => {
   it("groups tickers by category and subtype, summing values into subtypes", () => {
@@ -13,7 +16,7 @@ describe("groupTickers", () => {
       mkTicker({ ticker: "VTI", value: 100, category: "US Equity", subtype: "Broad" }),
       mkTicker({ ticker: "QQQM", value: 100, category: "US Equity", subtype: "Growth" }),
     ];
-    const out = groupTickers(categories, tickers, 1000);
+    const out = modelCategories(categories, tickers, 1000);
     expect(out).toHaveLength(1);
     const us = out[0];
     expect(us.name).toBe("US Equity");
@@ -33,7 +36,7 @@ describe("groupTickers", () => {
       mkCategory("Crypto", 50),
       mkCategory("Safe Net", 200),
     ];
-    const out = groupTickers(categories, [], 450);
+    const out = modelCategories(categories, [], 450);
     expect(out.find((c) => c.name === "US Equity")!.isEquity).toBe(true);
     expect(out.find((c) => c.name === "Non-US Equity")!.isEquity).toBe(true);
     expect(out.find((c) => c.name === "Crypto")!.isEquity).toBe(true);
@@ -43,30 +46,32 @@ describe("groupTickers", () => {
   it("substitutes '(other)' for empty subtype string", () => {
     const categories = [mkCategory("Crypto", 50)];
     const tickers: ApiTicker[] = [mkTicker({ ticker: "BTC", value: 50, category: "Crypto", subtype: "" })];
-    const out = groupTickers(categories, tickers, 50);
+    const out = modelCategories(categories, tickers, 50);
     expect(out[0].subtypes[0].name).toBe("(other)");
   });
 
   it("returns 0 pct when total is 0 (avoids divide-by-zero)", () => {
     const categories = [mkCategory("US Equity", 0)];
     const tickers: ApiTicker[] = [mkTicker({ ticker: "VOO", value: 100, category: "US Equity", subtype: "Broad" })];
-    const out = groupTickers(categories, tickers, 0);
+    const out = modelCategories(categories, tickers, 0);
     expect(out[0].subtypes[0].pct).toBe(0);
   });
 
-  it("keeps category order from input", () => {
+  it("keeps category order within equity and non-equity sections", () => {
     const categories = [
       mkCategory("Safe Net", 200),
       mkCategory("US Equity", 100),
       mkCategory("Crypto", 50),
+      mkCategory("Non-US Equity", 25),
     ];
-    const out = groupTickers(categories, [], 350);
-    expect(out.map((c) => c.name)).toEqual(["Safe Net", "US Equity", "Crypto"]);
+    const model = buildCategorySummaryModel(categories, [], 375);
+    expect(model.equityCats.map((c) => c.name)).toEqual(["US Equity", "Crypto", "Non-US Equity"]);
+    expect(model.nonEquityCats.map((c) => c.name)).toEqual(["Safe Net"]);
   });
 
   it("produces empty subtypes array for a category with no tickers", () => {
     const categories = [mkCategory("Safe Net", 200)];
-    const out = groupTickers(categories, [], 200);
+    const out = modelCategories(categories, [], 200);
     expect(out[0].subtypes).toEqual([]);
   });
 
@@ -76,9 +81,23 @@ describe("groupTickers", () => {
       mkTicker({ ticker: "VOO", value: 100, category: "US Equity", subtype: "Broad" }),
       mkTicker({ ticker: "ROGUE", value: 999, category: "Mystery", subtype: "Broad" }),
     ];
-    const out = groupTickers(categories, tickers, 100);
+    const out = modelCategories(categories, tickers, 100);
     expect(out).toHaveLength(1);
     expect(out[0].subtypes).toHaveLength(1);
     expect(out[0].subtypes[0].tickers.map((t) => t.ticker)).toEqual(["VOO"]);
+  });
+
+  it("derives deviation from pct and target", () => {
+    const model = buildCategorySummaryModel(
+      [
+        mkCategory("US Equity", 550, { pct: 55, target: 60 }),
+        mkCategory("Safe Net", 450, { pct: 45, target: 40 }),
+      ],
+      [],
+      1000,
+    );
+    expect(model.equityCats[0].deviation).toBe(-5);
+    expect(model.nonEquityAggregate!.deviation).toBe(5);
+    expect(model.totalDeviation).toBe(0);
   });
 });

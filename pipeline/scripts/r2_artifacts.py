@@ -80,18 +80,6 @@ def _generated_at_from(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _git_commit() -> str:
-    try:
-        return subprocess.check_output(  # noqa: S603
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=str(_REPO_DIR),
-            stderr=subprocess.DEVNULL,
-            text=True,
-        ).strip()
-    except (FileNotFoundError, OSError, subprocess.CalledProcessError):
-        return "unknown"
-
-
 def _json_bytes(payload: object) -> bytes:
     return json.dumps(
         payload,
@@ -305,7 +293,6 @@ def _build_econ(conn: sqlite3.Connection, *, generated_at: str) -> JsonDict:
 
 def _build_price(conn: sqlite3.Connection, symbol: str) -> JsonDict:
     return {
-        "symbol": symbol,
         "prices": _rows(
             conn,
             "SELECT date, close FROM daily_close WHERE symbol = ? ORDER BY date",
@@ -399,7 +386,7 @@ def export_artifacts(
         manifest = {
             "version": version,
             "generatedAt": generated_at,
-            "source": {"gitCommit": _git_commit(), "latestDate": latest_date},
+            "source": {"latestDate": latest_date},
             "objects": objects,
         }
         _write_json(artifact_dir / "manifest.json", manifest)
@@ -408,7 +395,6 @@ def export_artifacts(
             "version": version,
             "generatedAt": generated_at,
             "source": manifest["source"],
-            "rowCounts": row_counts,
             "priceRowCounts": price_row_counts,
             "objectCount": len(objects),
             "totalBytes": sum(int(d["bytes"]) for d in objects.values()),
@@ -456,7 +442,6 @@ def _verify_row_counts(artifact_dir: Path, db_path: Path, manifest: Mapping[str,
         econ = _read_json(_artifact_path(artifact_dir, manifest["objects"]["econ"]["key"]))
         sqlite_counts = _sqlite_row_counts(conn)
         json_counts = _json_row_counts(timeline, econ)
-        _expect_equal("summary rowCounts", summary["rowCounts"], sqlite_counts)
         _expect_equal("JSON rowCounts", json_counts, sqlite_counts)
 
         prices_bundle = _read_json(_artifact_path(artifact_dir, manifest["objects"]["prices"]["key"]))
@@ -468,7 +453,6 @@ def _verify_row_counts(artifact_dir: Path, db_path: Path, manifest: Mapping[str,
             if not isinstance(payload, dict):
                 msg = f"prices bundle payload for {symbol} is not a JSON object"
                 raise RuntimeError(msg)
-            _expect_equal(f"prices bundle symbol {symbol}", payload["symbol"], symbol)
             expected_prices[symbol] = {
                 "priceRows": len(payload["prices"]),
                 "transactionRows": len(payload["transactions"]),

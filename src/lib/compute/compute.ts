@@ -58,17 +58,16 @@ export function computeAllocation(
   if (idx === undefined) return null;
   const d = daily[idx];
   const total = d.total;
-  const liabilities = d.liabilities;
 
   const apiCategories: ApiCategory[] = categories.map(({ name, key, targetPct }) => {
     const value = (d[key as keyof DailyPoint] as number | undefined) ?? 0;
     const pct = total ? round((value / total) * 100, 1) : 0;
-    return { name, value, pct, target: targetPct, deviation: round(pct - targetPct, 1) };
+    return { name, value, pct, target: targetPct };
   });
 
   const tickers: ApiTicker[] = tickerIndex.get(date) ?? [];
 
-  return { total, netWorth: round(total + liabilities), liabilities, categories: apiCategories, tickers };
+  return { total, netWorth: round(total + d.liabilities), categories: apiCategories, tickers };
 }
 
 // ── Cashflow ──────────────────────────────────────────────────────────────
@@ -109,18 +108,6 @@ export function computeCashflow(qianjiTxns: QianjiTxn[], start: string, end: str
   const takehomeSavingsRate = takehomeIncome ? round(((takehomeIncome - totalExpenses) / takehomeIncome) * 100) : 0;
 
   return { incomeItems, expenseItems, totalIncome, totalExpenses, netCashflow, ccPayments: round(ccPayments), savingsRate, takehomeSavingsRate };
-}
-
-/** UI-side cashflow state: distinguishes bundle failure, no-data window, and real data. */
-export type CashflowState =
-  | { kind: "unavailable" }
-  | { kind: "empty" }
-  | { kind: "data"; data: CashflowResponse };
-
-export function cashflowState(cashflow: CashflowResponse | null): CashflowState {
-  if (!cashflow) return { kind: "unavailable" };
-  if (cashflow.totalIncome === 0 && cashflow.totalExpenses === 0) return { kind: "empty" };
-  return { kind: "data", data: cashflow };
 }
 
 // ── Investment txn unification ────────────────────────────────────────────
