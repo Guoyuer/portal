@@ -40,8 +40,6 @@ function computeDefaultAllocation({
 const computeJanCashflow = (txns: QianjiTxn[]) => computeCashflow(txns, JAN_START, JAN_END);
 const computeJanActivity = (txns: InvestmentTxn[]) => computeActivity(txns, JAN_START, JAN_END);
 const computeJanGroupedActivity = (txns: InvestmentTxn[]) => computeGroupedActivity(txns, JAN_START, JAN_END);
-const computeJanCrossCheck = (investmentTxns: InvestmentTxn[], qianjiTxns: QianjiTxn[]) =>
-  computeCrossCheck(investmentTxns, qianjiTxns, JAN_START, JAN_END);
 
 function expectCashflowScalars(cf: ReturnType<typeof computeCashflow>, expected: Partial<ReturnType<typeof computeCashflow>>) {
   expect(cf).toMatchObject(expected);
@@ -62,6 +60,23 @@ function expectCrossCheckTotals(cc: ReturnType<typeof computeCrossCheck>, { allU
   expect(cc).toMatchObject(expected);
   if (allUnmatched !== undefined) expect(cc.allUnmatched).toHaveLength(allUnmatched);
 }
+
+type CrossCheckCase = {
+  name: string;
+  txns: InvestmentTxn[];
+  qTxns: QianjiTxn[];
+  expected: CrossCheckExpected;
+  start?: string;
+  inspect?: (cc: ReturnType<typeof computeCrossCheck>) => void;
+};
+
+const ccCase = (
+  name: string,
+  txns: InvestmentTxn[],
+  qTxns: QianjiTxn[],
+  expected: CrossCheckExpected,
+  options: Pick<CrossCheckCase, "inspect" | "start"> = {},
+): CrossCheckCase => ({ name, txns, qTxns, expected, ...options });
 
 // ── buildDateIndex ──────────────────────────────────────────────────────
 
@@ -369,191 +384,165 @@ describe("computeActivity", () => {
 // ── computeCrossCheck ───────────────────────────────────────────────────
 
 describe("computeCrossCheck", () => {
-  it.each([
-    {
-      name: "matches deposit to transfer within 7-day window",
-      txns: [mkDeposit({ source: "fidelity", date: JAN_15, amount: 1000 })],
-      qTxns: [mkTransfer({ date: "2026-01-16", amount: 1000 })],
-      expected: { ok: true, matchedCount: 1, totalCount: 1 },
-      assert: (cc: ReturnType<typeof computeCrossCheck>) => {
-        expect(cc.perSource.fidelity.matched).toBe(1);
-      },
-    },
-    {
-      name: "fails match when transfer is outside 7-day window",
-      txns: [mkDeposit({ source: "fidelity", date: JAN_START, amount: 1000 })],
-      qTxns: [
+  const cases: CrossCheckCase[] = [
+    ccCase(
+      "matches deposit to transfer within 7-day window",
+      [mkDeposit({ source: "fidelity", date: JAN_15, amount: 1000 })],
+      [mkTransfer({ date: "2026-01-16", amount: 1000 })],
+      { ok: true, matchedCount: 1, totalCount: 1 },
+      { inspect: (cc) => expect(cc.perSource.fidelity.matched).toBe(1) },
+    ),
+    ccCase(
+      "fails match when transfer is outside 7-day window",
+      [mkDeposit({ source: "fidelity", date: JAN_START, amount: 1000 })],
+      [
         mkQianjiFloor({ amount: 50 }),
         mkTransfer({ date: JAN_15, amount: 1000 }),
       ],
-      expected: { ok: false, matchedCount: 0, allUnmatched: 1 },
-    },
-    {
-      name: "fails match when amounts differ",
-      txns: [mkDeposit({ source: "fidelity", date: JAN_15, amount: 1000 })],
-      qTxns: [mkTransfer({ date: JAN_15, amount: 999.99 })],
-      expected: { ok: false, matchedCount: 0 },
-    },
-  ])("$name", ({ txns, qTxns, expected, assert }) => {
-    const cc = computeJanCrossCheck(txns, qTxns);
-    expectCrossCheckTotals(cc, expected);
-    assert?.(cc);
-  });
-
-  it("returns ok=false when no deposits exist", () => {
-    const cc = computeJanCrossCheck([], []);
-    expectCrossCheckTotals(cc, { ok: false, totalCount: 0 });
-  });
-
-  it("does not reuse a transfer for two deposits", () => {
-    const txns: InvestmentTxn[] = [
-      mkDeposit({ source: "fidelity", date: "2026-01-10", amount: 500 }),
-      mkDeposit({ source: "fidelity", date: "2026-01-11", amount: 500 }),
-    ];
-    const cc = computeJanCrossCheck(txns, [mkTransfer({ date: "2026-01-10", amount: 500 })]);
-    expectCrossCheckTotals(cc, { matchedCount: 1, totalCount: 2, ok: false });
-  });
-
-  it("excludes sub-dollar dust deposits (cash sweep / residual interest)", () => {
-    const txns: InvestmentTxn[] = [
-      mkDeposit({ source: "fidelity", date: JAN_15, amount: 0.03 }),
-      mkDeposit({ source: "fidelity", date: JAN_15, amount: 0.33 }),
-      mkDeposit({ source: "fidelity", date: JAN_15, amount: 1000 }),
-    ];
-    const qTxns: QianjiTxn[] = [
-      mkQianjiFloor({ amount: 50 }),
-      mkTransfer({ date: JAN_15, amount: 1000 }),
-    ];
-    expectCrossCheckTotals(computeJanCrossCheck(txns, qTxns), { totalCount: 1, matchedCount: 1, ok: true });
-  });
-
-  it("excludes deposits predating the earliest Qianji txn", () => {
-    const txns: InvestmentTxn[] = [
-      mkDeposit({ source: "fidelity", date: "2023-06-01", amount: 2000 }),
-      mkDeposit({ source: "fidelity", date: JAN_15, amount: 1000 }),
-    ];
-    const qTxns: QianjiTxn[] = [
-      mkQianjiTxn({ date: "2024-05-12", type: "expense", amount: 50 }), // establishes floor
-      mkTransfer({ date: "2026-01-16", amount: 1000 }),
-    ];
-    const cc = computeCrossCheck(txns, qTxns, "2023-01-01", JAN_END);
-    expectCrossCheckTotals(cc, { totalCount: 1, matchedCount: 1, ok: true });
-  });
-
-  it.each([
-    {
-      name: "matches deposit to income record booked directly to Fidelity",
-      txns: [mkDeposit({ source: "fidelity", date: JAN_15, amount: 3346.27 })],
-      qTxns: [mkQianjiTxn({ date: JAN_15, type: "income", category: "Salary", amount: 3346.27, accountTo: "Fidelity taxable" })],
-      expected: { ok: true, matchedCount: 1 },
-    },
-    {
-      name: "accountTo prefix match is case-insensitive",
-      txns: [mkDeposit({ source: "fidelity", date: JAN_15, amount: 500 })],
-      qTxns: [mkQianjiTxn({ date: JAN_15, type: "income", category: "Rewards", amount: 500, accountTo: "fidelity Roth IRA" })],
-      expected: { matchedCount: 1 },
-    },
-    {
-      name: "does not match income where accountTo is not Fidelity",
-      txns: [mkDeposit({ source: "fidelity", date: JAN_15, amount: 1000 })],
-      qTxns: [
+      { ok: false, matchedCount: 0, allUnmatched: 1 },
+    ),
+    ccCase(
+      "fails match when amounts differ",
+      [mkDeposit({ source: "fidelity", date: JAN_15, amount: 1000 })],
+      [mkTransfer({ date: JAN_15, amount: 999.99 })],
+      { ok: false, matchedCount: 0 },
+    ),
+    ccCase(
+      "matches deposit to income record booked directly to Fidelity",
+      [mkDeposit({ source: "fidelity", date: JAN_15, amount: 3346.27 })],
+      [mkQianjiTxn({ date: JAN_15, type: "income", category: "Salary", amount: 3346.27, accountTo: "Fidelity taxable" })],
+      { ok: true, matchedCount: 1 },
+    ),
+    ccCase(
+      "accountTo prefix match is case-insensitive",
+      [mkDeposit({ source: "fidelity", date: JAN_15, amount: 500 })],
+      [mkQianjiTxn({ date: JAN_15, type: "income", category: "Rewards", amount: 500, accountTo: "fidelity Roth IRA" })],
+      { matchedCount: 1 },
+    ),
+    ccCase(
+      "does not match income where accountTo is not Fidelity",
+      [mkDeposit({ source: "fidelity", date: JAN_15, amount: 1000 })],
+      [
         mkQianjiFloor({ amount: 50 }),
         mkQianjiTxn({ date: JAN_15, type: "income", category: "Salary", amount: 1000, accountTo: "Chase Debit" }),
       ],
-      expected: { matchedCount: 0 },
-      assert: (cc: ReturnType<typeof computeCrossCheck>) => {
-        expect(cc.perSource.fidelity.unmatched).toHaveLength(1);
-      },
-    },
-    {
-      name: "does not match income to Fidelity when amounts differ",
-      txns: [mkDeposit({ source: "fidelity", date: JAN_15, amount: 1000 })],
-      qTxns: [mkQianjiTxn({ date: JAN_15, type: "income", category: "Salary", amount: 999.99, accountTo: "Fidelity taxable" })],
-      expected: { matchedCount: 0 },
-    },
-  ])("$name", ({ txns, qTxns, expected, assert }) => {
-    const cc = computeJanCrossCheck(txns, qTxns);
+      { matchedCount: 0 },
+      { inspect: (cc) => expect(cc.perSource.fidelity.unmatched).toHaveLength(1) },
+    ),
+    ccCase(
+      "does not match income to Fidelity when amounts differ",
+      [mkDeposit({ source: "fidelity", date: JAN_15, amount: 1000 })],
+      [mkQianjiTxn({ date: JAN_15, type: "income", category: "Salary", amount: 999.99, accountTo: "Fidelity taxable" })],
+      { matchedCount: 0 },
+    ),
+    ccCase("returns ok=false when no deposits exist", [], [], { ok: false, totalCount: 0 }),
+    ccCase(
+      "does not reuse a transfer for two deposits",
+      [
+        mkDeposit({ source: "fidelity", date: "2026-01-10", amount: 500 }),
+        mkDeposit({ source: "fidelity", date: "2026-01-11", amount: 500 }),
+      ],
+      [mkTransfer({ date: "2026-01-10", amount: 500 })],
+      { matchedCount: 1, totalCount: 2, ok: false },
+    ),
+    ccCase(
+      "excludes sub-dollar dust deposits",
+      [
+        mkDeposit({ source: "fidelity", date: JAN_15, amount: 0.03 }),
+        mkDeposit({ source: "fidelity", date: JAN_15, amount: 0.33 }),
+        mkDeposit({ source: "fidelity", date: JAN_15, amount: 1000 }),
+      ],
+      [mkQianjiFloor({ amount: 50 }), mkTransfer({ date: JAN_15, amount: 1000 })],
+      { totalCount: 1, matchedCount: 1, ok: true },
+    ),
+    ccCase(
+      "excludes deposits predating the earliest Qianji txn",
+      [
+        mkDeposit({ source: "fidelity", date: "2023-06-01", amount: 2000 }),
+        mkDeposit({ source: "fidelity", date: JAN_15, amount: 1000 }),
+      ],
+      [
+        mkQianjiTxn({ date: "2024-05-12", type: "expense", amount: 50 }),
+        mkTransfer({ date: "2026-01-16", amount: 1000 }),
+      ],
+      { totalCount: 1, matchedCount: 1, ok: true },
+      { start: "2023-01-01" },
+    ),
+    ccCase(
+      "finds optimal interval matching where nearest-greedy would orphan",
+      [
+        mkDeposit({ source: "fidelity", date: "2026-01-05", amount: 500 }),
+        mkDeposit({ source: "fidelity", date: "2026-01-10", amount: 500 }),
+        mkDeposit({ source: "fidelity", date: "2026-01-11", amount: 500 }),
+      ],
+      [
+        mkTransfer({ date: "2026-01-03", amount: 500 }),
+        mkTransfer({ date: "2026-01-06", amount: 500 }),
+        mkTransfer({ date: "2026-01-09", amount: 500 }),
+      ],
+      { matchedCount: 3, totalCount: 3, ok: true },
+    ),
+    ccCase(
+      "per-source totals add up",
+      [
+        mkDeposit({ source: "fidelity", date: "2026-01-10", amount: 500 }),
+        mkDeposit({ source: "robinhood", date: "2026-01-12", amount: 200 }),
+      ],
+      [
+        mkQianjiFloor(),
+        mkTransfer({ date: "2026-01-10", amount: 500, accountTo: "Fidelity taxable" }),
+        mkTransfer({ date: "2026-01-12", amount: 200, accountTo: "Robinhood" }),
+      ],
+      { ok: true },
+      { inspect: (cc) => {
+        expect(cc.matchedCount).toBe(cc.perSource.fidelity.matched + cc.perSource.robinhood.matched);
+        expect(cc.totalCount).toBe(cc.perSource.fidelity.total + cc.perSource.robinhood.total);
+      } },
+    ),
+    ccCase(
+      "ignores 401k contributions entirely",
+      [
+        mkDeposit({ source: "fidelity", date: "2026-01-10", amount: 500 }),
+        mkInvestmentTxn({ source: "401k", actionType: "contribution", ticker: "401k sp500", date: "2026-01-15", amount: 450 }),
+        mkInvestmentTxn({ source: "401k", actionType: "contribution", ticker: "401k tech",  date: "2026-01-15", amount: 90 }),
+      ],
+      [mkQianjiFloor(), mkTransfer({ date: "2026-01-10", amount: 500, accountTo: "Fidelity taxable" })],
+      { totalCount: 1, matchedCount: 1 },
+      { inspect: (cc) => {
+        expect(cc.perSource).not.toHaveProperty("contribution");
+        expect("401k" in cc.perSource).toBe(false);
+      } },
+    ),
+    ccCase(
+      "Robinhood deposit only matches Robinhood accountTo",
+      [mkDeposit({ source: "robinhood", date: JAN_15, amount: 500 })],
+      [
+        mkQianjiFloor(),
+        mkQianjiTxn({ date: JAN_15, type: "income", amount: 500, accountTo: "Fidelity taxable" }),
+      ],
+      { allUnmatched: 1 },
+      { inspect: (cc) => {
+        expect(cc.perSource.robinhood.matched).toBe(0);
+        expect(cc.perSource.robinhood.unmatched).toHaveLength(1);
+        expect(cc.allUnmatched[0].source).toBe("robinhood");
+      } },
+    ),
+    ccCase(
+      "surfaces unmatched items on allUnmatched",
+      [
+        mkDeposit({ source: "fidelity", date: "2026-01-10", amount: 999 }),
+        mkDeposit({ source: "robinhood", date: "2026-01-12", amount: 200 }),
+      ],
+      [mkQianjiFloor()],
+      { matchedCount: 0, totalCount: 2, allUnmatched: 2 },
+      { inspect: (cc) => expect(cc.allUnmatched.map(u => u.source).sort()).toEqual(["fidelity", "robinhood"]) },
+    ),
+  ];
+
+  it.each(cases)("$name", ({ txns, qTxns, start = JAN_START, expected, inspect }) => {
+    const cc = computeCrossCheck(txns, qTxns, start, JAN_END);
     expectCrossCheckTotals(cc, expected);
-    assert?.(cc);
-  });
-
-  // Earliest-in-window matching is optimal on interval bipartite graphs.
-  // Nearest-available greedy would let the middle deposit steal the only
-  // candidate the first deposit could reach, orphaning it — verify all three
-  // now pair up cleanly.
-  it("finds optimal matching where nearest-greedy would orphan", () => {
-    const txns: InvestmentTxn[] = [
-      mkDeposit({ source: "fidelity", date: "2026-01-05", amount: 500 }),
-      mkDeposit({ source: "fidelity", date: "2026-01-10", amount: 500 }),
-      mkDeposit({ source: "fidelity", date: "2026-01-11", amount: 500 }),
-    ];
-    const qTxns: QianjiTxn[] = [
-      mkTransfer({ date: "2026-01-03", amount: 500 }),
-      mkTransfer({ date: "2026-01-06", amount: 500 }),
-      mkTransfer({ date: "2026-01-09", amount: 500 }),
-    ];
-    const cc = computeJanCrossCheck(txns, qTxns);
-    expectCrossCheckTotals(cc, { matchedCount: 3, totalCount: 3, ok: true });
-  });
-});
-
-// ── computeCrossCheck per-source ────────────────────────────────────────
-
-describe("computeCrossCheck per-source", () => {
-  it("invariant: matchedCount === perSource.fidelity.matched + perSource.robinhood.matched", () => {
-    const txns: InvestmentTxn[] = [
-      mkDeposit({ source: "fidelity", date: "2026-01-10", amount: 500 }),
-      mkDeposit({ source: "robinhood", date: "2026-01-12", amount: 200 }),
-    ];
-    const q: QianjiTxn[] = [
-      mkQianjiFloor(),
-      mkTransfer({ date: "2026-01-10", amount: 500, accountTo: "Fidelity taxable" }),
-      mkTransfer({ date: "2026-01-12", amount: 200, accountTo: "Robinhood" }),
-    ];
-    const cc = computeJanCrossCheck(txns, q);
-    expect(cc.matchedCount).toBe(cc.perSource.fidelity.matched + cc.perSource.robinhood.matched);
-    expect(cc.totalCount).toBe(cc.perSource.fidelity.total + cc.perSource.robinhood.total);
-    expect(cc.ok).toBe(true);
-  });
-
-  it("ignores 401k contributions entirely (not part of UI cross-check)", () => {
-    const txns: InvestmentTxn[] = [
-      mkDeposit({ source: "fidelity", date: "2026-01-10", amount: 500 }),
-      // 401k contributions present but should NOT affect cross-check — pipeline handles QFX/Qianji reconcile at ingest
-      mkInvestmentTxn({ source: "401k", actionType: "contribution", ticker: "401k sp500", date: "2026-01-15", amount: 450 }),
-      mkInvestmentTxn({ source: "401k", actionType: "contribution", ticker: "401k tech",  date: "2026-01-15", amount: 90 }),
-    ];
-    const q: QianjiTxn[] = [
-      mkQianjiFloor(),
-      mkTransfer({ date: "2026-01-10", amount: 500, accountTo: "Fidelity taxable" }),
-    ];
-    const cc = computeJanCrossCheck(txns, q);
-    expectCrossCheckTotals(cc, { totalCount: 1, matchedCount: 1 }); // only the Fidelity deposit
-    expect(cc.perSource).not.toHaveProperty("contribution");
-    expect("401k" in cc.perSource).toBe(false);
-  });
-
-  it("Robinhood deposit matches only against Qianji with accountTo starting 'robinhood'", () => {
-    const txns: InvestmentTxn[] = [mkDeposit({ source: "robinhood", date: JAN_15, amount: 500 })];
-    const q: QianjiTxn[] = [
-      mkQianjiFloor(),
-      mkQianjiTxn({ date: JAN_15, type: "income", amount: 500, accountTo: "Fidelity taxable" }), // wrong account
-    ];
-    const cc = computeJanCrossCheck(txns, q);
-    expect(cc.perSource.robinhood.matched).toBe(0);
-    expect(cc.perSource.robinhood.unmatched).toHaveLength(1);
-    expect(cc.allUnmatched).toHaveLength(1);
-    expect(cc.allUnmatched[0].source).toBe("robinhood");
-  });
-
-  it("surfaces unmatched items on allUnmatched (flat list for drawer)", () => {
-    const txns: InvestmentTxn[] = [
-      mkDeposit({ source: "fidelity", date: "2026-01-10", amount: 999 }),
-      mkDeposit({ source: "robinhood", date: "2026-01-12", amount: 200 }),
-    ];
-    const cc = computeJanCrossCheck(txns, [mkQianjiFloor()]);
-    expectCrossCheckTotals(cc, { matchedCount: 0, totalCount: 2, allUnmatched: 2 });
-    expect(cc.allUnmatched.map(u => u.source).sort()).toEqual(["fidelity", "robinhood"]);
+    inspect?.(cc);
   });
 });
 

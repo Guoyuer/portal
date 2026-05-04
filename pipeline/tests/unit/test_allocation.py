@@ -4,7 +4,8 @@ from __future__ import annotations
 import logging
 import sqlite3
 import sys
-from contextlib import closing
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import date, datetime
 from pathlib import Path
 from types import ModuleType
@@ -53,13 +54,21 @@ def _init_timemachine(db_path: Path) -> None:
                 insert_close(conn, symbol, dt, close)
 
 
-def _init_qianji(db_path: Path) -> None:
+@contextmanager
+def _qianji_conn(db_path: Path) -> Iterator[sqlite3.Connection]:
     conn = sqlite3.connect(str(db_path))
-    _create_qianji_schema(conn)
-    conn.execute("INSERT INTO user_asset (name, money, currency) VALUES ('HYSA', 5000.0, 'USD')")
-    conn.execute("INSERT INTO user_asset (name, money, currency) VALUES ('Alipay', 10000.0, 'CNY')")
-    conn.commit()
-    conn.close()
+    try:
+        _create_qianji_schema(conn)
+        yield conn
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _init_qianji(db_path: Path) -> None:
+    with _qianji_conn(db_path) as conn:
+        conn.execute("INSERT INTO user_asset (name, money, currency) VALUES ('HYSA', 5000.0, 'USD')")
+        conn.execute("INSERT INTO user_asset (name, money, currency) VALUES ('Alipay', 10000.0, 'CNY')")
 
 
 def _make_config() -> dict:
@@ -170,8 +179,8 @@ class TestComputeDailyAllocation:
         db_path = tmp_path / "timemachine.db"
         qj_path = tmp_path / "qianji.db"
 
-        with closing(sqlite3.connect(str(qj_path))) as qj_conn:
-            _create_qianji_schema(qj_conn)
+        with _qianji_conn(qj_path):
+            pass
 
         init_db(db_path)
         with connected_db(db_path) as conn:
@@ -231,8 +240,7 @@ class TestComputeDailyAllocation:
         qj_path = tmp_path / "qianji.db"
         _init_timemachine(db_path)
 
-        with closing(sqlite3.connect(str(qj_path))) as conn:
-            _create_qianji_schema(conn)
+        with _qianji_conn(qj_path) as conn:
             conn.execute("INSERT INTO user_asset (name, money, currency) VALUES ('Credit Card', -2000.0, 'USD')")
 
         config = _make_config()
@@ -274,15 +282,13 @@ class TestComputeDailyAllocation:
             for dt in ("2025-02-28", "2025-03-03"):
                 insert_close(conn, "CNY=X", dt, 7.25)
 
-        with closing(sqlite3.connect(str(qj_path))) as conn:
-            _create_qianji_schema(conn)
+        with _qianji_conn(qj_path) as conn:
             conn.execute("INSERT INTO user_asset (name, money, currency) VALUES ('Checking', 1100.0, 'USD')")
             late_local = datetime(2025, 3, 3, 20, 0, 0, tzinfo=ZoneInfo("America/Los_Angeles")).timestamp()
             conn.execute(
                 "INSERT INTO user_bill (time, type, money, fromact, status) VALUES (?, 1, 100.0, 'Checking', 1)",
                 (late_local,),
             )
-            conn.commit()
 
         config = {
             "assets": {"Cash": {"category": "Safe Net", "subtype": ""}},
@@ -326,26 +332,28 @@ class TestCategorizeTicker:
         "VXUS": {"category": "Non-US Equity", "subtype": "broad"},
     }
 
-    def test_positive_value(self) -> None:
-        row = _categorize_ticker("VOO", 5500.0, self.ASSETS)
-        assert row == {
-            "ticker": "VOO", "value": 5500.0,
-            "category": "US Equity", "subtype": "broad",
-        }
+    @pytest.mark.parametrize(
+        ("ticker", "value", "expected"),
+        [
+            ("VOO", 5500.0, {"ticker": "VOO", "value": 5500.0, "category": "US Equity", "subtype": "broad"}),
+            ("Chase CC", -2000.0, {"ticker": "Chase CC", "value": -2000.0, "category": "Liability", "subtype": ""}),
+        ],
+        ids=["asset", "liability"],
+    )
+    def test_categorizes_values(self, ticker: str, value: float, expected: dict[str, object]) -> None:
+        assert _categorize_ticker(ticker, value, self.ASSETS) == expected
 
-    def test_negative_value_becomes_liability(self) -> None:
-        row = _categorize_ticker("Chase CC", -2000.0, self.ASSETS)
-        assert row["category"] == "Liability"
-        assert row["subtype"] == ""
-        assert row["value"] == -2000.0
-
-    def test_missing_asset_raises(self) -> None:
-        with pytest.raises(KeyError, match="not in config.assets"):
-            _categorize_ticker("UNKNOWN", 100.0, self.ASSETS)
-
-    def test_missing_category_raises(self) -> None:
-        with pytest.raises(KeyError, match="no 'category'"):
-            _categorize_ticker("X", 100.0, {"X": {"subtype": "foo"}})
+    @pytest.mark.parametrize(
+        ("ticker", "assets", "match"),
+        [
+            ("UNKNOWN", ASSETS, "not in config.assets"),
+            ("X", {"X": {"subtype": "foo"}}, "no 'category'"),
+        ],
+        ids=["missing-asset", "missing-category"],
+    )
+    def test_invalid_config_raises(self, ticker: str, assets: dict, match: str) -> None:
+        with pytest.raises(KeyError, match=match):
+            _categorize_ticker(ticker, 100.0, assets)
 
 
 # ── _add_qianji_balances ───────────────────────────────────────────────────

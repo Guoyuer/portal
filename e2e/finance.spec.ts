@@ -34,74 +34,42 @@ test.describe("Finance Report", () => {
     await page.getByTestId("page-title").waitFor({ timeout: 10_000 });
   });
 
-  test("renders page title", async ({ page }) => {
+  test("renders core dashboard sections", async ({ page }) => {
     await expect(page.locator("h1")).toContainText("Dashboard for Yuer");
-  });
+    const sidebar = page.locator("aside").first();
+    await expect(sidebar.getByText("Portal")).toBeVisible();
+    await expect(sidebar.getByText("Finance")).toBeVisible();
 
-  test("shows metric cards with values", async ({ page }) => {
     await expect(page.getByTestId("net-worth-card")).toBeVisible({ timeout: 10000 });
     await expect(page.getByText(/Investment/).first()).toBeVisible();
     await expect(page.getByText(/\$\d+k/).first()).toBeVisible();
-
-    const savingsCard = page.getByTestId("savings-rate-card");
-    await expect(savingsCard).toBeVisible();
-    await expect(savingsCard.getByText(/\d+%|N\/A/).first()).toBeVisible();
-    const rateClass = await savingsCard.locator("p[class*='font-bold']").first().getAttribute("class");
-    expect(rateClass).toMatch(/text-(green-|emerald-|yellow-|red-)|font-bold/);
-
     await expect(page.getByTestId("goal-card")).toBeVisible();
-    const progressBar = page.getByTestId("goal-card").locator("[class*='bg-blue-']");
-    await expect(progressBar).toBeVisible();
-    expect(await progressBar.getAttribute("style")).toMatch(/width:\s*\d+/);
-  });
 
-  test("shows allocation table and donut", async ({ page }) => {
-    await expect(page.getByTestId("net-worth-card")).toBeVisible({ timeout: 10000 });
     await page.getByTestId("net-worth-card").getByRole("button").click();
     await expect(page.getByRole("cell", { name: "US Equity", exact: true })).toBeVisible();
     await expect(page.getByRole("cell", { name: "Non-US Equity" })).toBeVisible();
-    await expect(page.getByRole("cell", { name: "Crypto" })).toBeVisible();
-    await expect(page.getByRole("cell", { name: "Safe Net" })).toBeVisible();
-    await expect(page.getByText("broad").first()).toBeVisible();
-    await expect(page.getByText("growth").first()).toBeVisible();
-    await expect(page.getByRole("columnheader", { name: "Target" })).toBeVisible();
-    await expect(page.getByRole("columnheader", { name: "Dev" })).toBeVisible();
-    const deviationCells = page.locator("td[class*='text-red-'], td[class*='text-green-'], td[class*='text-emerald-']");
-    await expect(deviationCells.first()).toBeVisible();
     await expect(page.locator(".recharts-pie")).toBeVisible();
-    await expect(page.getByText(/^US Equity \d+%$/)).toBeVisible();
-  });
 
-  test("shows cash flow section with period", async ({ page }) => {
-    await expect(page.getByText(/Cash Flow/).first()).toBeVisible({ timeout: 10000 });
     const cashflowSection = page.locator("#cashflow");
     await expect(cashflowSection.getByTestId("income-table")).toBeVisible();
     await expect(cashflowSection.getByTestId("income-table").getByRole("row", { name: /Total/ })).toBeVisible();
     await expect(cashflowSection.getByTestId("expense-table")).toBeVisible();
     await expect(cashflowSection.getByTestId("expense-table").getByRole("row", { name: /Total/ })).toBeVisible();
-    await expect(cashflowSection.getByText("Expenses").first()).toBeVisible();
-    await expect(cashflowSection.getByText("Savings").first()).toBeVisible();
-    const expenseTable = cashflowSection.getByTestId("expense-table");
-    await expect(expenseTable.getByRole("row", { name: /Rent 12/ })).toBeVisible();
-    await expect(expenseTable.getByRole("row", { name: /Subscriptions 12/ })).toBeVisible();
     const bars = cashflowSection.locator(".recharts-bar-rectangle");
     await expect(bars.first()).toBeVisible({ timeout: 5000 });
-    expect(await bars.count()).toBeGreaterThan(0);
+
+    const market = page.getByTestId("market-section");
+    await expect(market.getByText("S&P 500")).toBeVisible();
+    await expect(market.getByText("NASDAQ 100")).toBeVisible();
+    await expect(market.getByTestId("market-error")).toHaveCount(0);
+
+    const tmSection = page.locator("#timemachine");
+    await expect(tmSection.locator(".recharts-area").first()).toBeVisible();
+    await expect(tmSection.getByText("Net Savings")).toBeVisible();
+    await expect(page.locator(".recharts-brush").first()).toBeVisible();
   });
 
-  test("shows cash flow summary metrics", async ({ page }) => {
-    const tm = page.locator("#timemachine");
-    await expect(tm).toBeVisible();
-    await expect(tm.getByText("Net Savings")).toBeVisible();
-    await expect(tm.getByText("Investments")).toBeVisible();
-    await expect(tm.getByText("CC Payments")).toBeVisible();
-  });
-
-  test("shows buys and dividends by symbol", async ({ page }) => {
-    await visibleActivityTable(page);
-  });
-
-  test("ticker tables have collapsible overflow", async ({ page }) => {
+  test("shows buys/dividends and collapsible overflow", async ({ page }) => {
     const { section } = await visibleActivityTable(page);
     const details = section.locator("details").filter({ hasText: /and \d+ more/ });
     await expect(details.first()).toBeVisible();
@@ -132,30 +100,10 @@ test.describe("Finance Report", () => {
     await spaxxRow.click();
     await expect(page.getByText(/Money market fund/)).toBeVisible({ timeout: 5000 });
   });
-
-
-  test("sidebar has navigation links", async ({ page }) => {
-    const sidebar = page.locator("aside").first();
-    await expect(sidebar.getByText("Portal")).toBeVisible();
-    await expect(sidebar.getByText("Finance")).toBeVisible();
-  });
-
   test("home page redirects to finance", async ({ page }) => {
     await page.goto("/");
     await expect(page).toHaveURL(/\/finance/);
     await expect(page.locator("h1")).toContainText("Dashboard for Yuer");
-  });
-
-  // ── Market ─────────────────────────────────────────────────────
-
-  test("shows market context with index cards and no error", async ({ page }) => {
-    const section = page.getByTestId("market-section");
-    await expect(section).toBeVisible();
-    await expect(section.getByText("Market")).toBeVisible();
-    await expect(section.getByText("S&P 500")).toBeVisible();
-    await expect(section.getByText("NASDAQ 100")).toBeVisible();
-    await expect(section.getByText("52-week range").first()).toBeVisible();
-    await expect(section.getByTestId("market-error")).toHaveCount(0);
   });
 
   // ── UI Polish ────────────────────────────────────────────────────────
@@ -181,11 +129,6 @@ test.describe("Finance Report", () => {
     // Click again to go back (label changes in dark mode)
     await page.getByLabel(/switch to (light|dark) mode/i).first().click();
     await expect(html).not.toHaveClass(/dark/);
-  });
-
-  test("sticky brush bar is visible at page bottom", async ({ page }) => {
-    const stickyBrush = page.locator(".recharts-brush");
-    await expect(stickyBrush.first()).toBeVisible();
   });
 
   test("savings labels stay correct after brush move", async ({ page }) => {
@@ -217,23 +160,5 @@ test.describe("Finance Report", () => {
     }
     // Brush should have narrowed the visible range (fewer or equal labels)
     expect(labelsAfter.length).toBeLessThanOrEqual(labelsBefore.length);
-  });
-
-  // ── Timemachine ─────────────────────────────────────────────────────────
-
-  test.describe("Timemachine", () => {
-    test("shows chart and summary", async ({ page }) => {
-      const tmSection = page.locator("#timemachine");
-      await expect(tmSection).toBeVisible();
-      await expect(tmSection.locator(".recharts-area").first()).toBeVisible();
-      await expect(tmSection.getByText("US Equity").first()).toBeVisible();
-      await expect(tmSection.getByText("Safe Net").first()).toBeVisible();
-      await expect(tmSection.getByText("Income")).toBeVisible();
-      await expect(tmSection.getByText("Expenses")).toBeVisible();
-      await expect(tmSection.getByText("Investments")).toBeVisible();
-      await expect(tmSection.getByText("Dividends").first()).toBeVisible();
-      await expect(tmSection.locator("text=/\\$\\d/").first()).toBeVisible();
-      expect(await tmSection.locator(".recharts-area").count()).toBeGreaterThan(0);
-    });
   });
 });

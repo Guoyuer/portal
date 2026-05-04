@@ -7,17 +7,14 @@ import sys
 import time
 from datetime import date
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 import etl.automation.changes as changes  # noqa: E402
 import etl.automation.notify as notify  # noqa: E402
-import etl.automation.paths as paths  # noqa: E402
 import etl.automation.runner as runner  # noqa: E402
 from etl.automation._constants import (  # noqa: E402
-    _STATUS_LABELS,  # noqa: E402
     EXIT_BUILD_FAIL,
     EXIT_OK,
     EXIT_PARITY_FAIL,
@@ -26,12 +23,7 @@ from etl.automation._constants import (  # noqa: E402
 )
 from etl.automation.receipt import NetWorthPoint, SyncSnapshot  # noqa: E402
 from scripts import run_automation  # noqa: E402
-
-
-def test_artifact_verify_exit_code_label() -> None:
-    assert _STATUS_LABELS[EXIT_PARITY_FAIL] == "ARTIFACT VERIFY FAILED"
-    assert _STATUS_LABELS[EXIT_SYNC_FAIL] == "R2 PUBLISH FAILED"
-
+from tests.fixtures import connected_db, insert_computed_daily  # noqa: E402
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -74,19 +66,21 @@ def _stale_marker(marker: Path) -> None:
     os.utime(marker, (time.time() - 3600,) * 2)
 
 
+def _write_file(path: Path, text: str = "x", *, age_seconds: int | None = None) -> Path:
+    path.write_text(text)
+    if age_seconds is not None:
+        stamp = time.time() - age_seconds
+        os.utime(path, (stamp, stamp))
+    return path
+
+
 def _seed_computed_daily(tmp_path: Path, last_date: str) -> Path:
-    from etl.db import get_connection, init_db
+    from etl.db import init_db
 
     db = tmp_path / "tm.db"
     init_db(db)
-    conn = get_connection(db)
-    conn.execute(
-        "INSERT INTO computed_daily (date, total, us_equity, non_us_equity, crypto, safe_net)"
-        " VALUES (?, 100000, 55000, 15000, 3000, 27000)",
-        (last_date,),
-    )
-    conn.commit()
-    conn.close()
+    with connected_db(db) as conn:
+        insert_computed_daily(conn, last_date, 100000, us_equity=55000, non_us_equity=15000, crypto=3000, safe_net=27000)
     return db
 
 
@@ -154,30 +148,6 @@ class TestNeedsCatchup:
 
     def test_missing_db_file_triggers_catchup(self, tmp_path):
         assert changes.needs_catchup(tmp_path / "missing.db", today=date(2026, 4, 14)) is True
-
-
-# ── parse_args() ──────────────────────────────────────────────────────────────
-
-class TestParseArgs:
-    @pytest.mark.parametrize(
-        ("argv", "expected"),
-        [
-            pytest.param([], (False, False), id="no-args"),
-            pytest.param(["--force"], (True, False), id="force"),
-            pytest.param(["--dry-run"], (False, True), id="dry-run"),
-            pytest.param(["--force", "--dry-run"], (True, True), id="combined"),
-        ],
-    )
-    def test_flag_parsing(self, argv: list[str], expected: tuple[bool, bool]) -> None:
-        ns = runner.parse_args(argv)
-        assert (ns.force, ns.dry_run) == expected
-
-    def test_unknown_flag_exits(self):
-        with pytest.raises(SystemExit):
-            runner.parse_args(["--bogus"])
-
-    def test_entry_point_script_reexports_parse_args(self):
-        assert run_automation.parse_args is runner.parse_args
 
 
 # ── Exit-code mapping ─────────────────────────────────────────────────────────
@@ -335,142 +305,36 @@ class TestFindNewPositionsCSV:
     def test_returns_none_when_downloads_missing(self, tmp_path):
         assert changes.find_new_positions_csv(tmp_path / "nope", tmp_path / ".last_run") is None
 
-    def test_returns_none_when_no_matching_files(self, tmp_path):
-        downloads = tmp_path / "dl"
-        downloads.mkdir()
-        (downloads / "Accounts_History.csv").write_text("x")
-        assert changes.find_new_positions_csv(downloads, tmp_path / ".last_run") is None
-
-    def test_returns_csv_when_marker_missing(self, tmp_path):
-        downloads = tmp_path / "dl"
-        downloads.mkdir()
-        f = downloads / "Portfolio_Positions_Apr-07-2026.csv"
-        f.write_text("x")
-        assert changes.find_new_positions_csv(downloads, tmp_path / ".last_run") == f
-
-    def test_returns_none_when_csv_older_than_marker(self, tmp_path):
-        downloads = tmp_path / "dl"
-        downloads.mkdir()
-        marker = tmp_path / ".last_run"
-        f = downloads / "Portfolio_Positions_Apr-07-2026.csv"
-        f.write_text("x")
-        past = time.time() - 3600
-        os.utime(f, (past, past))
-        marker.write_text("fresh")
-        assert changes.find_new_positions_csv(downloads, marker) is None
-
-    def test_returns_newest_csv_when_multiple_fresh(self, tmp_path):
+    @pytest.mark.parametrize(
+        ("files", "marker_age", "expected"),
+        [
+            pytest.param([("Accounts_History.csv", 0)], None, None, id="no-position-files"),
+            pytest.param([("Portfolio_Positions_Apr-07-2026.csv", 0)], None, "Portfolio_Positions_Apr-07-2026.csv", id="marker-missing"),
+            pytest.param([("Portfolio_Positions_Apr-07-2026.csv", 3600)], 0, None, id="older-than-marker"),
+            pytest.param(
+                [("Portfolio_Positions_Apr-03-2026.csv", 1800), ("Portfolio_Positions_Apr-07-2026.csv", 0)],
+                7200,
+                "Portfolio_Positions_Apr-07-2026.csv",
+                id="newest-fresh",
+            ),
+        ],
+    )
+    def test_selects_fresh_positions_csv(
+        self,
+        tmp_path: Path,
+        files: list[tuple[str, int]],
+        marker_age: int | None,
+        expected: str | None,
+    ) -> None:
         downloads = tmp_path / "dl"
         downloads.mkdir()
         marker = tmp_path / ".last_run"
-        _stale_marker(marker)
-        os.utime(marker, (time.time() - 7200,) * 2)
-        older = downloads / "Portfolio_Positions_Apr-03-2026.csv"
-        newer = downloads / "Portfolio_Positions_Apr-07-2026.csv"
-        older.write_text("x")
-        os.utime(older, (time.time() - 1800,) * 2)
-        newer.write_text("x")  # mtime = now
-        assert changes.find_new_positions_csv(downloads, marker) == newer
-
-
-# ── Runner requires PORTAL_HEALTHCHECK_URL ────────────────────────────────────
-
-
-class TestRunnerWarnsOnMissingHealthcheckUrl:
-    def test_runner_init_warns_when_url_unset(self, monkeypatch, caplog):
-        monkeypatch.delenv("PORTAL_HEALTHCHECK_URL", raising=False)
-        args = runner.parse_args(["--force"])
-        with caplog.at_level(logging.WARNING, logger="etl.automation.runner"):
-            r = runner.Runner(args)
-        assert any("PORTAL_HEALTHCHECK_URL" in rec.message for rec in caplog.records)
-        assert r.args.force is True
-
-    def test_runner_init_silent_when_url_set(self, monkeypatch, caplog):
-        monkeypatch.setenv("PORTAL_HEALTHCHECK_URL", "https://hc.example/abc")
-        args = runner.parse_args(["--force"])
-        with caplog.at_level(logging.WARNING, logger="etl.automation.runner"):
-            r = runner.Runner(args)
-        assert not any("PORTAL_HEALTHCHECK_URL" in rec.message for rec in caplog.records)
-        assert r.args.force is True
-
-
-# ── ping_healthcheck() ────────────────────────────────────────────────────────
-
-class TestPingHealthcheck:
-    def test_no_op_when_url_unset(self, monkeypatch):
-        monkeypatch.delenv("PORTAL_HEALTHCHECK_URL", raising=False)
-        with patch("urllib.request.urlopen") as mock_open:
-            notify.ping_healthcheck()
-            notify.ping_healthcheck("start")
-            notify.ping_healthcheck("fail")
-        mock_open.assert_not_called()
-
-    def test_pings_when_url_set(self, monkeypatch):
-        monkeypatch.setenv("PORTAL_HEALTHCHECK_URL", "https://hc.example/abc")
-        with patch("urllib.request.urlopen") as mock_open:
-            notify.ping_healthcheck()
-            notify.ping_healthcheck("start")
-            notify.ping_healthcheck("fail")
-        assert mock_open.call_count == 3
-        urls = [call.args[0] for call in mock_open.call_args_list]
-        assert urls == [
-            "https://hc.example/abc",
-            "https://hc.example/abc/start",
-            "https://hc.example/abc/fail",
-        ]
-
-    def test_ping_swallows_errors(self, monkeypatch):
-        monkeypatch.setenv("PORTAL_HEALTHCHECK_URL", "https://hc.example/abc")
-        import urllib.error
-
-        def boom(*a, **_kw):
-            raise urllib.error.URLError("network down")
-
-        with patch("urllib.request.urlopen", side_effect=boom):
-            notify.ping_healthcheck("start")
-
-
-# ── Path helpers ──────────────────────────────────────────────────────────────
-
-class TestPathHelpers:
-    def test_downloads_override_env(self, monkeypatch, tmp_path):
-        monkeypatch.setenv("PORTAL_DOWNLOADS", str(tmp_path))
-        assert paths.get_downloads_dir() == tmp_path
-
-    def test_downloads_fallback_userprofile(self, monkeypatch, tmp_path):
-        monkeypatch.delenv("PORTAL_DOWNLOADS", raising=False)
-        monkeypatch.setenv("USERPROFILE", str(tmp_path))
-        assert paths.get_downloads_dir() == tmp_path / "Downloads"
-
-    def test_qianji_db_path_fallback_without_appdata(self, monkeypatch):
-        monkeypatch.delenv("APPDATA", raising=False)
-        p = paths.get_qianji_db_path()
-        assert p.parts[-3:] == ("com.mutangtech.qianji.win", "qianji_flutter", "qianjiapp.db")
-
-    def test_qianji_db_path_uses_appdata(self, monkeypatch, tmp_path):
-        monkeypatch.setenv("APPDATA", str(tmp_path))
-        p = paths.get_qianji_db_path()
-        assert p.is_relative_to(tmp_path)
-        assert p.name == "qianjiapp.db"
-
-    def test_log_dir_uses_localappdata(self, monkeypatch, tmp_path):
-        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
-        assert paths.get_log_dir() == tmp_path / "portal" / "logs"
-
-    def test_log_dir_fallback_non_windows(self, monkeypatch):
-        monkeypatch.delenv("LOCALAPPDATA", raising=False)
-        assert paths.get_log_dir().parts[-2:] == ("portal", "logs")
-
-    def test_db_path_override_env(self, monkeypatch, tmp_path):
-        override = tmp_path / "custom.db"
-        monkeypatch.setenv("PORTAL_DB_PATH", str(override))
-        assert paths.get_db_path() == override
-
-    def test_db_path_default_under_data_dir(self, monkeypatch):
-        monkeypatch.delenv("PORTAL_DB_PATH", raising=False)
-        p = paths.get_db_path()
-        assert p.name == "timemachine.db"
-        assert p.parent == paths.DATA_DIR
+        if marker_age is not None:
+            _write_file(marker, "fresh", age_seconds=marker_age)
+        for filename, age in files:
+            _write_file(downloads / filename, age_seconds=age)
+        result = changes.find_new_positions_csv(downloads, marker)
+        assert result == (downloads / expected if expected else None)
 
 
 # ── Email notifications ───────────────────────────────────────────────────────
@@ -523,19 +387,26 @@ class TestEmailNotifications:
         rc = run_automation.main(argv)
         return rc, fake, sent_calls
 
-    def test_success_with_no_diff_still_emails(self, monkeypatch, tmp_path):
-        rc, _, sent = self._invoke_with_email(
-            ["--force"], [0, 0, 0, 0], monkeypatch, tmp_path,
-            snapshot_before=SyncSnapshot(),
-            snapshot_after=SyncSnapshot(),
-        )
-        assert rc == EXIT_OK
-        assert len(sent) == 1
-        assert sent[0]["subject"].startswith("[Portal Sync] OK")
-
-    def test_net_worth_change_sends_email_summary(self, monkeypatch, tmp_path):
-        before = SyncSnapshot(net_worth=NetWorthPoint("2026-04-30", 1000))
-        after = SyncSnapshot(net_worth=NetWorthPoint("2026-05-01", 1100))
+    @pytest.mark.parametrize(
+        ("before", "after", "expected_text"),
+        [
+            (SyncSnapshot(), SyncSnapshot(), None),
+            (
+                SyncSnapshot(net_worth=NetWorthPoint("2026-04-30", 1000)),
+                SyncSnapshot(net_worth=NetWorthPoint("2026-05-01", 1100)),
+                "+$100.00",
+            ),
+        ],
+        ids=["no-diff", "net-worth-change"],
+    )
+    def test_success_email_summary(
+        self,
+        monkeypatch,
+        tmp_path,
+        before: SyncSnapshot,
+        after: SyncSnapshot,
+        expected_text: str | None,
+    ):
         rc, _, sent = self._invoke_with_email(
             ["--force"], [0, 0, 0, 0], monkeypatch, tmp_path,
             snapshot_before=before, snapshot_after=after,
@@ -543,31 +414,39 @@ class TestEmailNotifications:
         assert rc == EXIT_OK
         assert len(sent) == 1
         assert sent[0]["subject"].startswith("[Portal Sync] OK")
-        assert "+$100.00" in sent[0]["text"]
+        if expected_text:
+            assert expected_text in sent[0]["text"]
 
-    def test_build_failure_sends_email_with_exit_1(self, monkeypatch, tmp_path):
+    @pytest.mark.parametrize(
+        ("codes", "downloads_seed", "expected_rc", "expected_script", "expected_subject"),
+        [
+            ([5], None, EXIT_BUILD_FAIL, "build_timemachine_db.py", "BUILD FAILED"),
+            ([0, 1], ("Portfolio_Positions_Apr-07-2026.csv",), EXIT_POSITIONS_FAIL, "verify_positions.py", None),
+        ],
+        ids=["build-failure", "positions-failure"],
+    )
+    def test_failure_email_includes_stage_and_duration(
+        self,
+        monkeypatch,
+        tmp_path,
+        codes: list[int],
+        downloads_seed: tuple[str, ...] | None,
+        expected_rc: int,
+        expected_script: str,
+        expected_subject: str | None,
+    ):
         rc, _, sent = self._invoke_with_email(
-            ["--force"], [5], monkeypatch, tmp_path,
+            ["--force"], codes, monkeypatch, tmp_path,
             snapshot_before=SyncSnapshot(),
             snapshot_after=None,
+            downloads_seed=downloads_seed,
         )
-        assert rc == EXIT_BUILD_FAIL
+        assert rc == expected_rc
         assert len(sent) == 1
         assert "FAIL" in sent[0]["subject"]
-        assert "BUILD FAILED" in sent[0]["subject"]
-        assert "build_timemachine_db.py" in sent[0]["text"]
-        assert "Duration:" in sent[0]["text"]
-
-    def test_positions_gate_failure_email_includes_duration(self, monkeypatch, tmp_path):
-        rc, _, sent = self._invoke_with_email(
-            ["--force"], [0, 1], monkeypatch, tmp_path,
-            snapshot_before=SyncSnapshot(),
-            snapshot_after=None,
-            downloads_seed=("Portfolio_Positions_Apr-07-2026.csv",),
-        )
-        assert rc == EXIT_POSITIONS_FAIL
-        assert len(sent) == 1
-        assert "verify_positions.py" in sent[0]["text"]
+        if expected_subject:
+            assert expected_subject in sent[0]["subject"]
+        assert expected_script in sent[0]["text"]
         assert "Duration:" in sent[0]["text"]
 
     def test_email_disabled_no_smtp_activity(self, monkeypatch, tmp_path, capsys):

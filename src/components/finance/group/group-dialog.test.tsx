@@ -118,25 +118,17 @@ describe("TransactionTable", () => {
     expect(dates.length).toBeGreaterThanOrEqual(3);
   });
 
-  it("highlights buy rows when selection side=buy matches the date", () => {
-    const selected: Selection = { key: "buy-123-1", dates: ["2025-03-01"], side: "buy" };
+  it.each([
+    ["buy", "2025-03-01", /bg-emerald/],
+    ["sell", "2025-03-02", /bg-amber/],
+  ] as const)("highlights %s rows when selected", (side, date, className) => {
+    const selected: Selection = { key: `${side}-selected`, dates: [date], side };
     const { container } = render(
       <TransactionTable transactions={txns} selected={selected} />,
     );
-    const highlightedCell = container.querySelector('td[data-date="2025-03-01"][data-side="buy"]');
+    const highlightedCell = container.querySelector(`td[data-date="${date}"][data-side="${side}"]`);
     expect(highlightedCell).toBeTruthy();
-    // Should have a highlight class (emerald for buy)
-    expect(highlightedCell?.className).toMatch(/bg-emerald/);
-  });
-
-  it("highlights sell rows when selection side=sell matches the date", () => {
-    const selected: Selection = { key: "sell-456-1", dates: ["2025-03-02"], side: "sell" };
-    const { container } = render(
-      <TransactionTable transactions={txns} selected={selected} />,
-    );
-    const highlightedCell = container.querySelector('td[data-date="2025-03-02"][data-side="sell"]');
-    expect(highlightedCell).toBeTruthy();
-    expect(highlightedCell?.className).toMatch(/bg-amber/);
+    expect(highlightedCell?.className).toMatch(className);
   });
 
   it("returns null when transactions is empty", () => {
@@ -168,15 +160,18 @@ describe("MarkerHoverPanel", () => {
     memberDates: ["2025-06-15"],
   };
 
-  it("renders date and buy/sell label", () => {
+  it.each([
+    ["buy", /Buy/],
+    ["sell", /Sell/],
+  ] as const)("renders date and %s label", (side, label) => {
     render(
       <MarkerHoverPanel
-        hover={{ cluster: baseCluster, side: "buy", dayIso: "2025-06-15", close: 400, x: 0, y: 0 }}
+        hover={{ cluster: baseCluster, side, dayIso: "2025-06-15", close: 400, x: 0, y: 0 }}
         isDark={false}
       />,
     );
     expect(screen.getByText("Jun 15, 2025")).toBeTruthy();
-    expect(screen.getByText(/Buy/)).toBeTruthy();
+    expect(screen.getByText(label)).toBeTruthy();
   });
 
   it("shows Close label for ticker clusters (qty > 0)", () => {
@@ -221,15 +216,5 @@ describe("MarkerHoverPanel", () => {
     // VOO appears as both the valueLabel line and the breakdown line
     expect(getAllByText(/VOO/).length).toBeGreaterThanOrEqual(1);
     expect(getByText(/IVV/)).toBeTruthy();
-  });
-
-  it("sell side renders with correct label", () => {
-    const { getByText } = render(
-      <MarkerHoverPanel
-        hover={{ cluster: baseCluster, side: "sell", dayIso: "2025-06-15", close: 400, x: 0, y: 0 }}
-        isDark={false}
-      />,
-    );
-    expect(getByText(/Sell/)).toBeTruthy();
   });
 });
