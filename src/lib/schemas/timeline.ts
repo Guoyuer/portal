@@ -5,15 +5,6 @@
 
 import { z } from "zod";
 
-import {
-  AllocationRowSchema,
-  EmpowerContributionSchema,
-  FidelityTxnSchema,
-  QianjiTxnSchema,
-  RobinhoodTxnSchema,
-  TickerDetailSchema,
-} from "./_generated";
-
 // ── Market Context ───────────────────────────────────────────────────────
 
 const IndexReturnSchema = z.object({
@@ -31,16 +22,61 @@ const MarketDataSchema = z.object({
   indices: z.array(IndexReturnSchema),
 });
 
-// ── Timemachine (derived from generated AllocationRow) ─────────────────
-// DailyPoint is AllocationRow minus the nested `tickers` — those rows are
-// flattened into a top-level `dailyTickers` array by the exporter.
-const DailyPointSchema = AllocationRowSchema.omit({ tickers: true });
+// ── Timemachine ─────────────────────────────────────────────────────────
+
+const DailyPointSchema = z.object({
+  date: z.string(),
+  total: z.number(),
+  usEquity: z.number(),
+  nonUsEquity: z.number(),
+  crypto: z.number(),
+  safeNet: z.number(),
+  liabilities: z.number(),
+});
+
+const DailyTickerSchema = z.object({
+  date: z.string(),
+  ticker: z.string(),
+  value: z.number(),
+  category: z.string(),
+  subtype: z.string(),
+  costBasis: z.number(),
+  gainLoss: z.number(),
+  gainLossPct: z.number(),
+});
 
 // ── Raw transaction schemas (bundled in /timeline) ──────────────────────
-// DailyTicker = TickerDetail + `date` (denormalized from the parent row
-// when flattened for the API).
-const DailyTickerSchema = TickerDetailSchema.extend({
+
+const FidelityTxnSchema = z.object({
+  runDate: z.string(),
+  actionType: z.string(),
+  symbol: z.string(),
+  amount: z.number(),
+  quantity: z.number(),
+  price: z.number(),
+});
+
+const QianjiTxnSchema = z.object({
   date: z.string(),
+  type: z.string(),
+  category: z.string(),
+  amount: z.number(),
+  accountTo: z.string(),
+  isRetirement: z.boolean(),
+});
+
+const RobinhoodTxnSchema = z.object({
+  txnDate: z.string(),
+  actionKind: z.string(),
+  ticker: z.string(),
+  quantity: z.number(),
+  amountUsd: z.number(),
+});
+
+const EmpowerContributionSchema = z.object({
+  date: z.string(),
+  amount: z.number(),
+  ticker: z.string(),
 });
 
 // ── Category metadata (target weights + display order from pipeline) ────

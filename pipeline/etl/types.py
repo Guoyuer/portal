@@ -93,21 +93,7 @@ class RawConfig(TypedDict, total=False):
     empower_cusip_map: dict[str, str]
 
 
-# ── Record types (parsed from CSV/DB) ──────────────────────────────────────
-
-
-class FidelityTransaction(TypedDict):
-    date: str
-    account: str
-    action_type: str  # ACT_DEPOSIT, ACT_BUY, etc.
-    symbol: str
-    description: str
-    lot_type: str  # "Cash", "Margin", "Shares", "Financing", or ""
-    quantity: float
-    price: float
-    amount: float
-    raw_action: str
-    dedup_key: tuple[object, ...]
+# ── Record types (parsed from source DB / computed ETL rows) ────────────────
 
 
 class QianjiRecord(TypedDict):
@@ -118,26 +104,6 @@ class QianjiRecord(TypedDict):
     account_from: str
     account_to: str
     note: str
-
-
-class RobinhoodTransaction(TypedDict):
-    """Robinhood transaction row matching the ``robinhood_transactions``
-    table and exported API transaction shape.
-    """
-    txn_date: str              # ISO YYYY-MM-DD
-    action_kind: str           # normalized ActionKind enum (buy/sell/dividend/deposit/other)
-    ticker: str
-    quantity: float
-    amount_usd: float
-
-
-class EmpowerContribution(TypedDict):
-    """One 401k contribution row matching the ``empower_contributions``
-    table and exported API contribution shape.
-    """
-    date: str
-    amount: float
-    ticker: str                # "401k sp500" | "401k tech" | "401k ex-us"
 
 
 class TickerDetail(TypedDict):

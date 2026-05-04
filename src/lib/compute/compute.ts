@@ -410,12 +410,6 @@ export function buildTickerIndex(tickers: DailyTicker[]): Map<string, ApiTicker[
 
 import { EQUIVALENT_GROUPS, groupOfTicker } from "@/lib/data/equivalent-groups";
 
-export type GroupedActivityResponse = {
-  buysBySymbol: ActivityTicker[];
-  sellsBySymbol: ActivityTicker[];
-  dividendsBySymbol: ActivityTicker[];
-};
-
 type GroupAccum = { count: number; total: number; sources: Set<SourceKind>; isGroup: boolean; groupKey?: string };
 
 function foldIntoGroups(rows: ActivityTicker[]): ActivityTicker[] {
@@ -454,7 +448,7 @@ export function computeGroupedActivity(
   investmentTxns: InvestmentTxn[],
   start: string,
   end: string,
-): GroupedActivityResponse {
+): ActivityResponse {
   const raw = computeActivity(investmentTxns, start, end);
   return {
     buysBySymbol: foldIntoGroups(raw.buysBySymbol),

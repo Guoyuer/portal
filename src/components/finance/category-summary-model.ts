@@ -1,4 +1,4 @@
-import type { ApiCategory, ApiTicker, CategoryData } from "@/lib/compute/computed-types";
+import type { ApiCategory, ApiTicker } from "@/lib/compute/computed-types";
 
 // -- Equity categories for classification -----------------------------------
 
@@ -29,7 +29,6 @@ export interface CategorySummaryModel {
   totalPct: number;
   totalTarget: number;
   totalDeviation: number;
-  donutCategories: CategoryData[];
 }
 
 /** Sum value/pct/target across categories; deviation is pct - target of the sum. */
@@ -82,20 +81,6 @@ function groupTickers(categories: ApiCategory[], tickers: ApiTicker[], total: nu
   });
 }
 
-function toDonutCategories(categories: ApiCategory[]): CategoryData[] {
-  return categories.map((c) => ({
-    name: c.name,
-    value: c.value,
-    pct: c.pct,
-    lots: 0,
-    target: c.target,
-    deviation: c.deviation,
-    isEquity: isEquityCategory(c.name),
-    subtypes: [],
-    holdings: [],
-  }));
-}
-
 export function buildCategorySummaryModel(
   categories: ApiCategory[],
   tickers: ApiTicker[],
@@ -116,6 +101,5 @@ export function buildCategorySummaryModel(
     totalPct,
     totalTarget,
     totalDeviation: totalPct - totalTarget,
-    donutCategories: toDonutCategories(categories),
   };
 }
