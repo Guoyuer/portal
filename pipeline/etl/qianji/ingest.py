@@ -77,7 +77,7 @@ def _load_records(
     the USD amount of legacy bills across runs. Missing historical rates fail
     closed instead of silently rewriting old bills with today's FX.
 
-    Bills are date-truncated in ``_USER_TZ`` (default ``America/Los_Angeles``)
+    Bills are date-truncated in ``_USER_TZ`` (default ``America/New_York``)
     so the daily cashflow reflects the user's wall-clock, not UTC.
     Balance-adjustment rows (manual reconciliations) are filtered out —
     they're not real cashflow.

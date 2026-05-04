@@ -41,6 +41,6 @@ _CONVERSION_TOLERANCE = 0.01
 # UTC day — systematically mis-dating daily cashflow by one day.
 #
 # ``QIANJI_USER_TZ`` lets callers pin a different zone for tests / fixtures.
-# Default is the zone the user actually lives in (PT); the L2 regression
+# Default is the zone the user actually lives in (ET); the L2 regression
 # fixture overrides to UTC to keep the golden deterministic.
-_USER_TZ = ZoneInfo(os.environ.get("QIANJI_USER_TZ", "America/Los_Angeles"))
+_USER_TZ = ZoneInfo(os.environ.get("QIANJI_USER_TZ", "America/New_York"))

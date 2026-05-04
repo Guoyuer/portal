@@ -300,7 +300,7 @@ class TestLoadRecords:
         assert len(records) == 2
 
     def test_date_truncation_uses_user_timezone(self):
-        ts = int(datetime(2026, 4, 10, 6, 30, tzinfo=UTC).timestamp())
+        ts = int(datetime(2026, 4, 10, 3, 30, tzinfo=UTC).timestamp())
         records = _records_for([_bill(1, money=15.0, remark="late-night snack", ts=ts)])
         assert records[0]["date"].startswith("2026-04-09")
 
