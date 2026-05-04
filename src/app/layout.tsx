@@ -1,7 +1,6 @@
 import { StrictMode } from "react";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import Script from "next/script";
 import "./globals.css";
 import "../../public/glass.css";
 import Sidebar from "@/components/layout/sidebar";
@@ -21,6 +20,19 @@ export const metadata: Metadata = {
   description: "Personal dashboard",
   robots: { index: false, follow: false },
 };
+
+const SERVICE_WORKER_CLEANUP_SCRIPT = `
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.getRegistrations().then((registrations) => {
+    registrations.forEach((registration) => registration.unregister());
+  });
+}
+if ("caches" in window) {
+  caches.keys().then((keys) => {
+    keys.filter((key) => key.startsWith("portal-static-")).forEach((key) => caches.delete(key));
+  });
+}
+`;
 
 export default function RootLayout({
   children,
@@ -48,9 +60,11 @@ export default function RootLayout({
               <main className="min-h-screen p-6 pt-14 md:pt-6">{children}</main>
             </div>
           </div>
-          <Script id="sw-register" strategy="lazyOnload">
-            {`if("serviceWorker"in navigator&&location.hostname!=="localhost")navigator.serviceWorker.register("/sw.js")`}
-          </Script>
+          <script
+            dangerouslySetInnerHTML={{
+              __html: SERVICE_WORKER_CLEANUP_SCRIPT,
+            }}
+          />
         </StrictMode>
       </body>
     </html>
