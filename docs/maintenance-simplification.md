@@ -423,6 +423,18 @@ deletions (`-106 diff LOC`); active maintenance surface is 222 files / 23,294
 LOC before this note. Targeted Python, frontend, Worker, Ruff, and TypeScript
 checks passed.
 
+Current test-surface pruning follow-up: automation tests dropped low-value
+env/path/healthcheck/CLI wrapper checks while keeping runner outcome,
+change-detection, positions-gate, warning-buffer, and email receipt coverage.
+Finance e2e collapsed repeated smoke assertions into one dashboard smoke plus
+the retained interaction tests, and ticker-chart component tests stopped
+duplicating `ticker-data` merge coverage. Incremental/replay/positions tests
+also share row builders and replay helpers instead of local DB boilerplate.
+Diff effect before this note: 9 files, 510 insertions / 824 deletions
+(`-314 diff LOC`); active maintenance surface is 222 files / 23,059 LOC before
+this note. Validation so far: targeted Python tests, Ruff, focused Vitest, and
+the finance Playwright spec.
+
 ### Wave 1: Safe Deletions and Test Compression
 
 Targets:

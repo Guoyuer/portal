@@ -10,7 +10,7 @@ from etl.db import (
     init_db,
     upsert_daily_rows,
 )
-from tests.fixtures import connected_db, db_rows, db_value
+from tests.fixtures import connected_db, db_rows, db_value, insert_computed_daily
 
 
 @pytest.fixture()
@@ -21,15 +21,23 @@ def db(empty_db):
 def _insert_daily(db_path, rows):
     with connected_db(db_path) as conn:
         for r in rows:
-            conn.execute(
-                "INSERT INTO computed_daily (date, total, us_equity, non_us_equity, crypto, safe_net)"
-                " VALUES (?, ?, ?, ?, ?, ?)",
-                (r["date"], r["total"], r["us_equity"], r["non_us_equity"], r["crypto"], r["safe_net"]),
+            insert_computed_daily(
+                conn, r["date"], r["total"],
+                us_equity=r["us_equity"], non_us_equity=r["non_us_equity"],
+                crypto=r["crypto"], safe_net=r["safe_net"],
             )
 
 
-_DAY1 = {"date": "2025-01-02", "total": 100, "us_equity": 50, "non_us_equity": 20, "crypto": 10, "safe_net": 20}
-_DAY2 = {"date": "2025-01-03", "total": 110, "us_equity": 55, "non_us_equity": 22, "crypto": 11, "safe_net": 22}
+def _daily(day: str, total: float = 100, *, tickers: list[dict] | None = None) -> dict:
+    return {
+        "date": day, "total": total, "us_equity": total / 2,
+        "non_us_equity": total * 0.2, "crypto": total * 0.1, "safe_net": total * 0.2,
+        "liabilities": 0, "tickers": tickers or [],
+    }
+
+
+_DAY1 = _daily("2025-01-02")
+_DAY2 = _daily("2025-01-03", 110)
 
 
 # ── get_last_computed_date ──────────────────────────────────────────────────
@@ -50,54 +58,32 @@ class TestGetLastComputedDate:
 class TestUpsertDailyRows:
     def test_appends_new_rows(self, db):
         _insert_daily(db, [_DAY1])
-        new = [{"date": "2025-01-03", "total": 110, "us_equity": 55,
-                "non_us_equity": 22, "crypto": 11, "safe_net": 22,
-                "liabilities": 0, "tickers": []}]
-        assert upsert_daily_rows(db, new) == 1
+        assert upsert_daily_rows(db, [_DAY2]) == 1
         assert db_value(db, "SELECT COUNT(*) FROM computed_daily") == 2
 
     def test_upserts_existing_dates(self, db):
         """Recomputed row must replace the stored one (incremental refresh window)."""
         _insert_daily(db, [_DAY1])
-        new = [
-            {"date": "2025-01-02", "total": 999, "us_equity": 0,
-             "non_us_equity": 0, "crypto": 0, "safe_net": 0,
-             "liabilities": 0, "tickers": []},
-            {"date": "2025-01-03", "total": 110, "us_equity": 55,
-             "non_us_equity": 22, "crypto": 11, "safe_net": 22,
-             "liabilities": 0, "tickers": []},
-        ]
+        new = [_daily("2025-01-02", 999), _DAY2]
         assert upsert_daily_rows(db, new) == 2
         assert db_value(db, "SELECT total FROM computed_daily WHERE date = '2025-01-02'") == 999
 
     def test_appends_tickers(self, db):
-        new = [{"date": "2025-01-02", "total": 100, "us_equity": 50,
-                "non_us_equity": 20, "crypto": 10, "safe_net": 20,
-                "liabilities": 0,
-                "tickers": [{"ticker": "VOO", "value": 50, "category": "US Equity",
-                             "subtype": "S&P 500"}]}]
-        upsert_daily_rows(db, new)
+        upsert_daily_rows(db, [_daily(
+            "2025-01-02",
+            tickers=[{"ticker": "VOO", "value": 50, "category": "US Equity", "subtype": "S&P 500"}],
+        )])
         assert db_rows(db, "SELECT ticker, value FROM computed_daily_tickers WHERE date = '2025-01-02'")[0] == ("VOO", 50)
 
     def test_upsert_wipes_removed_tickers(self, db):
         """If a holding drops out on recompute, its ticker row must go too."""
-        old = [{"date": "2025-01-02", "total": 100, "us_equity": 50,
-                "non_us_equity": 20, "crypto": 10, "safe_net": 20,
-                "liabilities": 0,
-                "tickers": [
-                    {"ticker": "VOO", "value": 50, "category": "US Equity",
-                     "subtype": "S&P 500"},
-                    {"ticker": "OLD", "value": 25, "category": "US Equity",
-                     "subtype": "Mid Cap"},
-                ]}]
-        upsert_daily_rows(db, old)
-        # Recompute without OLD
-        new = [{"date": "2025-01-02", "total": 100, "us_equity": 50,
-                "non_us_equity": 20, "crypto": 10, "safe_net": 20,
-                "liabilities": 0,
-                "tickers": [{"ticker": "VOO", "value": 75, "category": "US Equity",
-                             "subtype": "S&P 500"}]}]
-        upsert_daily_rows(db, new)
+        upsert_daily_rows(db, [_daily("2025-01-02", tickers=[
+            {"ticker": "VOO", "value": 50, "category": "US Equity", "subtype": "S&P 500"},
+            {"ticker": "OLD", "value": 25, "category": "US Equity", "subtype": "Mid Cap"},
+        ])])
+        upsert_daily_rows(db, [_daily("2025-01-02", tickers=[
+            {"ticker": "VOO", "value": 75, "category": "US Equity", "subtype": "S&P 500"},
+        ])])
         tickers = db_rows(db, "SELECT ticker FROM computed_daily_tickers WHERE date = '2025-01-02'")
         assert {t[0] for t in tickers} == {"VOO"}  # OLD wiped
 
