@@ -32,17 +32,16 @@ from etl.sources.fidelity import FIDELITY_REPLAY  # noqa: E402
 from etl.sources.fidelity.parse import classify_fidelity_action  # noqa: E402
 from tests.fixtures import connected_db, insert_fidelity_txn  # noqa: E402
 
-# Strip cash tracking — these tests only assert position quantities + cost
-# basis, not cash ledgers.
+# Strip cash tracking — these tests only assert position quantities.
 _FIDELITY_POSITIONS_ONLY = replace(
     FIDELITY_REPLAY, track_cash=False, lot_type_col=None, mm_drip_tickers=frozenset(),
 )
 
 
-def _replay_fidelity(db: Path, as_of: date) -> dict[tuple[str, str], tuple[float, float]]:
-    """Return ``{(account, symbol): (qty, cost_basis)}`` for the shared replay primitive."""
+def _replay_fidelity(db: Path, as_of: date) -> dict[tuple[str, str], float]:
+    """Return ``{(account, symbol): qty}`` for the shared replay primitive."""
     result = replay_transactions(db, _FIDELITY_POSITIONS_ONLY, as_of)
-    return {key: (st.quantity, st.cost_basis_usd) for key, st in result.positions.items()}
+    return {key: st.quantity for key, st in result.positions.items()}
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -123,49 +122,6 @@ def _allocation_setup(
             conn.execute("INSERT INTO daily_close VALUES (?, ?, ?)", (sym, day, close))
         conn.execute("INSERT INTO daily_close VALUES ('CNY=X', '2025-01-02', 7.25)")
     return db, qj
-
-
-# ── BUG 1: Cost basis wrong due to ORDER BY id ───────────────────────────
-
-
-class TestCostBasisOrderedByDate:
-    """:func:`etl.replay.replay_transactions` must produce correct cost basis
-    regardless of insertion order.
-
-    Root cause: ORDER BY id processes sells before buys when the buy was
-    imported in a later CSV batch (higher id, earlier date).
-    """
-
-    def test_sell_after_buy_in_id_order_but_before_in_date_order(self, tmp_path: Path) -> None:
-        # id=1 SELL on 01/10, id=2 BUY on 01/02: out-of-order ids must not
-        # break cost-basis math.
-        db = _seed_fidelity_db(tmp_path, [
-            ("2025-01-10", "Z123", "YOU SOLD STOCK", "AAPL", -5, 3000),
-            ("2025-01-02", "Z123", "YOU BOUGHT STOCK", "AAPL", 10, -5000),
-        ])
-        qty, cb = _replay_fidelity(db, date(2025, 1, 15))[("Z123", "AAPL")]
-        assert qty == pytest.approx(5.0)
-        # Cost basis: bought $5000 for 10 shares, sold 5/10 = 50% → CB = $2500.
-        assert cb == pytest.approx(2500.0)
-
-    def test_full_sell_zeroes_cost_basis_regardless_of_id_order(self, tmp_path: Path) -> None:
-        db = _seed_fidelity_db(tmp_path, [
-            ("2025-01-10", "Z123", "YOU SOLD ALL", "VOO", -10, 6000),
-            ("2025-01-02", "Z123", "YOU BOUGHT X", "VOO", 10, -5000),
-        ])
-        # Position fully sold → not in positions (qty < 0.001 threshold).
-        assert ("Z123", "VOO") not in _replay_fidelity(db, date(2025, 1, 15))
-
-    def test_multiple_buys_then_sell_out_of_id_order(self, tmp_path: Path) -> None:
-        db = _seed_fidelity_db(tmp_path, [
-            ("2025-03-01", "Z123", "YOU SOLD X", "TSLA", -5, 2500),
-            ("2025-02-01", "Z123", "YOU BOUGHT X", "TSLA", 10, -4000),
-            ("2025-04-01", "Z123", "YOU BOUGHT X", "TSLA", 5, -2000),
-        ])
-        qty, cb = _replay_fidelity(db, date(2025, 4, 15))[("Z123", "TSLA")]
-        # Chronological: buy 10 ($4000), sell 5 (50% → CB -= $2000 → $2000), buy 5 ($2000) → $4000.
-        assert qty == pytest.approx(10.0)
-        assert cb == pytest.approx(4000.0)
 
 
 # ── BUG 2: first_held date wrong due to ORDER BY id ──────────────────────

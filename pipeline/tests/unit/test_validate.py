@@ -129,32 +129,6 @@ class TestHoldingsPricesAreFresh:
         assert _issues(empty_db, name="holdings_prices_are_fresh") == []
 
 
-class TestCostBasisNonneg:
-    """Cost basis is $ paid — always >= 0 (or NULL for legacy/book-value rows)."""
-
-    def test_negative_cost_basis_is_fatal(self, empty_db: Path) -> None:
-        _seed_clean_db(empty_db)
-        with connected_db(empty_db) as conn:
-            conn.execute(
-                "UPDATE computed_daily_tickers SET cost_basis = -100 "
-                "WHERE date = '2025-01-06' AND ticker = 'VOO'",
-            )
-
-        fatals = _issues(empty_db, name="cost_basis_nonneg")
-        assert len(fatals) == 1
-        assert "VOO" in fatals[0].message
-
-    def test_zero_cost_basis_is_allowed(self, empty_db: Path) -> None:
-        """Zero is a legitimate value (e.g. gifted shares, fully-depreciated lot)."""
-        _seed_clean_db(empty_db)
-        with connected_db(empty_db) as conn:
-            conn.execute(
-                "UPDATE computed_daily_tickers SET cost_basis = 0 "
-                "WHERE date = '2025-01-06' AND ticker = 'VOO'",
-            )
-        assert _issues(empty_db, name="cost_basis_nonneg") == []
-
-
 class TestCategorySubtypeEnums:
     """Unknown category / subtype values must surface — not silently render wrong."""
 

@@ -75,8 +75,7 @@ class TestUpsertDailyRows:
                 "non_us_equity": 20, "crypto": 10, "safe_net": 20,
                 "liabilities": 0,
                 "tickers": [{"ticker": "VOO", "value": 50, "category": "US Equity",
-                             "subtype": "S&P 500", "cost_basis": 40,
-                             "gain_loss": 10, "gain_loss_pct": 25}]}]
+                             "subtype": "S&P 500"}]}]
         upsert_daily_rows(db, new)
         assert db_rows(db, "SELECT ticker, value FROM computed_daily_tickers WHERE date = '2025-01-02'")[0] == ("VOO", 50)
 
@@ -87,11 +86,9 @@ class TestUpsertDailyRows:
                 "liabilities": 0,
                 "tickers": [
                     {"ticker": "VOO", "value": 50, "category": "US Equity",
-                     "subtype": "S&P 500", "cost_basis": 40,
-                     "gain_loss": 10, "gain_loss_pct": 25},
+                     "subtype": "S&P 500"},
                     {"ticker": "OLD", "value": 25, "category": "US Equity",
-                     "subtype": "Mid Cap", "cost_basis": 20,
-                     "gain_loss": 5, "gain_loss_pct": 25},
+                     "subtype": "Mid Cap"},
                 ]}]
         upsert_daily_rows(db, old)
         # Recompute without OLD
@@ -99,8 +96,7 @@ class TestUpsertDailyRows:
                 "non_us_equity": 20, "crypto": 10, "safe_net": 20,
                 "liabilities": 0,
                 "tickers": [{"ticker": "VOO", "value": 75, "category": "US Equity",
-                             "subtype": "S&P 500", "cost_basis": 40,
-                             "gain_loss": 35, "gain_loss_pct": 87.5}]}]
+                             "subtype": "S&P 500"}]}]
         upsert_daily_rows(db, new)
         tickers = db_rows(db, "SELECT ticker FROM computed_daily_tickers WHERE date = '2025-01-02'")
         assert {t[0] for t in tickers} == {"VOO"}  # OLD wiped

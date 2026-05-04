@@ -90,7 +90,7 @@ describe("groupNetByDate", () => {
 });
 
 const dt = (date: string, ticker: string, value: number) => ({
-  date, ticker, value, category: "", subtype: "", costBasis: 0, gainLoss: 0, gainLossPct: 0,
+  date, ticker, value, category: "", subtype: "",
 });
 
 describe("buildGroupValueSeries", () => {

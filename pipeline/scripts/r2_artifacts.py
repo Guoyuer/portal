@@ -165,8 +165,7 @@ ORDER BY date
 """
 
 _DAILY_TICKERS_SQL = """
-SELECT date, ticker, value, category, subtype,
-  cost_basis AS costBasis, gain_loss AS gainLoss, gain_loss_pct AS gainLossPct
+SELECT date, ticker, value, category, subtype
 FROM computed_daily_tickers
 ORDER BY date, value DESC
 """
@@ -200,9 +199,7 @@ ORDER BY date
 """
 
 _CATEGORIES_SQL = """
-SELECT key, name,
-  display_order AS displayOrder,
-  target_pct AS targetPct
+SELECT key, name, target_pct AS targetPct
 FROM categories
 ORDER BY display_order
 """
@@ -272,7 +269,7 @@ def _qianji_txns(conn: sqlite3.Connection) -> list[JsonDict]:
     return rows
 
 
-def _build_timeline(conn: sqlite3.Connection, *, version: str, generated_at: str) -> JsonDict:
+def _build_timeline(conn: sqlite3.Connection, *, generated_at: str) -> JsonDict:
     daily = _rows(conn, _DAILY_SQL)
     categories = _rows(conn, _CATEGORIES_SQL)
     if not daily:
@@ -282,7 +279,6 @@ def _build_timeline(conn: sqlite3.Connection, *, version: str, generated_at: str
         msg = "categories is empty; refusing to export timeline.json"
         raise RuntimeError(msg)
 
-    latest_date = str(daily[-1]["date"])
     return {
         "daily": daily,
         "dailyTickers": _rows(conn, _DAILY_TICKERS_SQL),
@@ -293,10 +289,7 @@ def _build_timeline(conn: sqlite3.Connection, *, version: str, generated_at: str
         "categories": categories,
         "market": {"indices": _market_indices(conn)},
         "syncMeta": {
-            "backend": "r2",
-            "version": version,
             "last_sync": generated_at,
-            "last_date": latest_date,
         },
     }
 
@@ -384,7 +377,7 @@ def export_artifacts(
             msg = "computed_daily has no MAX(date); refusing to export"
             raise RuntimeError(msg)
 
-        timeline = _build_timeline(conn, version=version, generated_at=generated_at)
+        timeline = _build_timeline(conn, generated_at=generated_at)
         econ = _build_econ(conn, generated_at=generated_at)
 
         prices, price_row_counts = _build_prices_bundle(conn)

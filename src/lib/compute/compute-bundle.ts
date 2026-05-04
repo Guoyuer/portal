@@ -38,7 +38,7 @@ export interface ComputedBundle {
   market: MarketData | null;
   crossCheck: CrossCheck | null;
   monthlyFlows: MonthlyFlowPoint[];
-  syncMeta: Record<string, string> | null;
+  syncMeta: TimelineData["syncMeta"] | null;
 }
 
 const EMPTY_BUNDLE: ComputedBundle = {

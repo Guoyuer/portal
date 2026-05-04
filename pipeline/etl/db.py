@@ -118,9 +118,6 @@ CREATE TABLE IF NOT EXISTS computed_daily_tickers (
     value         REAL NOT NULL,
     category      TEXT NOT NULL DEFAULT '',
     subtype       TEXT NOT NULL DEFAULT '',
-    cost_basis    REAL NOT NULL DEFAULT 0,
-    gain_loss     REAL NOT NULL DEFAULT 0,
-    gain_loss_pct REAL NOT NULL DEFAULT 0,
     PRIMARY KEY (date, ticker)
 );
 
@@ -245,10 +242,9 @@ def upsert_daily_rows(db_path: Path, rows: list[AllocationRow]) -> int:
             for t in r["tickers"]:
                 conn.execute(
                     "INSERT OR REPLACE INTO computed_daily_tickers"
-                    " (date, ticker, value, category, subtype, cost_basis, gain_loss, gain_loss_pct)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    (r["date"], t["ticker"], t["value"], t["category"], t["subtype"],
-                     t["cost_basis"], t["gain_loss"], t["gain_loss_pct"]),
+                    " (date, ticker, value, category, subtype)"
+                    " VALUES (?, ?, ?, ?, ?)",
+                    (r["date"], t["ticker"], t["value"], t["category"], t["subtype"]),
                 )
         conn.commit()
         return len(rows)

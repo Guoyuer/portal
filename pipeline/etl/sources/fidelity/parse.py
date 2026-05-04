@@ -104,16 +104,14 @@ _ACTION_TYPE_TO_KIND: dict[str, ActionKind] = {
     ACT_ROTH_CONVERSION: ActionKind.TRANSFER,
     # IRA cash contributions function as deposits into the retirement account.
     ACT_IRA_CONTRIBUTION: ActionKind.DEPOSIT,
-    # Position-prefix-but-not-cost-basis-impacting actions. The primitive's
-    # widened vocabulary handles qty updates for each one (``qty += q``)
-    # while leaving cost basis alone — mirrors the legacy
+    # Position-prefix actions. The primitive's widened vocabulary handles
+    # quantity updates for each one (``qty += q``), matching the legacy
     # ``POSITION_PREFIXES`` behaviour.
     #
     # ``ACT_DISTRIBUTION`` is also how Fidelity CSVs encode stock splits:
     # a 3:1 on SCHD arrives as ``DISTRIBUTION SCHWAB US DIVIDEND EQUITY
     # ETF (SCHD)`` with ``quantity = pre_split_qty × 2`` and ``price = 0``.
-    # The qty-only, cost-basis-preserving handling is correct for splits
-    # (no cash moves; per-share basis drops proportionally). See
+    # The quantity-only handling is correct for splits (no cash moves). See
     # :class:`etl.sources.ActionKind` for the full invariant.
     ACT_DISTRIBUTION: ActionKind.DISTRIBUTION,
     ACT_REDEMPTION: ActionKind.REDEMPTION,

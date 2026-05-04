@@ -326,32 +326,26 @@ class TestCategorizeTicker:
         "VXUS": {"category": "Non-US Equity", "subtype": "broad"},
     }
 
-    def test_positive_value_with_cost_basis(self) -> None:
-        row = _categorize_ticker("VOO", 5500.0, self.ASSETS, {"VOO": 5000.0})
+    def test_positive_value(self) -> None:
+        row = _categorize_ticker("VOO", 5500.0, self.ASSETS)
         assert row == {
             "ticker": "VOO", "value": 5500.0,
             "category": "US Equity", "subtype": "broad",
-            "cost_basis": 5000.0, "gain_loss": 500.0, "gain_loss_pct": 10.0,
         }
 
-    def test_positive_value_without_cost_basis(self) -> None:
-        row = _categorize_ticker("VOO", 5500.0, self.ASSETS, {})
-        assert row["gain_loss"] == 0
-        assert row["gain_loss_pct"] == 0
-
     def test_negative_value_becomes_liability(self) -> None:
-        row = _categorize_ticker("Chase CC", -2000.0, self.ASSETS, {})
+        row = _categorize_ticker("Chase CC", -2000.0, self.ASSETS)
         assert row["category"] == "Liability"
         assert row["subtype"] == ""
         assert row["value"] == -2000.0
 
     def test_missing_asset_raises(self) -> None:
         with pytest.raises(KeyError, match="not in config.assets"):
-            _categorize_ticker("UNKNOWN", 100.0, self.ASSETS, {})
+            _categorize_ticker("UNKNOWN", 100.0, self.ASSETS)
 
     def test_missing_category_raises(self) -> None:
         with pytest.raises(KeyError, match="no 'category'"):
-            _categorize_ticker("X", 100.0, {"X": {"subtype": "foo"}}, {})
+            _categorize_ticker("X", 100.0, {"X": {"subtype": "foo"}})
 
 
 # ── _add_qianji_balances ───────────────────────────────────────────────────
@@ -463,7 +457,6 @@ class TestBuildAllocationRow:
             current=date(2025, 1, 2),
             ticker_values={"VTI": 5000.0, "VXUS": 2000.0, "GLD": 1000.0},
             assets=self.ASSETS,
-            cost_basis_by_ticker={},
         )
         assert row["date"] == "2025-01-02"
         assert row["total"] == 8000.0
@@ -477,7 +470,6 @@ class TestBuildAllocationRow:
             current=date(2025, 1, 2),
             ticker_values={"VTI": 5000.0, "VXUS": 0.0},
             assets=self.ASSETS,
-            cost_basis_by_ticker={},
         )
         tickers = [t["ticker"] for t in row["tickers"]]
         assert "VXUS" not in tickers
@@ -487,7 +479,6 @@ class TestBuildAllocationRow:
             current=date(2025, 1, 2),
             ticker_values={"VTI": 5000.0, "CreditCard": -1000.0},
             assets=self.ASSETS,
-            cost_basis_by_ticker={},
         )
         assert row["total"] == 5000.0
         assert row["liabilities"] == -1000.0

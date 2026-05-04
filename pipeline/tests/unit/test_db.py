@@ -81,11 +81,11 @@ class TestInitDb:
         init_db(db_path)
         conn = get_connection(db_path)
         conn.execute(
-            "INSERT INTO computed_daily_tickers (date, ticker, value, category, subtype, cost_basis, gain_loss, gain_loss_pct)"
-            " VALUES ('2025-01-02', 'VOO', 50000, 'US Equity', 'broad', 40000, 10000, 25.0)"
+            "INSERT INTO computed_daily_tickers (date, ticker, value, category, subtype)"
+            " VALUES ('2025-01-02', 'VOO', 50000, 'US Equity', 'broad')"
         )
         row = conn.execute("SELECT * FROM computed_daily_tickers WHERE date='2025-01-02' AND ticker='VOO'").fetchone()
-        assert row == ('2025-01-02', 'VOO', 50000, 'US Equity', 'broad', 40000, 10000, 25.0)
+        assert row == ('2025-01-02', 'VOO', 50000, 'US Equity', 'broad')
         conn.close()
 
 

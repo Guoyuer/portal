@@ -66,17 +66,6 @@ def test_positions_at_before_first_snapshot_returns_empty(empty_db: Path) -> Non
     assert rows == []
 
 
-def test_cost_basis_is_none(empty_db: Path) -> None:
-    """Spec: Empower positions leave cost_basis_usd=None (QFX doesn't carry it)."""
-    _seed_empower(empty_db, [
-        ("2024-06-30", "SSgAxxx", "401k sp500", 100.0, 25.0, 2500.0),
-    ])
-
-    ctx = PriceContext(prices=pd.DataFrame(), price_date=date(2024, 8, 1), mf_price_date=date(2024, 8, 1))
-    rows = empower_src.positions_at(empty_db, date(2024, 8, 1), ctx, {})
-    assert rows and all(r.cost_basis_usd is None for r in rows)
-
-
 def test_positions_at_scales_by_proxy_prices(empty_db: Path) -> None:
     """Value between snapshots scales proportionally to proxy ticker change."""
     _seed_empower(empty_db, [

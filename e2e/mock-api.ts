@@ -82,18 +82,18 @@ const daily = ALL_DATES.map((date, i) => {
 // ── Daily tickers ───────────────────────────────────────────────────────
 
 const dailyTickers = daily.flatMap((d) => [
-  { date: d.date, ticker: "VOO",   value: d.usEquity * 0.35,  category: "US Equity",     subtype: "broad",        costBasis: d.usEquity * 0.25,  gainLoss: d.usEquity * 0.10, gainLossPct: 40 },
-  { date: d.date, ticker: "QQQM",  value: d.usEquity * 0.20,  category: "US Equity",     subtype: "growth",       costBasis: d.usEquity * 0.14,  gainLoss: d.usEquity * 0.06, gainLossPct: 43 },
-  { date: d.date, ticker: "AAPL",  value: d.usEquity * 0.10,  category: "US Equity",     subtype: "single stock", costBasis: d.usEquity * 0.07,  gainLoss: d.usEquity * 0.03, gainLossPct: 43 },
-  { date: d.date, ticker: "NVDA",  value: d.usEquity * 0.08,  category: "US Equity",     subtype: "single stock", costBasis: d.usEquity * 0.04,  gainLoss: d.usEquity * 0.04, gainLossPct: 100 },
-  { date: d.date, ticker: "SCHD",  value: d.usEquity * 0.07,  category: "US Equity",     subtype: "broad",        costBasis: d.usEquity * 0.06,  gainLoss: d.usEquity * 0.01, gainLossPct: 17 },
-  { date: d.date, ticker: "VXUS",  value: d.nonUsEquity * 0.6, category: "Non-US Equity", subtype: "broad",        costBasis: d.nonUsEquity * 0.54, gainLoss: d.nonUsEquity * 0.06, gainLossPct: 11 },
-  { date: d.date, ticker: "TSM",   value: d.nonUsEquity * 0.4, category: "Non-US Equity", subtype: "single stock", costBasis: d.nonUsEquity * 0.28, gainLoss: d.nonUsEquity * 0.12, gainLossPct: 43 },
-  { date: d.date, ticker: "FBTC",  value: d.crypto,            category: "Crypto",        subtype: "digital asset", costBasis: d.crypto * 0.5,  gainLoss: d.crypto * 0.5, gainLossPct: 100 },
-  { date: d.date, ticker: "SGOV",  value: d.safeNet * 0.30,   category: "Safe Net",      subtype: "treasury",     costBasis: d.safeNet * 0.30,   gainLoss: 0, gainLossPct: 0 },
-  { date: d.date, ticker: "GLDM",  value: d.safeNet * 0.20,   category: "Safe Net",      subtype: "gold",         costBasis: d.safeNet * 0.18,   gainLoss: d.safeNet * 0.02, gainLossPct: 11 },
-  { date: d.date, ticker: "SPAXX", value: d.safeNet * 0.30,   category: "Safe Net",      subtype: "money market", costBasis: d.safeNet * 0.30,   gainLoss: 0, gainLossPct: 0 },
-  { date: d.date, ticker: "Chase", value: d.safeNet * 0.20,   category: "Safe Net",      subtype: "checking",     costBasis: d.safeNet * 0.20,   gainLoss: 0, gainLossPct: 0 },
+  { date: d.date, ticker: "VOO",   value: d.usEquity * 0.35,  category: "US Equity",     subtype: "broad" },
+  { date: d.date, ticker: "QQQM",  value: d.usEquity * 0.20,  category: "US Equity",     subtype: "growth" },
+  { date: d.date, ticker: "AAPL",  value: d.usEquity * 0.10,  category: "US Equity",     subtype: "single stock" },
+  { date: d.date, ticker: "NVDA",  value: d.usEquity * 0.08,  category: "US Equity",     subtype: "single stock" },
+  { date: d.date, ticker: "SCHD",  value: d.usEquity * 0.07,  category: "US Equity",     subtype: "broad" },
+  { date: d.date, ticker: "VXUS",  value: d.nonUsEquity * 0.6, category: "Non-US Equity", subtype: "broad" },
+  { date: d.date, ticker: "TSM",   value: d.nonUsEquity * 0.4, category: "Non-US Equity", subtype: "single stock" },
+  { date: d.date, ticker: "FBTC",  value: d.crypto,            category: "Crypto",        subtype: "digital asset" },
+  { date: d.date, ticker: "SGOV",  value: d.safeNet * 0.30,   category: "Safe Net",      subtype: "treasury" },
+  { date: d.date, ticker: "GLDM",  value: d.safeNet * 0.20,   category: "Safe Net",      subtype: "gold" },
+  { date: d.date, ticker: "SPAXX", value: d.safeNet * 0.30,   category: "Safe Net",      subtype: "money market" },
+  { date: d.date, ticker: "Chase", value: d.safeNet * 0.20,   category: "Safe Net",      subtype: "checking" },
 ]);
 
 // ── Fidelity transactions (realistic DCA + sells + dividends) ───────────
@@ -200,13 +200,13 @@ const market = {
   ],
 };
 
-// ── Category metadata (target weights + display order) ──────────────────
+// ── Category metadata ───────────────────────────────────────────────────
 
 const categories = [
-  { key: "usEquity", name: "US Equity", displayOrder: 0, targetPct: 55 },
-  { key: "nonUsEquity", name: "Non-US Equity", displayOrder: 1, targetPct: 15 },
-  { key: "crypto", name: "Crypto", displayOrder: 2, targetPct: 3 },
-  { key: "safeNet", name: "Safe Net", displayOrder: 3, targetPct: 27 },
+  { key: "usEquity", name: "US Equity", targetPct: 55 },
+  { key: "nonUsEquity", name: "Non-US Equity", targetPct: 15 },
+  { key: "crypto", name: "Crypto", targetPct: 3 },
+  { key: "safeNet", name: "Safe Net", targetPct: 27 },
 ];
 
 // ── Assembled timeline ──────────────────────────────────────────────────
@@ -224,7 +224,7 @@ const TIMELINE = {
   empowerContributions: [],
   categories,
   market,
-  syncMeta: { last_sync: generatedAt, last_date: lastDate },
+  syncMeta: { last_sync: generatedAt },
 };
 
 // ── Econ ─────────────────────────────────────────────────────────────────

@@ -76,7 +76,6 @@ def _position_rows(
             rows.append(PositionRow(
                 ticker="T-Bills",
                 value_usd=qty,
-                cost_basis_usd=state.cost_basis_usd,
             ))
             continue
 
@@ -85,7 +84,6 @@ def _position_rows(
             rows.append(PositionRow(
                 ticker=sym,
                 value_usd=qty * price,
-                cost_basis_usd=state.cost_basis_usd,
             ))
             continue
         if prices.should_warn_once("fidelity_missing_price", sym):

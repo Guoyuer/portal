@@ -73,7 +73,7 @@ describe("GroupChartDialog", () => {
   it("renders Holdings label (not 'value') when daily data present", () => {
     renderGroupDialog({
       dailyTickers: [
-        { date: "2025-01-02", ticker: "VOO", value: 10000, category: "", subtype: "", costBasis: 0, gainLoss: 0, gainLossPct: 0 },
+        { date: "2025-01-02", ticker: "VOO", value: 10000, category: "", subtype: "" },
       ],
     });
     expect(screen.getByText(/Holdings/)).toBeTruthy();

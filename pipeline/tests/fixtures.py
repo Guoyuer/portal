@@ -67,13 +67,12 @@ def insert_ticker(
     category: str,
     *,
     subtype: str = "",
-    cost_basis: float = 0.0,
 ) -> None:
     conn.execute(
         "INSERT INTO computed_daily_tickers "
-        "(date, ticker, value, category, subtype, cost_basis) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        (date, ticker, value, category, subtype, cost_basis),
+        "(date, ticker, value, category, subtype) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (date, ticker, value, category, subtype),
     )
 
 

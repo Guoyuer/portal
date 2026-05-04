@@ -6,16 +6,11 @@ the source-agnostic :func:`etl.replay.replay_transactions` primitive:
 ingestion writes rows into the ``robinhood_transactions`` table with
 primitive-native columns (``txn_date``, ``action_kind``, ``ticker``,
 ``quantity``, ``amount_usd``), and :func:`positions_at` delegates to the
-primitive to accumulate quantity + cost basis as of any date.
+primitive to accumulate quantity as of any date.
 
 Action classification note: Robinhood's ``REC`` rows (shares received from
-stock transfers/dividends) carry real ``quantity`` but no cost basis. The
-legacy ``replay_robinhood`` treated them as position-increments without
-cost-basis updates. To preserve that behaviour through the primitive without
-widening the :class:`ActionKind` alphabet, we normalize ``REC`` rows as
-``ActionKind.BUY`` with ``amount_usd = 0``. The primitive's BUY rule adds
-``abs(amt)`` to cost (adding 0 is a no-op) and ``q`` to quantity — identical
-to the legacy behaviour.
+stock transfers/dividends) carry real ``quantity`` but no amount. We normalize
+them as ``ActionKind.BUY`` with ``amount_usd = 0`` so replay adds shares.
 """
 from __future__ import annotations
 
@@ -46,9 +41,7 @@ ROBINHOOD_REPLAY = ReplayConfig(table=TABLE)
 # Robinhood ``Trans Code`` → normalized :class:`ActionKind`.
 #
 # ``REC`` (received stock) is deliberately mapped to BUY: REC rows carry real
-# share quantity with ``Amount = 0``, so the primitive's BUY rule
-# (``cost += abs(amt); qty += q``) produces the legacy behaviour (add qty, no
-# cost-basis change) when ``amount_usd = 0``.
+# share quantity with ``Amount = 0``, so the primitive adds quantity.
 _ACTION_MAP: dict[str, ActionKind] = {
     "Buy": ActionKind.BUY,
     "Sell": ActionKind.SELL,
@@ -159,10 +152,9 @@ def positions_at(
 ) -> list[PositionRow]:
     """Return one :class:`PositionRow` per non-zero ticker position as of ``as_of``.
 
-    Delegates quantity + cost-basis accumulation to the shared
-    :func:`etl.replay.replay_transactions` primitive, then projects each
-    :class:`PositionState` into a :class:`PositionRow` by looking up
-    today's close from :class:`PriceContext`.
+    Delegates quantity accumulation to the shared
+    :func:`etl.replay.replay_transactions` primitive, then values each
+    position with today's close from :class:`PriceContext`.
 
     Tickers with no price on ``price_date`` are logged and excluded.
     """
@@ -177,7 +169,6 @@ def positions_at(
             rows.append(PositionRow(
                 ticker=ticker,
                 value_usd=st.quantity * price,
-                cost_basis_usd=st.cost_basis_usd,
             ))
             continue
         if prices.should_warn_once("robinhood_missing_price", ticker):

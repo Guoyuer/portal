@@ -22,10 +22,10 @@ import type {
 } from "@/lib/compute/computed-types";
 
 export const CATEGORIES: CategoryMeta[] = [
-  { key: "usEquity", name: "US Equity", displayOrder: 0, targetPct: 55 },
-  { key: "nonUsEquity", name: "Non-US Equity", displayOrder: 1, targetPct: 15 },
-  { key: "crypto", name: "Crypto", displayOrder: 2, targetPct: 3 },
-  { key: "safeNet", name: "Safe Net", displayOrder: 3, targetPct: 27 },
+  { key: "usEquity", name: "US Equity", targetPct: 55 },
+  { key: "nonUsEquity", name: "Non-US Equity", targetPct: 15 },
+  { key: "crypto", name: "Crypto", targetPct: 3 },
+  { key: "safeNet", name: "Safe Net", targetPct: 27 },
 ];
 
 export const COLOR_BY_NAME: Record<string, string> = {
@@ -116,9 +116,6 @@ export function mkApiTicker(overrides: Partial<ApiTicker> = {}): ApiTicker {
     value: 100,
     category: "US Equity",
     subtype: "Broad",
-    costBasis: 100,
-    gainLoss: 0,
-    gainLossPct: 0,
     ...overrides,
   };
 }
@@ -170,10 +167,7 @@ export function mkTimelinePayload(overrides: Record<string, unknown> = {}) {
     categories: CATEGORIES,
     market: MARKET,
     syncMeta: {
-      backend: "r2",
-      version: "test",
       last_sync: "2026-01-06T00:00:00Z",
-      last_date: "2026-01-06",
     },
     ...overrides,
   };

@@ -1,14 +1,12 @@
 """Source-agnostic transaction replay.
 
-Replays a source table into per-``(account, ticker)`` quantity/cost basis,
-plus optional per-account cash, as of a date. Each source supplies one
-``ReplayConfig`` describing its table columns and cash knobs.
+Replays a source table into per-``(account, ticker)`` quantity, plus optional
+per-account cash, as of a date. Each source supplies one ``ReplayConfig``
+describing its table columns and cash knobs.
 
-Position math is intentionally small:
-``BUY``/``REINVESTMENT`` add cost + quantity; ``SELL`` removes proportional
-cost + quantity; ``REDEMPTION``/``DISTRIBUTION``/``EXCHANGE``/``TRANSFER``
-move quantity only; everything else has no position effect. Rows with empty
-ticker, zero quantity, or an excluded ticker skip position accumulation.
+Position math is intentionally small: buy/sell/reinvestment and share-moving
+actions update quantity; everything else has no position effect. Rows with
+empty ticker, zero quantity, or an excluded ticker skip position accumulation.
 """
 from __future__ import annotations
 
@@ -26,7 +24,6 @@ from etl.sources._types import ActionKind
 class PositionState:
     """Per-``(account, ticker)`` replay state at a given ``as_of`` date."""
     quantity: float
-    cost_basis_usd: float
 
 
 @dataclass(frozen=True)
@@ -47,11 +44,11 @@ class ReplayConfig:
     """Per-source schema + replay knobs.
 
     ``account_col=None`` groups all rows under the empty account string
-    (Robinhood). ``exclude_tickers`` skips position/cost-basis accumulation
-    while still allowing cash tracking. When ``track_cash=True``,
-    ``lot_type_col`` is required; rows with lot type ``Shares`` do not move
-    cash. ``mm_drip_tickers`` routes money-market reinvestment quantities
-    back into cash.
+    (Robinhood). ``exclude_tickers`` skips position accumulation while still
+    allowing cash tracking. When ``track_cash=True``, ``lot_type_col`` is
+    required; rows with lot type ``Shares`` do not move cash.
+    ``mm_drip_tickers`` routes money-market reinvestment quantities back into
+    cash.
     """
     table: str
     date_col: str = "txn_date"
@@ -64,7 +61,10 @@ class ReplayConfig:
     mm_drip_tickers: frozenset[str] = frozenset()
 
 
-_POSITION_ONLY_KINDS = frozenset({
+_POSITION_KINDS = frozenset({
+    ActionKind.BUY,
+    ActionKind.SELL,
+    ActionKind.REINVESTMENT,
     ActionKind.REDEMPTION,
     ActionKind.DISTRIBUTION,
     ActionKind.EXCHANGE,
@@ -107,7 +107,6 @@ def replay_transactions(
         conn.close()
 
     qty: dict[tuple[str, str], float] = defaultdict(float)
-    cost: dict[tuple[str, str], float] = defaultdict(float)
     cash_flow: dict[str, float] = defaultdict(float)
     mm_drip: dict[str, float] = defaultdict(float)
 
@@ -136,21 +135,8 @@ def replay_transactions(
         key = (acct, ticker)
 
         # ── Positions (exclude money market + empty/zero-qty rows) ──
-        if ticker and ticker not in config.exclude_tickers and q != 0:
-            if kind == ActionKind.SELL:
-                # Cost-basis reduction must happen before qty is updated.
-                if qty[key] > 0:
-                    sold_fraction = min(abs(q) / qty[key], 1.0)
-                    cost[key] -= cost[key] * sold_fraction
-                qty[key] += q
-            elif kind in (ActionKind.BUY, ActionKind.REINVESTMENT):
-                cost[key] += abs(amt)
-                qty[key] += q
-            elif kind in _POSITION_ONLY_KINDS:
-                # Redemption payouts, stock distributions, exchanges, and
-                # share-count transfers move quantity without touching
-                # cost basis (matches legacy ``POSITION_PREFIXES``).
-                qty[key] += q
+        if ticker and ticker not in config.exclude_tickers and q != 0 and kind in _POSITION_KINDS:
+            qty[key] += q
 
         # ── Cash (Fidelity-only; guarded by track_cash) ──
         if config.track_cash and acct and lot_type != "Shares":
@@ -159,7 +145,7 @@ def replay_transactions(
                 mm_drip[acct] += q
 
     positions = {
-        k: PositionState(quantity=round(v, 6), cost_basis_usd=round(cost[k], 2))
+        k: PositionState(quantity=round(v, 6))
         for k, v in qty.items()
         if abs(v) > 0.001
     }

@@ -241,28 +241,6 @@ def _latest_priced_holding_tickers(
     return latest_iso, [str(ticker) for (ticker,) in rows if ticker not in _NON_PRICE_TICKERS]
 
 
-def _check_cost_basis_nonneg(conn: sqlite3.Connection) -> list[CheckResult]:
-    """Cost basis is the $ paid to acquire a position — always non-negative.
-
-    A negative cost_basis would indicate a replay bug (e.g. net sell-shares
-    exceeded buy-shares with inverted sign). Schema has NOT NULL; zero is
-    a legitimate legacy value for gifted or fully-depreciated lots.
-    """
-    rows = conn.execute(
-        "SELECT date, ticker, cost_basis FROM computed_daily_tickers"
-        " WHERE cost_basis IS NOT NULL AND cost_basis < 0",
-    ).fetchall()
-    if not rows:
-        return []
-    sample = ", ".join(f"{t}@{d}={cb:.2f}" for d, t, cb in rows[:5])
-    more = f" (+{len(rows) - 5} more)" if len(rows) > 5 else ""
-    return [CheckResult(
-        name="cost_basis_nonneg",
-        severity=Severity.FATAL,
-        message=f"{len(rows)} ticker-date(s) with negative cost_basis: {sample}{more}",
-    )]
-
-
 def _check_category_subtype_enums(conn: sqlite3.Connection) -> list[CheckResult]:
     """Every (category, subtype) in computed_daily_tickers must be in the known set.
 
@@ -415,7 +393,6 @@ def validate_build(db_path: Path) -> list[CheckResult]:
         _check_holdings_have_prices,
         _check_cny_rate_freshness,
         _check_holdings_prices_are_fresh,
-        _check_cost_basis_nonneg,
         _check_category_subtype_enums,
         _check_fidelity_qianji_reconcile,
         _check_date_gaps,
