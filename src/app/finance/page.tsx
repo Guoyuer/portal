@@ -81,6 +81,17 @@ function ActivityContent({
   if (buysBySymbol.length === 0 && sellsBySymbol.length === 0 && dividendsBySymbol.length === 0) {
     return <SectionMessage kind="empty">No activity in this period</SectionMessage>;
   }
+  const tableProps = {
+    startDate: startDate ?? undefined,
+    endDate: snapshotDate ?? undefined,
+    dailyTickers,
+    investmentTxns,
+  };
+  const tables = [
+    { title: "Buys by Symbol", data: buysBySymbol },
+    { title: "Sells by Symbol", data: sellsBySymbol },
+    { title: "Dividends by Symbol", data: dividendsBySymbol, countLabel: "Payments" },
+  ];
   return (
     <SectionBody>
       <div className="flex justify-end mb-2">
@@ -95,9 +106,9 @@ function ActivityContent({
         </label>
       </div>
       <div className="grid md:grid-cols-2 gap-6">
-        <TickerTable title="Buys by Symbol" data={buysBySymbol} startDate={startDate ?? undefined} endDate={snapshotDate ?? undefined} dailyTickers={dailyTickers} investmentTxns={investmentTxns} />
-        <TickerTable title="Sells by Symbol" data={sellsBySymbol} startDate={startDate ?? undefined} endDate={snapshotDate ?? undefined} dailyTickers={dailyTickers} investmentTxns={investmentTxns} />
-        <TickerTable title="Dividends by Symbol" data={dividendsBySymbol} startDate={startDate ?? undefined} endDate={snapshotDate ?? undefined} countLabel="Payments" dailyTickers={dailyTickers} investmentTxns={investmentTxns} />
+        {tables.map((table) => (
+          <TickerTable key={table.title} {...table} {...tableProps} />
+        ))}
       </div>
     </SectionBody>
   );
@@ -191,10 +202,9 @@ export default function FinancePage() {
                 onClick={() => { if (!crossCheck.ok) setUnmatchedExpanded(v => !v); }}
                 disabled={crossCheck.ok}
                 className={`ml-2 inline-flex items-center gap-1 text-xs font-normal ${crossCheck.ok ? "text-green-500 cursor-default" : "text-red-400 cursor-pointer hover:text-red-300"}`}
-                title={[
-                  `Fidelity:   ${crossCheck.perSource.fidelity.matched}/${crossCheck.perSource.fidelity.total}`,
-                  `Robinhood:  ${crossCheck.perSource.robinhood.matched}/${crossCheck.perSource.robinhood.total}`,
-                ].join("\n")}
+                title={Object.entries(crossCheck.perSource)
+                  .map(([source, stats]) => `${source}: ${stats.matched}/${stats.total}`)
+                  .join("\n")}
               >
                 {crossCheck.ok ? "\u2713" : "\u2717"}{" "}
                 {crossCheck.matchedCount}/{crossCheck.totalCount} deposits reconciled

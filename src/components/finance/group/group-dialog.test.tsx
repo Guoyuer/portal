@@ -11,12 +11,8 @@ import type { Selection } from "../ticker/ticker-markers";
 const matchMediaStub = (q: string) => ({
   matches: false,
   media: q,
-  onchange: null,
   addEventListener: () => {},
   removeEventListener: () => {},
-  addListener: () => {},
-  removeListener: () => {},
-  dispatchEvent: () => true,
 });
 
 // Mock useTickerData so GroupChartDialog doesn't make real network calls.

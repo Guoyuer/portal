@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { ECON_URL, FETCH_TIMEOUT_MS } from "@/lib/config";
-import { fetchWithSchema } from "@/lib/schemas/fetch-schema";
-import { EconDataSchema, type EconData, type EconPoint } from "@/lib/schemas/econ";
+import { useState } from "react";
+import { ECON_URL } from "@/lib/config";
+import { EconDataSchema, type EconPoint } from "@/lib/schemas/econ";
+import { useEndpointData } from "@/lib/hooks/use-endpoint-data";
 import { ECON_FORMATTERS } from "@/lib/format/econ-formatters";
 import { fmtDateMedium } from "@/lib/format/format";
 import { ECON_LINE_COLORS } from "@/lib/format/chart-colors";
@@ -58,24 +58,12 @@ const OIL_LINES: LineConfig[] = [
 // ── Economy Page ─────────────────────────────────────────────────────
 
 export default function EconPage() {
-  const [data, setData] = useState<EconData | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { data, error, loading, reload } = useEndpointData(
+    ECON_URL,
+    EconDataSchema,
+    "Failed to load economic data",
+  );
   const [range, setRange] = useState<Range>("3Y");
-
-  const fetchData = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      setData(await fetchWithSchema(ECON_URL, EconDataSchema, { cache: "no-store", timeoutMs: FETCH_TIMEOUT_MS }));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load economic data");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => { fetchData(); }, []);
 
   const filtered = data ? filterSeries(data.series, RANGE_MONTHS[range]) : {};
 
@@ -87,7 +75,7 @@ export default function EconPage() {
         <p className="text-red-500 mb-4">{error ?? "No data"}</p>
         <button
           type="button"
-          onClick={fetchData}
+          onClick={() => { void reload(); }}
           className="rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm font-medium transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
         >
           Retry

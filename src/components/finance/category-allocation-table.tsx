@@ -62,43 +62,67 @@ function CategoryTooltip({ cat, children }: { cat: GroupedCategory; children: Re
   return <GlassTooltip content={content}>{children}</GlassTooltip>;
 }
 
+function MainCategoryRow({
+  label,
+  value,
+  pct,
+  target,
+  deviation,
+  className = "hover:bg-white/10 dark:hover:bg-white/5 transition-colors",
+  labelClassName = "font-medium",
+}: {
+  label: React.ReactNode;
+  value: number;
+  pct: number;
+  target: number;
+  deviation: number;
+  className?: string;
+  labelClassName?: string;
+}) {
+  return (
+    <TableRow className={className}>
+      <TableCell className={labelClassName}>{label}</TableCell>
+      <TableCell className="text-right hidden sm:table-cell">{fmtCurrency(value)}</TableCell>
+      <TableCell className="text-right">{fmtPct(pct, false)}</TableCell>
+      <TableCell className="text-right">{fmtPct(target, false)}</TableCell>
+      <DeviationCell value={deviation} />
+    </TableRow>
+  );
+}
+
+function DetailCategoryRow({ label, value, pct }: { label: React.ReactNode; value: number; pct: number }) {
+  return (
+    <TableRow className="hover:bg-white/10 dark:hover:bg-white/5 transition-colors">
+      <TableCell className="text-muted-foreground pl-6">{label}</TableCell>
+      <TableCell className="text-right text-muted-foreground hidden sm:table-cell">{fmtCurrency(value)}</TableCell>
+      <TableCell className="text-right text-muted-foreground">{fmtPct(pct, false)}</TableCell>
+      <TableCell />
+      <TableCell className="hidden sm:table-cell" />
+    </TableRow>
+  );
+}
+
 function EquityCategoryRows({ categories }: { categories: GroupedCategory[] }) {
   return categories.map((cat) => (
     <Fragment key={cat.name}>
-      <TableRow className="hover:bg-white/10 dark:hover:bg-white/5 transition-colors">
-        <TableCell className="font-medium">
-          <CategoryTooltip cat={cat}>{cat.name}</CategoryTooltip>
-        </TableCell>
-        <TableCell className="text-right hidden sm:table-cell">
-          {fmtCurrency(cat.value)}
-        </TableCell>
-        <TableCell className="text-right">
-          {fmtPct(cat.pct, false)}
-        </TableCell>
-        <TableCell className="text-right">
-          {fmtPct(cat.target, false)}
-        </TableCell>
-        <DeviationCell value={cat.deviation} />
-      </TableRow>
+      <MainCategoryRow
+        label={<CategoryTooltip cat={cat}>{cat.name}</CategoryTooltip>}
+        value={cat.value}
+        pct={cat.pct}
+        target={cat.target}
+        deviation={cat.deviation}
+      />
       {cat.subtypes.map((sub) => (
-        <TableRow
+        <DetailCategoryRow
           key={`${cat.name}-${sub.name}`}
-          className="hover:bg-white/10 dark:hover:bg-white/5 transition-colors"
-        >
-          <TableCell className="text-muted-foreground pl-6">
+          label={
             <GlassTooltip content={<HoldingsList holdings={sub.tickers} />}>
               <em>{sub.name}</em>
             </GlassTooltip>
-          </TableCell>
-          <TableCell className="text-right text-muted-foreground hidden sm:table-cell">
-            {fmtCurrency(sub.value)}
-          </TableCell>
-          <TableCell className="text-right text-muted-foreground">
-            {fmtPct(sub.pct, false)}
-          </TableCell>
-          <TableCell />
-          <TableCell className="hidden sm:table-cell" />
-        </TableRow>
+          }
+          value={sub.value}
+          pct={sub.pct}
+        />
       ))}
     </Fragment>
   ));
@@ -113,36 +137,20 @@ function NonEquityRows({
 
   return (
     <Fragment>
-      <TableRow className="hover:bg-white/10 dark:hover:bg-white/5 transition-colors">
-        <TableCell className="font-medium">Non-Equity</TableCell>
-        <TableCell className="text-right hidden sm:table-cell">
-          {fmtCurrency(model.nonEquityAggregate.value)}
-        </TableCell>
-        <TableCell className="text-right">
-          {fmtPct(model.nonEquityAggregate.pct, false)}
-        </TableCell>
-        <TableCell className="text-right">
-          {fmtPct(model.nonEquityAggregate.target, false)}
-        </TableCell>
-        <DeviationCell value={model.nonEquityAggregate.deviation} />
-      </TableRow>
+      <MainCategoryRow
+        label="Non-Equity"
+        value={model.nonEquityAggregate.value}
+        pct={model.nonEquityAggregate.pct}
+        target={model.nonEquityAggregate.target}
+        deviation={model.nonEquityAggregate.deviation}
+      />
       {model.nonEquityCats.map((cat) => (
-        <TableRow
+        <DetailCategoryRow
           key={cat.name}
-          className="hover:bg-white/10 dark:hover:bg-white/5 transition-colors"
-        >
-          <TableCell className="text-muted-foreground pl-6">
-            <CategoryTooltip cat={cat}><em>{cat.name}</em></CategoryTooltip>
-          </TableCell>
-          <TableCell className="text-right text-muted-foreground hidden sm:table-cell">
-            {fmtCurrency(cat.value)}
-          </TableCell>
-          <TableCell className="text-right text-muted-foreground">
-            {fmtPct(cat.pct, false)}
-          </TableCell>
-          <TableCell />
-          <TableCell className="hidden sm:table-cell" />
-        </TableRow>
+          label={<CategoryTooltip cat={cat}><em>{cat.name}</em></CategoryTooltip>}
+          value={cat.value}
+          pct={cat.pct}
+        />
       ))}
     </Fragment>
   );
@@ -169,19 +177,15 @@ export function CategoryAllocationTable({
       <TableBody>
         <EquityCategoryRows categories={model.equityCats} />
         <NonEquityRows model={model} />
-        <TableRow className={TOTAL_ROW_CLASS}>
-          <TableCell>Total</TableCell>
-          <TableCell className="text-right hidden sm:table-cell">
-            {fmtCurrency(totalValue)}
-          </TableCell>
-          <TableCell className="text-right">
-            {fmtPct(model.totalPct, false)}
-          </TableCell>
-          <TableCell className="text-right">
-            {fmtPct(model.totalTarget, false)}
-          </TableCell>
-          <DeviationCell value={model.totalDeviation} />
-        </TableRow>
+        <MainCategoryRow
+          label="Total"
+          value={totalValue}
+          pct={model.totalPct}
+          target={model.totalTarget}
+          deviation={model.totalDeviation}
+          className={TOTAL_ROW_CLASS}
+          labelClassName=""
+        />
       </TableBody>
     </Table>
   );

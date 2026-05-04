@@ -34,13 +34,13 @@ interface TickerRowProps {
   ticker: string;
   count: number;
   total: number;
-  isGroup: boolean;
   groupKey?: string;
   sources: SourceKind[];
   expanded: boolean;
   onToggle: () => void;
   startDate?: string;
   endDate?: string;
+  overflow?: boolean;
 }
 
 function ExpanderIndicator({ expanded, isGroup }: { expanded: boolean; isGroup: boolean }) {
@@ -68,16 +68,41 @@ function SourceBadges({ sources }: { sources: SourceKind[] }) {
   ));
 }
 
-/** Primary table row: expands to the inline chart or group dialog. */
-function TickerRow({ ticker, count, total, isGroup, sources, expanded, onToggle, startDate, endDate }: TickerRowProps) {
+/** Activity row: top-level table rows use shadcn cells; overflow rows live in nested raw <table>. */
+function TickerRow({ ticker, count, total, groupKey, sources, expanded, onToggle, startDate, endDate, overflow = false }: TickerRowProps) {
+  const isGroup = groupKey !== undefined;
+  const symbolCell = (
+    <>
+      <ExpanderIndicator expanded={expanded} isGroup={isGroup} />
+      {ticker}
+      <SourceBadges sources={sources} />
+    </>
+  );
+
+  if (overflow) {
+    const numCell = "px-2 py-1.5 text-right text-muted-foreground";
+    return (
+      <>
+        <tr className="border-b border-border even:bg-muted/50 cursor-pointer hover:bg-muted/80" onClick={onToggle}>
+          <td className="px-2 py-1.5 font-mono text-muted-foreground">{symbolCell}</td>
+          <td className={numCell}>{count}</td>
+          <td className={numCell}>{fmtCurrency(total)}</td>
+        </tr>
+        {expanded && !isGroup && (
+          <tr>
+            <td colSpan={3} className="px-2 py-2">
+              <TickerChart symbol={ticker} startDate={startDate} endDate={endDate} />
+            </td>
+          </tr>
+        )}
+      </>
+    );
+  }
+
   return (
     <>
       <TableRow className="even:bg-muted/50 cursor-pointer hover:bg-muted/80 group" onClick={onToggle}>
-        <TableCell className="font-mono">
-          <ExpanderIndicator expanded={expanded} isGroup={isGroup} />
-          {ticker}
-          <SourceBadges sources={sources} />
-        </TableCell>
+        <TableCell className="font-mono">{symbolCell}</TableCell>
         <TableCell className="text-right">{count}</TableCell>
         <TableCell className="text-right">{fmtCurrency(total)}</TableCell>
       </TableRow>
@@ -87,34 +112,6 @@ function TickerRow({ ticker, count, total, isGroup, sources, expanded, onToggle,
             <TickerChart symbol={ticker} startDate={startDate} endDate={endDate} />
           </TableCell>
         </TableRow>
-      )}
-    </>
-  );
-}
-
-/** Overflow row rendered inside a nested <details> <table>; raw tr/td + muted palette. */
-function TickerRowOverflow({ ticker, count, total, isGroup, sources, expanded, onToggle, startDate, endDate }: TickerRowProps) {
-  const numCell = "px-2 py-1.5 text-right text-muted-foreground";
-  return (
-    <>
-      <tr
-        className="border-b border-border even:bg-muted/50 cursor-pointer hover:bg-muted/80"
-        onClick={onToggle}
-      >
-        <td className="px-2 py-1.5 font-mono text-muted-foreground">
-          <ExpanderIndicator expanded={expanded} isGroup={isGroup} />
-          {ticker}
-          <SourceBadges sources={sources} />
-        </td>
-        <td className={numCell}>{count}</td>
-        <td className={numCell}>{fmtCurrency(total)}</td>
-      </tr>
-      {expanded && !isGroup && (
-        <tr>
-          <td colSpan={3} className="px-2 py-2">
-            <TickerChart symbol={ticker} startDate={startDate} endDate={endDate} />
-          </td>
-        </tr>
       )}
     </>
   );
@@ -146,20 +143,22 @@ export function TickerTable({
   const rest = data.slice(ACTIVITY_TOP_SYMBOLS);
   const restTotal = rest.reduce((s, t) => s + t.total, 0);
 
-  const rowProps = (item: ActivityTicker): TickerRowProps => ({
-    ticker: item.ticker,
-    count: item.count,
-    total: item.total,
-    isGroup: item.isGroup,
-    groupKey: item.groupKey,
-    sources: item.sources,
-    expanded: expanded === item.ticker,
-    onToggle: item.isGroup && item.groupKey
-      ? () => setDialog({ kind: "group", key: item.groupKey! })
-      : () => setExpanded((prev) => (prev === item.ticker ? null : item.ticker)),
-    startDate,
-    endDate,
-  });
+  const rowProps = (item: ActivityTicker): TickerRowProps => {
+    const groupKey = item.groupKey;
+    return {
+      ticker: item.ticker,
+      count: item.count,
+      total: item.total,
+      groupKey,
+      sources: item.sources,
+      expanded: expanded === item.ticker,
+      onToggle: groupKey
+        ? () => setDialog({ kind: "group", key: groupKey })
+        : () => setExpanded((prev) => (prev === item.ticker ? null : item.ticker)),
+      startDate,
+      endDate,
+    };
+  };
 
   return (
     <div className="overflow-x-auto">
@@ -183,7 +182,7 @@ export function TickerTable({
                   </summary>
                   <table className="w-full text-sm">
                     <tbody>
-                      {rest.map((item) => <TickerRowOverflow key={item.ticker} {...rowProps(item)} />)}
+                      {rest.map((item) => <TickerRow key={item.ticker} {...rowProps(item)} overflow />)}
                     </tbody>
                   </table>
                 </details>

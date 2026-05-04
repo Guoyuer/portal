@@ -22,16 +22,12 @@ describe("useIsMobile", () => {
           return currentMatches;
         },
         media: query,
-        onchange: null,
         addEventListener: (_: "change", cb: Listener) => {
           listeners.push(cb);
         },
         removeEventListener: (_: "change", cb: Listener) => {
           listeners = listeners.filter((l) => l !== cb);
         },
-        addListener: () => { /* legacy, unused */ },
-        removeListener: () => { /* legacy, unused */ },
-        dispatchEvent: () => true,
       };
       return mql as unknown as MediaQueryList;
     }) as typeof window.matchMedia;

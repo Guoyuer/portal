@@ -4,7 +4,6 @@
 // breaks the build instead of silently mis-classifying transactions.
 
 type EquivalentGroup = {
-  key: string;
   display: string;
   tickers: string[];
   /** Ticker whose /prices series is plotted in the group chart. Must be an element of `tickers`. */
@@ -13,13 +12,11 @@ type EquivalentGroup = {
 
 export const EQUIVALENT_GROUPS: Record<string, EquivalentGroup> = {
   nasdaq_100: {
-    key: "nasdaq_100",
     display: "NASDAQ 100",
     tickers: ["QQQ", "QQQM", "401k tech"],
     representative: "QQQ",
   },
   sp500: {
-    key: "sp500",
     display: "S&P 500",
     tickers: ["VOO", "IVV", "SPY", "FXAIX", "401k sp500"],
     representative: "VOO",
@@ -47,7 +44,7 @@ function buildIndex(): Map<string, string> {
   return m;
 }
 
-export const GROUP_BY_TICKER: ReadonlyMap<string, string> = buildIndex();
+const GROUP_BY_TICKER: ReadonlyMap<string, string> = buildIndex();
 
 export function groupOfTicker(ticker: string): string | null {
   return GROUP_BY_TICKER.get(ticker) ?? null;

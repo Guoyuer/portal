@@ -19,12 +19,12 @@ const pt = (date: string, over: Partial<TickerChartPoint> = {}): TickerChartPoin
 describe("clusterByTime", () => {
   it("returns empty when no points have the target fields", () => {
     const points = [pt("2025-01-01"), pt("2025-02-01")];
-    expect(clusterByTime(points, "buyPrice", "buyQty", "buyAmount", "buyTxnCount")).toEqual([]);
+    expect(clusterByTime(points, "buy")).toEqual([]);
   });
 
   it("returns empty when only one point exists (span is 0, cluster meaningless)", () => {
     const points = [pt("2025-01-01", { buyPrice: 100, buyQty: 1, buyAmount: 100, buyTxnCount: 1 })];
-    expect(clusterByTime(points, "buyPrice", "buyQty", "buyAmount", "buyTxnCount")).toEqual([]);
+    expect(clusterByTime(points, "buy")).toEqual([]);
   });
 
   it("sums txn counts across days in the same cluster (count != days)", () => {
@@ -34,7 +34,7 @@ describe("clusterByTime", () => {
       pt("2025-01-02", { buyPrice: 100, buyQty: 2, buyAmount: 200, buyTxnCount: 2 }),
       pt("2026-01-01"), // span anchor far in the future
     ];
-    const clusters = clusterByTime(points, "buyPrice", "buyQty", "buyAmount", "buyTxnCount");
+    const clusters = clusterByTime(points, "buy");
     expect(clusters).toHaveLength(1);
     expect(clusters[0].count).toBe(4);
     expect(clusters[0].qty).toBe(4);
@@ -50,7 +50,7 @@ describe("clusterByTime", () => {
       pt("2025-01-08", { buyPrice: 100, buyQty: 1, buyAmount: 100, buyTxnCount: 1 }),
       pt("2026-01-01"),
     ];
-    const clusters = clusterByTime(points, "buyPrice", "buyQty", "buyAmount", "buyTxnCount");
+    const clusters = clusterByTime(points, "buy");
     expect(clusters).toHaveLength(2);
   });
 
@@ -62,7 +62,7 @@ describe("clusterByTime", () => {
       pt("2025-01-02", { buyPrice: 130, buyQty: 20, buyAmount: 2600, buyTxnCount: 1 }),
       pt("2026-01-01"),
     ];
-    const clusters = clusterByTime(points, "buyPrice", "buyQty", "buyAmount", "buyTxnCount");
+    const clusters = clusterByTime(points, "buy");
     expect(clusters).toHaveLength(1);
     expect(clusters[0].price).toBeCloseTo(120);
   });
@@ -72,7 +72,7 @@ describe("clusterByTime", () => {
     const day1 = pt("2025-01-01", { buyPrice: 100, buyQty: 1, buyAmount: 100, buyTxnCount: 1 });
     const day2 = pt("2025-01-02", { buyPrice: 100, buyQty: 9, buyAmount: 900, buyTxnCount: 1 });
     const points = [day1, day2, pt("2026-01-01")];
-    const clusters = clusterByTime(points, "buyPrice", "buyQty", "buyAmount", "buyTxnCount");
+    const clusters = clusterByTime(points, "buy");
     expect(clusters).toHaveLength(1);
     // Closer to day2 (big trade) than day1
     expect(clusters[0].ts).toBeGreaterThan(day1.ts + (day2.ts - day1.ts) * 0.5);

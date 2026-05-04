@@ -27,8 +27,8 @@ fixture:
 
 Total: 261 files / 26.6k physical LOC after the duplicate-test compression,
 excluding the same archive/fixture surfaces. The current active surface after
-the latest documented cleanup is 223 files / 23.5k physical LOC under the same
-exclusions.
+the latest simplification pass is 222 files / 23.3k physical LOC under the
+same exclusions.
 
 Use the same exclusion rule when reporting future LOC deltas:
 
@@ -58,7 +58,7 @@ Do not reduce these unless the data-publication model is redesigned:
 - Remote upload readback verification.
 - Single-publisher lock.
 - Publish-time Zod artifact validation.
-- Frontend runtime Zod parse in `use-timeline-data.ts`.
+- Frontend runtime Zod parse in `useEndpointData`.
 - Local SQLite `timemachine.db` as the source of truth.
 - Worker fail-closed behavior for missing or invalid artifacts.
 - Per-symbol transactions inside `prices.json`.
@@ -83,7 +83,7 @@ deleting flows, narrowing outputs, and using table-driven tests.
 | S10 | Manual e2e paths | Consolidate `e2e/manual/*` and manual Playwright config into one documented smoke/perf command. | Done | Low | Removed the manual screenshot/perf specs, real-worker e2e, and extra config; mock e2e and unit coverage remain. |
 | S11 | Config example | Shrink `pipeline/config.example.json` to a minimal template with representative assets and all supported config keys. | Done | Low-Medium | Add every real held ticker to private `config.json`; unknown holdings still fail closed. |
 | S12 | Docs archive | Move `docs/archive/` to a branch/wiki or keep only an archive index plus the few decision records still referenced. | Done | Low | Historical notes were removed from the active tree; use git history for archaeology. |
-| S13 | Qianji legacy fallback | Review old CNY and category fallback logic; delete branches covered by newer source invariants. | Partial | Medium | Live/scalar CNY fallback is removed in the current cleanup. Category empty-string fallback remains until real Qianji data proves it is unreachable or should fail closed. |
+| S13 | Qianji legacy fallback | Review old CNY and category fallback logic; delete branches covered by newer source invariants. | Done | Medium | Live/scalar CNY fallback is removed; Qianji income/expense categories now fail closed when missing. Transfers/repayments intentionally keep empty category because real Qianji rows are uncategorized there. |
 | S14 | Source modules | Delete or merge tiny broker helpers that no longer have at least two live call sites. | Partial | Low-Medium | `_ingest.py` was removed after Fidelity moved to canonical ingest; keep broker parsing explicit and only share helpers that remove real duplication. |
 | S15 | CI workflows | Fold rare baseline refresh and real-worker workflows if they are not pulling their weight. | Done | Low | Removed opt-in real-worker e2e and baseline-refresh automation; local commands remain for explicit checks. |
 | S16 | Worker | No meaningful LOC target. | 0 | Low | Small and load-bearing; leave it boring and explicit. |
@@ -98,11 +98,10 @@ the no-reader field, compatibility-layer, and static-analysis passes:
 | --- | --- | --- | --- |
 | Build orchestration | Open | Measure full vs incremental with cached market data and byte-compare produced artifacts before deleting incremental mode. | Incremental still reduces unnecessary Yahoo fetch work; keep it unless full build is proven cheap, deterministic, and byte-identical for published artifacts. |
 | Python tests | Open | Continue compressing build/replay/regression tests with builders and table-driven checks where the same DB setup or assertion body repeats. | Do not shrink oracle coverage around artifact bytes, cashflow, or position snapshots. |
-| Ticker/group UI state | Open | If the state machines still match after the fallback cleanup, extract a small chart/detail shell or delete a low-value branch. | Avoid a generic chart framework; only share the loading/error/empty/selection mechanics that are truly identical. |
-| Finance tables | Open | Reuse tiny row/header/cell helpers for repeated numeric table chrome after behavior cleanup is exhausted. | This is a secondary LOC win; keep table-specific data semantics local. |
+| Ticker/group UI state | Partial | Keep pruning no-reader state before extracting any chart shell. | Removed the duplicate `missing` ticker state, the derived `ActivityTicker.isGroup` field, and one-off group price-map adapter. Avoid a generic chart framework. |
+| Finance tables | Partial | Reuse tiny row/header/cell helpers for repeated numeric table chrome after behavior cleanup is exhausted. | Allocation/cashflow/ticker rows now share the repeated parts that were truly identical; keep table-specific data semantics local. |
 | Source modules | Open | Keep scanning for one-call helper modules, compatibility aliases, or no-reader variables in broker ingest/validation paths. | Good target for static analysis plus manual call-graph reading; do not merge broker-specific parsing quirks into clever shared code. |
-| Qianji category fallback | Open | Compare real `user_bill.cateid` coverage against `category.id`; if every active bill has a category row, turn missing category into fail-closed validation. | Current cleanup only removes the live CNY fallback. Empty category remains a supported representation for uncategorized or missing-category bills. |
-| Type optionality | Open | Continue narrowing `| None` / optional fields where producer invariants are now explicit and tests only carried fallback scaffolding. | The current branch narrows investment activity rows, transaction quantity/price, and Qianji FX inputs. |
+| Type optionality | Open | Continue narrowing optional fields where producer invariants are now explicit and tests only carried fallback scaffolding. | Recent passes narrowed investment transaction quantity/price, Qianji FX inputs, required activity sources, and removed derived group booleans. |
 
 ## Highest-Leverage Waves
 
@@ -383,20 +382,31 @@ TypeScript, Vitest, lint, Worker Vitest, Worker `tsc`, full Python pytest with
 xdist (`459 passed`), Ruff, mypy strict, Next build, Playwright e2e, static
 knip/ts-prune review, and R2 export/verify.
 
-Current fallback/type cleanup: activity ticker rows now require `isGroup` and
-`sources`, investment transactions require `quantity` and `price`, and tests no
-longer carry optional-field fallbacks for those production contracts. The
-Qianji CNY conversion path no longer has a live Yahoo/scalar fallback:
-Qianji ingest requires a historical CNY=X map, walks back for weekends/market
-holidays, and fails closed when a bill date has no historical rate. This keeps
-old cashflow rows byte-stable across rebuilds instead of silently applying
-today's FX rate. Diff effect before this note: 11 files, 109 insertions / 122
-deletions (`-13 diff LOC`); maintenance surface is 223 files / 23,462 LOC
-before this note and 223 files / 23,491 LOC after this note. Validation so far:
-full Python pytest with xdist (`458 passed`), Ruff, mypy strict, frontend
-lint, Vitest, TypeScript, Next build, Playwright e2e, Worker Vitest, Worker
-TypeScript, R2 artifact verify, and a real Qianji DB load against the current
-historical CNY=X table.
+Current fallback/type cleanup: investment transactions require `quantity` and
+`price`, activity rows require `sources`, and tests no longer carry
+optional-field fallbacks for those production contracts. The Qianji CNY
+conversion path no longer has a live Yahoo/scalar fallback: Qianji ingest
+requires a historical CNY=X map, walks back for weekends/market holidays, and
+fails closed when a bill date has no historical rate. Income/expense rows also
+fail closed on missing categories; transfer/repayment rows keep the observed
+empty category representation. This keeps old cashflow rows byte-stable across
+rebuilds instead of silently applying today's FX rate. Validation for that
+stage: full Python pytest with xdist (`458 passed`), Ruff, mypy strict,
+frontend lint, Vitest, TypeScript, Next build, Playwright e2e, Worker Vitest,
+Worker TypeScript, R2 artifact verify, and a real Qianji DB load against the
+current historical CNY=X table.
+
+Current no-reader/dedup follow-up: frontend fetch state now goes through one
+`useEndpointData` hook and the one-off `use-timeline-data.ts` wrapper was
+deleted. Grouped activity no longer exports the derived `isGroup` boolean;
+`groupKey` is the single source of truth. Equivalent-group objects no longer
+duplicate their record key, source badges use one metadata table, ticker
+rows share one renderer for top and overflow rows, group aggregation no longer
+uses delimiter-encoded compound keys, and Worker route/manifest endpoint names
+come from one typed tuple. Pipeline precompute now returns a plain dict instead
+of a one-use dataclass immediately converted by `asdict()`. Current branch
+effect before this note: 38 files, 603 insertions / 804 deletions (`-201 diff
+LOC`), with targeted frontend, Worker, and Python checks passing.
 
 ### Wave 1: Safe Deletions and Test Compression
 

@@ -27,7 +27,6 @@ type TickerDataBase = {
 type TickerDataState =
   | (TickerDataBase & { status: "pseudo"; data: null; error: null })
   | (TickerDataBase & { status: "loading"; data: null; error: null })
-  | (TickerDataBase & { status: "missing"; data: []; error: null })
   | (TickerDataBase & { status: "empty"; data: []; error: null })
   | (TickerDataBase & { status: "error"; data: null; error: string })
   | (TickerDataBase & { status: "data"; data: TickerChartPoint[]; error: null });
@@ -36,16 +35,11 @@ function emptyState(status: "pseudo" | "loading", symbol: string): TickerDataSta
   return { status, symbol, data: null, avgCost: null, transactions: [], error: null };
 }
 
-function noDataState(
-  status: "missing" | "empty",
-  symbol: string,
-  transactions: TickerTxn[] = [],
-  avgCost: number | null = null,
-): TickerDataState {
-  return { status, symbol, data: [], transactions, avgCost, error: null };
+function noDataState(symbol: string, transactions: TickerTxn[] = [], avgCost: number | null = null): TickerDataState {
+  return { status: "empty", symbol, data: [], transactions, avgCost, error: null };
 }
 
-const CLOSE_DIALOG_STATUSES = new Set<TickerDataState["status"]>(["pseudo", "missing", "empty", "error"]);
+const CLOSE_DIALOG_STATUSES = new Set<TickerDataState["status"]>(["pseudo", "empty", "error"]);
 
 let pricesBundlePromise: Promise<TickerPricesBundle> | null = null;
 
@@ -72,13 +66,13 @@ export function useTickerData(symbol: string): TickerDataState {
         if (cancelled) return;
         const ticker = bundle[canonical];
         if (!ticker) {
-          setState(noDataState("missing", canonical));
+          setState(noDataState(canonical));
           return;
         }
         const data = mergeTickerData(ticker.prices, ticker.transactions);
         const avgCost = computeAvgCost(ticker.transactions);
         if (data.length === 0) {
-          setState(noDataState("empty", canonical, ticker.transactions, avgCost));
+          setState(noDataState(canonical, ticker.transactions, avgCost));
           return;
         }
         setState({ status: "data", symbol: canonical, data, transactions: ticker.transactions, avgCost, error: null });
@@ -121,7 +115,7 @@ export function TickerChart({ symbol, startDate, endDate }: { symbol: string; st
   if (tickerData.status === "loading") {
     return <p className="text-xs text-muted-foreground py-2 animate-pulse">Loading {symbol} chart...</p>;
   }
-  if (tickerData.status === "empty" || tickerData.status === "missing") {
+  if (tickerData.status === "empty") {
     const isMM = /^(SPAXX|FDRXX|FZFXX|FCASH)$/.test(symbol);
     const msg = isMM ? "Money market fund \u2014 price fixed at $1.00" : `No price data for ${symbol}`;
     return <p className="text-xs text-muted-foreground py-2">{msg}</p>;

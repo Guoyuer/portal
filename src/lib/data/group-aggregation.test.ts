@@ -1,9 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { groupNetByDate, buildGroupValueSeries } from "./group-aggregation";
 import type { InvestmentTxn } from "@/lib/compute/compute";
+import type { SourceKind } from "@/lib/compute/computed-types";
 
-const real = (date: string, ticker: string, actionType: "buy" | "sell", amount: number): InvestmentTxn => ({
-  source: "fidelity",
+const real = (date: string, ticker: string, actionType: "buy" | "sell", amount: number, source: SourceKind = "fidelity"): InvestmentTxn => ({
+  source,
   date,
   actionType,
   ticker,
@@ -89,6 +90,16 @@ describe("groupNetByDate", () => {
     const out = groupNetByDate(txns);
     expect(out.get("sp500")?.size).toBe(1);
     expect(out.get("nasdaq_100")?.size).toBe(1);
+  });
+
+  it("same-date markers from different sources combine by group", () => {
+    const txns = [
+      real("2026-01-02", "SPY", "sell", 1000, "fidelity"),
+      real("2026-01-02", "VOO", "buy", 600, "robinhood"),
+    ];
+    const entries = Array.from(groupNetByDate(txns).get("sp500")!.values());
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ side: "sell", net: 400 });
   });
 });
 

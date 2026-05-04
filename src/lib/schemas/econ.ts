@@ -32,4 +32,3 @@ export const EconDataSchema = z.object({
 
 export type EconPoint = z.infer<typeof EconPointSchema>;
 export type EconSnapshot = z.infer<typeof EconSnapshotSchema>;
-export type EconData = z.infer<typeof EconDataSchema>;

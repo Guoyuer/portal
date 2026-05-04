@@ -36,15 +36,14 @@ def _decode_curr(extra_str: str | None) -> dict[str, Any] | None:
 
 
 def _resolve_cny_rate(
-    bill_date: date | None,
-    historical: Mapping[date, float] | None,
+    bill_date: date,
+    historical: Mapping[date, float],
 ) -> float | None:
     """Pick the historical CNY rate for a bill date, with weekend walk-back."""
-    if bill_date is not None and historical:
-        for delta in range(8):
-            d = bill_date - timedelta(days=delta)
-            if d in historical:
-                return historical[d]
+    for delta in range(8):
+        d = bill_date - timedelta(days=delta)
+        if d in historical:
+            return historical[d]
     return None
 
 
@@ -52,8 +51,8 @@ def parse_qj_amount(
     money: float,
     extra_str: str | None,
     *,
-    bill_date: date | None = None,
-    historical_cny_rates: Mapping[date, float] | None = None,
+    bill_date: date,
+    historical_cny_rates: Mapping[date, float],
 ) -> float:
     """Return the base-currency (USD) amount for a Qianji bill.
 
@@ -68,15 +67,12 @@ def parse_qj_amount(
     **Qianji data quirk:** Some bills have ``ss != bs`` (e.g. source CNY, base
     USD) but ``bv == sv`` — Qianji labelled the base as USD but the user
     never entered the conversion. When this happens:
-      - If ``bill_date`` + ``historical_cny_rates`` are supplied, use the
-        rate for the bill's date (walks back up to 7 days for weekends /
-        holidays). **This is the primary path** — it makes the USD amount
-        stable across runs, so reporting snapshots compare stable row identity
-        and do not report FX-drift ghosts.
-      - Else fail closed when a historical map was supplied but has no rate
-        for the bill window; using today's live FX rate would rewrite history.
-      - Else log a warning and fall back to ``money`` unchanged for direct
-        parser calls that do not provide historical context.
+      - Use the rate for the bill's date (walks back up to 7 days for weekends
+        / holidays). This keeps the USD amount stable across runs, so reporting
+        snapshots compare stable row identity and do not report FX-drift
+        ghosts.
+      - Fail closed when the historical map has no rate for the bill window;
+        using today's live FX rate would rewrite history.
     """
     curr = _decode_curr(extra_str)
     if curr is None:
@@ -95,9 +91,8 @@ def parse_qj_amount(
                     sv, money, rate,
                 )
                 return float(money) / rate
-            if bill_date is not None and historical_cny_rates is not None:
-                msg = f"missing historical CNY=X rate for Qianji bill date {bill_date}"
-                raise ValueError(msg)
+            msg = f"missing historical CNY=X rate for Qianji bill date {bill_date}"
+            raise ValueError(msg)
         log.warning(
             "Qianji bill with unconverted cross-currency label (ss=%s bs=%s "
             "bv==sv=%.2f); returning source amount unchanged", ss, bs, sv,

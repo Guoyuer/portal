@@ -21,7 +21,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from ..db import get_connection, get_readonly_connection
-from ..types import QianjiRecord
+from ..types import QJ_EXPENSE, QJ_INCOME, QianjiRecord
 from .config import _TYPE_MAP, _USER_TZ, DEFAULT_DB_PATH
 from .currency import parse_qj_amount
 
@@ -43,6 +43,22 @@ _BALANCE_ADJUSTMENT_RE = re.compile(
 def _is_balance_adjustment(remark: str | None) -> bool:
     """True when the bill's remark marks it as a manual balance correction."""
     return bool(remark) and bool(_BALANCE_ADJUSTMENT_RE.match(remark or ""))
+
+
+def _category_for(
+    *,
+    bill_id: int,
+    mapped_type: str,
+    cateid: int | None,
+    categories: Mapping[int, str],
+) -> str:
+    if mapped_type not in {QJ_EXPENSE, QJ_INCOME}:
+        return ""
+    if cateid is None or cateid not in categories:
+        msg = f"missing Qianji category for {mapped_type} bill {bill_id}"
+        raise ValueError(msg)
+    return categories[cateid]
+
 
 _BILL_QUERY = "SELECT id, type, money, fromact, targetact, remark, time, cateid, extra FROM user_bill WHERE status = 1 ORDER BY time"
 
@@ -66,11 +82,11 @@ def _load_records(
     Balance-adjustment rows (manual reconciliations) are filtered out —
     they're not real cashflow.
     """
-    categories = dict(conn.execute("SELECT id, name FROM category"))
+    categories = {int(cat_id): str(name) for cat_id, name in conn.execute("SELECT id, name FROM category")}
     records: list[QianjiRecord] = []
     cny_converted = 0
     skipped_balance_adjustments = 0
-    for _bill_id, bill_type, money, fromact, targetact, remark, ts, cateid, extra_str in conn.execute(_BILL_QUERY):
+    for bill_id, bill_type, money, fromact, targetact, remark, ts, cateid, extra_str in conn.execute(_BILL_QUERY):
         mapped_type = _TYPE_MAP.get(bill_type)
         if mapped_type is None:
             continue
@@ -89,7 +105,12 @@ def _load_records(
         records.append(
             {
                 "date": dt.strftime("%Y-%m-%d %H:%M:%S"),
-                "category": categories.get(cateid, ""),
+                "category": _category_for(
+                    bill_id=bill_id,
+                    mapped_type=mapped_type,
+                    cateid=cateid,
+                    categories=categories,
+                ),
                 "type": mapped_type,
                 "amount": amount,
                 "account_from": fromact or "",
@@ -163,10 +184,10 @@ def ingest_qianji_transactions(
                     (
                         r["date"][:10],  # truncate datetime to date
                         r["type"],
-                        r.get("category", ""),
+                        r["category"],
                         r["amount"],
-                        r.get("note", ""),
-                        1 if (r["type"] == "income" and r.get("category", "") in retirement_set) else 0,
+                        r["note"],
+                        1 if (r["type"] == "income" and r["category"] in retirement_set) else 0,
                         # `account_to` is the *destination* account — the one
                         # that received money — semantic, not raw
                         # Qianji column. For transfers that's `targetact`
@@ -179,8 +200,8 @@ def ingest_qianji_transactions(
                         # payroll / rebate income booked straight into a
                         # Fidelity account, without the frontend having to
                         # know Qianji's per-type direction quirk.
-                        (r.get("account_from", "") if r["type"] == "income"
-                         else r.get("account_to", "")),
+                        (r["account_from"] if r["type"] == "income"
+                         else r["account_to"]),
                     )
                     for r in records
                 ],

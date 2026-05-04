@@ -1,181 +1,112 @@
 import { describe, it, expect } from "vitest";
-import { fmtCurrency, fmtCurrencyShort, fmtPct, fmtMonth, fmtMonthYear, fmtDateLong, fmtDateMedium, fmtDateMonthYear, parseLocalDate } from "@/lib/format/format";
+import {
+  fmtCurrency,
+  fmtCurrencyShort,
+  fmtPct,
+  fmtMonth,
+  fmtMonthYear,
+  fmtDateLong,
+  fmtDateMedium,
+  fmtDateMonthYear,
+  parseLocalDate,
+} from "@/lib/format/format";
 
-// ── fmtCurrency ─────────────────────────────────────────────────────────
-
-describe("fmtCurrency", () => {
-  it("formats zero", () => {
-    expect(fmtCurrency(0)).toBe("$0.00");
+describe("currency formatters", () => {
+  it.each([
+    [0, "$0.00"],
+    [9.99, "$9.99"],
+    [0.01, "$0.01"],
+    [5, "$5.00"],
+    [10.5, "$10.50"],
+    [999.01, "$999.01"],
+    [1234, "$1,234"],
+    [1_234_567, "$1,234,567"],
+    [50_000, "$50,000"],
+    [-50.5, "-$50.50"],
+    [-5.5, "-$5.50"],
+    [-0.01, "-$0.01"],
+    [-0, "$0.00"],
+  ])("fmtCurrency(%s)", (input, expected) => {
+    expect(fmtCurrency(input)).toBe(expected);
   });
 
-  it("small values show 2 decimals", () => {
-    expect(fmtCurrency(9.99)).toBe("$9.99");
-    expect(fmtCurrency(0.01)).toBe("$0.01");
-    expect(fmtCurrency(5)).toBe("$5.00");
-  });
-
-  it("medium values show 2 decimals", () => {
-    expect(fmtCurrency(10.5)).toBe("$10.50");
-  });
-
-  it("values under 1000 show 2 decimals", () => {
-    expect(fmtCurrency(999.01)).toBe("$999.01");
-  });
-
-  it("values at 1000+ show 0 decimals", () => {
-    expect(fmtCurrency(1234)).toBe("$1,234");
-    expect(fmtCurrency(1234567)).toBe("$1,234,567");
-  });
-
-  it("large values show 0 decimals", () => {
-    expect(fmtCurrency(50000)).toBe("$50,000");
-  });
-
-  it("formats negative values", () => {
-    expect(fmtCurrency(-50.5)).toBe("-$50.50");
-    expect(fmtCurrency(-5.5)).toBe("-$5.50");
-    expect(fmtCurrency(-0.01)).toBe("-$0.01");
-  });
-
-  it("handles -0 as positive zero", () => {
-    expect(fmtCurrency(-0)).toBe("$0.00");
-  });
-});
-
-// ── fmtCurrencyShort ────────────────────────────────────────────────────
-
-describe("fmtCurrencyShort", () => {
-  it("returns $0 for zero", () => {
-    expect(fmtCurrencyShort(0)).toBe("$0");
-  });
-
-  it("formats millions", () => {
-    expect(fmtCurrencyShort(1_000_000)).toBe("$1.0M");
-    expect(fmtCurrencyShort(2_500_000)).toBe("$2.5M");
-  });
-
-  it("formats thousands", () => {
-    expect(fmtCurrencyShort(1_000)).toBe("$1k");
-    expect(fmtCurrencyShort(50_000)).toBe("$50k");
-    expect(fmtCurrencyShort(999_999)).toBe("$1000k");
-  });
-
-  it("falls through to fmtCurrency for small values", () => {
-    expect(fmtCurrencyShort(999)).toBe("$999.00");
-    expect(fmtCurrencyShort(5.5)).toBe("$5.50");
-  });
-
-  it("formats negative thousands", () => {
-    expect(fmtCurrencyShort(-5000)).toBe("-$5k");
-    expect(fmtCurrencyShort(-50_000)).toBe("-$50k");
-  });
-
-  it("formats negative millions", () => {
-    expect(fmtCurrencyShort(-1_500_000)).toBe("-$1.5M");
-  });
-
-  it("formats small negatives via fmtCurrency", () => {
-    expect(fmtCurrencyShort(-500)).toBe("-$500.00");
+  it.each([
+    [0, "$0"],
+    [1_000_000, "$1.0M"],
+    [2_500_000, "$2.5M"],
+    [1_000, "$1k"],
+    [50_000, "$50k"],
+    [999_999, "$1000k"],
+    [999, "$999.00"],
+    [5.5, "$5.50"],
+    [-5_000, "-$5k"],
+    [-50_000, "-$50k"],
+    [-1_500_000, "-$1.5M"],
+    [-500, "-$500.00"],
+  ])("fmtCurrencyShort(%s)", (input, expected) => {
+    expect(fmtCurrencyShort(input)).toBe(expected);
   });
 });
 
-// ── fmtPct ──────────────────────────────────────────────────────────────
-
-describe("fmtPct", () => {
-  it("formats signed positive", () => {
-    expect(fmtPct(12.34, true)).toBe("+12.3%");
+describe("percent and month formatters", () => {
+  it.each([
+    [12.34, true, "+12.3%"],
+    [-5.67, true, "-5.7%"],
+    [0, true, "+0.0%"],
+    [55, false, "55.0%"],
+    [-3.2, false, "-3.2%"],
+  ])("fmtPct(%s, %s)", (input, signed, expected) => {
+    expect(fmtPct(input, signed)).toBe(expected);
   });
 
-  it("formats signed negative", () => {
-    expect(fmtPct(-5.67, true)).toBe("-5.7%");
-  });
-
-  it("formats signed zero", () => {
-    expect(fmtPct(0, true)).toBe("+0.0%");
-  });
-
-  it("formats unsigned", () => {
-    expect(fmtPct(55.0, false)).toBe("55.0%");
-    expect(fmtPct(-3.2, false)).toBe("-3.2%");
-  });
-});
-
-// ── fmtMonth ────────────────────────────────────────────────────────────
-
-describe("fmtMonth", () => {
   it("maps all 12 months", () => {
     const expected = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     for (let i = 0; i < 12; i++) {
-      const m = `2026-${String(i + 1).padStart(2, "0")}`;
-      expect(fmtMonth(m)).toBe(expected[i]);
+      expect(fmtMonth(`2026-${String(i + 1).padStart(2, "0")}`)).toBe(expected[i]);
     }
   });
 
-  it("falls back to raw string for invalid month", () => {
-    expect(fmtMonth("2026-13")).toBe("2026-13");
-    expect(fmtMonth("2026-00")).toBe("2026-00");
+  it.each([
+    ["2026-13", "2026-13"],
+    ["2026-00", "2026-00"],
+  ])("fmtMonth fallback %s", (input, expected) => {
+    expect(fmtMonth(input)).toBe(expected);
+  });
+
+  it.each([
+    ["2026-03", "Mar 26"],
+    ["2025-11", "Nov 25"],
+    ["2026-13", "2026-13 26"],
+  ])("fmtMonthYear(%s)", (input, expected) => {
+    expect(fmtMonthYear(input)).toBe(expected);
   });
 });
 
-// ── fmtMonthYear ────────────────────────────────────────────────────────
-
-describe("fmtMonthYear", () => {
-  it("formats month and 2-digit year", () => {
-    expect(fmtMonthYear("2026-03")).toBe("Mar 26");
-    expect(fmtMonthYear("2025-11")).toBe("Nov 25");
+describe("date formatters", () => {
+  it.each([
+    ["2026-01-15", "January 15, 2026"],
+    ["2025-12-01", "December 1, 2025"],
+  ])("fmtDateLong(%s)", (input, expected) => {
+    expect(fmtDateLong(input)).toBe(expected);
   });
 
-  it("falls back for invalid month", () => {
-    expect(fmtMonthYear("2026-13")).toBe("2026-13 26");
+  it.each([
+    ["2026-01-15", "Jan 15, 2026"],
+    ["2025-12-31", "Dec 31, 2025"],
+  ])("fmtDateMedium(%s)", (input, expected) => {
+    expect(fmtDateMedium(input)).toBe(expected);
   });
-});
 
-// ── fmtDateLong ────────────────────────────────────────────────────────
-
-describe("fmtDateLong", () => {
-  it("formats ISO date to long form", () => {
-    expect(fmtDateLong("2026-01-15")).toBe("January 15, 2026");
-    expect(fmtDateLong("2025-12-01")).toBe("December 1, 2025");
+  it.each([
+    ["2026-03-15", "Mar 2026"],
+    ["2025-11-01", "Nov 2025"],
+  ])("fmtDateMonthYear(%s)", (input, expected) => {
+    expect(fmtDateMonthYear(input)).toBe(expected);
   });
-});
 
-// ── fmtDateMedium ──────────────────────────────────────────────────────
-
-describe("fmtDateMedium", () => {
-  it("formats ISO date to short month form", () => {
-    expect(fmtDateMedium("2026-01-15")).toBe("Jan 15, 2026");
-    expect(fmtDateMedium("2025-12-31")).toBe("Dec 31, 2025");
-  });
-});
-
-// ── parseLocalDate ─────────────────────────────────────────────────────
-
-describe("parseLocalDate", () => {
-  // The whole point of this helper: `new Date("YYYY-MM-DD")` parses as UTC,
-  // which shifts to the previous calendar day in any westward timezone.
-  // parseLocalDate must produce a Date whose *local* components match the
-  // ISO string verbatim, regardless of the host timezone.
-  it("returns local midnight for the same calendar day", () => {
+  it("parses YYYY-MM-DD as local midnight on the same calendar day", () => {
     const d = parseLocalDate("2026-04-14");
-    expect(d.getFullYear()).toBe(2026);
-    expect(d.getMonth()).toBe(3); // April (0-indexed)
-    expect(d.getDate()).toBe(14);
-    expect(d.getHours()).toBe(0);
-    expect(d.getMinutes()).toBe(0);
-  });
-
-  it("round-trips through toLocaleDateString in en-US", () => {
-    // The user-visible symptom we are protecting against: a NY viewer
-    // seeing Apr 13 when the data row is Apr 14.
-    expect(parseLocalDate("2026-04-14").toLocaleDateString("en-US", { month: "short", day: "numeric" })).toBe("Apr 14");
-  });
-});
-
-// ── fmtDateMonthYear ───────────────────────────────────────────────────
-
-describe("fmtDateMonthYear", () => {
-  it("formats ISO date to month + year", () => {
-    expect(fmtDateMonthYear("2026-03-15")).toBe("Mar 2026");
-    expect(fmtDateMonthYear("2025-11-01")).toBe("Nov 2025");
+    expect([d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes()]).toEqual([2026, 3, 14, 0, 0]);
+    expect(d.toLocaleDateString("en-US", { month: "short", day: "numeric" })).toBe("Apr 14");
   });
 });

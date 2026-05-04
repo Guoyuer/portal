@@ -303,7 +303,7 @@ describe("computeActivity", () => {
     ];
     const act = computeJanActivity(txns);
     expect(act.buysBySymbol).toHaveLength(1);
-    expect(act.buysBySymbol[0]).toEqual({ ticker: "VTI", count: 2, total: 1500, isGroup: false, sources: ["fidelity"] });
+    expect(act.buysBySymbol[0]).toEqual({ ticker: "VTI", count: 2, total: 1500, sources: ["fidelity"] });
     expect(act.sellsBySymbol).toHaveLength(1);
     expect(act.sellsBySymbol[0].total).toBe(2000);
     expect(act.dividendsBySymbol).toHaveLength(1);
@@ -567,9 +567,9 @@ describe("computeGroupedActivity", () => {
       mkInvestmentTxn({ source: "fidelity", actionType: "buy",  ticker: "NVDA", amount: 2000 }),
     ];
     const act = computeJanGroupedActivity(txns);
-    expect(act.sellsBySymbol).toContainEqual(expect.objectContaining({ ticker: "S&P 500", count: 1, total: 1000, isGroup: true, groupKey: "sp500" }));
-    expect(act.buysBySymbol).toContainEqual(expect.objectContaining({ ticker: "S&P 500", count: 1, total: 500, isGroup: true, groupKey: "sp500" }));
-    expect(act.buysBySymbol).toContainEqual(expect.objectContaining({ ticker: "NVDA", count: 1, total: 2000, isGroup: false }));
+    expect(act.sellsBySymbol).toContainEqual(expect.objectContaining({ ticker: "S&P 500", count: 1, total: 1000, groupKey: "sp500" }));
+    expect(act.buysBySymbol).toContainEqual(expect.objectContaining({ ticker: "S&P 500", count: 1, total: 500, groupKey: "sp500" }));
+    expect(act.buysBySymbol).toContainEqual(expect.objectContaining({ ticker: "NVDA", count: 1, total: 2000 }));
     expect(act.sellsBySymbol.find(r => r.ticker === "SPY")).toBeUndefined();
     expect(act.buysBySymbol.find(r => r.ticker === "VOO")).toBeUndefined();
   });
@@ -591,7 +591,7 @@ describe("computeGroupedActivity", () => {
     ];
     const g = computeJanGroupedActivity(txns);
     const spRow = g.buysBySymbol.find((r) => r.ticker === "S&P 500")!;
-    expect(spRow.isGroup).toBe(true);
+    expect(spRow.groupKey).toBe("sp500");
     expect([...spRow.sources].sort()).toEqual(["401k", "fidelity"]);
     expect(spRow.total).toBe(1050);
   });

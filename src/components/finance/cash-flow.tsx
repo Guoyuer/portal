@@ -11,14 +11,86 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
+type CashFlowItem = CashflowResponse["incomeItems"][number];
 
-function CashFlowRow({ item }: { item: { category: string; count: number; amount: number } }) {
+function CashFlowRow({ item }: { item: CashFlowItem }) {
   return (
     <TableRow className="even:bg-muted/50">
       <TableCell>{item.category}</TableCell>
       <TableCell className="text-right">{item.count}</TableCell>
       <TableCell className="text-right">{fmtCurrency(item.amount)}</TableCell>
     </TableRow>
+  );
+}
+
+function CompactCashFlowRow({ item }: { item: CashFlowItem }) {
+  return (
+    <tr className="border-b border-border even:bg-muted/50">
+      <td className="px-2 py-1.5 text-muted-foreground">{item.category}</td>
+      <td className="px-2 py-1.5 text-right text-muted-foreground">{item.count}</td>
+      <td className="px-2 py-1.5 text-right text-muted-foreground">{fmtCurrency(item.amount)}</td>
+    </tr>
+  );
+}
+
+function TotalRow({ total }: { total: number }) {
+  return (
+    <TableRow className={TOTAL_ROW_CLASS}>
+      <TableCell>Total</TableCell>
+      <TableCell />
+      <TableCell className="text-right">{fmtCurrency(total)}</TableCell>
+    </TableRow>
+  );
+}
+
+function CashFlowTable({
+  title,
+  testId,
+  items,
+  total,
+  collapsedItems = [],
+  collapsedTotal = 0,
+}: {
+  title: string;
+  testId: string;
+  items: CashFlowItem[];
+  total: number;
+  collapsedItems?: CashFlowItem[];
+  collapsedTotal?: number;
+}) {
+  return (
+    <div data-testid={testId}>
+      <h3 className="font-semibold mb-2 text-foreground">{title}</h3>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Category</TableHead>
+            <TableHead className="text-right">Txns</TableHead>
+            <TableHead className="text-right">Amount</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {items.map((item) => <CashFlowRow key={item.category} item={item} />)}
+          {collapsedItems.length > 0 && (
+            <TableRow>
+              <TableCell colSpan={3} className="p-0">
+                <details className="group">
+                  <summary className="px-2 py-1.5 text-sm text-muted-foreground cursor-pointer hover:text-foreground">
+                    ... and {collapsedItems.length} more ({fmtCurrency(collapsedTotal)})
+                  </summary>
+                  <table className="w-full text-sm">
+                    <tbody>
+                      {collapsedItems.map((item) => <CompactCashFlowRow key={item.category} item={item} />)}
+                    </tbody>
+                  </table>
+                </details>
+              </TableCell>
+            </TableRow>
+          )}
+          <TotalRow total={total} />
+        </TableBody>
+      </Table>
+    </div>
   );
 }
 
@@ -47,93 +119,16 @@ export function CashFlow({ data }: { data: CashflowResponse }) {
   const incomeItems = consolidateSmallItems(data.incomeItems);
 
   return (
-    <>
-      <div className="grid md:grid-cols-2 gap-6 items-start">
-        {/* Income */}
-        <div data-testid="income-table">
-          <h3 className="font-semibold mb-2 text-foreground">Income</h3>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Category</TableHead>
-                <TableHead className="text-right">Txns</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {incomeItems.map((item) => (
-                <CashFlowRow key={item.category} item={item} />
-              ))}
-              <TableRow className={TOTAL_ROW_CLASS}>
-                <TableCell>Total</TableCell>
-                <TableCell />
-                <TableCell className="text-right">
-                  {fmtCurrency(data.totalIncome)}
-                </TableCell>
-              </TableRow>
-            </TableBody>
-          </Table>
-        </div>
-
-        {/* Expenses */}
-        <div data-testid="expense-table">
-          <h3 className="font-semibold mb-2 text-foreground">Expenses</h3>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Category</TableHead>
-                <TableHead className="text-right">Txns</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {major.map((item) => (
-                <CashFlowRow key={item.category} item={item} />
-              ))}
-              {minor.length > 0 && (
-                <TableRow>
-                  <TableCell colSpan={3} className="p-0">
-                    <details className="group">
-                      <summary className="px-2 py-1.5 text-sm text-muted-foreground cursor-pointer hover:text-foreground">
-                        ... and {minor.length} more ({fmtCurrency(minorTotal)})
-                      </summary>
-                      <table className="w-full text-sm">
-                        <tbody>
-                          {minor.map((item) => (
-                            <tr
-                              key={item.category}
-                              className="border-b border-border even:bg-muted/50"
-                            >
-                              <td className="px-2 py-1.5 text-muted-foreground">
-                                {item.category}
-                              </td>
-                              <td className="px-2 py-1.5 text-right text-muted-foreground">
-                                {item.count}
-                              </td>
-                              <td className="px-2 py-1.5 text-right text-muted-foreground">
-                                {fmtCurrency(item.amount)}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </details>
-                  </TableCell>
-                </TableRow>
-              )}
-              <TableRow className={TOTAL_ROW_CLASS}>
-                <TableCell>Total</TableCell>
-                <TableCell />
-                <TableCell className="text-right">
-                  {fmtCurrency(data.totalExpenses)}
-                </TableCell>
-              </TableRow>
-            </TableBody>
-          </Table>
-        </div>
-      </div>
-
-    </>
+    <div className="grid md:grid-cols-2 gap-6 items-start">
+      <CashFlowTable title="Income" testId="income-table" items={incomeItems} total={data.totalIncome} />
+      <CashFlowTable
+        title="Expenses"
+        testId="expense-table"
+        items={major}
+        total={data.totalExpenses}
+        collapsedItems={minor}
+        collapsedTotal={minorTotal}
+      />
+    </div>
   );
 }
-

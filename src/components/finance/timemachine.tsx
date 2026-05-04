@@ -233,6 +233,12 @@ export function TimemachineSummary({
   const rangeLabel = startDate
     ? `Over ${fmtDateMedium(startDate)} — ${fmtDateMedium(snapshot.date)}`
     : "";
+  const crossCheckRows = cc
+    ? [
+        { label: "Fidelity", source: cc.perSource.fidelity },
+        { label: "Robinhood", source: cc.perSource.robinhood },
+      ]
+    : [];
 
   return (
     <div className="space-y-3">
@@ -309,18 +315,14 @@ export function TimemachineSummary({
             </p>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-1.5 gap-x-2 text-xs">
-            <div className="flex sm:block justify-between">
-              <p className="text-muted-foreground">Fidelity</p>
-              <p className="font-semibold tabular-nums sm:mt-0.5">
-                {cc.perSource.fidelity.matched}/{cc.perSource.fidelity.total}
-              </p>
-            </div>
-            <div className="flex sm:block justify-between">
-              <p className="text-muted-foreground">Robinhood</p>
-              <p className="font-semibold tabular-nums sm:mt-0.5">
-                {cc.perSource.robinhood.matched}/{cc.perSource.robinhood.total}
-              </p>
-            </div>
+            {crossCheckRows.map(({ label, source }) => (
+              <div key={label} className="flex sm:block justify-between">
+                <p className="text-muted-foreground">{label}</p>
+                <p className="font-semibold tabular-nums sm:mt-0.5">
+                  {source.matched}/{source.total}
+                </p>
+              </div>
+            ))}
           </div>
         </>
       )}

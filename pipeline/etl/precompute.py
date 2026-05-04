@@ -5,23 +5,11 @@ import json
 import logging
 import os
 import sqlite3
-from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from .types import TRADING_DAYS_MONTH, TRADING_DAYS_YEAR
 
-
-@dataclass
-class MarketIndexRow:
-    """Computed stats for a single market index, ready for SQL INSERT via asdict()."""
-    ticker: str
-    name: str
-    current: float
-    month_return: float
-    ytd_return: float
-    high_52w: float
-    low_52w: float
-    sparkline: str  # JSON-encoded list[float]
+MarketIndexRow = dict[str, str | float]
 
 # ── Market index precomputation ─────────────────────────────────────────────
 
@@ -69,16 +57,16 @@ def _compute_index_row(
     # Sparkline: last ~1 year of closes
     sparkline = json.dumps(year_closes)
 
-    return MarketIndexRow(
-        ticker=ticker,
-        name=name,
-        current=current,
-        month_return=month_return,
-        ytd_return=ytd_return,
-        high_52w=high_52w,
-        low_52w=low_52w,
-        sparkline=sparkline,
-    )
+    return {
+        "ticker": ticker,
+        "name": name,
+        "current": current,
+        "month_return": month_return,
+        "ytd_return": ytd_return,
+        "high_52w": high_52w,
+        "low_52w": low_52w,
+        "sparkline": sparkline,
+    }
 
 
 def precompute_market(db_path: Path) -> None:
@@ -120,7 +108,7 @@ def _precompute_indices(conn: sqlite3.Connection) -> None:
                 "INSERT INTO computed_market_indices"
                 " (ticker, name, current, month_return, ytd_return, high_52w, low_52w, sparkline)"
                 " VALUES (:ticker, :name, :current, :month_return, :ytd_return, :high_52w, :low_52w, :sparkline)",
-                asdict(row),
+                row,
             )
 
 

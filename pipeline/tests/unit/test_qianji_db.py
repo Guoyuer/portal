@@ -16,6 +16,9 @@ from tests.fixtures import db_rows, db_value
 
 # ── parse_qj_amount ───────────────────────────────────────────────────────────
 
+_BILL_DATE = date(2024, 5, 18)
+_CNY_RATES = {_BILL_DATE: 7.0}
+
 
 def _extra(ss: str, sv: float, ts: str | None, tv: float, bs: str, bv: float) -> str:
     return json.dumps({"curr": {"ss": ss, "sv": sv, "ts": ts, "tv": tv, "bs": bs, "bv": bv}})
@@ -29,6 +32,10 @@ def _row_for(db_path: Path) -> tuple:
     return db_rows(db_path, "SELECT type, account_to FROM qianji_transactions")[0]
 
 
+def _parse_amount(money: float, extra: str | None) -> float:
+    return parse_qj_amount(money, extra, bill_date=_BILL_DATE, historical_cny_rates=_CNY_RATES)
+
+
 class TestParseQjAmount:
     @pytest.mark.parametrize(
         ("money", "extra", "expected"),
@@ -38,7 +45,12 @@ class TestParseQjAmount:
             pytest.param(2590.52, _extra("CNY", 2590.52, None, 0.0, "USD", 358.0), 358.0, id="cny-expense-bv"),
             pytest.param(5000.0, _extra("CNY", 5000.0, "USD", 692.0, "USD", 692.0), 692.0, id="cny-usd-transfer"),
             pytest.param(10000.0, _extra("CNY", 10000.0, "CNY", 10000.0, "USD", 1385.0), 1385.0, id="cny-cny-bv"),
-            pytest.param(7000.0, _extra("CNY", 7000.0, "CNY", 7000.0, "USD", 7000.0), 7000.0, id="cny-cny-unconverted"),
+            pytest.param(
+                7000.0,
+                _extra("CNY", 7000.0, "CNY", 7000.0, "USD", 7000.0),
+                1000.0,
+                id="cny-cny-unconverted",
+            ),
             pytest.param(2000.0, _extra("USD", 2000.0, "CNY", 14366.0, "USD", 2000.0), 2000.0, id="usd-source"),
             pytest.param(50.0, "not json", 50.0, id="malformed-json"),
             pytest.param(50.0, json.dumps({"tags": None}), 50.0, id="missing-curr"),
@@ -49,37 +61,30 @@ class TestParseQjAmount:
             pytest.param(50.0, json.dumps({"curr": {"ss": "CNY", "bs": "USD"}}), 50.0, id="curr-missing-bv"),
             pytest.param(50.0, json.dumps({"curr": {"ss": "CNY", "bs": "USD", "bv": 7.0}}), 50.0, id="curr-missing-sv"),
             pytest.param(100.0, _extra("USD", 100.0, None, 0.0, "USD", 100.0), 100.0, id="same-currency"),
-            pytest.param(100.0, _extra("CNY", 100.0, None, 0.0, "USD", 100.005), 100.0, id="bv-sv-tolerance"),
+            pytest.param(
+                100.0,
+                _extra("CNY", 100.0, None, 0.0, "USD", 100.005),
+                pytest.approx(100.0 / 7.0, rel=1e-6),
+                id="bv-sv-tolerance",
+            ),
             pytest.param(50.0, "", 50.0, id="empty-string"),
         ],
     )
     def test_amount_parser_cases(self, money: float, extra: str | None, expected: float) -> None:
-        assert parse_qj_amount(money, extra) == expected
+        assert _parse_amount(money, extra) == expected
 
     @pytest.mark.parametrize(
-        ("money", "extra", "bill_date", "historical", "expected"),
+        ("money", "extra", "expected"),
         [
             pytest.param(
                 5000.0,
                 _extra("CNY", 5000.0, None, 0.0, "USD", 5000.0),
-                date(2024, 5, 18),
-                {date(2024, 5, 18): 7.0},
                 pytest.approx(714.2857, rel=1e-3),
                 id="historical-cny-rate-converts",
             ),
             pytest.param(
-                5000.0,
-                _extra("CNY", 5000.0, None, 0.0, "USD", 5000.0),
-                None,
-                None,
-                5000.0,
-                id="no-historical-context",
-            ),
-            pytest.param(
                 100.0,
                 _extra("EUR", 100.0, None, 0.0, "USD", 100.0),
-                date(2024, 5, 18),
-                {date(2024, 5, 18): 7.0},
                 100.0,
                 id="non-cny-historical-rate-ignored",
             ),
@@ -89,16 +94,9 @@ class TestParseQjAmount:
         self,
         money: float,
         extra: str,
-        bill_date: date | None,
-        historical: dict[date, float] | None,
         expected: object,
     ) -> None:
-        assert parse_qj_amount(
-            money,
-            extra,
-            bill_date=bill_date,
-            historical_cny_rates=historical,
-        ) == expected
+        assert _parse_amount(money, extra) == expected
 
     def test_unconverted_cny_uses_stable_historical_rate(self) -> None:
         extra = _extra("CNY", 7000.0, None, 0.0, "USD", 7000.0)
@@ -175,7 +173,7 @@ def _bill(
     targetact: str | None = None,
     remark: str | None = None,
     ts: int | None = None,
-    cateid: int | None = None,
+    cateid: int | None = 1,
     extra: str = "null",
     status: int = 1,
 ) -> tuple:
@@ -193,7 +191,7 @@ def _make_db(conn: sqlite3.Connection, bills: list[tuple], categories: list[tupl
         "fromact TEXT, targetact TEXT, remark TEXT, time INTEGER, "
         "cateid INTEGER, extra TEXT, status INTEGER DEFAULT 1)"
     )
-    for cat_id, cat_name in (categories or []):
+    for cat_id, cat_name in ([(1, "General")] if categories is None else categories):
         conn.execute("INSERT INTO category VALUES (?, ?)", (cat_id, cat_name))
     conn.executemany(
         "INSERT INTO user_bill (id, type, money, fromact, targetact, remark, time, cateid, extra, status) "
@@ -205,13 +203,12 @@ def _make_db(conn: sqlite3.Connection, bills: list[tuple], categories: list[tupl
 def _records_for(
     bills: list[tuple],
     categories: list[tuple] | None = None,
-    **kwargs: object,
+    historical_cny_rates: dict[date, float] | None = None,
 ) -> list[dict]:
     conn = sqlite3.connect(":memory:")
     try:
         _make_db(conn, bills, categories)
-        kwargs.setdefault("historical_cny_rates", {})
-        return _load_records(conn, **kwargs)
+        return _load_records(conn, historical_cny_rates=historical_cny_rates or {})
     finally:
         conn.close()
 
@@ -233,12 +230,16 @@ class TestLoadRecords:
         assert r["note"] == "lunch"
 
     def test_null_fields_become_empty_string(self):
-        records = _records_for([_bill(1, fromact=None)])
+        records = _records_for([_bill(1, type_=2, fromact=None)])
         r = records[0]
         assert r["account_from"] == ""
         assert r["account_to"] == ""
         assert r["note"] == ""
         assert r["category"] == ""
+
+    def test_expense_category_is_required(self) -> None:
+        with pytest.raises(ValueError, match="missing Qianji category for expense bill 1"):
+            _records_for([_bill(1, cateid=None)], categories=[])
 
     def test_unknown_type_skipped(self):
         records = _records_for([

@@ -20,7 +20,9 @@ from ..types import QJ_EXPENSE, QJ_INCOME, QJ_REPAYMENT, QJ_TRANSFER
 if override_path := os.environ.get("QIANJI_DB_PATH_OVERRIDE"):
     DEFAULT_DB_PATH = Path(override_path)
 elif sys.platform == "win32":
-    DEFAULT_DB_PATH = Path(os.environ.get("APPDATA", "")) / "com.mutangtech.qianji.win/qianji_flutter/qianjiapp.db"
+    appdata = os.environ.get("APPDATA")
+    root = Path(appdata) if appdata else Path.home() / "AppData" / "Roaming"
+    DEFAULT_DB_PATH = root / "com.mutangtech.qianji.win/qianji_flutter/qianjiapp.db"
 else:
     DEFAULT_DB_PATH = Path.home() / "Library/Containers/com.mutangtech.qianji.fltios/Data/Documents/qianjiapp.db"
 
