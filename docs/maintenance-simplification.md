@@ -208,7 +208,9 @@ before this note.
 Playwright command dependency follow-up: the frontend web server command now
 uses Playwright's `webServer.env` field for `NEXT_PUBLIC_TIMELINE_URL` and
 `PORT`, so the `cross-env` dev dependency and its transitive package are gone.
-This trades a few explicit config lines for one less command wrapper in the
+The direct `playwright` dev dependency was also removed because
+`@playwright/test` already owns the matching `playwright` CLI dependency. This
+trades a few explicit config lines for fewer top-level tool packages in the
 test/development path. Validation: frontend lint, Vitest, and full Playwright
 all pass.
 
