@@ -322,6 +322,21 @@ after this note. Validation so far: focused Vitest, frontend lint, TypeScript
 `tsc --noEmit`, R2 artifact Zod verification, Ruff, mypy strict, vulture,
 ts-prune, and reviewed knip output.
 
+Timeline no-reader field cleanup: `/timeline` no longer exports
+`dailyTickers.costBasis/gainLoss/gainLossPct`, `categories.displayOrder`, or
+operator-only `syncMeta` strings that had no production frontend reader. The
+daily ticker cost/gain path was removed from the computation chain itself:
+source `PositionRow`, replay state, allocation aggregation, SQLite schema,
+R2 SQL, Zod schema, tests, and L2 golden now carry only
+`date/ticker/value/category/subtype`. Category order still comes from
+`categories.display_order` in export SQL. Frontend ticker/group detail keeps
+its separate avg-cost calculation from transaction rows because that path is
+actively rendered. Diff effect: 34 files, 153 insertions / 362 deletions
+(`-209 diff LOC`); maintenance surface is 225 files / 23,536 LOC after this
+note. Validation: targeted Python tests, full Python pytest, Ruff, mypy
+strict, Vitest, lint, TypeScript, Next build, Playwright e2e, and R2
+export/verify.
+
 ### Wave 1: Safe Deletions and Test Compression
 
 Targets:

@@ -40,9 +40,6 @@ const DailyTickerSchema = z.object({
   value: z.number(),
   category: z.string(),
   subtype: z.string(),
-  costBasis: z.number(),
-  gainLoss: z.number(),
-  gainLossPct: z.number(),
 });
 
 // ── Raw transaction schemas (bundled in /timeline) ──────────────────────
@@ -79,12 +76,11 @@ const EmpowerContributionSchema = z.object({
   ticker: z.string(),
 });
 
-// ── Category metadata (target weights + display order from pipeline) ────
+// ── Category metadata (target weights, ordered by pipeline export) ──────
 
 const CategoryMetaSchema = z.object({
   key: z.string(),
   name: z.string(),
-  displayOrder: z.number(),
   targetPct: z.number(),
 });
 
@@ -99,7 +95,9 @@ export const TimelineDataSchema = z.object({
   empowerContributions: z.array(EmpowerContributionSchema),
   categories: z.array(CategoryMetaSchema),
   market: MarketDataSchema,
-  syncMeta: z.record(z.string(), z.string()),
+  syncMeta: z.object({
+    last_sync: z.string(),
+  }),
 });
 
 // ── Inferred types ──────────────────────────────────────────────────────

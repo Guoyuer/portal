@@ -7,8 +7,6 @@ Owns:
     per-fund value scaled by proxy-ticker returns and augmented by any
     contributions made between the snapshot date and ``as_of``.
 
-QFX files don't carry cost basis, so every ``PositionRow`` here returns
-``cost_basis_usd=None`` — the spec-documented Empower invariant.
 """
 from __future__ import annotations
 
@@ -340,8 +338,6 @@ def positions_at(
     3. Add any contributions with ``snapshot_date < contrib_date <= as_of``,
        each scaled by ``proxy_price(as_of) / proxy_price(contrib_date)``.
 
-    :class:`PositionRow` for Empower never carries cost basis — QFX doesn't
-    track it, so ``cost_basis_usd=None`` (spec invariant).
     """
     del config
     conn = sqlite3.connect(str(db_path))
@@ -412,10 +408,6 @@ def positions_at(
         values_by_ticker[ticker] = values_by_ticker.get(ticker, 0.0) + val
 
     return [
-        PositionRow(
-            ticker=ticker,
-            value_usd=value,
-            cost_basis_usd=None,
-        )
+        PositionRow(ticker=ticker, value_usd=value)
         for ticker, value in values_by_ticker.items()
     ]

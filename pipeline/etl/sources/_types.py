@@ -75,4 +75,3 @@ class PriceContext:
 class PositionRow:
     ticker: str
     value_usd: float
-    cost_basis_usd: float | None = None

@@ -5,10 +5,8 @@ generating random transaction sequences via ``hypothesis`` and asserting
 universal invariants of the replay state machine.
 
 Focused on the invariants most likely to surface regressions when
-``replay.py`` is modified (sign convention,
-non-negative cost basis, and split/reinvestment qty conservation — the
-trickiest code path because DISTRIBUTION is qty-only while REINVESTMENT
-adds to cost).
+``replay.py`` is modified: sign convention and split/reinvestment quantity
+conservation.
 """
 from __future__ import annotations
 
@@ -73,9 +71,7 @@ def _buy_sell_sequence(
     """Generate a monotonic-date sequence of BUY / SELL rows with correct signs.
 
     Sells are only emitted for tickers that have positive accumulated quantity
-    so far — a well-formed sequence shouldn't overdraw a position. This keeps
-    the generated scenarios inside the domain where non-negative cost basis
-    should hold universally.
+    so far — a well-formed sequence shouldn't overdraw a position.
     """
     n = draw(st.integers(min_value=min_size, max_value=max_size))
     rows: list[tuple[str, str, str, float, float]] = []
@@ -124,31 +120,27 @@ def _buy_sell_sequence(
     return rows
 
 
-# ── Property 1: Non-negative cost basis + sign conventions ──────────────────
+# ── Property 1: BUY/SELL quantity conservation ──────────────────────────────
 
 
 @given(rows=_buy_sell_sequence())
 @settings(max_examples=75, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
-def test_replay_cost_basis_is_non_negative(tmp_path: Path, rows: list[tuple[str, str, str, float, float]]) -> None:
-    """For a well-formed BUY/SELL sequence (no overdrafts), every resulting
-    position must have ``cost_basis_usd >= 0``.
-
-    The SELL branch reduces cost proportionally — ``cost -= cost * sold_fraction``
-    with ``sold_fraction`` clamped to ``[0, 1]``. So the invariant hinges on
-    that clamp: if sold_fraction could ever exceed 1.0 (over-sell), cost
-    would cross zero. Generated sequences only sell what was bought, so the
-    clamp shouldn't fire — any violation indicates a real bug in the
-    state-machine arithmetic.
-    """
+def test_replay_buy_sell_conserves_quantity(tmp_path: Path, rows: list[tuple[str, str, str, float, float]]) -> None:
+    """For well-formed BUY/SELL rows, resulting quantity is the signed sum."""
     db = _make_db(tmp_path)
     insert_prop_rows(db, rows)
     result = replay_transactions(db, _PROPERTY_REPLAY, date(2099, 12, 31))
 
-    for key, state in result.positions.items():
-        assert state.cost_basis_usd >= 0, (
-            f"negative cost_basis_usd for {key}: {state.cost_basis_usd} "
-            f"(quantity={state.quantity}, rows={rows})"
-        )
+    expected: dict[str, float] = {}
+    for _day, _kind, ticker, qty, _amount in rows:
+        expected[ticker] = expected.get(ticker, 0.0) + qty
+
+    for ticker, qty in expected.items():
+        key = ("", ticker)
+        if abs(qty) <= 0.001:
+            assert key not in result.positions
+        else:
+            assert result.positions[key].quantity == pytest.approx(qty, rel=1e-5, abs=1e-5)
 
 
 # ── Property 2: Quantity sum invariant for BUY-only sequences ───────────────
@@ -166,21 +158,14 @@ def test_replay_cost_basis_is_non_negative(tmp_path: Path, rows: list[tuple[str,
     ),
 )
 @settings(max_examples=75, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
-def test_replay_buy_only_conserves_quantity_and_cost(
+def test_replay_buy_only_conserves_quantity(
     tmp_path: Path,
     buys: list[tuple[str, float, float]],
 ) -> None:
-    """A sequence of BUY-only rows must yield ``quantity == sum(buy_qty)`` and
-    ``cost_basis_usd == sum(buy_amt)`` per ticker, modulo the round-to-6 /
-    round-to-2 the replay applies on exit.
-
-    This is the simplest algebraic invariant of the state machine — any
-    drift here means the BUY branch dropped or double-counted a row.
-    """
+    """A sequence of BUY-only rows must yield ``quantity == sum(buy_qty)`` per ticker."""
     db = _make_db(tmp_path)
     rows: list[tuple[str, str, str, float, float]] = []
     expected_qty: dict[str, float] = {}
-    expected_cost: dict[str, float] = {}
     start = date(2024, 1, 1)
 
     for i, (ticker, qty, amount) in enumerate(buys):
@@ -192,7 +177,6 @@ def test_replay_buy_only_conserves_quantity_and_cost(
             -amount,
         ))
         expected_qty[ticker] = expected_qty.get(ticker, 0.0) + qty
-        expected_cost[ticker] = expected_cost.get(ticker, 0.0) + amount
 
     insert_prop_rows(db, rows)
     result = replay_transactions(db, _PROPERTY_REPLAY, date(2099, 12, 31))
@@ -202,7 +186,6 @@ def test_replay_buy_only_conserves_quantity_and_cost(
         # qty is 0.1, and we never sell, so every ticker should survive.
         state = result.positions[("", ticker)]
         assert state.quantity == pytest.approx(exp_qty, rel=1e-5, abs=1e-5)
-        assert state.cost_basis_usd == pytest.approx(expected_cost[ticker], rel=1e-4, abs=1e-2)
 
 
 # ── Property 3: Split + dividend reinvestment qty conservation ──────────────
@@ -212,7 +195,6 @@ def test_replay_buy_only_conserves_quantity_and_cost(
     pre_qty=st.floats(min_value=1.0, max_value=1000.0, allow_nan=False),
     buy_price=st.floats(min_value=5.0, max_value=500.0, allow_nan=False),
     reinvest_shares=st.floats(min_value=0.001, max_value=10.0, allow_nan=False),
-    reinvest_amount=st.floats(min_value=1.0, max_value=1000.0, allow_nan=False),
 )
 @settings(max_examples=50, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
 def test_replay_split_plus_reinvestment_conserves_state(
@@ -220,19 +202,14 @@ def test_replay_split_plus_reinvestment_conserves_state(
     pre_qty: float,
     buy_price: float,
     reinvest_shares: float,
-    reinvest_amount: float,
 ) -> None:
     """A 2-for-1 split (modeled as a ``DISTRIBUTION`` row with ``qty=pre_qty``)
-    followed by a dividend ``REINVESTMENT`` must yield:
-
-      - ``quantity == pre_qty * 2 + reinvest_shares`` (split doubles, DRIP adds)
-      - ``cost_basis_usd == (pre_qty * buy_price) + reinvest_amount``
-        (split leaves total cost unchanged; reinvestment adds to cost)
+    followed by a dividend ``REINVESTMENT`` must yield
+    ``quantity == pre_qty * 2 + reinvest_shares``.
 
     This is the trickiest replay path because DISTRIBUTION and REINVESTMENT
-    sit on different branches (``_POSITION_ONLY_KINDS`` vs BUY/REINVESTMENT
-    cost-basis update) — a regression that reclassifies DISTRIBUTION as
-    DIVIDEND would drop the split qty silently.
+    sit on different branches; a regression that reclassifies DISTRIBUTION
+    as DIVIDEND would drop the split qty silently.
     """
     db = _make_db(tmp_path)
     ticker = "FOO"
@@ -243,15 +220,13 @@ def test_replay_split_plus_reinvestment_conserves_state(
         ("2024-01-02", ActionKind.BUY.value, ticker, pre_qty, -initial_cost),
         # Day 2: 2-for-1 split adds pre_qty new shares via DISTRIBUTION.
         ("2024-06-15", ActionKind.DISTRIBUTION.value, ticker, pre_qty, 0.0),
-        # Day 3: dividend REINVESTMENT adds `reinvest_shares` at `reinvest_amount`.
-        ("2024-07-01", ActionKind.REINVESTMENT.value, ticker, reinvest_shares, -reinvest_amount),
+        # Day 3: dividend REINVESTMENT adds `reinvest_shares`.
+        ("2024-07-01", ActionKind.REINVESTMENT.value, ticker, reinvest_shares, -1.0),
     ]
     insert_prop_rows(db, rows)
     result = replay_transactions(db, _PROPERTY_REPLAY, date(2024, 12, 31))
 
     state = result.positions[("", ticker)]
     expected_qty = pre_qty * 2 + reinvest_shares
-    expected_cost = initial_cost + reinvest_amount
 
     assert state.quantity == pytest.approx(expected_qty, rel=1e-5, abs=1e-5)
-    assert state.cost_basis_usd == pytest.approx(expected_cost, rel=1e-4, abs=1e-2)

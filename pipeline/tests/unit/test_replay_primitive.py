@@ -50,20 +50,17 @@ def mini_db(tmp_path: Path) -> Path:
     return db
 
 
-def test_replay_accumulates_position_and_cost_basis(mini_db: Path) -> None:
+def test_replay_accumulates_position(mini_db: Path) -> None:
     result = replay_transactions(mini_db, MINI_REPLAY, date(2024, 2, 15))
     assert set(result.positions.keys()) == {("", "FOO")}
     foo = result.positions[("", "FOO")]
     assert foo.quantity == pytest.approx(12.0)  # 10 + 5 - 3
-    # Cost basis reduced proportionally on sell: 1550 * (1 - 3/15) = 1240
-    assert foo.cost_basis_usd == pytest.approx(1240.0, rel=1e-3)
 
 
 def test_replay_respects_as_of_cutoff(mini_db: Path) -> None:
     result = replay_transactions(mini_db, MINI_REPLAY, date(2024, 1, 2))
     foo = result.positions[("", "FOO")]
     assert foo.quantity == pytest.approx(10.0)
-    assert foo.cost_basis_usd == pytest.approx(1000.0)
 
 
 def test_replay_dropped_zero_positions(mini_db: Path) -> None:
@@ -172,8 +169,7 @@ def test_fidelity_per_account_keying(fidelity_like_db: Path) -> None:
 
 
 def test_fidelity_redemption_qty_only(fidelity_like_db: Path) -> None:
-    """REDEMPTION updates qty without touching cost basis — legacy
-    ``POSITION_PREFIXES`` semantics."""
+    """REDEMPTION updates qty — legacy ``POSITION_PREFIXES`` semantics."""
     conn = sqlite3.connect(str(fidelity_like_db))
     _insert(conn, "2024-01-02", "Z001", ActionKind.BUY, "CUSIP", "Cash", 1000, -990)
     _insert(conn, "2024-06-15", "Z001", ActionKind.REDEMPTION, "CUSIP", "Cash", -1000, 1000,
@@ -182,12 +178,12 @@ def test_fidelity_redemption_qty_only(fidelity_like_db: Path) -> None:
     conn.close()
 
     result = replay_transactions(fidelity_like_db, FIDELITY_BASIC_REPLAY, date(2024, 12, 31))
-    # Full redemption wipes the position, keeps cost_basis at the original BUY.
+    # Full redemption wipes the position.
     assert ("Z001", "CUSIP") not in result.positions
 
 
 def test_fidelity_distribution_qty_only(fidelity_like_db: Path) -> None:
-    """DISTRIBUTION adds shares without touching cost basis."""
+    """DISTRIBUTION adds shares."""
     conn = sqlite3.connect(str(fidelity_like_db))
     _insert(conn, "2024-01-02", "Z001", ActionKind.BUY, "AVGO", "Cash", 10, -1000)
     _insert(conn, "2024-07-15", "Z001", ActionKind.DISTRIBUTION, "AVGO", "Shares", 9.063, 1553.57,
@@ -198,11 +194,10 @@ def test_fidelity_distribution_qty_only(fidelity_like_db: Path) -> None:
     result = replay_transactions(fidelity_like_db, FIDELITY_BASIC_REPLAY, date(2024, 12, 31))
     avgo = result.positions[("Z001", "AVGO")]
     assert avgo.quantity == pytest.approx(19.063)
-    assert avgo.cost_basis_usd == pytest.approx(1000.0)  # unchanged by distribution
 
 
 def test_fidelity_transfer_qty_only(fidelity_like_db: Path) -> None:
-    """TRANSFERRED FROM / TO both treat qty as the delta (no cost basis)."""
+    """TRANSFERRED FROM / TO both treat qty as the delta."""
     conn = sqlite3.connect(str(fidelity_like_db))
     _insert(conn, "2024-01-02", "Z001", ActionKind.BUY, "VTI", "Cash", 10, -2000)
     _insert(conn, "2024-02-01", "Z001", ActionKind.TRANSFER, "VTI", "Shares", -4, -800,
@@ -290,9 +285,7 @@ def test_fidelity_cash_account_regex_filter(fidelity_like_db: Path) -> None:
 
 
 def test_fidelity_sell_without_prior_holdings(fidelity_like_db: Path) -> None:
-    """Matches legacy: a SELL with no prior BUY leaves cost basis at 0
-    but applies qty (goes negative). Rarely hits production but the parity
-    check matters."""
+    """Matches legacy: a SELL with no prior BUY applies qty (goes negative)."""
     conn = sqlite3.connect(str(fidelity_like_db))
     _insert(conn, "2024-01-02", "Z001", ActionKind.SELL, "ORPHAN", "Cash", -3, 300)
     conn.commit()
@@ -301,4 +294,3 @@ def test_fidelity_sell_without_prior_holdings(fidelity_like_db: Path) -> None:
     result = replay_transactions(fidelity_like_db, FIDELITY_BASIC_REPLAY, date(2024, 12, 31))
     orphan = result.positions[("Z001", "ORPHAN")]
     assert orphan.quantity == pytest.approx(-3.0)
-    assert orphan.cost_basis_usd == pytest.approx(0.0)

@@ -46,7 +46,6 @@ def test_positions_at_with_prices(fixture_downloads: Path, empty_db: Path) -> No
     vti = [r for r in rows if r.ticker == "VTI"]
     assert len(vti) == 1
     assert vti[0].value_usd == pytest.approx(1250.0)
-    assert vti[0].cost_basis_usd == pytest.approx(1150.0)
 
 
 def test_ingest_is_idempotent(fixture_downloads: Path, empty_db: Path) -> None:

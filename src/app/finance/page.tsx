@@ -23,7 +23,7 @@ import { UnmatchedPanel } from "@/components/finance/unmatched-panel";
 
 const PAGE_LOAD_TIME = Date.now();
 
-function SyncStatus({ syncMeta }: { syncMeta: Record<string, string> | null }) {
+function SyncStatus({ syncMeta }: { syncMeta: ReturnType<typeof useBundle>["syncMeta"] }) {
   const lastSync = syncMeta?.last_sync;
   if (!lastSync) return null;
   const daysAgo = Math.floor((PAGE_LOAD_TIME - new Date(lastSync).getTime()) / 86_400_000);

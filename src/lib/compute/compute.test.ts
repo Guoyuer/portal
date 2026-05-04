@@ -82,9 +82,9 @@ describe("buildDateIndex", () => {
 describe("buildTickerIndex", () => {
   it("groups tickers by date", () => {
     const tickers: DailyTicker[] = [
-      { date: "2026-01-01", ticker: "VTI", value: 1000, category: "US Equity", subtype: "broad", costBasis: 900, gainLoss: 100, gainLossPct: 11.1 },
-      { date: "2026-01-01", ticker: "VXUS", value: 500, category: "Non-US Equity", subtype: "broad", costBasis: 450, gainLoss: 50, gainLossPct: 11.1 },
-      { date: "2026-01-02", ticker: "VTI", value: 1010, category: "US Equity", subtype: "broad", costBasis: 900, gainLoss: 110, gainLossPct: 12.2 },
+      { date: "2026-01-01", ticker: "VTI", value: 1000, category: "US Equity", subtype: "broad" },
+      { date: "2026-01-01", ticker: "VXUS", value: 500, category: "Non-US Equity", subtype: "broad" },
+      { date: "2026-01-02", ticker: "VTI", value: 1010, category: "US Equity", subtype: "broad" },
     ];
     const idx = buildTickerIndex(tickers);
     expect(idx.get("2026-01-01")).toHaveLength(2);
@@ -130,7 +130,7 @@ describe("computeAllocation", () => {
 
   it("includes tickers from ticker index", () => {
     const tickerIdx = new Map<string, ApiTicker[]>([
-      [JAN_15, [{ ticker: "VTI", value: 55000, category: "US Equity", subtype: "broad", costBasis: 50000, gainLoss: 5000, gainLossPct: 10 }]],
+      [JAN_15, [{ ticker: "VTI", value: 55000, category: "US Equity", subtype: "broad" }]],
     ]);
     const result = computeDefaultAllocation({ tickerIdx });
     expect(result!.tickers).toHaveLength(1);
@@ -156,7 +156,7 @@ describe("catColorByName", () => {
   });
 
   it("falls back to neutral grey for unknown keys", () => {
-    const map = catColorByName([{ key: "unknown", name: "Alt", displayOrder: 0, targetPct: 0 }]);
+    const map = catColorByName([{ key: "unknown", name: "Alt", targetPct: 0 }]);
     expect(map["Alt"]).toBe("#888888");
   });
 });

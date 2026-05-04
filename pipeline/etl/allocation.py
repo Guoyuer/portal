@@ -71,14 +71,12 @@ def _categorize_ticker(
     ticker: str,
     value: float,
     assets: Mapping[str, AssetInfo],
-    cost_basis_by_ticker: dict[str, float],
 ) -> TickerDetail:
-    """Classify a single ticker into a detail row with category/subtype/gain-loss."""
+    """Classify a single ticker into a detail row with category/subtype."""
     if value < 0:
         return TickerDetail(
             ticker=ticker, value=round(value, 2),
             category="Liability", subtype="",
-            cost_basis=0, gain_loss=0, gain_loss_pct=0,
         )
     asset_entry = assets.get(ticker)
     if asset_entry is None:
@@ -87,13 +85,9 @@ def _categorize_ticker(
     sub = asset_entry.get("subtype", "")
     if not cat:
         raise KeyError(f"Ticker {ticker!r} has no 'category' in config.assets")
-    cb = cost_basis_by_ticker.get(ticker, 0)
-    gl = round(value - cb, 2) if cb > 0 else 0
-    gl_pct = round(gl / cb * 100, 2) if cb > 0 else 0
     return TickerDetail(
         ticker=ticker, value=round(value, 2),
         category=cat, subtype=sub,
-        cost_basis=round(cb, 2), gain_loss=gl, gain_loss_pct=gl_pct,
     )
 
 
@@ -191,8 +185,6 @@ def step_one_day(
     )
 
     ticker_values: dict[str, float] = {}
-    cost_basis_by_ticker: dict[str, float] = {}
-
     # ── Aggregate every source module via the uniform positions API. ──
     ctx = PriceContext(
         prices=sources.prices,
@@ -203,10 +195,6 @@ def step_one_day(
     for positions_at in _POSITION_READERS:
         for row in positions_at(sources.db_path, current, ctx, sources.source_config):
             ticker_values[row.ticker] = ticker_values.get(row.ticker, 0.0) + row.value_usd
-            if row.cost_basis_usd is not None:
-                cost_basis_by_ticker[row.ticker] = (
-                    cost_basis_by_ticker.get(row.ticker, 0.0) + row.cost_basis_usd
-                )
 
     _add_qianji_balances(
         ticker_values, qj_balances, sources.qianji_currencies,
@@ -214,14 +202,13 @@ def step_one_day(
         sources.warning_keys,
     )
 
-    return _build_allocation_row(current, ticker_values, sources.assets, cost_basis_by_ticker)
+    return _build_allocation_row(current, ticker_values, sources.assets)
 
 
 def _build_allocation_row(
     current: date,
     ticker_values: dict[str, float],
     assets: Mapping[str, AssetInfo],
-    cost_basis_by_ticker: dict[str, float],
 ) -> AllocationRow:
     """Categorize each non-zero ticker and produce the per-day allocation dict."""
     ticker_detail: list[TickerDetail] = []
@@ -234,7 +221,7 @@ def _build_allocation_row(
     for ticker, value in ticker_values.items():
         if value == 0:
             continue
-        row = _categorize_ticker(ticker, value, assets, cost_basis_by_ticker)
+        row = _categorize_ticker(ticker, value, assets)
         ticker_detail.append(row)
         if value < 0:
             liabilities += value

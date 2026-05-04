@@ -33,10 +33,7 @@ def _alloc_row(day: str = "2026-04-14", total: float = 100.0) -> build_mod.Alloc
         "total": total,
         "us_equity": total, "non_us_equity": 0, "crypto": 0, "safe_net": 0, "liabilities": 0,
         "tickers": [
-            {
-                "ticker": "VOO", "value": total, "category": "US Equity", "subtype": "broad",
-                "cost_basis": total - 10, "gain_loss": 10, "gain_loss_pct": 10,
-            }
+            {"ticker": "VOO", "value": total, "category": "US Equity", "subtype": "broad"}
         ],
     }
 

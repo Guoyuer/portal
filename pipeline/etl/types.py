@@ -112,9 +112,6 @@ class TickerDetail(TypedDict):
     value: float
     category: str
     subtype: str
-    cost_basis: float
-    gain_loss: float
-    gain_loss_pct: float
 
 
 class AllocationRow(TypedDict):

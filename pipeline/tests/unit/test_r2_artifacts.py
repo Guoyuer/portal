@@ -23,8 +23,8 @@ def _seed_exportable_db(db_path: Path) -> None:
         )
         conn.execute(
             "INSERT INTO computed_daily_tickers "
-            "(date, ticker, value, category, subtype, cost_basis, gain_loss, gain_loss_pct) "
-            "VALUES ('2026-05-01', 'VOO', 600, 'US Equity', '', 500, 100, 0.2)"
+            "(date, ticker, value, category, subtype) "
+            "VALUES ('2026-05-01', 'VOO', 600, 'US Equity', '')"
         )
         conn.execute(
             "INSERT INTO categories (key, name, display_order, target_pct) "
@@ -85,12 +85,15 @@ def test_export_writes_manifest_summary_and_endpoint_artifacts(
     assert "errors" not in timeline
     assert timeline["market"]["indices"][0]["sparkline"] == [4900, 5000]
     assert timeline["qianjiTxns"][0]["isRetirement"] is True
-    assert timeline["syncMeta"] == {
-        "backend": "r2",
-        "version": "2026-05-02T170000Z",
-        "last_sync": "2026-05-02T17:00:00Z",
-        "last_date": "2026-05-01",
+    assert timeline["dailyTickers"][0] == {
+        "date": "2026-05-01",
+        "ticker": "VOO",
+        "value": 600,
+        "category": "US Equity",
+        "subtype": "",
     }
+    assert timeline["categories"][0] == {"key": "US Equity", "name": "US Equity", "targetPct": 0.6}
+    assert timeline["syncMeta"] == {"last_sync": "2026-05-02T17:00:00Z"}
 
     prices = json.loads((artifact_dir / "snapshots/2026-05-02T170000Z/prices.json").read_text())
     assert prices["VOO"]["transactions"][0]["actionType"] == "buy"

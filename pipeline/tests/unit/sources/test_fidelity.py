@@ -20,8 +20,8 @@ def config(tmp_path: Path) -> dict[str, object]:
     }
 
 
-def test_positions_at_surfaces_cost_basis(tmp_path: Path, empty_db: Path, config: dict[str, object]) -> None:
-    """Fidelity positions must surface cost_basis_usd (spec invariant)."""
+def test_positions_at_values_holding(tmp_path: Path, empty_db: Path, config: dict[str, object]) -> None:
+    """Fidelity positions value replayed shares with the requested price date."""
     csv = tmp_path / "Accounts_History.csv"
     write_fidelity_csv(csv, [
         '01/02/2024,"Roth IRA",X12345678,"YOU BOUGHT FXAIX",FXAIX,"Fidelity 500 Index",Cash,10,150,-1500,01/03/2024',
@@ -42,7 +42,6 @@ def test_positions_at_surfaces_cost_basis(tmp_path: Path, empty_db: Path, config
 
     fxaix = [r for r in rows if r.ticker == "FXAIX"]
     assert len(fxaix) == 1
-    assert fxaix[0].cost_basis_usd == pytest.approx(1500.0)
     assert fxaix[0].value_usd == pytest.approx(1500.0)
 
 
