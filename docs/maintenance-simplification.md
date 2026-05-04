@@ -273,6 +273,16 @@ Current static-analysis sweep:
   `TickerPricePoint` is a type-only import in `ticker-data.ts`, and generated
   Zod type exports are excluded from maintenance LOC.
 
+Parsing-surface follow-up: the broker parser no longer exposes a fake-generic
+US date API. Fidelity keeps a strict `MM/DD/YYYY` parser; Robinhood owns its
+one-digit month/day CSV parsing locally. The single-caller CSV row helper and
+the loose parser's test-only behavior were removed, and
+`qianji_balances_at` now requires an explicit date instead of also meaning
+"current snapshot" when passed `None`. Diff effect: 7 maintained files, 23
+insertions / 161 deletions (`-138 diff LOC`); physical maintenance surface
+drops to 231 files / 24,487 LOC before this note. Validation so far: targeted
+Fidelity/Robinhood/Qianji/allocation tests, Ruff, mypy strict, and vulture.
+
 ### Wave 1: Safe Deletions and Test Compression
 
 Targets:

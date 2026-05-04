@@ -17,7 +17,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from etl.db import get_connection
-from etl.parsing import STRICT_US_DATE_RE, parse_us_date
+from etl.parsing import MMDDYYYY_RE, parse_mmddyyyy_date
 from etl.sources._types import ActionKind
 from etl.types import (
     ACT_BUY,
@@ -183,12 +183,11 @@ def _parse_csv_rows(csv_path: Path) -> list[FidelityTxnRow]:
         run_date_raw = record.get("Run Date", "").strip()
         # Skip blank rows and footer/disclaimer text; only rows shaped
         # like a Fidelity date participate in ingestion.
-        if not STRICT_US_DATE_RE.match(run_date_raw):
+        if not MMDDYYYY_RE.match(run_date_raw):
             continue
 
-        iso_date = parse_us_date(
+        iso_date = parse_mmddyyyy_date(
             run_date_raw,
-            strict=True,
             row_context=f"{csv_path.name} line {header_idx + 2 + offset}",
         )
 

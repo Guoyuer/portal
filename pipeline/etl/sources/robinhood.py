@@ -19,13 +19,13 @@ to the legacy behaviour.
 """
 from __future__ import annotations
 
+import csv
 import logging
 import re
 from datetime import date, datetime
 from pathlib import Path
 
 from etl.db import get_connection
-from etl.parsing import read_csv_rows
 from etl.replay import ReplayConfig, replay_transactions
 from etl.sources._types import ActionKind, PositionRow, PriceContext
 from etl.types import RawConfig, parse_currency
@@ -103,7 +103,7 @@ def ingest(db_path: Path, downloads: Path) -> None:
 def _ingest_one_csv(db_path: Path, csv_path: Path) -> None:
     """Parse one Robinhood CSV and persist its rows via range-replace."""
     rows: list[tuple[str, str, str, str, float, float, str]] = []
-    for row in read_csv_rows(csv_path):
+    for row in csv.DictReader(csv_path.read_text(encoding="utf-8-sig").splitlines()):
         activity_date = (row.get("Activity Date") or "").strip()
         # Skip blank / footer rows — only rows with a parseable
         # MM/DD/YYYY (or M/D/YYYY) date are real transactions.

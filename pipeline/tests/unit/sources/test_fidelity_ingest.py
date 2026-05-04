@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from etl.db import init_db
-from etl.parsing import parse_us_date
+from etl.parsing import parse_mmddyyyy_date
 from etl.sources.fidelity.parse import ingest_csvs
 from tests.fixtures import db_rows, db_value
 from tests.unit.sources.conftest import ROW_AAPL as _ROW_AAPL
@@ -15,7 +15,7 @@ from tests.unit.sources.conftest import write_fidelity_csv as _write_csv
 
 
 class TestFidelityDateParse:
-    """Tests for Fidelity's strict MM/DD/YYYY → ISO conversion via parse_us_date."""
+    """Tests for Fidelity's strict MM/DD/YYYY → ISO conversion."""
 
     @pytest.mark.parametrize(
         ("raw", "expected"),
@@ -27,7 +27,7 @@ class TestFidelityDateParse:
         ids=["happy-path", "leading-zeros", "end-of-year"],
     )
     def test_valid_dates(self, raw: str, expected: str) -> None:
-        assert parse_us_date(raw, strict=True) == expected
+        assert parse_mmddyyyy_date(raw) == expected
 
     @pytest.mark.parametrize(
         "raw",
@@ -36,11 +36,11 @@ class TestFidelityDateParse:
     )
     def test_rejects_invalid_dates(self, raw: str) -> None:
         with pytest.raises(ValueError, match="Invalid"):
-            parse_us_date(raw, strict=True)
+            parse_mmddyyyy_date(raw)
 
     def test_error_message_includes_row_context(self) -> None:
         with pytest.raises(ValueError, match=r"Accounts_History\.csv row 42"):
-            parse_us_date("bad", strict=True, row_context="Accounts_History.csv row 42")
+            parse_mmddyyyy_date("bad", row_context="Accounts_History.csv row 42")
 
 
 class TestIngestFidelity:
