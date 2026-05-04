@@ -47,10 +47,6 @@ function aggregateCategories(cats: Pick<GroupedCategory, "value" | "pct" | "targ
   return { value, pct, target, deviation: deviation(pct, target) };
 }
 
-function isEquityCategory(name: string): boolean {
-  return EQUITY_CATEGORIES.has(name);
-}
-
 function groupTickers(categories: ApiCategory[], tickers: ApiTicker[], total: number): GroupedCategory[] {
   const tickersByCategory: Record<string, Record<string, ApiTicker[]>> = {};
   for (const t of tickers) {
@@ -78,7 +74,7 @@ function groupTickers(categories: ApiCategory[], tickers: ApiTicker[], total: nu
       pct: cat.pct,
       target: cat.target,
       deviation: deviation(cat.pct, cat.target),
-      isEquity: isEquityCategory(cat.name),
+      isEquity: EQUITY_CATEGORIES.has(cat.name),
       subtypes,
     };
   });

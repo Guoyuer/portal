@@ -156,14 +156,7 @@ def _run_validation(paths: BuildPaths) -> None:
 
 def _derive_start_date(paths: BuildPaths, fallback: date) -> date:
     """Derive build start date from earliest Fidelity transaction (ISO run_date)."""
-    conn = get_connection(paths.db_path)
-    try:
-        row = conn.execute(
-            "SELECT MIN(run_date) FROM fidelity_transactions"
-        ).fetchone()
-    finally:
-        conn.close()
-    return date.fromisoformat(row[0]) if row and row[0] else fallback
+    return _date_scalar(paths.db_path, "SELECT MIN(run_date) FROM fidelity_transactions") or fallback
 
 
 # ── Ingest & fetch pipeline ──────────────────────────────────────────────────
@@ -292,18 +285,10 @@ def _fetch_all_prices(
     because allocation converts CNY-denominated balances from day one. We
     therefore derive the CNY start from ``MIN(run_date)`` directly.
     """
-    _conn = get_connection(paths.db_path)
-    # Use computed_daily start as global_start so ticker charts cover the full brush range
-    cd_start_row = _conn.execute("SELECT MIN(date) FROM computed_daily").fetchone()
-    # First Fidelity transaction (not just first buy) — drives CNY fetch lower bound.
-    first_txn_row = _conn.execute("SELECT MIN(run_date) FROM fidelity_transactions").fetchone()
-    _conn.close()
-    global_start = date.fromisoformat(cd_start_row[0]) if cd_start_row and cd_start_row[0] else earliest
-    cny_start = (
-        date.fromisoformat(first_txn_row[0])
-        if first_txn_row and first_txn_row[0]
-        else earliest
-    )
+    # Use computed_daily start as global_start so ticker charts cover the full brush range.
+    global_start = _date_scalar(paths.db_path, "SELECT MIN(date) FROM computed_daily") or earliest
+    # First Fidelity transaction (not just first buy) drives CNY fetch lower bound.
+    cny_start = _date_scalar(paths.db_path, "SELECT MIN(run_date) FROM fidelity_transactions") or earliest
     fetch_and_store_prices(paths.db_path, periods, end, global_start=global_start)
     fetch_and_store_cny_rates(paths.db_path, cny_start, end)
 

@@ -408,6 +408,21 @@ of a one-use dataclass immediately converted by `asdict()`. Current branch
 effect before this note: 38 files, 603 insertions / 804 deletions (`-201 diff
 LOC`), with targeted frontend, Worker, and Python checks passing.
 
+Current validation/UI consolidation follow-up: validate edge-case coverage was
+merged back into `test_validate.py`, deleting the parallel
+`test_validate_extended.py` entrypoint and its duplicate `_issues`/connection
+helper. Price split-validation cases now use shared DB fixtures and parameter
+tables instead of repeated local `get_connection` scaffolding. Frontend dark
+mode observation uses the same `useSyncExternalStore` model as mobile media
+queries, the economy page renders repeated chart sections from one config
+table, and a few one-call wrappers in market/category/Worker code were folded
+into their callers. Build orchestration reuses the existing date-scalar helper
+for repeated DB date lookups, and automation email context is assembled where
+it is used. Diff effect before this note: 12 files, 369 insertions / 475
+deletions (`-106 diff LOC`); active maintenance surface is 222 files / 23,294
+LOC before this note. Targeted Python, frontend, Worker, Ruff, and TypeScript
+checks passed.
+
 ### Wave 1: Safe Deletions and Test Compression
 
 Targets:

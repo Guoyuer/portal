@@ -208,10 +208,6 @@ const CROSS_CHECK_SOURCES = [
   { source: "robinhood", accountPrefix: "robinhood" },
 ] as const satisfies readonly { source: UnmatchedItem["source"]; accountPrefix: string }[];
 
-function emptySourceCrossCheck(): SourceCrossCheck {
-  return { matched: 0, total: 0, unmatched: [] };
-}
-
 export interface CrossCheck {
   matchedCount: number;
   totalCount: number;
@@ -246,8 +242,8 @@ export function computeCrossCheck(
   }
 
   const perSource: CrossCheck["perSource"] = {
-    fidelity: emptySourceCrossCheck(),
-    robinhood: emptySourceCrossCheck(),
+    fidelity: { matched: 0, total: 0, unmatched: [] },
+    robinhood: { matched: 0, total: 0, unmatched: [] },
   };
 
   // Candidates: Qianji transfers, or income booked directly into the broker

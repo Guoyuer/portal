@@ -7,17 +7,13 @@ import { fmtPct } from "@/lib/format/format";
 import { SectionHeader } from "@/components/finance/section";
 import { MARKET_GAIN, MARKET_LOSS } from "@/lib/format/chart-colors";
 
-function returnColor(v: number) { return v >= 0 ? MARKET_GAIN : MARKET_LOSS; }
-// ~15% alpha (0x26 / 255 ≈ 0.15) — matches the previous `bg-[…]/15` Tailwind
-// arbitrary class the JIT used to emit, without duplicating the hex in two places.
-function returnBgAlpha(v: number) { return `${v >= 0 ? MARKET_GAIN : MARKET_LOSS}26`; }
-
 // ── Badge ───────────────────────────────────────────────────────────────
 function ReturnBadge({ label, value }: { label: string; value: number }) {
+  const color = value >= 0 ? MARKET_GAIN : MARKET_LOSS;
   return (
     <span
       className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold tabular-nums"
-      style={{ color: returnColor(value), backgroundColor: returnBgAlpha(value) }}
+      style={{ color, backgroundColor: `${color}26` }}
     >
       <span className="text-[9px] opacity-60 font-normal">{label}</span>
       {fmtPct(value, true)}

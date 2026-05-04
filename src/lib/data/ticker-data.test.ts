@@ -15,23 +15,22 @@ const pt = (date: string, over: Partial<TickerChartPoint> = {}): TickerChartPoin
   const [y, m, d] = date.split("-").map((s) => parseInt(s, 10));
   return { date, ts: new Date(y, m - 1, d).getTime(), close: 100, ...over };
 };
+const buyPoint = (date: string, qty = 1, amount = 100, price = 100, count = 1) =>
+  pt(date, { buyPrice: price, buyQty: qty, buyAmount: amount, buyTxnCount: count });
 
 describe("clusterByTime", () => {
-  it("returns empty when no points have the target fields", () => {
-    const points = [pt("2025-01-01"), pt("2025-02-01")];
-    expect(clusterByTime(points, "buy")).toEqual([]);
-  });
-
-  it("returns empty when only one point exists (span is 0, cluster meaningless)", () => {
-    const points = [pt("2025-01-01", { buyPrice: 100, buyQty: 1, buyAmount: 100, buyTxnCount: 1 })];
+  it.each([
+    ["no points have target fields", [pt("2025-01-01"), pt("2025-02-01")]],
+    ["only one point exists", [buyPoint("2025-01-01")]],
+  ])("returns empty when %s", (_name, points) => {
     expect(clusterByTime(points, "buy")).toEqual([]);
   });
 
   it("sums txn counts across days in the same cluster (count != days)", () => {
     // Two adjacent days each with 2 txns → cluster count should be 4 (not 2)
     const points = [
-      pt("2025-01-01", { buyPrice: 100, buyQty: 2, buyAmount: 200, buyTxnCount: 2 }),
-      pt("2025-01-02", { buyPrice: 100, buyQty: 2, buyAmount: 200, buyTxnCount: 2 }),
+      buyPoint("2025-01-01", 2, 200, 100, 2),
+      buyPoint("2025-01-02", 2, 200, 100, 2),
       pt("2026-01-01"), // span anchor far in the future
     ];
     const clusters = clusterByTime(points, "buy");
@@ -46,8 +45,8 @@ describe("clusterByTime", () => {
     // Span = 365 days, threshold = 5.4 days.
     // Buys 7 days apart should NOT cluster.
     const points = [
-      pt("2025-01-01", { buyPrice: 100, buyQty: 1, buyAmount: 100, buyTxnCount: 1 }),
-      pt("2025-01-08", { buyPrice: 100, buyQty: 1, buyAmount: 100, buyTxnCount: 1 }),
+      buyPoint("2025-01-01"),
+      buyPoint("2025-01-08"),
       pt("2026-01-01"),
     ];
     const clusters = clusterByTime(points, "buy");
@@ -58,8 +57,8 @@ describe("clusterByTime", () => {
     // Two buys: qty 10 @ $100 ($1000) and qty 20 @ $130 ($2600)
     // VWAP = 3600 / 30 = $120
     const points = [
-      pt("2025-01-01", { buyPrice: 100, buyQty: 10, buyAmount: 1000, buyTxnCount: 1 }),
-      pt("2025-01-02", { buyPrice: 130, buyQty: 20, buyAmount: 2600, buyTxnCount: 1 }),
+      buyPoint("2025-01-01", 10, 1000, 100),
+      buyPoint("2025-01-02", 20, 2600, 130),
       pt("2026-01-01"),
     ];
     const clusters = clusterByTime(points, "buy");
@@ -69,8 +68,8 @@ describe("clusterByTime", () => {
 
   it("weights centroid timestamp by amount (big trades pull toward their date)", () => {
     // Trade A: $100 at day 1; Trade B: $900 at day 2. Centroid ≈ day ~1.9
-    const day1 = pt("2025-01-01", { buyPrice: 100, buyQty: 1, buyAmount: 100, buyTxnCount: 1 });
-    const day2 = pt("2025-01-02", { buyPrice: 100, buyQty: 9, buyAmount: 900, buyTxnCount: 1 });
+    const day1 = buyPoint("2025-01-01", 1, 100);
+    const day2 = buyPoint("2025-01-02", 9, 900);
     const points = [day1, day2, pt("2026-01-01")];
     const clusters = clusterByTime(points, "buy");
     expect(clusters).toHaveLength(1);
@@ -98,8 +97,8 @@ describe("sizeClusters", () => {
 describe("buildClusteredData", () => {
   it("snaps cluster centroids to the nearest data anchor", () => {
     const points = [
-      pt("2025-01-01", { buyPrice: 100, buyQty: 1, buyAmount: 100, buyTxnCount: 1 }),
-      pt("2025-01-02", { buyPrice: 100, buyQty: 1, buyAmount: 100, buyTxnCount: 1 }),
+      buyPoint("2025-01-01"),
+      buyPoint("2025-01-02"),
       pt("2025-01-03"),
       pt("2026-01-01"),
     ];
@@ -112,7 +111,7 @@ describe("buildClusteredData", () => {
 
   it("strips per-day buyPrice/sellPrice so inline markers don't double-render", () => {
     const points = [
-      pt("2025-01-01", { buyPrice: 100, buyQty: 1, buyAmount: 100, buyTxnCount: 1 }),
+      buyPoint("2025-01-01"),
       pt("2026-01-01"),
     ];
     const out = buildClusteredData(points);
@@ -122,55 +121,52 @@ describe("buildClusteredData", () => {
 });
 
 describe("tsToIsoLocal", () => {
-  it("formats a local-timezone timestamp as YYYY-MM-DD", () => {
-    const ts = new Date(2026, 3, 15).getTime(); // April 15, 2026 (months are 0-indexed)
-    expect(tsToIsoLocal(ts)).toBe("2026-04-15");
-  });
-
-  it("pads single-digit month and day", () => {
-    const ts = new Date(2026, 0, 5).getTime();
-    expect(tsToIsoLocal(ts)).toBe("2026-01-05");
+  it.each([
+    [new Date(2026, 3, 15).getTime(), "2026-04-15"],
+    [new Date(2026, 0, 5).getTime(), "2026-01-05"],
+  ])("formats local timestamp %s as %s", (ts, expected) => {
+    expect(tsToIsoLocal(ts)).toBe(expected);
   });
 });
 
 describe("mergeTickerData reinvestment split", () => {
-  it("separates reinvestment from buys", () => {
-    const out = mergeTickerData(
-      [{ date: "2026-01-02", close: 100 }],
-      [
-        { runDate: "2026-01-02", actionType: "buy", amount: 100, quantity: 1, price: 100 },
-        { runDate: "2026-01-02", actionType: "reinvestment", amount: 5, quantity: 0.05, price: 100 },
-      ],
-    );
-    expect(out[0].buyAmount).toBe(100);
-    expect(out[0].buyTxnCount).toBe(1);
-    expect(out[0].reinvestAmount).toBe(5);
-    expect(out[0].reinvestTxnCount).toBe(1);
+  const txn = (date: string, actionType: TickerTxn["actionType"], amount: number, quantity: number, price: number): TickerTxn => ({
+    runDate: date, actionType, amount, quantity, price,
   });
 
-  it("reinvestment-only day has no buyAmount but has reinvestAmount", () => {
-    const out = mergeTickerData(
-      [{ date: "2026-01-03", close: 110 }],
-      [
-        { runDate: "2026-01-03", actionType: "reinvestment", amount: 10, quantity: 0.09, price: 110 },
+  it.each([
+    {
+      name: "separates reinvestment from buys",
+      date: "2026-01-02",
+      close: 100,
+      txns: [
+        txn("2026-01-02", "buy", 100, 1, 100),
+        txn("2026-01-02", "reinvestment", 5, 0.05, 100),
       ],
-    );
-    expect(out[0].buyAmount).toBeUndefined();
-    expect(out[0].buyTxnCount).toBeUndefined();
-    expect(out[0].reinvestAmount).toBe(10);
-    expect(out[0].reinvestTxnCount).toBe(1);
-  });
-
-  it("multiple reinvestments on the same day are summed", () => {
-    const out = mergeTickerData(
-      [{ date: "2026-01-04", close: 120 }],
-      [
-        { runDate: "2026-01-04", actionType: "reinvestment", amount: 3, quantity: 0.025, price: 120 },
-        { runDate: "2026-01-04", actionType: "reinvestment", amount: 7, quantity: 0.058, price: 120 },
+      expected: { buyAmount: 100, buyTxnCount: 1, reinvestAmount: 5, reinvestTxnCount: 1 },
+    },
+    {
+      name: "reinvestment-only day has no buyAmount but has reinvestAmount",
+      date: "2026-01-03",
+      close: 110,
+      txns: [txn("2026-01-03", "reinvestment", 10, 0.09, 110)],
+      expected: { reinvestAmount: 10, reinvestTxnCount: 1 },
+      absent: ["buyAmount", "buyTxnCount"] as const,
+    },
+    {
+      name: "multiple reinvestments on the same day are summed",
+      date: "2026-01-04",
+      close: 120,
+      txns: [
+        txn("2026-01-04", "reinvestment", 3, 0.025, 120),
+        txn("2026-01-04", "reinvestment", 7, 0.058, 120),
       ],
-    );
-    expect(out[0].reinvestAmount).toBeCloseTo(10);
-    expect(out[0].reinvestTxnCount).toBe(2);
+      expected: { reinvestAmount: 10, reinvestTxnCount: 2 },
+    },
+  ])("$name", ({ date, close, txns, expected, absent = [] }) => {
+    const row = mergeTickerData([{ date, close }], txns)[0];
+    expect(row).toMatchObject(expected);
+    for (const key of absent) expect(row[key]).toBeUndefined();
   });
 
   it("buildClusteredData sets reinvestDot to close price when reinvestAmount is present", () => {
@@ -197,68 +193,46 @@ describe("computeAvgCost", () => {
     runDate: date, actionType: "distribution", quantity: qtyDelta, price: 0, amount: 0,
   });
 
-  it("returns null when no qty", () => {
-    expect(computeAvgCost([])).toBeNull();
-  });
-
-  it("single buy: avg = amount / qty", () => {
-    expect(computeAvgCost([buy("2025-01-01", 10, 100)])).toBe(100);
-  });
-
-  it("buy → sell → buy reports avg-cost basis of remaining shares (not naive sum/sum)", () => {
-    // Buy 100@\$10 → sell 50@\$20 → buy 50@\$30
-    // Naive: (100*10 + 50*30) / (100 + 50) = 1500 / 150 = \$10 (WRONG for remaining shares)
-    // Avg-cost: after buy1, avg=10. After sell 50, remaining 50 shares at \$10 (cost=500).
-    //           After buy 50@30, cost = 500 + 1500 = 2000, qty = 100, avg = \$20.
-    const result = computeAvgCost([
-      buy("2025-01-01", 100, 10),
-      sell("2025-02-01", 50, 20),
-      buy("2025-03-01", 50, 30),
-    ]);
-    expect(result).toBeCloseTo(20);
-  });
-
-  it("reinvestment counts toward cost + qty", () => {
-    // Buy 10@$100, reinvest 0.5 shares from $50 dividend (price=$100 implied)
-    const result = computeAvgCost([
-      buy("2025-01-01", 10, 100),
-      reinvest("2025-02-01", 0.5, 100),
-    ]);
-    expect(result).toBeCloseTo(100);  // same avg — both at $100/share
-  });
-
-  it("stock split preserves cost basis, doubles qty, halves avg", () => {
-    // Buy 100@$10 = $1000 cost. 2-for-1 split adds 100 qty. Avg = 1000 / 200 = $5.
-    const result = computeAvgCost([
-      buy("2025-01-01", 100, 10),
-      split("2025-06-01", 100),
-    ]);
-    expect(result).toBeCloseTo(5);
-  });
-
-  it("chronological order matters — unsorted input still produces correct result", () => {
-    const unsorted = [
-      buy("2025-03-01", 50, 30),
-      sell("2025-02-01", 50, 20),
-      buy("2025-01-01", 100, 10),
-    ];
-    expect(computeAvgCost(unsorted)).toBeCloseTo(20);
-  });
-
-  it("selling more than held is clamped (shouldn't happen in real data)", () => {
-    const result = computeAvgCost([
-      buy("2025-01-01", 10, 100),
-      sell("2025-02-01", 15, 100),  // oversell
-    ]);
-    expect(result).toBeNull();  // all shares gone → no avg
-  });
-
-  it("dividends and other action types are ignored", () => {
-    const result = computeAvgCost([
-      buy("2025-01-01", 10, 100),
-      { runDate: "2025-02-01", actionType: "dividend", quantity: 0, price: 0, amount: 50 },
-      { runDate: "2025-03-01", actionType: "interest", quantity: 0, price: 0, amount: 5 },
-    ]);
-    expect(result).toBeCloseTo(100);
+  it.each([
+    { name: "returns null when no qty", txns: [], expected: null },
+    { name: "single buy: avg = amount / qty", txns: [buy("2025-01-01", 10, 100)], expected: 100 },
+    {
+      name: "buy → sell → buy reports avg-cost basis of remaining shares",
+      txns: [buy("2025-01-01", 100, 10), sell("2025-02-01", 50, 20), buy("2025-03-01", 50, 30)],
+      expected: 20,
+    },
+    {
+      name: "reinvestment counts toward cost + qty",
+      txns: [buy("2025-01-01", 10, 100), reinvest("2025-02-01", 0.5, 100)],
+      expected: 100,
+    },
+    {
+      name: "stock split preserves cost basis, doubles qty, halves avg",
+      txns: [buy("2025-01-01", 100, 10), split("2025-06-01", 100)],
+      expected: 5,
+    },
+    {
+      name: "chronological order matters — unsorted input still produces correct result",
+      txns: [buy("2025-03-01", 50, 30), sell("2025-02-01", 50, 20), buy("2025-01-01", 100, 10)],
+      expected: 20,
+    },
+    {
+      name: "selling more than held is clamped",
+      txns: [buy("2025-01-01", 10, 100), sell("2025-02-01", 15, 100)],
+      expected: null,
+    },
+    {
+      name: "dividends and other action types are ignored",
+      txns: [
+        buy("2025-01-01", 10, 100),
+        { runDate: "2025-02-01", actionType: "dividend", quantity: 0, price: 0, amount: 50 },
+        { runDate: "2025-03-01", actionType: "interest", quantity: 0, price: 0, amount: 5 },
+      ],
+      expected: 100,
+    },
+  ])("$name", ({ txns, expected }: { txns: TickerTxn[]; expected: number | null }) => {
+    const result = computeAvgCost(txns);
+    if (expected === null) expect(result).toBeNull();
+    else expect(result).toBeCloseTo(expected);
   });
 });

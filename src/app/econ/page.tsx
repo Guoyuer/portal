@@ -55,6 +55,33 @@ const OIL_LINES: LineConfig[] = [
   { dataKey: "oilWti", label: "WTI Crude", color: ECON_LINE_COLORS.green, formatter: ECON_FORMATTERS.oilWti },
 ];
 
+const CHART_SECTIONS: {
+  label: string;
+  charts: { title: string; lines: LineConfig[] }[];
+}[] = [
+  {
+    label: "Interest Rates",
+    charts: [
+      { title: "Fed Rate, 10Y & 2Y Treasury", lines: RATE_LINES },
+      { title: "2s10s Yield Spread", lines: SPREAD_LINES },
+    ],
+  },
+  {
+    label: "Inflation",
+    charts: [
+      { title: "CPI & Core CPI (Year-over-Year)", lines: INFLATION_LINES },
+    ],
+  },
+  {
+    label: "Labor / Sentiment / Commodities",
+    charts: [
+      { title: "Unemployment Rate", lines: UNEMPLOYMENT_LINES },
+      { title: "VIX (Volatility Index)", lines: VIX_LINES },
+      { title: "Oil WTI", lines: OIL_LINES },
+    ],
+  },
+];
+
 // ── Economy Page ─────────────────────────────────────────────────────
 
 export default function EconPage() {
@@ -119,44 +146,20 @@ export default function EconPage() {
         ))}
       </div>
 
-      {/* ── Interest Rates ──────────────────────────────────────────────── */}
-      <ErrorBoundary fallback={<SectionError label="Interest Rates" />}>
-        <section>
-          <SectionHeader>Interest Rates</SectionHeader>
-          <SectionBody>
-            <TimeSeriesChart title="Fed Rate, 10Y & 2Y Treasury" lines={RATE_LINES} data={filtered} />
-            <div className="mt-6 pt-6 border-t border-border">
-              <TimeSeriesChart title="2s10s Yield Spread" lines={SPREAD_LINES} data={filtered} />
-            </div>
-          </SectionBody>
-        </section>
-      </ErrorBoundary>
-
-      {/* ── Inflation ───────────────────────────────────────────────────── */}
-      <ErrorBoundary fallback={<SectionError label="Inflation" />}>
-        <section>
-          <SectionHeader>Inflation</SectionHeader>
-          <SectionBody>
-            <TimeSeriesChart title="CPI & Core CPI (Year-over-Year)" lines={INFLATION_LINES} data={filtered} />
-          </SectionBody>
-        </section>
-      </ErrorBoundary>
-
-      {/* ── Labor / Sentiment / Commodities ──────────────────────────── */}
-      <ErrorBoundary fallback={<SectionError label="Labor / Sentiment / Commodities" />}>
-        <section>
-          <SectionHeader>Labor / Sentiment / Commodities</SectionHeader>
-          <SectionBody>
-            <TimeSeriesChart title="Unemployment Rate" lines={UNEMPLOYMENT_LINES} data={filtered} />
-            <div className="mt-6 pt-6 border-t border-border">
-              <TimeSeriesChart title="VIX (Volatility Index)" lines={VIX_LINES} data={filtered} />
-            </div>
-            <div className="mt-6 pt-6 border-t border-border">
-              <TimeSeriesChart title="Oil WTI" lines={OIL_LINES} data={filtered} />
-            </div>
-          </SectionBody>
-        </section>
-      </ErrorBoundary>
+      {CHART_SECTIONS.map(({ label, charts }) => (
+        <ErrorBoundary key={label} fallback={<SectionError label={label} />}>
+          <section>
+            <SectionHeader>{label}</SectionHeader>
+            <SectionBody>
+              {charts.map((chart, i) => (
+                <div key={chart.title} className={i === 0 ? undefined : "mt-6 pt-6 border-t border-border"}>
+                  <TimeSeriesChart title={chart.title} lines={chart.lines} data={filtered} />
+                </div>
+              ))}
+            </SectionBody>
+          </section>
+        </ErrorBoundary>
+      ))}
 
       <BackToTop />
     </div>

@@ -36,10 +36,6 @@ function errorResponse(message: string, status: number): Response {
   return Response.json({ error: message }, { status, headers: RESPONSE_HEADERS });
 }
 
-function notFoundResponse(): Response {
-  return new Response("Not found", { status: 404, headers: RESPONSE_HEADERS });
-}
-
 function r2Unavailable(): Response {
   return errorResponse("PORTAL_DATA R2 binding is missing", 500);
 }
@@ -128,6 +124,6 @@ export default {
     const endpoint = ENDPOINTS.find((name) => pathname === `/${name}`);
     if (endpoint) return handleR2Endpoint(env, endpoint);
 
-    return notFoundResponse();
+    return new Response("Not found", { status: 404, headers: RESPONSE_HEADERS });
   },
 } satisfies ExportedHandler<Env>;

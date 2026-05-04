@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from contextlib import closing, contextmanager
+from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
 from unittest.mock import patch
@@ -12,7 +12,6 @@ import pytest
 
 pytest.importorskip("yfinance", reason="yfinance required for prices module")
 
-from etl.db import get_connection  # noqa: E402
 from etl.prices.fetch import (  # noqa: E402
     _reverse_split_factor,
     fetch_and_store_cny_rates,
@@ -29,25 +28,25 @@ from etl.prices.validate import (  # noqa: E402
     _validate_splits_against_transactions,
 )
 from etl.sources._types import ActionKind  # noqa: E402
+from tests.fixtures import connected_db, db_value  # noqa: E402
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
 
 def _seed_prices(db_path: Path, records: list[tuple[str, str, float]]) -> None:
-    with closing(get_connection(db_path)) as conn:
+    with connected_db(db_path) as conn:
         conn.executemany(
             "INSERT OR REPLACE INTO daily_close (symbol, date, close) VALUES (?, ?, ?)",
             records,
         )
-        conn.commit()
 
 
 def _close(db_path: Path, symbol: str, day: str) -> float:
-    with closing(get_connection(db_path)) as conn:
-        return conn.execute(
-            "SELECT close FROM daily_close WHERE symbol=? AND date=?",
-            (symbol, day),
-        ).fetchone()[0]
+    return db_value(
+        db_path,
+        "SELECT close FROM daily_close WHERE symbol=? AND date=?",
+        (symbol, day),
+    )
 
 
 @contextmanager
@@ -286,14 +285,18 @@ def _seed_fidelity_txn(
     action_kind: str,
     quantity: float,
 ) -> None:
-    with closing(get_connection(db_path)) as conn:
+    with connected_db(db_path) as conn:
         conn.execute(
             "INSERT INTO fidelity_transactions"
             " (run_date, account_number, action, action_kind, symbol, quantity)"
             " VALUES (?, ?, ?, ?, ?, ?)",
             (run_date, "Z29", f"TEST {action_kind} ({symbol})", action_kind, symbol, quantity),
         )
-        conn.commit()
+
+
+def _seed_fidelity_txns(db_path: Path, rows: list[tuple[str, str, str, float]]) -> None:
+    for row in rows:
+        _seed_fidelity_txn(db_path, *row)
 
 
 def _validate_splits(
@@ -303,7 +306,7 @@ def _validate_splits(
     *,
     today: date = date(2024, 12, 1),
 ) -> None:
-    with closing(get_connection(db_path)) as conn:
+    with connected_db(db_path) as conn:
         _validate_splits_against_transactions(conn, periods, factors, today=today)
 
 
@@ -327,78 +330,87 @@ class TestReverseSplitFactor:
 
 
 class TestSplitCrossValidation:
-    def test_matching_split_passes(self, empty_db: Path) -> None:
-        db_path = empty_db
-        _seed_fidelity_txn(db_path, "2024-07-08", "SCHD", "buy", 27.022)
-        _seed_fidelity_txn(db_path, "2024-10-11", "SCHD", "distribution", 54.044)
-        _validate_splits(
-            db_path,
-            {"SCHD": (date(2024, 7, 8), None)},
-            {"SCHD": [(date(2024, 10, 11), 3.0)]},
-        )
-
-    def test_missing_distribution_row_raises(self, empty_db: Path) -> None:
-        db_path = empty_db
-        _seed_fidelity_txn(db_path, "2024-07-08", "SCHD", "buy", 27.022)
-        with pytest.raises(SplitValidationError, match="SCHD"):
-            _validate_splits(
-                db_path,
+    @pytest.mark.parametrize(
+        ("rows", "periods", "factors"),
+        [
+            pytest.param(
+                [("2024-07-08", "SCHD", "buy", 27.022), ("2024-10-11", "SCHD", "distribution", 54.044)],
                 {"SCHD": (date(2024, 7, 8), None)},
                 {"SCHD": [(date(2024, 10, 11), 3.0)]},
-            )
-
-    def test_wrong_distribution_qty_raises(self, empty_db: Path) -> None:
-        db_path = empty_db
-        _seed_fidelity_txn(db_path, "2024-07-08", "SCHD", "buy", 27.022)
-        _seed_fidelity_txn(db_path, "2024-10-11", "SCHD", "distribution", 20.0)
-        with pytest.raises(SplitValidationError, match="SCHD.*expected.*54"):
-            _validate_splits(
-                db_path,
-                {"SCHD": (date(2024, 7, 8), None)},
-                {"SCHD": [(date(2024, 10, 11), 3.0)]},
-            )
-
-    def test_distribution_without_yahoo_split_raises(self, empty_db: Path) -> None:
-        db_path = empty_db
-        _seed_fidelity_txn(db_path, "2024-07-08", "SCHD", "buy", 27.022)
-        _seed_fidelity_txn(db_path, "2024-10-11", "SCHD", "distribution", 54.044)
-        with pytest.raises(SplitValidationError, match="SCHD 2024-10-11"):
-            _validate_splits(
-                db_path,
-                {"SCHD": (date(2024, 7, 8), None)},
-                {},
-            )
-
-    def test_split_outside_holding_period_ignored(self, empty_db: Path) -> None:
-        db_path = empty_db
-        _seed_fidelity_txn(db_path, "2024-11-27", "NVDA", "buy", 3.0)
-        _validate_splits(
-            db_path,
-            {"NVDA": (date(2024, 11, 27), None)},
-            {"NVDA": [(date(2024, 6, 10), 10.0)]},
-        )
-
-    def test_reverse_split_pair_passes(self, empty_db: Path) -> None:
-        db_path = empty_db
-        _seed_fidelity_txn(db_path, "2023-01-15", "BOGUS", "buy", 100.0)
-        _seed_fidelity_txn(db_path, "2024-06-01", "BOGUS", "redemption", -100.0)
-        _seed_fidelity_txn(db_path, "2024-06-01", "BOGUS", "distribution", 10.0)
-        _validate_splits(
-            db_path,
-            {"BOGUS": (date(2023, 1, 15), None)},
-            {"BOGUS": [(date(2024, 6, 1), 0.1)]},
-        )
-
-    def test_reverse_split_with_missing_redemption_raises(self, empty_db: Path) -> None:
-        db_path = empty_db
-        _seed_fidelity_txn(db_path, "2023-01-15", "BOGUS", "buy", 100.0)
-        _seed_fidelity_txn(db_path, "2024-06-01", "BOGUS", "distribution", 10.0)
-        with pytest.raises(SplitValidationError, match="BOGUS.*expected.*-90"):
-            _validate_splits(
-                db_path,
+                id="matching-forward-split",
+            ),
+            pytest.param(
+                [("2024-11-27", "NVDA", "buy", 3.0)],
+                {"NVDA": (date(2024, 11, 27), None)},
+                {"NVDA": [(date(2024, 6, 10), 10.0)]},
+                id="split-before-holding-period",
+            ),
+            pytest.param(
+                [
+                    ("2023-01-15", "BOGUS", "buy", 100.0),
+                    ("2024-06-01", "BOGUS", "redemption", -100.0),
+                    ("2024-06-01", "BOGUS", "distribution", 10.0),
+                ],
                 {"BOGUS": (date(2023, 1, 15), None)},
                 {"BOGUS": [(date(2024, 6, 1), 0.1)]},
-            )
+                id="reverse-split-pair",
+            ),
+        ],
+    )
+    def test_split_cases_pass(
+        self,
+        empty_db: Path,
+        rows: list[tuple[str, str, str, float]],
+        periods: dict[str, tuple[date, date | None]],
+        factors: dict[str, list[tuple[date, float]]],
+    ) -> None:
+        _seed_fidelity_txns(empty_db, rows)
+        _validate_splits(empty_db, periods, factors)
+
+    @pytest.mark.parametrize(
+        ("rows", "periods", "factors", "match"),
+        [
+            pytest.param(
+                [("2024-07-08", "SCHD", "buy", 27.022)],
+                {"SCHD": (date(2024, 7, 8), None)},
+                {"SCHD": [(date(2024, 10, 11), 3.0)]},
+                "SCHD",
+                id="missing-distribution-row",
+            ),
+            pytest.param(
+                [("2024-07-08", "SCHD", "buy", 27.022), ("2024-10-11", "SCHD", "distribution", 20.0)],
+                {"SCHD": (date(2024, 7, 8), None)},
+                {"SCHD": [(date(2024, 10, 11), 3.0)]},
+                "SCHD.*expected.*54",
+                id="wrong-distribution-qty",
+            ),
+            pytest.param(
+                [("2024-07-08", "SCHD", "buy", 27.022), ("2024-10-11", "SCHD", "distribution", 54.044)],
+                {"SCHD": (date(2024, 7, 8), None)},
+                {},
+                "SCHD 2024-10-11",
+                id="distribution-without-yahoo-split",
+            ),
+            pytest.param(
+                [("2023-01-15", "BOGUS", "buy", 100.0), ("2024-06-01", "BOGUS", "distribution", 10.0)],
+                {"BOGUS": (date(2023, 1, 15), None)},
+                {"BOGUS": [(date(2024, 6, 1), 0.1)]},
+                "BOGUS.*expected.*-90",
+                id="reverse-split-missing-redemption",
+            ),
+        ],
+    )
+    def test_split_cases_raise(
+        self,
+        empty_db: Path,
+        rows: list[tuple[str, str, str, float]],
+        periods: dict[str, tuple[date, date | None]],
+        factors: dict[str, list[tuple[date, float]]],
+        match: str,
+    ) -> None:
+        _seed_fidelity_txns(empty_db, rows)
+        with pytest.raises(SplitValidationError, match=match):
+            _validate_splits(empty_db, periods, factors)
 
     def test_multi_mismatch_report_includes_all(self, empty_db: Path) -> None:
         db_path = empty_db
