@@ -101,6 +101,14 @@ const dailyTickers = daily.flatMap((d) => [
 type MockTxn = { runDate: string; actionType: string; symbol: string; amount: number; quantity: number; price: number };
 const fidelityTxns: MockTxn[] = [];
 
+function addFidelityTxn(runDate: string, actionType: string, symbol: string, amount: number, quantity = 0, price = 0): void {
+  fidelityTxns.push({ runDate, actionType, symbol, amount, quantity, price });
+}
+
+function addPurchase(runDate: string, actionType: "buy" | "reinvestment", symbol: string, cash: number, price = closeOn(symbol, runDate)): void {
+  addFidelityTxn(runDate, actionType, symbol, -cash, Math.round(cash / price * 1000) / 1000, price);
+}
+
 // Monthly DCA buys (bi-weekly for VOO, monthly for others)
 for (let m = 0; m < 28; m++) {
   const d = new Date("2024-01-15");
@@ -111,52 +119,44 @@ for (let m = 0; m < 28; m++) {
   const rd = iso;
 
   // Deposits
-  fidelityTxns.push({ runDate: rd, actionType: "deposit", symbol: "", amount: 5000, quantity: 0, price: 0 });
+  addFidelityTxn(rd, "deposit", "", 5000);
 
   // DCA buys
-  const vooP = closeOn("VOO", iso);
-  fidelityTxns.push({ runDate: rd, actionType: "buy", symbol: "VOO", amount: -2000, quantity: Math.round(2000 / vooP * 1000) / 1000, price: vooP });
-  const qqqmP = closeOn("QQQM", iso);
-  fidelityTxns.push({ runDate: rd, actionType: "buy", symbol: "QQQM", amount: -1000, quantity: Math.round(1000 / qqqmP * 1000) / 1000, price: qqqmP });
-  const vxusP = closeOn("VXUS", iso);
-  fidelityTxns.push({ runDate: rd, actionType: "buy", symbol: "VXUS", amount: -500, quantity: Math.round(500 / vxusP * 1000) / 1000, price: vxusP });
   const schdP = closeOn("SCHD", iso);
-  fidelityTxns.push({ runDate: rd, actionType: "buy", symbol: "SCHD", amount: -500, quantity: Math.round(500 / schdP * 1000) / 1000, price: schdP });
+  const buys: Array<[string, number, number?]> = [
+    ["VOO", 2000],
+    ["QQQM", 1000],
+    ["VXUS", 500],
+    ["SCHD", 500, schdP],
+  ];
 
   // Occasional single-stock buys
   if (m % 3 === 0) {
-    const nvdaP = closeOn("NVDA", iso);
-    fidelityTxns.push({ runDate: rd, actionType: "buy", symbol: "NVDA", amount: -800, quantity: Math.round(800 / nvdaP * 1000) / 1000, price: nvdaP });
+    buys.push(["NVDA", 800]);
   }
   if (m % 4 === 0) {
-    const tsmP = closeOn("TSM", iso);
-    fidelityTxns.push({ runDate: rd, actionType: "buy", symbol: "TSM", amount: -600, quantity: Math.round(600 / tsmP * 1000) / 1000, price: tsmP });
+    buys.push(["TSM", 600]);
   }
   if (m % 6 === 0) {
-    const aaplP = closeOn("AAPL", iso);
-    fidelityTxns.push({ runDate: rd, actionType: "buy", symbol: "AAPL", amount: -500, quantity: Math.round(500 / aaplP * 1000) / 1000, price: aaplP });
+    buys.push(["AAPL", 500]);
   }
-  const sgovP = closeOn("SGOV", iso);
-  fidelityTxns.push({ runDate: rd, actionType: "buy", symbol: "SGOV", amount: -500, quantity: Math.round(500 / sgovP * 1000) / 1000, price: sgovP });
-  const gldmP = closeOn("GLDM", iso);
-  fidelityTxns.push({ runDate: rd, actionType: "buy", symbol: "GLDM", amount: -300, quantity: Math.round(300 / gldmP * 1000) / 1000, price: gldmP });
+  buys.push(["SGOV", 500], ["GLDM", 300]);
+  for (const [symbol, cash, price] of buys) addPurchase(rd, "buy", symbol, cash, price);
 
   // Quarterly dividends
   if (m % 3 === 2) {
-    fidelityTxns.push({ runDate: rd, actionType: "dividend", symbol: "VOO", amount: 120, quantity: 0, price: 0 });
-    fidelityTxns.push({ runDate: rd, actionType: "dividend", symbol: "SCHD", amount: 45, quantity: 0, price: 0 });
-    fidelityTxns.push({ runDate: rd, actionType: "reinvestment", symbol: "SCHD", amount: -45, quantity: Math.round(45 / schdP * 1000) / 1000, price: schdP });
-    fidelityTxns.push({ runDate: rd, actionType: "dividend", symbol: "VXUS", amount: 30, quantity: 0, price: 0 });
+    addFidelityTxn(rd, "dividend", "VOO", 120);
+    addFidelityTxn(rd, "dividend", "SCHD", 45);
+    addPurchase(rd, "reinvestment", "SCHD", 45, schdP);
+    addFidelityTxn(rd, "dividend", "VXUS", 30);
   }
-
-  // CC payments (repayment type via qianji)
-  fidelityTxns.push({ runDate: rd, actionType: "buy", symbol: "SPAXX", amount: -50, quantity: 50, price: 1 });
+  addPurchase(rd, "buy", "SPAXX", 50, 1);
 }
 
 // A few sells
-fidelityTxns.push({ runDate: "2025-03-15", actionType: "sell", symbol: "AAPL", amount: 2000, quantity: -10, price: 200 });
-fidelityTxns.push({ runDate: "2025-06-15", actionType: "sell", symbol: "NVDA", amount: 3500, quantity: -5, price: 700 });
-fidelityTxns.push({ runDate: "2025-09-15", actionType: "sell", symbol: "FBTC", amount: 1200, quantity: -15, price: 80 });
+addFidelityTxn("2025-03-15", "sell", "AAPL", 2000, -10, 200);
+addFidelityTxn("2025-06-15", "sell", "NVDA", 3500, -5, 700);
+addFidelityTxn("2025-09-15", "sell", "FBTC", 1200, -15, 80);
 
 // ── Qianji transactions (realistic monthly pattern) ─────────────────────
 

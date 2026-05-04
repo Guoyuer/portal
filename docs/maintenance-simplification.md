@@ -214,6 +214,14 @@ trades a few explicit config lines for fewer top-level tool packages in the
 test/development path. Validation: frontend lint, Vitest, and full Playwright
 all pass.
 
+E2E mock transaction follow-up: `e2e/mock-api.ts` now has one transaction
+constructor and one purchase helper for buy/reinvestment quantity math instead
+of repeating full Fidelity transaction literals and rounding formulas at every
+call site. Transaction ordering and generated payload shape stay unchanged.
+Diff effect: 1 maintained file, 28 insertions / 28 deletions (`0 diff LOC`);
+the code maintenance surface remains 243 files / 25,337 physical LOC before
+this note. Validation: frontend lint, Vitest, and full Playwright all pass.
+
 ### Wave 1: Safe Deletions and Test Compression
 
 Targets:
