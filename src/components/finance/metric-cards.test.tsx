@@ -42,6 +42,16 @@ describe("MetricCards", () => {
     expect(screen.getByText("5%")).toBeTruthy();
   });
 
+  it("uses net worth, not gross assets, for goal progress", () => {
+    render(
+      <MetricCards
+        {...BASE_PROPS}
+        allocation={{ ...ALLOCATION, netWorth: 89_000 }}
+      />,
+    );
+    expect(screen.getByText("4%")).toBeTruthy();
+  });
+
   it("shows N/A when savings rates are null", () => {
     render(<MetricCards {...BASE_PROPS} savingsRate={null} takehomeSavingsRate={null} />);
     const nas = screen.getAllByText("N/A");
