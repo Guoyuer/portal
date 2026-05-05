@@ -64,7 +64,7 @@ export function AllocationDonut({
         {/* Center label — positioned with CSS, not SVG <text> */}
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none drop-shadow-[0_1px_2px_rgba(0,0,0,0.3)]">
           <span className="text-xl font-bold text-foreground">{fmtCurrencyShort(total)}</span>
-          <span className="text-xs text-muted-foreground">Total</span>
+          <span className="text-xs text-muted-foreground">Assets</span>
         </div>
       </div>
       {/* Legend — clean grid below */}

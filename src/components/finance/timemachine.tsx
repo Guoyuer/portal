@@ -147,7 +147,11 @@ export function StickyBrush({
   onBrushChange: (state: { startIndex?: number; endIndex?: number }) => void;
 }) {
   const isDark = useIsDark();
-  const chartData = daily.map((d) => ({ ...d, ts: parseLocalDate(d.date).getTime() }));
+  const chartData = daily.map((d) => ({
+    ...d,
+    netWorth: d.total + d.liabilities,
+    ts: parseLocalDate(d.date).getTime(),
+  }));
   if (daily.length === 0) return null;
 
   const startLabel = fmtDateMedium(daily[brushStart].date);
@@ -167,7 +171,7 @@ export function StickyBrush({
               <AreaChart data={chartData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
                 <XAxis dataKey="ts" hide />
                 <YAxis hide />
-                <Area type="monotone" dataKey="total" stroke="none" fill={isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)"} isAnimationActive={false} />
+                <Area type="monotone" dataKey="netWorth" stroke="none" fill={isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)"} isAnimationActive={false} />
                 <Brush
                   dataKey="ts"
                   height={28}

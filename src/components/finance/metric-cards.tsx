@@ -108,7 +108,7 @@ export function MetricCards({
   colorByName: Record<string, string>;
 }) {
   const { total, netWorth, categories, tickers } = allocation;
-  const goalPct = (total / goal) * 100;
+  const goalPct = (netWorth / goal) * 100;
   const safeNetValue = categories.find((c) => c.name === "Safe Net")?.value ?? 0;
   const investmentValue = total - safeNetValue;
   const invPct = netWorth > 0 ? (investmentValue / netWorth) * 100 : 0;
